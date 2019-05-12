@@ -159,6 +159,7 @@ INSTALLED_APPS = [
     'djangocms_video',
     'django_celery_beat',
     'django_celery_results',
+    'django_celery_monitor',
     'django_extensions',
     'mdeditor',
     'django_datawatch',
