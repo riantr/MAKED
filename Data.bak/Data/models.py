@@ -1,8 +1,6 @@
 from django.db import models
 from django.utils.deconstruct import deconstructible
 
-#from django.core.files.storage import FileSystemStorage
-
 class Dataset(models.Model):
     DATASET_UNCATEGORIED = 'UNCT'
     DATASET_FACE_RECOGNIZE = 'FACE'
@@ -14,8 +12,7 @@ class Dataset(models.Model):
         (DATASET_VEHICLE_RECOGNIZE, 'vehicle recognize'),
         (DATASET_OBJECT_RECOGNIZE, 'object recognize'),
     )
-    # dataset_id = models.AutoField(primary_key=True)
-    # dataset_id = models.UUIDField(primary_key=True)
+    dataset_id = models.AutoField(primary_key=True)
     dataset_name = models.CharField(verbose_name='dataset name', primary_key=True, max_length=50, default='')
     dataset_source = models.URLField(verbose_name='dataset source')
     #dataset_host = model.CharField(verbose_name='dataset host', max_length=20, default='localhost:')
@@ -45,9 +42,9 @@ class Image(models.Model):
     image = models.ImageField(verbose_name='image')
     image_name = models.CharField(verbose_name='image name', max_length=50)
     image_path = models.CharField(verbose_name='image path', max_length=150)
-    #image_hash = models.CharField(verbose_name='image hash', max_length=34)
+    image_hash = models.CharField(verbose_name='image hash', max_length=34)
     image_belongto = models.ForeignKey(Dataset, on_delete=models.CASCADE)
-    #image_info = models.OneToOneField(ImageInfo, on_delete=models.CASCADE)
+
     class Meta:
         verbose_name = 'dataset image'
         verbose_name_plural = 'dataset images'
@@ -97,38 +94,32 @@ class ImageInfo(models.Model):
         (TYPE_BMP, 'BMP'),
         (TYPE_PNG, 'PNG'),
     )
-    #info_id = models.AutoField(primary_key=True)
-    name = models.OneToOneField(Image, verbose_name='image name', primary_key=True, on_delete=models.CASCADE, default='')
-#   name = models.CharField(verbose_name='image name', max_length=50, default='')
+
+    name = models.OneToOneField(Image, verbose_name='image name', primary_key=True, on_delete=models.CASCADE)
     lable = models.IntegerField(verbose_name='image label',default=0)
-    annotation_file = models.CharField(verbose_name='annotation file', max_length=50, default='')
+    annotation_file = models.CharField(verbose_name='annotation file', max_length=50, default=name)
     image_type = models.CharField(verbose_name='image type', max_length=10, choices=TYPE_CATEGORIES, default=TYPE_JPEG)
-    image_size = models.CharField(verbose_name='image size', max_length=10, default='')
+    image_size = models.CharField(verbose_name='image size', max_length=10)
     image_width = models.IntegerField(verbose_name='image width', default=1)
     image_height = models.IntegerField(verbose_name='image height', default=1)
     color_space = models.CharField(verbose_name='color space', max_length=10, choices=COLORSPACE_CATEGORIES, default=COLORSPACE_sRGB)
-    image_resolution = models.CharField(verbose_name='image resolution', max_length=13, default='')
+    image_resolution = models.CharField(verbose_name='image resolution', max_length=13)
     image_channels = models.IntegerField(verbose_name='image channels',default=3)
-    self_hash = models.CharField(verbose_name='self hash', max_length=34, default='')
-    parent = models.CharField(verbose_name='image parents', max_length=50, blank=True)
-    parent_hash = models.CharField(verbose_name='parents hash', max_length=34, blank=True)
-    bndbox_xmin = models.IntegerField(verbose_name='bndbox xMin', default=0, blank=True)
-    bndbox_xmax = models.IntegerField(verbose_name='bndbox xMax', default=0, blank=True)
-    bndbox_ymin = models.IntegerField(verbose_name='bndbox yMin', default=0, blank=True)
-    bndbox_ymax = models.IntegerField(verbose_name='bndbox yMax', default=0, blank=True)
+    selfhash = models.CharField(verbose_name='self hash', max_length=34, default=Image.image_hash)
+    parents = models.CharField(verbose_name='image parents', max_length=50, blank=True)
+    parents_hash = models.CharField(verbose_name='parents hash', max_length=34, blank=True)
+    bndbox_xmin = models.IntegerField(verbose_name='bndbox xMin',default=1, blank=True)
+    bndbox_xmax = models.IntegerField(verbose_name='bndbox xMax',default=image_width, blank=True)
+    bndbox_ymin = models.IntegerField(verbose_name='bndbox yMin',default=1, blank=True)
+    bndbox_ymax = models.IntegerField(verbose_name='bndbox yMax',default=image_height, blank=True)
     
     class Meta:
         verbose_name = 'image info'
         verbose_name_plural = 'image infos'
 
     def __str__(self):
-        return self.name
+        return self.selfhash
 
-#    def __init__(self, name='')
-#        self.name = name
-#
-#    def __eq__(self, other):
-#        return self.name == other.name
 
 #class ImageStorage(FileSystemStorage):
 #    from django.conf import settings
