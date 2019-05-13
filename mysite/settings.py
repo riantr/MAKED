@@ -267,7 +267,7 @@ CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 # setting for django-celery-result
 # for cache backend
 #CELERY_RESULT_BACKEND = 'django-cache'
-CELERY_BROKER_URL= 'amqp://guest:guest@localhost:5672'
+CELERY_BROKER_URL= 'redis://127.0.0.1:6379/0'
 CELERY_RESULT_BACKEND = 'django-db'
 CELERY_CACHE_BACKEND = 'django-cache'
 DJANGO_CELERY_RESULTS_TASK_ID_MAX_LENGTH=191
