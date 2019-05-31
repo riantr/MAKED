@@ -23,7 +23,7 @@ SECRET_KEY = 'yguw^=*=l*ve^#qd1d@2ck=xjsm^e@r74@7!%306ok*si%x)$m'
 #DEBUG = False
 DEBUG = True
 
-#ALLOWED_HOSTS = ['172.16.18.16','localhost','127.0.0.1']
+#ALLOWED_HOSTS = ['0.0.0.0','localhost','127.0.0.1']
 ALLOWED_HOSTS = ['*']
 
 
@@ -223,7 +223,7 @@ DATABASES = {
 }
 
 MIGRATION_MODULES = {
-    
+
 }
 
 THUMBNAIL_PROCESSORS = (
