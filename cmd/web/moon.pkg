@@ -1,0 +1,8 @@
+pkgtype(kind: "executable")
+
+import {
+  "riantr/maked_moonbit/frontend" @frontend,
+  "moonbit-community/rabbita",
+}
+
+supported_targets = "js"

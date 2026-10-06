@@ -1,0 +1,12 @@
+pkgtype(kind: "executable")
+
+import {
+  "riantr/maked_moonbit/backend" @maked,
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/core/env",
+  "moonbitlang/core/string",
+  "moonbitlang/moonback",
+}
+
+supported_targets = "native"

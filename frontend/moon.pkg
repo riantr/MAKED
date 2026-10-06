@@ -1,0 +1,18 @@
+// The MAKED frontend: a rabbita single-page app.
+//
+// This is a library package so the views can be tested without a browser; the
+// bundle is produced by `cmd/web`, which is the executable that mounts it.
+import {
+  "moonbit-community/rabbita",
+  "moonbit-community/rabbita/cmd",
+  "moonbit-community/rabbita/html",
+  "moonbit-community/rabbita/http",
+  "moonbit-community/rabbita/nav",
+  "moonbit-community/rabbita/sub",
+  "moonbit-community/rabbita/svg",
+  "moonbit-community/rabbita/url",
+  "moonbitlang/core/json",
+  "moonbitlang/core/math",
+}
+
+supported_targets = "js"

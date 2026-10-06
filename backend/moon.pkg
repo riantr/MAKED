@@ -1,0 +1,8 @@
+import {
+  "moonbit-community/sqlite3",
+  "moonbitlang/async/http",
+  "moonbitlang/moonback",
+  "moonbitlang/moonback/middlewares/unstable_static" @static,
+}
+
+supported_targets = "native"
