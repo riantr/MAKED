@@ -5,7 +5,6 @@ from django.db import migrations, models
 import django.db.models.deletion
 import django.db.models.manager
 import django.utils.timezone
-import mdeditor.fields
 
 
 class Migration(migrations.Migration):
@@ -37,7 +36,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('article_title', models.CharField(max_length=26, verbose_name='title')),
-                ('article_content', mdeditor.fields.MDTextField(default='', verbose_name='content')),
+                ('article_content', models.TextField(default='', verbose_name='content')),
                 ('article_create_time', models.DateTimeField(default=django.utils.timezone.now, verbose_name='create time')),
                 ('article_modify_time', models.DateTimeField(auto_now=True, verbose_name='modify time')),
             ],

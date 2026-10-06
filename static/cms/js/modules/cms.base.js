@@ -3,8 +3,10 @@
  * Multiple helpers used across all CMS features
  */
 import $ from 'jquery';
-import URL from 'urijs';
-import { once, debounce, throttle } from 'lodash';
+// switched from commonjs 'lodash' bundle to per-method ESM imports for better tree-shaking
+import once from 'lodash-es/once.js';
+import debounce from 'lodash-es/debounce.js';
+import throttle from 'lodash-es/throttle.js';
 import { showLoader, hideLoader } from './loader';
 
 var _CMS = {
@@ -86,16 +88,10 @@ export const Helpers = {
      * @method reloadBrowser
      * @param {String} url where to redirect. if equal to `REFRESH_PAGE` will reload page instead
      * @param {Number} timeout=0 timeout in ms
-     * @param {Boolean} ajax if set to true first initiates **synchronous**
-     *     ajax request to figure out if the browser should reload current page,
-     *     move to another one, or do nothing.
-     * @param {Object} [data] optional data to be passed instead of one provided by request config
-     * @param {String} [data.model=CMS.config.request.model]
-     * @param {String|Number} [data.pk=CMS.config.request.pk]
-     * @returns {Boolean|void}
+     * @returns {void}
      */
-    // eslint-disable-next-line max-params
-    reloadBrowser: function(url, timeout, ajax, data) {
+
+    reloadBrowser: function(url, timeout) {
         var that = this;
         // is there a parent window?
         var win = this._getWindow();
@@ -103,51 +99,15 @@ export const Helpers = {
 
         that._isReloading = true;
 
-        // if there is an ajax reload, prioritize
-        if (ajax) {
-            parent.CMS.API.locked = true;
-            // check if the url has changed, if true redirect to the new path
-            // this requires an ajax request
-            $.ajax({
-                async: false,
-                type: 'GET',
-                url: parent.CMS.config.request.url,
-                data: data || {
-                    model: parent.CMS.config.request.model,
-                    pk: parent.CMS.config.request.pk
-                },
-                success: function(response) {
-                    parent.CMS.API.locked = false;
-
-                    if (response === '' && !url) {
-                        // cancel if response is empty
-                        return false;
-                    } else if (parent.location.pathname !== response && response !== '') {
-                        // api call to the backend to check if the current path is still the same
-                        that.reloadBrowser(response);
-                    } else if (url === 'REFRESH_PAGE') {
-                        // if on_close provides REFRESH_PAGE, only do a reload
-                        that.reloadBrowser();
-                    } else if (url) {
-                        // on_close can also provide a url, reload to the new destination
-                        that.reloadBrowser(url);
-                    }
-                }
-            });
-
-            // cancel further operations
-            return false;
-        }
-
         // add timeout if provided
         parent.setTimeout(function() {
-            if (url && url !== parent.location.href) {
+            if (url === 'REFRESH_PAGE' || !url || url === parent.location.href) {
+                // ensure page is always reloaded #3413
+                parent.location.reload();
+            } else {
                 // location.reload() takes precedence over this, so we
                 // don't want to reload the page if we need a redirect
                 parent.location.href = url;
-            } else {
-                // ensure page is always reloaded #3413
-                parent.location.reload();
             }
         }, timeout || 0);
     },
@@ -159,24 +119,45 @@ export const Helpers = {
      * @public
      */
     onPluginSave: function() {
-        var data = this.dataBridge;
-        var editedPlugin =
-            data &&
-            data.plugin_id &&
-            window.CMS._instances.some(function(plugin) {
-                return Number(plugin.options.plugin_id) === Number(data.plugin_id) && plugin.options.type === 'plugin';
-            });
-        var addedPlugin = !editedPlugin && data && data.plugin_id;
+        const data = this.dataBridge || {};
+        const action = data.action ? data.action.toUpperCase() : null;
 
-        if (editedPlugin || addedPlugin) {
-            CMS.API.StructureBoard.invalidateState(addedPlugin ? 'ADD' : 'EDIT', data);
-            return;
+        switch (action) {
+            case 'CHANGE':
+            case 'EDIT':
+                if (this._pluginExists(data.plugin_id)) {
+                    CMS.API.StructureBoard.invalidateState('EDIT', data);
+                } else {
+                    CMS.API.StructureBoard.invalidateState('ADD', data);
+                }
+                return;
+            case 'ADD':
+            case 'DELETE':
+            case 'CLEAR_PLACEHOLDER':
+                CMS.API.StructureBoard.invalidateState(action, data);
+                return;
+            default:
+                break;
         }
 
         // istanbul ignore else
         if (!this._isReloading) {
             this.reloadBrowser(null, 300); // eslint-disable-line
         }
+    },
+
+    /*
+     * Check if a plugin object existst for the given plugin id
+     *
+     * @method _pluginExists
+     * @private
+     * @param {String} pluginId
+     * @returns {Boolean}
+     */
+    _pluginExists: function(pluginId) {
+        return window.CMS._instances.some(function(plugin) {
+            return Number(plugin.options.plugin_id) === Number(pluginId) && plugin.options.type === 'plugin';
+        });
     },
 
     /**
@@ -322,31 +303,51 @@ export const Helpers = {
     },
 
     /**
-     * Modifies the url with new params and sanitises
-     * the ampersand within the url for #3404.
+     * Modifies the url with new params and sanitises the url
+     * reversing any &amp; to ampersand (introduced with #3404)
      *
      * @method makeURL
      * @param {String} url original url
      * @param {Array[]} [params] array of [`param`, `value`] arrays to update the url
      * @returns {String}
      */
-    makeURL: function makeURL(url, params = []) {
-        let newUrl = new URL(URL.decode(url.replace(/&amp;/g, '&')));
+    makeURL: function makeURL(url, params) {
+        const urlParams = params || [];
+        // Decode URL and replace &amp; with &
+        const decodedUrl = decodeURIComponent(url.replace(/&amp;/g, '&'));
+        let newUrl;
+        let isAbsolute = false;
+        let hadLeadingSlash = decodedUrl.startsWith('/');
 
-        params.forEach(pair => {
-            const [key, value] = pair;
+        try {
+            // Try to parse as absolute URL
+            newUrl = new URL(decodedUrl);
+            isAbsolute = true;
+        } catch {
+            // If relative, use window.location.origin as base
+            newUrl = new URL(decodedUrl, window.location.origin);
+        }
 
-            newUrl.removeSearch(key);
-            newUrl.addSearch(key, value);
+        urlParams.forEach(function(pair) {
+            var key = pair[0];
+            var value = pair[1];
+
+            newUrl.searchParams.delete(key);
+            newUrl.searchParams.set(key, value);
         });
 
-        return newUrl
-            .toString()
-            .split('#')
-            .map((part, i) => {
-                return i === 0 ? part.replace(/&/g, '&amp;') : part;
-            })
-            .join('#');
+        // Return full URL if input was absolute, otherwise return relative path
+        if (isAbsolute) {
+            return newUrl.toString();
+        }
+
+        let result = newUrl.pathname + newUrl.search + newUrl.hash;
+        // Remove leading slash if original URL didn't have one
+
+        if (!hadLeadingSlash && result.startsWith('/')) {
+            result = result.substring(1);
+        }
+        return result;
     },
 
     /**
@@ -382,7 +383,7 @@ export const Helpers = {
             localStorage.setItem(mod, mod);
             localStorage.removeItem(mod);
             return true;
-        } catch (e) {
+        } catch {
             // istanbul ignore next
             return false;
         }
@@ -467,15 +468,97 @@ export const Helpers = {
      * @function updateUrlWithPath
      * @private
      * @param {String} url url
+     * @param {Array[]} [params] additional array of [`param`, `value`] arrays to set on the url
      * @returns {String} modified url
      */
-    updateUrlWithPath: function(url) {
+    updateUrlWithPath: function(url, params) {
         var win = this._getWindow();
         var path = win.location.pathname + win.location.search;
 
-        return this.makeURL(url, [['cms_path', path]]);
+        return this.makeURL(url, [['cms_path', path]].concat(params || []));
+    },
+
+    /**
+     * Get color scheme either from :root[data-theme] or user system setting
+     *
+     * @method get_color_scheme
+     * @public
+     * @returns {String}
+     */
+    getColorScheme: function () {
+        let state = $('html').attr('data-theme');
+
+        if (!state) {
+            state = localStorage.getItem('theme') || CMS.config.color_scheme || 'auto';
+        }
+        return state;
+    },
+
+    /**
+     * Sets the color scheme for the current document and all iframes contained.
+     *
+     * @method setColorScheme
+     * @public
+     * @param scheme {String}
+     * @returns {void}
+     */
+
+    setColorScheme: function (mode) {
+        let body = $('html');
+        let scheme = (mode !== 'light' && mode !== 'dark') ? 'auto' : mode;
+
+        if (localStorage.getItem('theme') || CMS.config.color_scheme !== scheme) {
+            // Only set local storage if it is either already set or if scheme differs from preset
+            // to avoid fixing the user setting to the preset (which would ignore a change in presets)
+            localStorage.setItem('theme', scheme);
+        }
+
+        body.attr('data-theme', scheme);
+        body.find('div.cms iframe').each(function setFrameColorScheme(i, e) {
+            if (e.contentDocument) {
+                e.contentDocument.documentElement.dataset.theme = scheme;
+                // ckeditor (and potentially other apps) have iframes inside their admin forms
+                // also set color scheme there
+                $(e.contentDocument).find('iframe').each(setFrameColorScheme);
+            }
+        });
+    },
+
+    /**
+     * Cycles the color scheme for the current document and all iframes contained.
+     * Follows the logic introduced in Django's 4.2 admin
+     *
+     * @method setColorScheme
+     * @public}
+     * @returns {void}
+     */
+    toggleColorScheme: function () {
+        const currentTheme = this.getColorScheme();
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+        if (prefersDark) {
+            // Auto (dark) -> Light -> Dark
+            if (currentTheme === 'auto') {
+                this.setColorScheme('light');
+            } else if (currentTheme === 'light') {
+                this.setColorScheme('dark');
+            } else {
+                this.setColorScheme('auto');
+            }
+        } else {
+            // Auto (light) -> Dark -> Light
+            // eslint-disable-next-line no-lonely-if
+            if (currentTheme === 'auto') {
+                this.setColorScheme('dark');
+            } else if (currentTheme === 'dark') {
+                this.setColorScheme('light');
+            } else {
+                this.setColorScheme('auto');
+            }
+        }
     }
 };
+
 
 /**
  * Provides key codes for common keys.
@@ -490,6 +573,8 @@ export const KEYS = {
     TAB: 9,
     UP: 38,
     DOWN: 40,
+    LEFT: 37,
+    RIGHT: 39,
     ENTER: 13,
     SPACE: 32,
     ESC: 27,
@@ -498,6 +583,10 @@ export const KEYS = {
     CMD_FIREFOX: 224,
     CTRL: 17
 };
+
+// Add Helpers and KEYS to _CMS for backwards compatibility with tests
+_CMS.API.Helpers = Helpers;
+_CMS.KEYS = KEYS;
 
 // shorthand for jQuery(document).ready();
 $(function() {

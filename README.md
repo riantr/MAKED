@@ -1,0 +1,193 @@
+# MAKED
+
+**M**odel · **A**ttack · **K**nowledge · **E**xperience · **D**ata
+
+*The framework for automated AI testing.*
+
+MAKED is a Django CMS site that organises an automated-AI-testing knowledge
+base into five domains. The logo draws them as a closed ring around a centre:
+each domain is a stage that consumes what the previous one produced.
+
+| Letter | Domain        | Role in the original site   |
+|--------|---------------|-----------------------------|
+| **M**  | Model         | the model formulator        |
+| **A**  | Attack        | the attack generator        |
+| **K**  | Knowledge     | the knowledge distiller     |
+| **E**  | Experience    | the experience absorber     |
+| **D**  | Data          | the data turbine            |
+
+The five names are not decoration. Each one is a Django application
+(`Model/`, `Attack/`, `Knowledge/`, `Experience/`, `Data/`) **and** a top-level
+CMS page, so the navigation of the site is the ontology of the project. `Data`
+carries the real data model (`Dataset`, `Image`, `ImageInfo`); the other four
+are placeholders for the work still to come.
+
+---
+
+## Running it
+
+```bash
+python -m virtualenv .venv                       # or: python -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+
+.\.venv\Scripts\python manage.py migrate
+.\.venv\Scripts\python manage.py bootstrap_maked   # creates the 9 pages
+.\.venv\Scripts\python manage.py createsuperuser
+
+.\.venv\Scripts\python manage.py runserver 127.0.0.1:8000
+```
+
+Then open <http://127.0.0.1:8000/> and log in at `/admin/`.
+
+`bootstrap_maked` is idempotent. Pass `--delete` to rebuild the page tree from
+scratch.
+
+### Background tasks
+
+```bash
+celery -A mysite worker --loglevel=info
+celery -A mysite beat   --loglevel=info
+celery -A mysite flower --address=127.0.0.1 --port=5555
+```
+
+Celery needs a Redis broker. Without one, the site still serves pages; only the
+scheduled tasks are unavailable. `Knowledge.tasks.fetch_article` is inert
+unless `MAKED_KNOWLEDGE_SOURCE_URL` points at a feed.
+
+### Configuration
+
+Everything is read from the environment; no secret is stored in the repository.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MAKED_SECRET_KEY` | insecure dev fallback | **Set this in production.** |
+| `MAKED_DEBUG` | `true` | Set `false` to enable the production security settings. |
+| `MAKED_ALLOWED_HOSTS` | `localhost,127.0.0.1,[::1]` | Comma-separated. |
+| `MAKED_SITE_DOMAIN` | `127.0.0.1:8000` | The `Site` row's domain; must match the URL you browse to. |
+| `MAKED_CSRF_TRUSTED_ORIGINS` | empty | Comma-separated origins. |
+| `MAKED_CELERY_BROKER` | `redis://127.0.0.1:6379/0` | Broker URL. |
+| `MAKED_KNOWLEDGE_SOURCE_URL` | empty | Feed for `fetch_article`; unset means the task does nothing. |
+| `MAKED_HSTS_SECONDS` | `0` | Opt in only after TLS is confirmed working. |
+| `MAKED_SSL_REDIRECT` | `false` | Opt in only if Django terminates TLS itself. |
+
+### Verifying a deployment
+
+```bash
+.\.venv\Scripts\python manage.py check
+.\.venv\Scripts\python manage.py test Knowledge
+.\.venv\Scripts\python tools\verify_site.py http://127.0.0.1:8000
+```
+
+`tools/verify_site.py` checks that every page renders its content (not just
+HTTP 200), that the navigation exposes all five domains, and that an
+authenticated admin can reach the django CMS page editor.
+
+---
+
+## What the modernisation changed
+
+The original project was written in 2019 against Django 2.1.8 and django CMS
+3.6. Neither can be installed on a supported Python, so the stack moved to
+**Django 5.2 LTS + django CMS 5.1**. Django 4.2 was rejected as the target: its
+LTS window closed in April 2026, and django CMS 5.1 requires `Django>=5.2`
+anyway.
+
+### The database could not be migrated
+
+`legacy_MAKED_cms36.db` is the original SQLite file, preserved unmodified. It
+uses the django CMS 3.6 *publisher* schema, which stored a separate draft and
+published row for every page. django CMS 4.0 deleted the publisher entirely,
+so that schema cannot be migrated forward.
+
+The page tree was therefore recreated on the current schema by
+`manage.py bootstrap_maked`, which encodes the structure the original database
+described: 9 pages (Index, the five domains, Tutorial, About, celery task
+monitor), the domain logos, and the site's one-line descriptions. The images
+themselves are the originals, copied out of the old filer tree by
+`tools/copy_logos.py`.
+
+### Bugs fixed
+
+These were real defects in the original, not just API drift.
+
+- `mysite/views.py` — `detail()` raised `NameError` on every call: it imported
+  `django.shorcuts` (typo) and passed `requet` to `render()`. It also called
+  `markdown.markdown(..., safe_mode=True)`, an argument removed in Markdown 3.0.
+- `mysite/views.py` — the view rendered `mysite/detail.html`, but the template
+  is `detail.html`. The view was also never routed: every `path()` call in the
+  original `urlpatterns` list was commented out, so `detail()` was unreachable.
+  The route is now registered at `/articles/<id>/`.
+- `Data/models.py` — `ImageInfo.color_space` declared `max_length=10` while its
+  choices contained `"ColorMatchRGB"` (13 characters). Django 2.1 did not check
+  this; Django 5 does. Widened to 16 (`Data/migrations/0011_*.py`).
+- `mysite/settings.py` — `PASSWORD_HASHERS` was never set. With no Argon2 or
+  bcrypt installed, Django falls back to *unsalted* PBKDF2-SHA1, and
+  `createsuperuser` stores a password that `authenticate()` then cannot read
+  back — the hasher cannot even be identified from the stored value. The
+  hashers are now declared explicitly and `argon2-cffi` is a hard requirement.
+- `mysite/celery.py` — set `app.now = timezone.now`, which is not a Celery
+  attribute; the line was dead code. Priority queues were configured twice (once
+  on `app.conf`, once on a module-level name that was never read), so only one
+  of the two schemes was ever live.
+- `mysite/urls.py` — the original shadowed `FlatPageAdmin` with a class of the
+  same name, and registered admin models at import time around
+  `admin.autodiscover()`.
+
+### Security
+
+- `SECRET_KEY` was hard-coded in `settings.py` and also reused as
+  `HASHID_FIELD_SALT`. Both now come from the environment.
+- `DEBUG = True` and `ALLOWED_HOSTS = ['*']` were hard-coded. Both are
+  environment-driven, and the production block (HSTS, secure cookies,
+  `X-Frame-Options`, `nosniff`, referrer policy) is now real.
+- The repository tracked a **TLS private key** (`server.key`), its certificate,
+  a **90 MB Redis dump** (`dump.rdb`), `celerybeat.pid`, 117 `.pyc` files, an
+  unrelated `libcloud/KEYS` file, and a stale `Data.bak/` copy of the Data app.
+  All are untracked now and covered by `.gitignore`.
+
+  **These files are still in the git history.** Removing them from the index
+  does not remove them from past commits; a `git log --all -- server.key` will
+  still find them. If any of them were ever valid credentials, treat them as
+  compromised and rotate before rewriting history.
+
+### Dependencies dropped
+
+| Removed | Why |
+|---|---|
+| `django-mdeditor`, `django-markdown-deux` | Unmaintained; no Django 4+ release. The article body is a plain `TextField` and Markdown is rendered in the view. |
+| `djangocms-snippet` | Version 5.x hard-depends on `djangocms-versioning`, which must be a separately installed app with its own settings. The original site stored **zero** snippets. |
+| `djangocms-googlemap`, `djangocms-column`, `djangocms-video` | No release compatible with django CMS 5. The original database holds zero rows for all three. |
+| `django-parler`, `django-mptt` | Transitive dependencies of the old plugin set. |
+
+Kept and pinned: `Django`, `django-cms`, `djangocms-text-ckeditor`,
+`djangocms-link`, `djangocms-picture`, `djangocms-file`, `djangocms-style`,
+`django-filer`, `easy-thumbnails`, `celery`, `django-celery-beat`,
+`django-celery-results`, `djangorestframework`, `Markdown`, `argon2-cffi`.
+
+### The Knowledge task
+
+`Knowledge.tasks.fetch_article` was a bare `print`, scheduled every five
+minutes — the old database records 131,739 runs of it. It is implemented for
+real now: it fetches a configured feed, de-duplicates by title, and returns a
+summary dict. It never raises, so a scheduled failure cannot spam the result
+table. Twelve tests cover the parsers, the no-source case, the de-duplication,
+and the network-failure paths.
+
+---
+
+## Layout
+
+```
+mysite/          project config, settings, urls, celery app, templates
+Model/           M — the model formulator        (placeholder)
+Attack/          A — the attack generator        (placeholder)
+Knowledge/       K — the knowledge distiller     (has the fetch task)
+Experience/      E — the experience absorber     (placeholder)
+Data/            D — the data turbine            (Dataset, Image, ImageInfo)
+tools/           copy_logos.py, trace_urls.py, verify_site.py, verify_markdown_view.py
+legacy_MAKED_cms36.db   the original django CMS 3.6 database, untouched
+```
+
+## Licence
+
+MIT — see `LICENSE`.

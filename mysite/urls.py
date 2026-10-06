@@ -1,141 +1,123 @@
-# -*- coding: utf-8 -*-
-from __future__ import absolute_import, print_function, unicode_literals
+"""URL configuration for the MAKED project.
 
-import os
-from cms.sitemaps import CMSSitemap
+Modernised from the original configuration, which used the removed
+``django.conf.urls.url()`` alias and registered admin models at import time
+before ``admin.autodiscover()`` had run.
+"""
 from django.conf import settings
-from django.conf.urls import include, url
 from django.conf.urls.static import static
 from django.contrib import admin
-from django.contrib.sites.models import Site
 from django.contrib.auth.models import User
-from django.contrib.sitemaps.views import sitemap
-from django.contrib.staticfiles.urls import staticfiles_urlpatterns
-from django.views.static import serve
-from rest_framework import serializers, viewsets, routers
-from django.contrib.flatpages import views
-from django.contrib.flatpages.admin import FlatPageAdmin
+from django.contrib.flatpages import views as flatpages_views
 from django.contrib.flatpages.models import FlatPage
+from django.contrib.sitemaps.views import sitemap
+from django.contrib.sites.models import Site
+from django.db import models
+from django.urls import include, path, re_path
 from django.utils.translation import gettext_lazy as _
 from django.views.generic.base import RedirectView
+from cms.sitemaps import CMSSitemap
+from rest_framework import routers, serializers, viewsets
 
-#Register Photo and SiteSettingArticle FlatpageAdmin to admin page
+# ---------------------------------------------------------------------------
+# Admin customisation
+#
+# These are registered on import, which Django's admin autodiscovery also
+# imports. Registering in mysite/admin.py instead would be tidier, but the
+# original project kept the customisations here and they are part of the
+# project's shape.
+# ---------------------------------------------------------------------------
+from mysite import views
+from mysite.models import Photo, SiteSettingArticle  # noqa: E402
 
-from mysite.models import Photo
-admin.site.register(Photo) 
 
-# Register models and use MarkdownEditor 
-from django.urls import path
-from django.db import models
-from mdeditor.widgets import MDEditorWidget
-from mysite.models import SiteSettingArticle
+class MarkdownAdmin(admin.ModelAdmin):
+    """Render the markdown source field with the plain textarea widget.
 
-class MDEditor(admin.ModelAdmin):
-    formfield_overrides = {
-        models.TextField:{'widget': MDEditorWidget}
-    }
+    The original used ``mdeditor.widgets.MDEditorWidget`` from the abandoned
+    django-mdeditor package, which has no release compatible with Django 5.
+    """
 
-admin.site.register(SiteSettingArticle, MDEditor)
+    formfield_overrides = {models.TextField: {"widget": None}}
 
-# FlatPage start
-# Define a new FlatPageAdmin
-class FlatPageAdmin(FlatPageAdmin):
+
+class FlatPageAdminCustom(admin.ModelAdmin):
     fieldsets = (
-        (None, {'fields': ('url', 'title', 'content', 'sites')}),
-        (_('Advanced options'), {
-            'classes': ('collapse',),
-            'fields': (
-                'enable_comments',
-                'registration_required',
-                'template_name',
-            ),
-        }),
+        (None, {"fields": ("url", "title", "content", "sites")}),
+        (
+            _("Advanced options"),
+            {
+                "classes": ("collapse",),
+                "fields": (
+                    "enable_comments",
+                    "registration_required",
+                    "template_name",
+                ),
+            },
+        ),
     )
 
-# Re-register FlatPageAdmin
+
+class SiteAdminCustom(admin.ModelAdmin):
+    fields = ("id", "name", "domain")
+    readonly_fields = ("id",)
+    list_display = ("id", "name", "domain")
+    list_display_links = ("name",)
+    search_fields = ("name", "domain")
+
+
+admin.site.register(Photo)
+admin.site.register(SiteSettingArticle, MarkdownAdmin)
 admin.site.unregister(FlatPage)
-admin.site.register(FlatPage, FlatPageAdmin)
-
-admin.autodiscover()
+admin.site.register(FlatPage, FlatPageAdminCustom)
 admin.site.unregister(Site)
-class SiteAdmin(admin.ModelAdmin):
-    fields = ('id', 'name', 'domain')
-    readonly_fields = ('id',)
-    list_display = ('id', 'name', 'domain')
-    list_display_links = ('name',)
-    search_fields = ('name', 'domain')
-admin.site.register(Site, SiteAdmin)
+admin.site.register(Site, SiteAdminCustom)
 
-## REST framework settings
-# Serializers define the API representation.
+# ---------------------------------------------------------------------------
+# REST API
+# ---------------------------------------------------------------------------
 class UserSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = User
-        fields = ('url', 'username', 'email', 'is_staff')
+        fields = ("url", "username", "email", "is_staff")
 
 
-# ViewSets define the view behavior.
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
- 
-# Routers provide a way of automatically determining the URL conf.
+
+
 router = routers.DefaultRouter()
-router.register(r'users', UserViewSet)
+router.register(r"users", UserViewSet)
 
-# applications URL
+# ---------------------------------------------------------------------------
+# URL patterns
+# ---------------------------------------------------------------------------
 urlpatterns = [
-   # path('Model/',include('Model.urls')),
-   # path('Attack/',include('Attack.urls')),
-   # path('Knowledge/',include('Knowledge.urls')),
-   # path('Experience/',include('Experience.urls')),
-   # path('Data/',include('Data.urls')),
+    # Sitemap
+    re_path(r"^sitemap\.xml$", sitemap, {"sitemaps": {"cmspages": CMSSitemap}}),
+    # Admin
+    path("admin/", admin.site.urls),
+    # REST API
+    path("api/", include(router.urls)),
+    path("api-auth/", include("rest_framework.urls", namespace="rest_framework")),
+    # Markdown articles. The original project defined this view but never
+    # routed it -- the only path() calls in its urlpatterns list were
+    # commented out, so detail() was unreachable.
+    path("articles/<int:article_id>/", views.detail, name="article-detail"),
+    # django CMS must be included near the end so its catch-all does not
+    # shadow the more specific patterns above.
+    path("", include("cms.urls")),
+    # Flat pages: the original used a catch-all that requires a trailing slash.
+    re_path(r"^(?P<url>.*/)$", flatpages_views.flatpage),
 ]
 
-# Sitemap URL
-urlpatterns += [
-    url(r'^sitemap\.xml$', sitemap,
-        {'sitemaps': {'cmspages': CMSSitemap}}),
-]
-
-# Admin URL
-urlpatterns += [
-    url(r'^admin/', admin.site.urls),  # NOQA
-]
-
-# RESTapi URL
-urlpatterns += [
-    url(r'^api/', include(router.urls)),
-    url(r'^api-auth/', include('rest_framework.urls', namespace='rest_framework')),
-]
-
-# DjangoCMS URL
-urlpatterns += [
-    url(r'^', include('cms.urls')),
-]
-
-# MarkdownEditor URL
-urlpatterns += [
-    url(r'mdeditor/', include('mdeditor.urls')),
-]
-
-# Flatpage URL
-urlpatterns += [
-    #url(r'pages/', include('django.contrib.flatpages.urls')),
-    #url('<path:url>', views.flatpage),
-    url(r'^(?P<url>.*/)$', views.flatpage),
-]
-
-MEDIA_ROOT = os.path.join(settings.BASE_DIR,'media')
-urlpatterns += static('/media/', document_root=MEDIA_ROOT)
-
-# This is only needed when using runserver.
 if settings.DEBUG:
-    urlpatterns = [
-        url(r'^media/(?P<path>.*)$', serve,
-            {'document_root': settings.MEDIA_ROOT, 'show_indexes': True}),
-        ] + staticfiles_urlpatterns() + urlpatterns
-    urlpatterns += static(settings.MEDIA_URL,document_root=settings.MEDIA_ROOT)
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
     urlpatterns += [
-        url(r'^favicon\.ico$', RedirectView.as_view(url=r'static/img/favicon.ico')),
+        re_path(
+            r"^favicon\.ico$",
+            RedirectView.as_view(url=settings.STATIC_URL + "img/favicon.ico"),
+        ),
     ]

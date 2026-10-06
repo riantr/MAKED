@@ -1,9 +1,9 @@
 /*
- * Copyright https://github.com/divio/django-cms
+ * Copyright https://github.com/django-cms/django-cms
  */
 
 import $ from 'jquery';
-import { throttle } from 'lodash';
+import throttle from 'lodash-es/throttle.js';
 
 /**
  * Responsible for creating usable navigation for narrow screens.
@@ -14,14 +14,25 @@ import { throttle } from 'lodash';
 class Navigation {
     constructor() {
         this._setupUI();
-        this._getWidths();
+
+        /**
+         * Whether item widths have been measured yet.
+         * Widths are measured lazily on the first resize/load event to ensure CSS is applied.
+         *
+         * @property _widthsReady {Boolean}
+         * @private
+         */
+        this._widthsReady = false;
+
+        // Initialise items with empty arrays so properties exist before _getWidths runs
+        this.items = { left: [], leftTotalWidth: 0, right: [], rightTotalWidth: 0, moreButtonWidth: 0 };
 
         /**
          * The zero based index of the right-most visible menu item of the left toolbar part.
          *
          * @property rightMostItemIndex {Number}
          */
-        this.rightMostItemIndex = this.items.left.length - 1;
+        this.rightMostItemIndex = -1;
 
         /**
          * The zero based index of the left-most visible item of the right toolbar part.
@@ -77,12 +88,19 @@ class Navigation {
 
     /**
      * Calculates all the movable menu items widths.
+     * Must be called when all items are in their natural toolbar positions
+     * (not inside the "more" dropdown) so that measured widths reflect the
+     * actual inline size of each item.
      *
      * @method _getWidths
      * @private
      */
     _getWidths() {
         var that = this;
+
+        // Move all items back into the toolbar before measuring so we get
+        // their natural inline widths, not the dropdown's stacked width.
+        this._showAll();
 
         that.items = {
             left: [],
@@ -118,6 +136,10 @@ class Navigation {
         that.items.leftTotalWidth = that.items.left.reduce(sumWidths, 0);
         that.items.rightTotalWidth = that.items.right.reduce(sumWidths, 0);
         that.items.moreButtonWidth = that.ui.trigger.outerWidth();
+
+        that.rightMostItemIndex = that.items.left.length - 1;
+        that.leftMostItemIndex = 0;
+        that._widthsReady = true;
     }
 
     /**
@@ -129,7 +151,7 @@ class Navigation {
      */
     _calculateAvailableWidth() {
         var fullWidth = this.ui.window.width();
-        var reduce = parseInt(this.ui.toolbarRightPart.css('padding-right'), 10) + this.ui.logo.outerWidth(true);
+        var reduce = parseInt(this.ui.toolbarRightPart.css('padding-inline-end'), 10) + this.ui.logo.outerWidth(true);
 
         return fullWidth - reduce;
     }
@@ -160,7 +182,20 @@ class Navigation {
      * @method _handleResize
      * @private
      */
+    // eslint-disable-next-line complexity
     _handleResize() {
+        // Lazily measure widths once CSS is confirmed to be applied.
+        // The toolbar CSS sets `float: left` on navigation <li> items.
+        // If the computed style is still `none`, stylesheets haven't loaded yet — skip this call.
+        if (!this._widthsReady) {
+            var probe = this.ui.toolbarLeftPart.find('.cms-toolbar-item-navigation > li:first')[0];
+
+            if (!probe || window.getComputedStyle(probe).cssFloat === 'none') {
+                return;
+            }
+            this._getWidths();
+        }
+
         var remainingWidth;
         var availableWidth = this._calculateAvailableWidth();
 

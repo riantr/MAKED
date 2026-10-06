@@ -106,7 +106,7 @@ class ImageInfo(models.Model):
     image_size = models.CharField(verbose_name='image size', max_length=10, default='')
     image_width = models.IntegerField(verbose_name='image width', default=1)
     image_height = models.IntegerField(verbose_name='image height', default=1)
-    color_space = models.CharField(verbose_name='color space', max_length=10, choices=COLORSPACE_CATEGORIES, default=COLORSPACE_sRGB)
+    color_space = models.CharField(verbose_name='color space', max_length=16, choices=COLORSPACE_CATEGORIES, default=COLORSPACE_sRGB)
     image_resolution = models.CharField(verbose_name='image resolution', max_length=13, default='')
     image_channels = models.IntegerField(verbose_name='image channels',default=3)
     self_hash = models.CharField(verbose_name='self hash', max_length=34, default='')

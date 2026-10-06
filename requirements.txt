@@ -1,38 +1,61 @@
-django-cms>=3.6,<3.7
-djangocms-admin-style>=1.2,<1.3
-django-treebeard>=4.0,<5.0
-celery>=4.3.0
-kombu>=4.5.0
-django-celery-beat>=1.4.0
-django-celery-results>=1.0.4
-Markdown>=3.0.1
-markdown2>=2.3.7
-redis>=3.2.1
-django-markdown-deux>=1.0.5
-django-mdeditor>=0.1.13
-djangocms-text-ckeditor>=3.7,<3.8
-djangocms-link>=2.3
-djangocms-style>=2.1
-djangocms-googlemap>=1.2
-djangocms-snippet>=2.1,<2.2
-djangocms-video>=2.0,<2.1
-djangocms-column>=1.9
-djangocms-file>=2.2,<3.0
-djangocms-picture>=2.0,<2.1
-easy_thumbnails
-django-filer>=1.3
-django-storages>=1.7.1
-django-parler>=1.9.2
-Django==2.1.8
-django-mptt>0.9
-django-classy-tags>=0.7
-html5lib>=1.0.1
-Pillow>=3.0
-django-sekizai>=0.9
-six
-pytz
-django-extensions>=2.1.6
-django-datawatch>=1.0.3
-requests
-djangorestframework
-django-celery-monitor
+# MAKED runtime dependencies.
+#
+# Modernised from the 2019 stack (Django 2.1.8 / django-cms 3.6), which could
+# not be installed on a supported Python. The current target is Django 5.2 LTS
+# (supported until April 2028) with django CMS 5.1.
+#
+# Install with:  pip install -r requirements.txt
+#
+# Two packages present in the original requirements.txt are deliberately gone:
+#
+#   django-mdeditor / django-markdown-deux
+#       Unmaintained, no release compatible with Django 4+. The article body
+#       field is now a plain TextField and Markdown is rendered in the view.
+#   django-parler / django-mptt
+#       Transitive dependencies of the old djangocms-* plugins, which are no
+#       longer used here.
+#
+# djangocms-snippet was also dropped: version 5.x hard-depends on
+# djangocms-versioning (which must be a separately installed app with its own
+# settings), and the original site stored zero snippets.
+
+# --- core framework -------------------------------------------------------
+Django==5.2.17
+django-cms==5.1.3
+djangocms-admin-style==3.3.1
+
+# django CMS transitive dependencies, pinned so a resolver change cannot
+# silently pull a version django CMS does not support.
+django-treebeard==4.8.0
+django-sekizai==4.1.0
+django-classy-tags==4.1.0
+django-formtools==2.6.1
+
+# --- CMS plugins (the ones the site actually uses) ------------------------
+djangocms-text-ckeditor==5.1.7
+djangocms-link==5.2.0
+djangocms-picture==4.1.1
+djangocms-file==4.0.1
+djangocms-style==3.1.0
+django-filer==3.6.0
+easy-thumbnails==2.10.1
+Pillow==12.3.0
+
+# --- authentication -------------------------------------------------------
+# Required: without a modern hasher installed, Django falls back to unsalted
+# PBKDF2-SHA1 and stores passwords that authenticate() cannot read back.
+argon2-cffi==25.1.0
+
+# --- API ------------------------------------------------------------------
+djangorestframework==3.18.1
+
+# --- background tasks -----------------------------------------------------
+celery==5.6.3
+redis==8.1.0
+django-celery-beat==2.9.0
+django-celery-results==2.6.0
+
+# --- content / utilities --------------------------------------------------
+Markdown==3.11
+django-extensions==4.1
+requests==2.34.2

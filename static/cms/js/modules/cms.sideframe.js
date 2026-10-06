@@ -3,7 +3,6 @@
  */
 
 import $ from 'jquery';
-import Class from 'classjs';
 import { Helpers, KEYS } from './cms.base';
 import { showLoader, hideLoader } from './loader';
 
@@ -16,14 +15,12 @@ import { showLoader, hideLoader } from './loader';
  * @namespace CMS
  * @uses CMS.API.Helpers
  */
-var Sideframe = new Class({
-    options: {
-        onClose: false,
-        sideframeDuration: 300
-    },
-
-    initialize: function initialize(options) {
-        this.options = $.extend(true, {}, this.options, options);
+class Sideframe {
+    constructor(options) {
+        this.options = $.extend(true, {}, {
+            onClose: false,
+            sideframeDuration: 300
+        }, options);
 
         // elements
         this._setupUI();
@@ -35,7 +32,7 @@ var Sideframe = new Class({
         this.pointerMove = 'pointermove.cms.sideframe';
         this.enforceReload = false;
         this.settingsRefreshTimer = 600;
-    },
+    }
 
     /**
      * Stores all jQuery references within `this.ui`.
@@ -43,7 +40,7 @@ var Sideframe = new Class({
      * @method _setupUI
      * @private
      */
-    _setupUI: function _setupUI() {
+    _setupUI() {
         var sideframe = $('.cms-sideframe');
 
         this.ui = {
@@ -57,7 +54,7 @@ var Sideframe = new Class({
             historyBack: sideframe.find('.cms-sideframe-history .cms-icon-arrow-back'),
             historyForward: sideframe.find('.cms-sideframe-history .cms-icon-arrow-forward')
         };
-    },
+    }
 
     /**
      * Sets up all the event handlers, such as closing and resizing.
@@ -65,7 +62,7 @@ var Sideframe = new Class({
      * @method _events
      * @private
      */
-    _events: function _events() {
+    _events() {
         var that = this;
 
         // we need to set the history state on event creation
@@ -99,7 +96,7 @@ var Sideframe = new Class({
             }
             that._goToHistory('forward');
         });
-    },
+    }
 
     /**
      * Opens a given url within a sideframe.
@@ -111,9 +108,14 @@ var Sideframe = new Class({
      * @param {Boolean} [opts.animate] should sideframe be animated
      * @returns {Class} this
      */
-    open: function open(opts) {
+    open(opts) {
         if (!(opts && opts.url)) {
             throw new Error('The arguments passed to "open" were invalid.');
+        }
+
+        // Fail gracefully when open is called when disabled
+        if (CMS.settings.sideframe_enabled === false) {
+            return false;
         }
 
         var url = opts.url;
@@ -140,7 +142,7 @@ var Sideframe = new Class({
         this._show(animate);
 
         return this;
-    },
+    }
 
     /**
      * Handles content replacement mechanisms.
@@ -149,7 +151,7 @@ var Sideframe = new Class({
      * @private
      * @param {String} url valid uri to pass on the iframe
      */
-    _content: function _content(url) {
+    _content(url) {
         var that = this;
         var iframe = $('<iframe src="' + url + '" class="" frameborder="0" />');
         var holder = this.ui.frame;
@@ -210,6 +212,10 @@ var Sideframe = new Class({
             // inject css class
             body.addClass('cms-admin cms-admin-sideframe');
 
+            // the sideframe provides its own toolbar, so hide the admin page
+            // header regardless of which admin styles the loaded page ships
+            body.find('header#header').hide();
+
             // remove loader
             that.ui.frame.removeClass('cms-loader');
             // than show
@@ -257,6 +263,7 @@ var Sideframe = new Class({
         CMS.settings.sideframe = CMS.settings.sideframe || {};
         CMS.settings.sideframe.url = iframeUrl;
         CMS.settings.sideframe.hidden = false;
+        CMS.settings.sideframe_enabled = true;
         CMS.settings = Helpers.setSettings(window.CMS.settings);
 
         this.pageLoadInterval = setInterval(() => {
@@ -272,14 +279,14 @@ var Sideframe = new Class({
                     window.CMS.settings = Helpers.setSettings(window.CMS.settings);
                     iframeUrl = currentUrl;
                 }
-            } catch (e) {}
+            } catch {}
         }, 100); // eslint-disable-line
 
         // clear the frame (removes all the handlers)
         holder.empty();
         // inject iframe
         holder.html(iframe);
-    },
+    }
 
     /**
      * Animation helper for opening the sideframe.
@@ -288,7 +295,7 @@ var Sideframe = new Class({
      * @private
      * @param {Number} [animate] Animation duration
      */
-    _show: function _show(animate) {
+    _show(animate) {
         var that = this;
         var width = '95%';
 
@@ -318,14 +325,14 @@ var Sideframe = new Class({
         // disable scrolling for touch
         this.ui.body.addClass('cms-prevent-scrolling');
         Helpers.preventTouchScrolling($(document), 'sideframe');
-    },
+    }
 
     /**
      * Closes the current instance.
      *
      * @method close
      */
-    close: function close() {
+    close() {
         // hide dimmer immediately
         this.ui.dimmer.hide();
 
@@ -336,16 +343,13 @@ var Sideframe = new Class({
         };
         CMS.settings = Helpers.setSettings(CMS.settings);
 
-        // check for reloading
-        Helpers.reloadBrowser(this.options.onClose, false, true);
-
         // trigger hide animation
         this._hide({
             duration: this.options.sideframeDuration / 2
         });
 
         clearInterval(this.pageLoadInterval);
-    },
+    }
 
     /**
      * Animation helper for closing the iframe.
@@ -355,7 +359,7 @@ var Sideframe = new Class({
      * @param {Object} [opts]
      * @param {Number} [opts.duration=this.options.sideframeDuration] animation duration
      */
-    _hide: function _hide(opts) {
+    _hide(opts) {
         var duration = this.options.sideframeDuration;
 
         if (opts && typeof opts.duration === 'number') {
@@ -372,7 +376,7 @@ var Sideframe = new Class({
         // enable scrolling again
         this.ui.body.removeClass('cms-prevent-scrolling');
         Helpers.allowTouchScrolling($(document), 'sideframe');
-    },
+    }
 
     /**
      * Retrieves the history states from `this.history`.
@@ -381,7 +385,7 @@ var Sideframe = new Class({
      * @private
      * @param {String} type can be either `back` or `forward`
      */
-    _goToHistory: function _goToHistory(type) {
+    _goToHistory(type) {
         var iframe = this.ui.frame.find('iframe');
         var tmp;
 
@@ -398,7 +402,7 @@ var Sideframe = new Class({
         }
 
         this._updateHistoryButtons();
-    },
+    }
 
     /**
      * Stores the history states in `this.history`.
@@ -407,7 +411,7 @@ var Sideframe = new Class({
      * @private
      * @param {String} url url to be stored in `this.history.back`
      */
-    _addToHistory: function _addToHistory(url) {
+    _addToHistory(url) {
         // we need to update history first
         this.history.back.push(url);
 
@@ -420,7 +424,7 @@ var Sideframe = new Class({
         }
 
         this._updateHistoryButtons();
-    },
+    }
 
     /**
      * Sets the correct states for the history UI elements.
@@ -428,7 +432,7 @@ var Sideframe = new Class({
      * @method _updateHistoryButtons
      * @private
      */
-    _updateHistoryButtons: function _updateHistoryButtons() {
+    _updateHistoryButtons() {
         if (this.history.back.length > 1) {
             this.ui.historyBack.removeClass('cms-icon-disabled');
         } else {
@@ -441,6 +445,6 @@ var Sideframe = new Class({
             this.ui.historyForward.addClass('cms-icon-disabled');
         }
     }
-});
+}
 
 export default Sideframe;

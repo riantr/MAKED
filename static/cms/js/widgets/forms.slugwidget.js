@@ -1,22 +1,35 @@
 /*
- * Copyright https://github.com/divio/django-cms
+ * Copyright https://github.com/django-cms/django-cms
  */
 
-// this essentially makes sure that dynamically required bundles are loaded
-// from the same place
-// eslint-disable-next-line
-__webpack_public_path__ = require('../modules/get-dist-path')('bundle.forms.slugwidget');
 
-require.ensure([], function (require) {
-    var $ = require('jquery');
-    var addSlugHandlers = require('../modules/slug');
+import addSlugHandlers from '../modules/slug';
 
-    // init
-    $(function () {
-        // set local variables
-        var title = $('[id*=title]');
-        var slug = $('[id*=slug]');
+/**
+ * Finds the title field belonging to a slug field. Form fields can be prefixed
+ * (``id_1-slug`` in the wizard, ``id_content__slug`` in grouper admins), so the
+ * title is looked up by the slug's own id first and only then guessed.
+ */
+function findTitle(slug) {
+    const derivedId = slug.id.replace(/slug$/, 'title');
 
-        addSlugHandlers(title, slug);
-    });
-}, 'admin.widget');
+    if (derivedId !== slug.id) {
+        const derived = document.getElementById(derivedId);
+
+        if (derived) {
+            return derived;
+        }
+    }
+    return document.querySelector('[id$=title]') || document.querySelector('[id*=title]');
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    // set local variables
+    const slug = document.querySelector('[id$=slug]') || document.querySelector('[id*=slug]');
+
+    if (!slug) {
+        return;
+    }
+
+    addSlugHandlers(findTitle(slug), slug);
+});

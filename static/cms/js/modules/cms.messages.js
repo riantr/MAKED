@@ -3,7 +3,6 @@
  */
 
 import $ from 'jquery';
-import Class from 'classjs';
 
 /**
  * Displays a message underneath the toolbar.
@@ -11,21 +10,20 @@ import Class from 'classjs';
  * @class Messages
  * @namespace CMS
  */
-var Messages = new Class({
-    options: {
-        messageDuration: 300,
-        messageDelay: 3000
-    },
-
-    initialize: function initialize(options) {
-        this.options = $.extend(true, {}, this.options, options);
+class Messages {
+    constructor(options) {
+        this.options = $.extend(true, {}, {
+            messageDuration: 300,
+            messageDelay: 3000,
+            messageLength: 250
+        }, options);
 
         // states and events
         this.click = 'click.cms.message';
 
         // elements
         this._setupUI();
-    },
+    }
 
     /**
      * Stores all jQuery references within `this.ui`.
@@ -33,7 +31,7 @@ var Messages = new Class({
      * @method _setupUI
      * @private
      */
-    _setupUI: function _setupUI() {
+    _setupUI() {
         var container = $('.cms');
 
         this.ui = {
@@ -42,7 +40,7 @@ var Messages = new Class({
             toolbar: container.find('.cms-toolbar'),
             messages: container.find('.cms-messages')
         };
-    },
+    }
 
     /**
      * Opens a message window underneath the toolbar.
@@ -54,7 +52,8 @@ var Messages = new Class({
      * @param {Number} [opts.delay=this.options.messageDelay] delay until message is closed, 0 leaves it open
      * @param {Boolean} [opts.error] if true sets the style to `.cms-messages-error`
      */
-    open: function open(opts) {
+    // eslint-disable-next-line complexity
+    open(opts) {
         if (!(opts && opts.message)) {
             throw new Error('The arguments passed to "open" were invalid.');
         }
@@ -62,9 +61,9 @@ var Messages = new Class({
         var that = this;
 
         var msg = opts.message;
-        var dir = opts.dir === undefined ? 'center' : opts.dir;
-        var delay = opts.delay === undefined ? this.options.messageDelay : opts.delay;
-        var error = opts.error === undefined ? false : opts.error;
+        var dir = opts.dir || 'center';
+        var delay = opts.delay || this.options.messageDelay;
+        var error = opts.error || false;
 
         var width = 320;
         var height = this.ui.messages.outerHeight(true);
@@ -126,7 +125,7 @@ var Messages = new Class({
         }
 
         // cancel autohide if delay is <= 0
-        if (delay <= 0) {
+        if (delay <= 0 || msg.length > this.options.messageLength) {
             close.show();
         } else {
             // add delay to hide if delay > 0
@@ -134,16 +133,16 @@ var Messages = new Class({
                 that.close();
             }, delay);
         }
-    },
+    }
 
     /**
      * Closes the message window underneath the toolbar.
      *
      * @method close
      */
-    close: function close() {
+    close() {
         this.ui.messages.fadeOut(this.options.messageDuration);
     }
-});
+}
 
 export default Messages;
