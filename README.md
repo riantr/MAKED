@@ -147,12 +147,26 @@ These were real defects in the original, not just API drift.
   by `.gitignore` going forward.
 
   The certificate was a self-signed local debugging pair that never served any
-  real traffic, so no key rotation was required. Because the history was
-  rewritten, **all commit SHAs changed** — pushing requires `--force-with-lease`:
+  real traffic, so no key rotation was required. The `SECRET_KEY` that was hard
+  coded in `settings.py` across seven historical commits was replaced in those
+  commits too, not just in the working tree.
+
+  Because the history was rewritten, **all commit SHAs changed** — pushing
+  requires `--force-with-lease`:
 
   ```bash
   git push --force-with-lease origin master
   ```
+
+  Verify a rewrite with:
+
+  ```bash
+  python tools/scan_history.py
+  ```
+
+  It reads every blob in the object database, not just reachable files, and
+  reports private-key blocks, cloud credentials and hard-coded secrets with
+  the path each came from.
 
 ### Dependencies dropped
 
@@ -188,7 +202,8 @@ Attack/          A — the attack generator        (placeholder)
 Knowledge/       K — the knowledge distiller     (has the fetch task)
 Experience/      E — the experience absorber     (placeholder)
 Data/            D — the data turbine            (Dataset, Image, ImageInfo)
-tools/           copy_logos.py, trace_urls.py, verify_site.py, verify_markdown_view.py
+tools/           copy_logos.py, trace_urls.py, verify_site.py,
+                 verify_markdown_view.py, scan_history.py
 legacy_MAKED_cms36.db   the original django CMS 3.6 database, untouched
 ```
 
