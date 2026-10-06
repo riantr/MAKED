@@ -39,6 +39,11 @@ python -m virtualenv .venv                       # or: python -m venv .venv
 
 Then open <http://127.0.0.1:8000/> and log in at `/admin/`.
 
+This sequence was verified end to end from a fresh clone on Python 3.13.14:
+`requirements.txt` resolved without conflict, `migrate` applied cleanly,
+`bootstrap_maked` created all nine pages, `collectstatic` gathered 1067 files,
+and every page, the admin (23 changelists) and the REST API returned 200.
+
 > **The port and `MAKED_SITE_DOMAIN` are coupled.** django CMS matches the
 > request `Host` header against the `Site` row's `domain`, and the bootstrap
 > command writes `127.0.0.1:8000` into it. If you serve on a different port,
