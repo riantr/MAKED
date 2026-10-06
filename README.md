@@ -143,12 +143,16 @@ These were real defects in the original, not just API drift.
 - The repository tracked a **TLS private key** (`server.key`), its certificate,
   a **90 MB Redis dump** (`dump.rdb`), `celerybeat.pid`, 117 `.pyc` files, an
   unrelated `libcloud/KEYS` file, and a stale `Data.bak/` copy of the Data app.
-  All are untracked now and covered by `.gitignore`.
+  All were removed from **every commit** with `git filter-repo`, and are covered
+  by `.gitignore` going forward.
 
-  **These files are still in the git history.** Removing them from the index
-  does not remove them from past commits; a `git log --all -- server.key` will
-  still find them. If any of them were ever valid credentials, treat them as
-  compromised and rotate before rewriting history.
+  The certificate was a self-signed local debugging pair that never served any
+  real traffic, so no key rotation was required. Because the history was
+  rewritten, **all commit SHAs changed** — pushing requires `--force-with-lease`:
+
+  ```bash
+  git push --force-with-lease origin master
+  ```
 
 ### Dependencies dropped
 
