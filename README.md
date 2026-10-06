@@ -76,11 +76,22 @@ Everything is read from the environment; no secret is stored in the repository.
 .\.venv\Scripts\python manage.py check
 .\.venv\Scripts\python manage.py test Knowledge
 .\.venv\Scripts\python tools\verify_site.py http://127.0.0.1:8000
+.\.venv\Scripts\python tools\verify_admin.py http://127.0.0.1:8000
 ```
 
-`tools/verify_site.py` checks that every page renders its content (not just
-HTTP 200), that the navigation exposes all five domains, and that an
-authenticated admin can reach the django CMS page editor.
+- `verify_site.py` — every page renders its content (not just HTTP 200), the
+  navigation exposes all five domains, and an authenticated admin can reach the
+  django CMS page editor.
+- `verify_admin.py` — logs in and loads every changelist in the admin registry.
+  Both read the URL list from the live registry rather than hard-coding it: the
+  `Data` app's label is capitalised, so its changelist is at
+  `/admin/Data/dataset/`, and celery-beat's `PeriodicTask` has no underscore.
+  Three models (`cms.Page`, `cms.Placeholder`, `djangocms_link.Link`) are
+  registered but hidden from the admin nav by design, because django CMS edits
+  them inside the page editor; the test records and skips them rather than
+  asserting a status code that is an implementation detail.
+- `scan_history.py` — reads every blob in the git object database looking for
+  key material and hard-coded secrets.
 
 ---
 
@@ -203,7 +214,8 @@ Knowledge/       K — the knowledge distiller     (has the fetch task)
 Experience/      E — the experience absorber     (placeholder)
 Data/            D — the data turbine            (Dataset, Image, ImageInfo)
 tools/           copy_logos.py, trace_urls.py, verify_site.py,
-                 verify_markdown_view.py, scan_history.py
+                 verify_admin.py, verify_markdown_view.py,
+                 scan_history.py, inspect_dump_rdb.py
 legacy_MAKED_cms36.db   the original django CMS 3.6 database, untouched
 ```
 
