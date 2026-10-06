@@ -39,6 +39,19 @@ python -m virtualenv .venv                       # or: python -m venv .venv
 
 Then open <http://127.0.0.1:8000/> and log in at `/admin/`.
 
+> **The port and `MAKED_SITE_DOMAIN` are coupled.** django CMS matches the
+> request `Host` header against the `Site` row's `domain`, and the bootstrap
+> command writes `127.0.0.1:8000` into it. If you serve on a different port,
+> set the domain to match or every page will redirect to the page-content
+> admin instead of rendering:
+>
+> ```bash
+> MAKED_SITE_DOMAIN=127.0.0.1:8765 python manage.py bootstrap_maked --delete
+> MAKED_SITE_DOMAIN=127.0.0.1:8765 python manage.py runserver 127.0.0.1:8765
+> ```
+>
+> (Port 8000 is already taken on some machines, so this comes up often.)
+
 `bootstrap_maked` is idempotent. Pass `--delete` to rebuild the page tree from
 scratch.
 
