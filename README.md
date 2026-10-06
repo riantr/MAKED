@@ -182,6 +182,50 @@ These were real defects in the original, not just API drift.
   git push --force-with-lease origin master
   ```
 
+### What is still publicly reachable on GitHub
+
+The rewrite is complete on Gitee. On GitHub it is complete on the branches but
+**not everywhere**, and this is a property of the platform rather than of the
+rewrite:
+
+| Ref | State |
+|---|---|
+| `refs/heads/master` | clean — the private key is not in its tree |
+| `refs/heads/dependabot/pip/django-2.2.24` | deleted |
+| `refs/pull/1..6/head` | **still expose the old history** |
+
+GitHub refuses to delete pull-request refs outright:
+
+```
+DELETE /repos/riantr/MAKED/git/refs/pull/6/head
+422 Unprocessable Entity
+{"message": "refs/pull/* is read-only."}
+```
+
+That is a platform-level restriction, not a permissions problem: the request
+was made with a `repo`-scoped token by an account with admin rights on the
+repository. So this is still fetchable by anyone:
+
+```bash
+git fetch https://github.com/riantr/MAKED.git refs/pull/6/head
+git show FETCH_HEAD:server.key      # the private key
+git show FETCH_HEAD:dump.rdb        # 90 MB
+```
+
+The six pull requests were all Dependabot bumps of Django 2.1.8 to 2.2.x and
+are obsolete — the project now runs Django 5.2. Removing the exposure
+completely therefore means deleting the repository and re-creating it under the
+same name, which discards those pull request records along with the objects.
+That trade has not been made.
+
+**None of the exposed material is an active credential.** The certificate was a
+local self-signed debugging pair. The `SECRET_KEY` is no longer used by the
+running site (it comes from the environment now, and falls back to an
+explicitly-labelled development key). The Redis dump held only Celery's
+pidbox, worker event stream and queue bindings, with zero `celery-task-meta`
+entries — no task payloads. `tools/inspect_dump_rdb.py` will print that summary
+for any dump you want to check.
+
   Verify a rewrite with:
 
   ```bash
