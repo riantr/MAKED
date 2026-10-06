@@ -22,6 +22,12 @@ Write-Host '==> type-checking the backend'
 & $moon check --target native
 if ($LASTEXITCODE -ne 0) { throw "native check failed ($LASTEXITCODE)" }
 
+# The storage layer carries three SQLite behaviours that fail silently rather
+# than loudly, so the tests are run on every build rather than only on demand.
+Write-Host '==> testing the backend'
+& $moon test --target native backend
+if ($LASTEXITCODE -ne 0) { throw "backend tests failed ($LASTEXITCODE)" }
+
 Write-Host '==> building the server'
 & $moon build --release --target native cmd/server
 if ($LASTEXITCODE -ne 0) { throw "native build failed ($LASTEXITCODE)" }

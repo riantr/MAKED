@@ -12,6 +12,7 @@
 ///     so it is stated here rather than invented around.
 
 ///|
+/// `Eq` is derived so tests can assert on page values directly.
 pub(all) struct Page {
   slug : String
   title : String
@@ -21,7 +22,7 @@ pub(all) struct Page {
   body : String
   in_navigation : Bool
   sort : Int
-}
+} derive(Eq)
 
 ///|
 pub fn Page::to_json(self : Page) -> Json {

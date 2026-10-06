@@ -1,8 +1,22 @@
+// maked: a small Flask-style micro-framework built on moonback.
+//
+// The shape deliberately echoes Flask: an `App` owns a route table and an
+// ordered middleware chain, handlers are registered per method+path, and
+// responses are values rather than side effects on a global. Everything is
+// a thin, honest layer over `moonback` -- the goal is a readable MAKED
+// server, not a general-purpose framework.
 import {
   "moonbit-community/sqlite3",
+  "moonbitlang/async/fs",
   "moonbitlang/async/http",
   "moonbitlang/moonback",
   "moonbitlang/moonback/middlewares/unstable_static" @static,
 }
 
+import {
+  "moonbitlang/async",
+  "moonbitlang/core/test",
+} for "test"
+
 supported_targets = "native"
+
