@@ -4,7 +4,12 @@
 # import/export statements, so it needs no bundler -- but the filename and
 # location are chosen by moon, not by us, hence the copy.
 
-$ErrorActionPreference = 'Stop'
+# 'Continue', not 'Stop': moon writes ordinary progress to stderr ("Finished.
+# moon: no work to do", warning codes), and under 'Stop' PowerShell turns those
+# into terminating errors -- so a cached build died before the first exit-code
+# check. Every step below asserts $LASTEXITCODE explicitly, which is the check
+# that actually decides whether the build passed.
+$ErrorActionPreference = 'Continue'
 Set-Location (Split-Path -Parent $PSCommandPath)
 
 $moon = if ($env:MOON) { $env:MOON } else { 'moon' }
@@ -27,6 +32,13 @@ if ($LASTEXITCODE -ne 0) { throw "native check failed ($LASTEXITCODE)" }
 Write-Host '==> testing the backend'
 & $moon test --target native backend
 if ($LASTEXITCODE -ne 0) { throw "backend tests failed ($LASTEXITCODE)" }
+
+# Same reasoning for the SPA: slug routing, the total `decode_pages` fallbacks
+# and the ring geometry are all properties a refactor can break while the page
+# still renders. Run on the js target because the package targets js only.
+Write-Host '==> testing the frontend'
+& $moon test --target js frontend
+if ($LASTEXITCODE -ne 0) { throw "frontend tests failed ($LASTEXITCODE)" }
 
 Write-Host '==> building the server'
 & $moon build --release --target native cmd/server

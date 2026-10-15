@@ -9,14 +9,18 @@ import {
   "moonbit-community/sqlite3",
   "moonbitlang/async/fs",
   "moonbitlang/async/http",
+  "moonbitlang/core/debug",
   "moonbitlang/moonback",
   "moonbitlang/moonback/middlewares/unstable_static" @static,
+  "riantr/moonbit_doubleML" @dml,
+  "riantr/pyroduct/group",
+  "riantr/pyroduct/src" @sm,
 }
 
+// `moonbitlang/core/test` is deliberately absent: `assert_eq`/`assert_true`
+// come from the prelude, so importing it is an `unused_package` warning.
 import {
   "moonbitlang/async",
-  "moonbitlang/core/test",
 } for "test"
 
 supported_targets = "native"
-

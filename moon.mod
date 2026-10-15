@@ -15,13 +15,14 @@ version = "0.1.0"
 
 license = "Apache-2.0"
 
-keywords = ["web", "rabbita", "moonback", "sqlite"]
+keywords = [ "web", "rabbita", "moonback", "sqlite" ]
 
 // MAKED_moonbit is a two-target project:
 //   backend/ + cmd/server  -> native (moonback HTTP server + sqlite3)
 //   frontend/ + cmd/web    -> js    (rabbita SPA, runs in the browser)
 // Neither target is "primary", so only the union is declared here and each
 // package picks its own default via its own `preferred-target` in moon.pkg.
+
 supported_targets = "js+native"
 
 description = "MAKED on MoonBit: rabbita SPA frontend + a Flask-style micro-framework on moonback"
@@ -32,4 +33,6 @@ import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/moonback@0.8.6",
   "moonbitlang/x@0.5.5",
+  "riantr/pyroduct@0.1.29",
+  "riantr/moonbit_doubleML@0.162.0",
 }

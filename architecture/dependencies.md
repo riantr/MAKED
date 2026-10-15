@@ -1,0 +1,145 @@
+# MAKED Dependency Analysis
+
+**Skill**: `dependency-impact-analyzer` + `graphviz`
+**Scope**: Current-state package dependencies, external dependency graph, and
+change-impact analysis for each project package.
+**Audience**: Developers evaluating the blast radius of a change.
+
+## Package dependency graph
+
+The project has five packages. Dependencies flow strictly downward:
+
+```
+cmd/server ──→ backend ──→ moonback, sqlite3, async/*
+cmd/web   ──→ frontend ──→ rabbita/*
+```
+
+There are **no cycles**. Backend and frontend share no direct dependency; they
+communicate only through the JSON API contract at runtime.
+
+### Internal dependencies
+
+| Package | Depends on (internal) | Depends on (external) |
+|---------|----------------------|----------------------|
+| `backend/` | (none) | moonback, moonback/unstable_static, sqlite3, async, async/fs, async/http |
+| `frontend/` | (none) | rabbita, rabbita/cmd, rabbita/html, rabbita/http, rabbita/nav, rabbita/sub, rabbita/svg, rabbita/url |
+| `cmd/server/` | backend | moonback, async, async/fs, core/env, core/string |
+| `cmd/web/` | frontend | rabbita |
+| root `moon.pkg` | (empty) | (none) |
+
+### External dependency tree
+
+```
+moonbitlang/moonback@0.8.6          ← HTTP server framework
+moonbitlang/async@0.22.4            ← Async runtime (fs, http, process)
+moonbit-community/sqlite3@0.2.3     ← SQLite FFI bindings
+moonbit-community/rabbita@0.16.4    ← Elm-style SPA framework
+moonbitlang/x@0.5.5                 ← Utility library (transitive)
+```
+
+## Change impact analysis
+
+### If you change `backend/pages.mbt`
+
+**Blast radius**: backend, frontend (via JSON contract)
+
+| Affected | What breaks | Severity |
+|----------|-------------|----------|
+| `backend/api.mbt` | `ring_domains()`, `seed_pages()`, `Page::to_json()` callers | compile error if signatures change |
+| `backend/database.mbt` | `Page` struct fields, `seed()` parameters | compile error if Page shape changes |
+| `backend/database_test.mbt` | All tests that construct Page or assert on seed content | test failure |
+| `frontend/page.mbt` | `decode_pages()` field names must match `to_json()` output | silent degradation (total decoder → fallback values) |
+| `frontend/frontend_test.mbt` | JSON fixture shapes in decode_pages tests | test failure |
+
+**Key risk**: the frontend's JSON decoder is total by design — if a field name
+changes, the frontend silently renders empty strings instead of crashing. The
+mutation tests (`tools/mutate-backend.ps1`) catch backend-side breakage, but
+the JSON contract has no schema validation.
+
+### If you change `backend/database.mbt`
+
+**Blast radius**: backend only
+
+| Affected | What breaks |
+|----------|-------------|
+| `backend/api.mbt` | `db.all_pages()`, `db.page_by_slug()` callers |
+| `backend/maked_app.mbt` | `Database::open()`, `db.seed()` callers |
+| `backend/database_test.mbt` | All 8 storage tests |
+
+**Key risk**: SQLite statement lifecycle (prepare → reset → bind → step →
+finalize) is the silent-failure surface. The tests are mutation-tested
+(`tools/mutate-backend.ps1`) to ensure removing any safeguard is caught.
+
+### If you change `backend/app.mbt`
+
+**Blast radius**: backend, cmd/server
+
+| Affected | What breaks |
+|----------|-------------|
+| `backend/api.mbt` | `App::get()`, `App::route()` |
+| `backend/maked_app.mbt` | `App::new()`, `App::add_middleware()`, `App::to_module()` |
+| `cmd/server/main.mbt` | `app.to_module()` |
+
+**Key risk**: the Handler/Middleware type signatures. Changing them ripples
+through every route registration and middleware factory.
+
+### If you change `frontend/app.mbt`
+
+**Blast radius**: frontend, cmd/web
+
+| Affected | What breaks |
+|----------|-------------|
+| `frontend/views.mbt` | `view()` calls header, domain_cards, page_view, etc. |
+| `frontend/page.mbt` | `find_page()`, `navigation()` called from view |
+| `frontend/logo.mbt` | `logo()`, `logo_mark()` called from view |
+| `cmd/web/main.mbt` | `app()` is the mount entry point |
+| `frontend/frontend_test.mbt` | slug_of, navigation, find_page tests |
+
+**Key risk**: the Msg enum and Model struct. rabbita's `create_state_with_init`
+fixes the update/subscription signatures, so changing them requires matching
+the framework's expected shape.
+
+### If you change `frontend/page.mbt`
+
+**Blast radius**: frontend only
+
+| Affected | What breaks |
+|----------|-------------|
+| `frontend/app.mbt` | `decode_pages()`, `find_page()`, `navigation()` |
+| `frontend/views.mbt` | Page struct field access |
+| `frontend/frontend_test.mbt` | decode_pages, navigation, find_page tests |
+
+**Key risk**: the JSON field names in `get_string`/`get_int`/`get_bool` must
+match `backend/pages.mbt`'s `Page::to_json()` keys. No compile-time check.
+
+### If you change `frontend/logo.mbt`
+
+**Blast radius**: frontend only
+
+| Affected | What breaks |
+|----------|-------------|
+| `frontend/views.mbt` | `logo()`, `logo_mark()` |
+| `frontend/frontend_test.mbt` | node_xy, node_percent, nodes tests (6 tests) |
+
+**Key risk**: ring geometry. The tests pin literal coordinates, so a geometry
+change requires updating both the implementation and the expected_centres()
+literals in the test.
+
+### If you change `cmd/server/main.mbt`
+
+**Blast radius**: cmd/server only (entry point, no downstream consumers)
+
+### If you change `cmd/web/main.mbt`
+
+**Blast radius**: cmd/web only (entry point, no downstream consumers)
+
+## Dependency coupling assessment
+
+| Coupling | Assessment |
+|----------|-----------|
+| backend ↔ frontend | **Low** — JSON API contract only, no shared types. Risk: silent drift in field names. |
+| backend → moonback | **Medium** — Handler adapter, Module construction, Responder lifecycle. |
+| backend → sqlite3 | **Medium** — Statement lifecycle (prepare/reset/bind/step/finalize). |
+| frontend → rabbita | **High** — TEA signatures, Html type, subscription model, HTTP client. |
+| cmd/server → backend | **Low** — Three function calls: create_app, to_module, static_files. |
+| cmd/web → frontend | **Minimal** — One function call: app(). |

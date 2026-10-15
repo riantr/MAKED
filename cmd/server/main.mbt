@@ -22,7 +22,7 @@ fn parse_port(text : String) -> UInt16 {
 }
 
 ///|
-async fn main raise {
+async fn main {
   let port = parse_port(env_or("MAKED_PORT", "8080"))
   let db_path = env_or("MAKED_DB", "maked.db")
   let dist = env_or("MAKED_DIST", "frontend/dist")
@@ -32,15 +32,19 @@ async fn main raise {
   }
   let app = @maked.create_app(db_path)
   let routes = app.to_module()
-  // Static files are registered after the API so `/api/...` never reaches the
-  // filesystem, and the SPA history fallback handles every other deep link.
+  // Order is outermost-first: statics serves a real file, then spa_fallback
+  // answers the remaining browser navigations, then the router. Registering
+  // spa_fallback last puts it closest to the router, which is what lets it
+  // tell an SPA route from an API 404 -- an `/api/` path never reaches it.
   let statics = @maked.static_files(dist)
+  let spa = @maked.spa_fallback(dist)
   let root = @moonback.Module(ctx => {
     ctx.use_(routes)
     ctx.add_middleware(statics)
+    ctx.add_middleware(spa)
   })
   let server = @moonback.App(root)
-  let listener = @moonback.listen(port=port)
+  let listener = @moonback.listen(port~)
   println("MAKED listening on http://127.0.0.1:\{port}")
   println("  api:  http://127.0.0.1:\{port}/api/pages")
   println("  data: \{db_path}")

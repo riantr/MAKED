@@ -21,11 +21,17 @@ pub(all) struct Page {
   summary : String
   body : String
   in_navigation : Bool
-  sort : Int
+  sort : Int32
 } derive(Eq)
 
+// `Eq` is not optional here: rabbita's `create_state_with_init` uses it to
+// decide whether a re-render is needed. That makes the `implicit_impl_as_method`
+// deprecation warning below unavoidable -- declaring `extend Page with
+// Eq::{not_equal, equal}` explicitly silences it but trades it for two
+// `unused_value` warnings, since nothing calls the promoted forms directly.
+
 ///|
-fn field(json : Json, key : String) -> Json? {
+pub fn field(json : Json, key : String) -> Json? {
   match json {
     Object(fields) => fields.get(key)
     _ => None
@@ -33,7 +39,7 @@ fn field(json : Json, key : String) -> Json? {
 }
 
 ///|
-fn get_string(json : Json, key : String, fallback : String) -> String {
+pub fn get_string(json : Json, key : String, fallback : String) -> String {
   match field(json, key) {
     Some(String(s)) => s
     _ => fallback
@@ -41,9 +47,9 @@ fn get_string(json : Json, key : String, fallback : String) -> String {
 }
 
 ///|
-fn get_int(json : Json, key : String, fallback : Int) -> Int {
+pub fn get_int(json : Json, key : String, fallback : Int32) -> Int32 {
   match field(json, key) {
-    Some(Number(n)) => n.to_int()
+    Some(Number(n, ..)) => n.to_int()
     _ => fallback
   }
 }
@@ -77,8 +83,7 @@ fn page_from_json(json : Json) -> Page {
 /// page instead of a blank one.
 pub fn decode_pages(json : Json) -> Array[Page] {
   match field(json, "pages") {
-    Some(Array(items)) =>
-      items.map(fn(item) { page_from_json(item) })
+    Some(Array(items)) => items.map(fn(item) { page_from_json(item) })
     _ => []
   }
 }

@@ -1,0 +1,176 @@
+// MAKED Flow Graph &mdash; Graphviz DOT
+// Skill: flow-visualizer + graphviz
+//
+// Shows the five key flows: startup, cold load, client nav, API request,
+// and data flow. Each flow is a subgraph with numbered steps.
+// Render: dot -Tsvg flows.dot -o flows.svg
+
+digraph maked_flows {
+  rankdir=TB
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10]
+  edge [fontname="Helvetica", fontsize=8]
+
+  // --- Shared nodes ---
+  browser [label="Browser", shape=tab, fillcolor="#fff2cc"]
+  moonback [label="moonback\nHTTP server", fillcolor="#d4e6f1"]
+  router [label="moonback\nroute trie", fillcolor="#d4e6f1"]
+  logging [label="logging\nmiddleware", fillcolor="#d4e6f1"]
+  spa_fb [label="spa_fallback\nmiddleware", fillcolor="#d4e6f1"]
+  static_mw [label="static_files\nmiddleware", fillcolor="#d4e6f1"]
+  api_handler [label="API handler\n(api.mbt)", fillcolor="#d4e6f1"]
+  db [label="Database\n(database.mbt)", fillcolor="#d4e6f1"]
+  sqlite [label="SQLite\nmaked.db", shape=cylinder, fillcolor="#e8e8e8"]
+  fs [label="filesystem\nfrontend/dist/", shape=folder, fillcolor="#e8e8e8"]
+  rabbita [label="rabbita\nSPA runtime", fillcolor="#d9ead3"]
+  frontend_app [label="frontend/app\n(Elm TEA)", fillcolor="#d9ead3"]
+  frontend_views [label="frontend/views", fillcolor="#d9ead3"]
+  seed_data [label="seed_pages()\n9 pages", fillcolor="#fde8cd"]
+  env [label="env vars\nPORT/DB/DIST", shape=note, fillcolor="#e8e8e8"]
+
+  // ========== Flow 1: Server startup ==========
+  subgraph cluster_startup {
+    label="1. Server startup"
+    style=dashed
+    color="#9e7c4a"
+
+    s1 [label="1. env_or()\nparse_port()", fillcolor="#fde8cd"]
+    s2 [label="2. create_app(db_path)", fillcolor="#fde8cd"]
+    s3 [label="3. Database::open\n  migrate (CREATE TABLE IF NOT EXISTS)", fillcolor="#fde8cd"]
+    s4 [label="4. db.seed(seed_pages())\n  UPSERT 9 pages", fillcolor="#fde8cd"]
+    s5 [label="5. App::new()\n  add_middleware(logging)\n  build_api(4 routes)", fillcolor="#fde8cd"]
+    s6 [label="6. to_module()\n  adapt handlers", fillcolor="#fde8cd"]
+    s7 [label="7. moonback.listen(port)\n  server.serve()", fillcolor="#fde8cd"]
+  }
+
+  env -> s1
+  s1 -> s2
+  s2 -> s3
+  s3 -> s4
+  s4 -> db
+  s4 -> sqlite
+  s4 -> s5
+  s5 -> s6
+  s6 -> s7
+  s7 -> moonback
+
+  // ========== Flow 2: Cold load (deep link) ==========
+  subgraph cluster_cold {
+    label="2. Cold load (deep link /about)"
+    style=dashed
+    color="#4a7c9e"
+
+    c1 [label="1. GET /about", fillcolor="#d4e6f1"]
+    c2 [label="2. routes: no match\n   (not /api/*)", fillcolor="#d4e6f1"]
+    c3 [label="3. static: no file\n   dist/about", fillcolor="#d4e6f1"]
+    c4 [label="4. spa_fallback:\n   GET + not /api/* + no dot\n   → wants_spa_shell = true", fillcolor="#d4e6f1"]
+    c5 [label="5. read dist/index.html\n   → 200 text/html", fillcolor="#d4e6f1"]
+    c6 [label="6. <script> loads main.js\n   rabbita.mount('app')", fillcolor="#d9ead3"]
+    c7 [label="7. start(): GET /api/pages\n   → fetch all pages", fillcolor="#d9ead3"]
+    c8 [label="8. on_url_changed(/about)\n   → slug_of = 'about'\n   → render page_view", fillcolor="#d9ead3"]
+  }
+
+  browser -> c1
+  c1 -> moonback
+  moonback -> c2
+  c2 -> c3
+  c3 -> static_mw
+  c3 -> c4
+  c4 -> spa_fb
+  c4 -> c5
+  c5 -> fs
+  c5 -> browser
+  browser -> c6
+  c6 -> rabbita
+  c6 -> c7
+  c7 -> api_handler
+  c7 -> db
+  c7 -> c8
+  c8 -> frontend_app
+  c8 -> frontend_views
+
+  // ========== Flow 3: Client-side navigation ==========
+  subgraph cluster_nav {
+    label="3. Client-side nav (click 'Data')"
+    style=dashed
+    color="#7c9e4a"
+
+    n1 [label="1. click <li>\n   on_click=push_url('/data')", fillcolor="#d9ead3"]
+    n2 [label="2. History API\n   pushState /data", fillcolor="#d9ead3"]
+    n3 [label="3. on_url_changed fires", fillcolor="#d9ead3"]
+    n4 [label="4. update: current = 'data'\n   (no server request)", fillcolor="#d9ead3"]
+    n5 [label="5. view(model)\n   → re-render", fillcolor="#d9ead3"]
+  }
+
+  n1 -> rabbita
+  n1 -> n2
+  n2 -> n3
+  n3 -> n4
+  n4 -> frontend_app
+  n4 -> n5
+  n5 -> frontend_views
+
+  // ========== Flow 4: API request ==========
+  subgraph cluster_api {
+    label="4. API request (GET /api/pages/model)"
+    style=dashed
+    color="#9e4a7c"
+
+    a1 [label="1. GET /api/pages/model", fillcolor="#d4e6f1"]
+    a2 [label="2. routes: match\n   :slug = 'model'", fillcolor="#d4e6f1"]
+    a3 [label="3. logging wraps handler", fillcolor="#d4e6f1"]
+    a4 [label="4. Request.param('slug')\n   → Some('model')", fillcolor="#d4e6f1"]
+    a5 [label="5. db.page_by_slug('model')\n   prepare → reset → bind → step → finalize", fillcolor="#d4e6f1"]
+    a6 [label="6. page.to_json()\n   Response::json", fillcolor="#d4e6f1"]
+    a7 [label="7. response.send(res)\n   send_json(200)", fillcolor="#d4e6f1"]
+    a8 [label="8. println log line", fillcolor="#d4e6f1"]
+  }
+
+  browser -> a1
+  a1 -> moonback
+  a1 -> a2
+  a2 -> router
+  a2 -> a3
+  a3 -> logging
+  a3 -> a4
+  a4 -> api_handler
+  a4 -> a5
+  a5 -> db
+  a5 -> sqlite
+  a5 -> a6
+  a6 -> a7
+  a7 -> browser
+  a7 -> a8
+
+  // ========== Flow 5: Data flow ==========
+  subgraph cluster_data {
+    label="5. Page content data flow"
+    style=dashed
+    color="#4a9e7c"
+
+    d1 [label="1. seed_pages()\n   9 Page structs\n   (hardcoded HTML)", fillcolor="#fde8cd"]
+    d2 [label="2. Database::seed\n   UPSERT by slug", fillcolor="#d4e6f1"]
+    d3 [label="3. SQLite pages table", shape=cylinder, fillcolor="#e8e8e8"]
+    d4 [label="4. all_pages()\n   SELECT ORDER BY sort", fillcolor="#d4e6f1"]
+    d5 [label="5. Page::to_json\n   → Array[Json]", fillcolor="#d4e6f1"]
+    d6 [label="6. HTTP response\n   {pages: [...]}", fillcolor="#d4e6f1"]
+    d7 [label="7. decode_pages(json)\n   → Array[frontend.Page]", fillcolor="#d9ead3"]
+    d8 [label="8. view(model)\n   inner_html(body)", fillcolor="#d9ead3"]
+    d9 [label="9. rabbita vdom\n   → browser DOM", fillcolor="#d9ead3"]
+  }
+
+  seed_data -> d1
+  d1 -> d2
+  d2 -> db
+  d2 -> d3
+  d3 -> sqlite
+  d3 -> d4
+  d4 -> d5
+  d5 -> d6
+  d6 -> browser
+  d6 -> d7
+  d7 -> frontend_app
+  d7 -> d8
+  d8 -> frontend_views
+  d8 -> d9
+  d9 -> browser
+}

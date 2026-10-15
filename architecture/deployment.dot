@@ -1,0 +1,145 @@
+// MAKED Deployment Topology &mdash; Graphviz DOT
+// Skill: deployment-topology-analyzer + graphviz
+//
+// Shows the runtime topology: processes, files, network, and boundaries.
+// Render: dot -Tsvg deployment.dot -o deployment.svg
+
+digraph maked_deployment {
+  rankdir=TB
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10]
+  edge [fontname="Helvetica", fontsize=8]
+
+  // --- Boundaries ---
+  subgraph cluster_machine {
+    label="Developer machine (Windows / Linux / macOS)"
+    style=bold
+    color="#333333"
+    fillcolor="#f9f9f9"
+
+    // --- Process ---
+    subgraph cluster_process {
+      label="moon run cmd/server (native binary)"
+      style=bold
+      color="#4a7c9e"
+      fillcolor="#eaf2f8"
+
+      moonback [
+        label="moonback HTTP server\n──────────\n:8080"
+        shape=component
+        fillcolor="#d4e6f1"
+      ]
+
+      subgraph cluster_middleware {
+        label="Middleware chain (per request)"
+        style=dashed
+        color="#666666"
+
+        mw_routes [label="Route trie\n/api/* → handlers\n/*rest → JSON 404", fillcolor="#d4e6f1"]
+        mw_static [label="Static files\ndist/* → file content", fillcolor="#d4e6f1"]
+        mw_spa [label="SPA fallback\nbrowser nav → index.html", fillcolor="#d4e6f1"]
+        mw_log [label="Logging\nprintln per request", fillcolor="#d4e6f1"]
+      }
+
+      subgraph cluster_handlers {
+        label="API handlers"
+        style=dashed
+        color="#666666"
+
+        h_status [label="GET /api/status", fillcolor="#d4e6f1"]
+        h_pages [label="GET /api/pages", fillcolor="#d4e6f1"]
+        h_page [label="GET /api/pages/:slug", fillcolor="#d4e6f1"]
+        h_domains [label="GET /api/domains", fillcolor="#d4e6f1"]
+      }
+
+      subgraph cluster_storage {
+        label="Storage"
+        style=dashed
+        color="#666666"
+
+        db [
+          label="Database\n(database.mbt)\n──────────\nprepare / reset /\nbind / step / finalize"
+          fillcolor="#d4e6f1"
+        ]
+
+        sqlite [
+          label="SQLite\nmaked.db"
+          shape=cylinder
+          fillcolor="#e8e8e8"
+        ]
+
+        dist [
+          label="frontend/dist/\n──────────\nindex.html\nmain.js\nstyles.css"
+          shape=folder
+          fillcolor="#e8e8e8"
+        ]
+      }
+    }
+
+    // --- Browser ---
+    browser [
+      label="Browser\n──────────\nrabbita SPA\n(main.js)"
+      shape=tab
+      fillcolor="#d9ead3"
+    ]
+  }
+
+  // --- External ---
+  developer [
+    label="Developer"
+    shape=plaintext
+    fillcolor="#fff2cc"
+  ]
+
+  // --- Edges ---
+  developer -> browser [label="opens http://127.0.0.1:8080"]
+
+  browser -> moonback [label="HTTP requests\n(HTML, JS, CSS, JSON)", penwidth=2, color="#4a7c9e"]
+  moonback -> browser [label="HTTP responses", penwidth=2, color="#4a7c9e"]
+
+  // Middleware chain
+  moonback -> mw_routes
+  moonback -> mw_static
+  moonback -> mw_spa
+  mw_routes -> mw_log [style=dashed, label="wraps"]
+
+  // Routes to handlers
+  mw_routes -> h_status
+  mw_routes -> h_pages
+  mw_routes -> h_page
+  mw_routes -> h_domains
+
+  // Handlers to storage
+  h_status -> db
+  h_pages -> db
+  h_page -> db
+  h_domains -> db [style=dashed, label="(in-memory)"]
+
+  db -> sqlite [label="FFI\n(SQLite C API)", penwidth=1.5]
+
+  // Static files
+  mw_static -> dist [label="read file"]
+  mw_spa -> dist [label="read\nindex.html"]
+
+  // Build pipeline (separate subgraph)
+  subgraph cluster_build {
+    label="Build pipeline (developer runs manually)"
+    style=dashed
+    color="#9e7c4a"
+    fillcolor="#fef9e7"
+
+    build_backend [label="moon build --release\n--target native\ncmd/server", fillcolor="#fde8cd"]
+    build_frontend [label="moon build --release\n--target js\ncmd/web\n→ dist/main.js", fillcolor="#fde8cd"]
+  }
+
+  build_backend -> moonback [style=dashed, label="produces\nbinary", color="#9e7c4a"]
+  build_frontend -> dist [style=dashed, label="produces\nmain.js", color="#9e7c4a"]
+
+  // Environment variables
+  env [
+    label="Environment variables\n──────────\nMAKED_PORT=8080\nMAKED_DB=maked.db\nMAKED_DIST=frontend/dist"
+    shape=note
+    fillcolor="#e8e8e8"
+  ]
+
+  env -> moonback [style=dashed, label="configures"]
+}

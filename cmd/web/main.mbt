@@ -6,5 +6,5 @@
 
 ///|
 fn main {
-  @rabbita.new(@frontend.app).mount("app")
+  @frontend.app().mount("app")
 }

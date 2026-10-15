@@ -67,17 +67,13 @@ pub fn domain_cards(pages : Array[Page]) -> @html.Html {
     let letter_class = "maked-domain maked-domain--" + page.letter
     let target = "/" + page.slug
     cards.push(
-      @html.div(
-        class=letter_class,
-        on_click=@nav.push_url(target),
-        [
-          @html.a(href=target, [
-            @html.span(class="letter", page.letter),
-            @html.span(class="name", page.title),
-            @html.span(class="role", page.role),
-          ]),
-        ],
-      ),
+      @html.div(class=letter_class, on_click=@nav.push_url(target), [
+        @html.a(href=target, [
+          @html.span(class="letter", page.letter),
+          @html.span(class="name", page.title),
+          @html.span(class="role", page.role),
+        ]),
+      ]),
     )
   }
   @html.div(class="maked-domains", cards)
@@ -89,7 +85,9 @@ pub fn domain_cards(pages : Array[Page]) -> @html.Html {
 /// The body is inserted with `Attrs::inner_html`, which is rabbita's
 /// raw-markup escape hatch. That is safe here only because the backend is the
 /// sole writer of this content and stores the strings itself -- it is not user
-/// input, and there is no write path in the API to make it so.
+/// input, and there is no write path in the API to make it so. The compiler's
+/// `alert_xss_vulnerable` warning on the next line is the expected consequence
+/// and is accepted here on the strength of that argument.
 pub fn page_view(page : Page) -> @html.Html {
   let body_attrs = @html.Attrs::build().inner_html(page.body)
   @html.article(class="maked-page", [
@@ -106,7 +104,8 @@ pub fn not_found_view(slug : String) -> @html.Html {
     @html.h1(class="maked-page-title", "Not found"),
     @html.p(
       class="maked-lede",
-      "Nothing at /" + slug +
+      "Nothing at /" +
+      slug +
       ". Try one of the five domains, or head back to the index.",
     ),
   ])
@@ -114,9 +113,7 @@ pub fn not_found_view(slug : String) -> @html.Html {
 
 ///|
 pub fn loading_view() -> @html.Html {
-  @html.article(class="maked-page", [
-    @html.p(class="maked-lede", "Loading…"),
-  ])
+  @html.article(class="maked-page", [@html.p(class="maked-lede", "Loading…")])
 }
 
 ///|
@@ -124,5 +121,231 @@ pub fn error_view(reason : String) -> @html.Html {
   @html.article(class="maked-page", [
     @html.h1(class="maked-page-title", "Server unavailable"),
     @html.p(class="maked-lede", reason),
+  ])
+}
+
+///|
+/// The loop panel on the index page: current position, drive slot, step/reset
+/// buttons, and the history of past transitions.
+pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
+  let error = if model.loop_error != "" {
+    @html.p(class="maked-loop-error", model.loop_error)
+  } else {
+    @html.nothing
+  }
+  match model.loop_status {
+    None =>
+      @html.section(class="maked-loop", [
+        @html.h2(class="maked-loop-title", "Loop"),
+        @html.p(class="maked-loop-loading", "Loading loop status…"),
+        error,
+      ])
+    Some(status) => {
+      let buttons = @html.div(class="maked-loop-buttons", [
+        @html.button(
+          class="maked-loop-btn",
+          on_click=emit(StepClicked),
+          "Step → \{status.next_domain}",
+        ),
+        @html.button(
+          class="maked-loop-btn maked-loop-btn--reset",
+          on_click=emit(ResetClicked),
+          "Reset",
+        ),
+      ])
+      let slot_designations = [
+        "处境", "取向", "先行", "行动", "反馈", "持存", "共在", "揭蔽",
+      ]
+      let slot_buttons : Array[@html.Html] = []
+      for slot in slot_designations {
+        let is_drive = if slot == status.drive_slot {
+          " maked-loop-slot--drive"
+        } else {
+          ""
+        }
+        slot_buttons.push(
+          @html.button(
+            class="maked-loop-slot\{is_drive}",
+            on_click=emit(SlotStepClicked(slot)),
+            slot,
+          ),
+        )
+      }
+      let slot_selector = @html.div(class="maked-loop-slots", [
+        @html.p(
+          class="maked-loop-slots-label",
+          "选择驱动槽（高亮为当前域的默认槽）：",
+        ),
+        @html.div(class="maked-loop-slot-grid", slot_buttons),
+      ])
+      let current = @html.div(class="maked-loop-current", [
+        @html.span(class="maked-loop-domain", status.current_domain),
+        @html.span(class="maked-loop-sep", "·"),
+        @html.span(class="maked-loop-position", status.current_position),
+        @html.span(class="maked-loop-gloss", status.current_gloss),
+        @html.span(class="maked-loop-sep", "·"),
+        @html.span(class="maked-loop-drive", "drive: \{status.drive_slot}"),
+      ])
+      let history_items : Array[@html.Html] = []
+      let n = status.history.length()
+      let mut i = n
+      while i > 0 {
+        i -= 1
+        let e = status.history[i]
+        history_items.push(
+          @html.li(class="maked-loop-event", [
+            @html.span(class="maked-loop-event-domain", e.domain),
+            @html.span(class="maked-loop-event-outcome", e.outcome),
+            @html.span(class="maked-loop-event-detail", e.detail),
+          ]),
+        )
+      }
+      let history = if n == 0 {
+        @html.p(class="maked-loop-empty", "No steps yet.")
+      } else {
+        @html.ul(class="maked-loop-history", history_items)
+      }
+      @html.section(class="maked-loop", [
+        @html.h2(class="maked-loop-title", "Loop"),
+        current,
+        buttons,
+        slot_selector,
+        history,
+        error,
+      ])
+    }
+  }
+}
+
+///|
+/// Research panel: fetch arxiv papers and drive the Loop.
+pub fn research_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
+  let buttons = @html.div(class="maked-research-buttons", [
+    @html.button(
+      class="maked-btn maked-btn-primary",
+      on_click=emit(FetchPapersClicked),
+      "Fetch SNN Papers",
+    ),
+    @html.button(
+      class="maked-btn maked-btn-accent",
+      on_click=emit(DriveLoopClicked),
+      "Drive Loop with Papers",
+    ),
+  ])
+  let papers_list = if model.research_papers.length() == 0 {
+    @html.p(
+      class="maked-research-empty",
+      "No papers loaded. Click 'Fetch SNN Papers' to begin.",
+    )
+  } else {
+    let items : Array[@html.Html] = []
+    for paper in model.research_papers {
+      let title = get_string(paper, "title", "Untitled")
+      let authors_array = get_string(paper, "authors", "")
+      let summary = get_string(paper, "summary", "")
+      let link = get_string(paper, "link", "#")
+      items.push(
+        @html.li(class="maked-research-paper", [
+          @html.a(href=link, class="maked-paper-title", [@html.text(title)]),
+          @html.p(class="maked-paper-authors", authors_array),
+          @html.p(class="maked-paper-summary", summary),
+        ]),
+      )
+    }
+    @html.ul(class="maked-research-list", items)
+  }
+  let triggers_list = if model.research_triggers.length() == 0 {
+    @html.nothing
+  } else {
+    let items : Array[@html.Html] = []
+    for trigger in model.research_triggers {
+      let paper_id = get_string(trigger, "paper_id", "")
+      let trigger_name = get_string(trigger, "trigger", "")
+      let slot = get_string(trigger, "slot", "")
+      items.push(
+        @html.li(class="maked-research-trigger", [
+          @html.span(class="maked-trigger-paper", paper_id),
+          @html.span(class="maked-trigger-name", trigger_name),
+          @html.span(class="maked-trigger-slot", slot),
+        ]),
+      )
+    }
+    @html.div(class="maked-triggers-section", [
+      @html.h3(class="maked-triggers-title", "Trigger Mappings"),
+      @html.ul(class="maked-triggers-list", items),
+    ])
+  }
+  let error = if model.research_error == "" {
+    @html.nothing
+  } else {
+    @html.p(class="maked-research-error", model.research_error)
+  }
+  @html.section(class="maked-research", [
+    @html.h2(class="maked-research-title", "Arxiv-Driven SNN Research"),
+    buttons,
+    papers_list,
+    triggers_list,
+    error,
+  ])
+}
+
+///|
+/// Causal inference panel: estimate the causal effect of paper "novelty" on
+/// a synthetic impact score using Double/Debiased Machine Learning.
+pub fn causal_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
+  let button = @html.div(class="maked-causal-buttons", [
+    @html.button(
+      class="maked-btn maked-btn-causal",
+      on_click=emit(EstimateCausalClicked),
+      "Estimate Causal Effect (DoubleML)",
+    ),
+  ])
+  let result_view = match model.causal_result {
+    None =>
+      @html.p(
+        class="maked-causal-empty",
+        "Click the button to run causal inference on research papers.",
+      )
+    Some(causal) => {
+      let theta = get_string(causal, "theta", "0.0")
+      let se = get_string(causal, "se", "0.0")
+      let ci_lower = get_string(causal, "ci_lower", "0.0")
+      let ci_upper = get_string(causal, "ci_upper", "0.0")
+      let n_obs = get_string(causal, "n_obs", "0")
+      let n_treated = get_string(causal, "n_treated", "0")
+      let n_features = get_string(causal, "n_features", "0")
+      @html.div(class="maked-causal-results", [
+        @html.h3(class="maked-causal-subtitle", "Causal Effect Estimate"),
+        @html.dl(class="maked-causal-stats", [
+          @html.dt("Treatment Effect (θ)"),
+          @html.dd(class="maked-causal-value", theta),
+          @html.dt("Standard Error"),
+          @html.dd(se),
+          @html.dt("95% Confidence Interval"),
+          @html.dd("[\{ci_lower}, \{ci_upper}]"),
+          @html.dt("Observations"),
+          @html.dd(n_obs),
+          @html.dt("Treated"),
+          @html.dd(n_treated),
+          @html.dt("Features"),
+          @html.dd(n_features),
+        ]),
+        @html.p(
+          class="maked-causal-interpretation",
+          "The estimated causal effect of paper 'novelty' on impact, controlling for confounders via DoubleML.",
+        ),
+      ])
+    }
+  }
+  let error = if model.causal_error == "" {
+    @html.nothing
+  } else {
+    @html.p(class="maked-causal-error", model.causal_error)
+  }
+  @html.section(class="maked-causal", [
+    @html.h2(class="maked-causal-title", "Causal Inference"),
+    button,
+    result_view,
+    error,
   ])
 }

@@ -92,7 +92,7 @@ fn Database::migrate(self : Database) -> Unit raise {
 /// Insert or update pages by slug. Re-seeding is how the server starts, so
 /// the same file can be restarted without losing the schema.
 pub fn Database::seed(self : Database, pages : Array[Page]) -> Unit raise {
-  let upsert = (
+  let upsert =
     #|INSERT INTO pages (slug, title, letter, role, summary, body, nav, sort)
     #|VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     #|ON CONFLICT(slug) DO UPDATE SET
@@ -103,7 +103,6 @@ pub fn Database::seed(self : Database, pages : Array[Page]) -> Unit raise {
     #|  body = excluded.body,
     #|  nav = excluded.nav,
     #|  sort = excluded.sort
-  )
   let stmt = self.connection.prepare(upsert)
   for page in pages {
     // reset(clear_bindings) before every use: without the reset this statement
@@ -145,6 +144,13 @@ pub fn Database::page_by_slug(self : Database, slug : String) -> Page? raise {
   let stmt = self.connection.prepare(
     "SELECT " + SELECT_COLUMNS + " FROM pages WHERE slug = ?",
   )
+  // This reset is defensive, not load-bearing: the statement is prepared fresh
+  // here and has never stepped, so there are no previous bindings to clear.
+  // Removing it does not change any observable behaviour --
+  // `tools/mutate-backend.ps1` asserts exactly that and is expected to report
+  // the removal as an equivalent mutant. It is kept because this function is
+  // the obvious candidate for statement reuse, and the same line becomes
+  // load-bearing the moment that happens.
   stmt.reset(clear_bindings=true)
   stmt.bind(index=1, slug)
   let found = if stmt.step() { Some(read_page(stmt)) } else { None }

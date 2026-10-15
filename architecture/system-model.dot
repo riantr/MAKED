@@ -1,0 +1,108 @@
+// MAKED Component Graph &mdash; Graphviz DOT
+// Skill: system-modeler + graphviz
+//
+// Shows internal modules of the backend and frontend packages, their
+// dependencies on each other and on external MoonBit packages.
+// Render with: dot -Tsvg system-model.dot -o system-model.svg
+
+digraph maked_components {
+  rankdir=TB
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10]
+  edge [fontname="Helvetica", fontsize=8]
+
+  // --- Boundaries ---
+  subgraph cluster_backend {
+    label="backend/ (native)"
+    style=dashed
+    color="#4a7c9e"
+    node [fillcolor="#d4e6f1"]
+
+    app       [label="App\napp.mbt\nFlask-style router +\nmiddleware chain"]
+    api       [label="API\napi.mbt\n4 JSON endpoints"]
+    database  [label="Database\ndatabase.mbt\nSQLite storage layer"]
+    pages     [label="Pages\npages.mbt\nContent model +\nseed data"]
+    request   [label="Request\nrequest.mbt\nmoonback Request wrapper"]
+    response  [label="Response\nresponse.mbt\nJSON/text response helpers"]
+    maked_app [label="create_app\nmaked_app.mbt\nAssembly + static\n+ SPA fallback"]
+  }
+
+  subgraph cluster_frontend {
+    label="frontend/ (js)"
+    style=dashed
+    color="#7c9e4a"
+    node [fillcolor="#d9ead3"]
+
+    f_app    [label="App (Elm-style)\napp.mbt\nModel/Update/View"]
+    f_page   [label="Page\npage.mbt\nJSON decoding +\nnavigation"]
+    f_views  [label="Views\nviews.mbt\nHeader, cards,\npage rendering"]
+    f_logo   [label="Logo\nlogo.mbt\nSVG ring + taijitu"]
+  }
+
+  subgraph cluster_cmd {
+    label="cmd/ (entry points)"
+    style=dashed
+    color="#9e7c4a"
+    node [fillcolor="#fde8cd"]
+
+    cmd_server [label="cmd/server\nmain.mbt\nNative entry point"]
+    cmd_web    [label="cmd/web\nmain.mbt\nJS entry point"]
+  }
+
+  // --- External dependencies ---
+  node [shape=component, fillcolor="#e8e8e8"]
+
+  moonback   [label="moonback\nHTTP server framework"]
+  sqlite3    [label="sqlite3\nSQLite FFI bindings"]
+  rabbita    [label="rabbita\nElm-style SPA framework"]
+  async      [label="moonbitlang/async\nAsync runtime + fs + http"]
+  async_http [label="async/http\nHTTP types"]
+  async_fs   [label="async/fs\nFilesystem ops"]
+  static_mw  [label="moonback/unstable_static\nStatic file middleware"]
+  rabbita_html [label="rabbita/html\nHTML virtual DOM"]
+  rabbita_nav  [label="rabbita/nav\nHistory API routing"]
+  rabbita_sub  [label="rabbita/sub\nSubscriptions"]
+  rabbita_cmd  [label="rabbita/cmd\nCommands + Emit"]
+  rabbita_http   [label="rabbita/http\nHTTP client"]
+  rabbita_url    [label="rabbita/url\nURL parsing"]
+  rabbita_svg    [label="rabbita/svg\nSVG elements"]
+
+  // --- Backend edges ---
+  app -> request       [label="wraps"]
+  app -> response      [label="produces"]
+  app -> moonback      [label="adapts to\nModule/Handler"]
+  api -> app           [label="registers\nroutes on"]
+  api -> database      [label="queries"]
+  api -> pages         [label="uses\nring_domains()"]
+  database -> sqlite3  [label="prepare/step/\nfinalize"]
+  database -> pages    [label="stores\nPage records"]
+  maked_app -> app     [label="creates\nApp"]
+  maked_app -> database [label="opens +\nseeds"]
+  maked_app -> api     [label="build_api()"]
+  maked_app -> static_mw  [label="static_files()"]
+  maked_app -> async_fs   [label="read_file\n(index.html)"]
+
+  cmd_server -> maked_app  [label="create_app()"]
+  cmd_server -> app        [label="to_module()"]
+  cmd_server -> moonback   [label="App + listen +\nserve"]
+  cmd_server -> async      [label="async runtime"]
+  cmd_server -> async_fs   [label="exists()"]
+
+  // --- Frontend edges ---
+  f_app -> f_page    [label="decode_pages\nfind_page\nnavigation"]
+  f_app -> f_views   [label="header\ndomain_cards\npage_view"]
+  f_app -> f_logo    [label="logo()"]
+  f_app -> rabbita       [label="create_state\nwith_init"]
+  f_app -> rabbita_cmd   [label="Emit, Cmd"]
+  f_app -> rabbita_sub   [label="on_url_changed"]
+  f_app -> rabbita_http  [label="GET /api/pages"]
+  f_app -> rabbita_html  [label="Html builders"]
+  f_page -> rabbita_http [label="Json decoding"]
+  f_views -> f_logo      [label="logo_mark()"]
+  f_views -> rabbita_html [label="html elements"]
+  f_views -> rabbita_nav  [label="push_url"]
+  f_views -> rabbita_svg  [label="svg elements"]
+  f_logo -> rabbita_svg   [label="svg primitives"]
+
+  cmd_web -> f_app     [label="app()"]
+  cmd_web -> rabbita   [label="new().mount()"]
+}

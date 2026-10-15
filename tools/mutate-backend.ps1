@@ -1,0 +1,170 @@
+# Mutation check for the backend tests.
+#
+# Green tests are not evidence. Each entry deliberately breaks one behaviour
+# and asserts the suite goes red. A mutation that survives means the test it
+# targeted does not actually reach the code.
+#
+#   .\tools\mutate-backend.ps1
+#
+# Run from anywhere; the repo root is derived from this script's own path.
+#
+# Files are patched and restored byte-exactly (UTF-8, no BOM, LF preserved) so
+# the repo is unchanged whichever way this script exits.
+#
+# Three traps this script already hit, all of which look like a weak test and
+# are not:
+#
+#   - An anchor that does not occur in the file. `String::Replace` then does
+#     nothing, the suite stays green, and the mutation is reported as
+#     SURVIVED. Anchors are therefore checked and a miss is an ERROR.
+#   - A single-quoted PowerShell string containing `` `" ``. The backtick is
+#     literal there, so the anchor silently never matches. Quote anchors that
+#     contain `"` with double quotes instead.
+#   - Expectation derived from the implementation is the failure this caught:
+#     the ring test compared each node's distance against RING_R, so shrinking
+#     the radius to 64 moved the nodes and the expectation together and the
+#     suite stayed green. The geometry is now pinned to literal coordinates.
+
+# A mutation marked `equivalent = $true` is *expected* to survive. That means
+# the change is unobservable, not that the suite is too weak -- the usual cause
+# is a statement that is prepared fresh on every call, for which a reset before
+# the first bind is a no-op. Hardening such a test would only assert something
+# that cannot fail. Keep these listed anyway: if the surrounding code ever
+# starts reusing one prepared statement, the entry flips to KILLED and that is
+# the signal you want.
+
+Set-Location (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+
+# `moon` writes diagnostics to stderr; under 'Stop' PowerShell turns every one
+# of them into a terminating error before the exit code is ever read.
+$ErrorActionPreference = 'Continue'
+$enc = New-Object System.Text.UTF8Encoding($false)
+
+# --- mutations ------------------------------------------------------------
+# name; file; old text; new text
+$mutations = @(
+  # The two SQLite behaviours the storage layer is shaped around.
+  @{
+    name = 'exec never steps the statement'
+    file = 'backend/database.mbt'
+    old  = '    ignore(stmt.step())
+    None'
+    new  = '    None'
+  },
+  @{
+    name = 'seed forgets to reset the statement'
+    file = 'backend/database.mbt'
+    old  = '    stmt.reset(clear_bindings=true)
+    stmt.bind(index=1, page.slug)'
+    new  = '    stmt.bind(index=1, page.slug)'
+  },
+  @{
+    name = 'page_by_slug forgets to reset before binding'
+    file = 'backend/database.mbt'
+    old  = '  stmt.reset(clear_bindings=true)
+  stmt.bind(index=1, slug)'
+    new  = '  stmt.bind(index=1, slug)'
+    # Expected to survive: this function prepares a *fresh* statement on every
+    # call, so it has no previous bindings and has never stepped. The reset is
+    # unobservable here. It stays listed because the moment this function starts
+    # reusing one prepared statement, the same mutation becomes a real bug and
+    # this entry flips to KILLED.
+    equivalent = $true
+  },
+  # Read-side guards.
+  @{
+    name = 'page_by_slug ignores the slug it was given'
+    file = 'backend/database.mbt'
+    old  = ' FROM pages WHERE slug = ?"'
+    new  = ' FROM pages WHERE 1 = 1"'
+  },
+  @{
+    name = 'all_pages drops the sort order'
+    file = 'backend/database.mbt'
+    old  = ' FROM pages ORDER BY sort ASC, slug ASC'
+    new  = ' FROM pages'
+  },
+  @{
+    name = 'all_pages reads the nav flag as always false'
+    file = 'backend/database.mbt'
+    old  = '    in_navigation: (stmt.column(index=6) : Int64) != 0L,'
+    new  = '    in_navigation: false,'
+  },
+  @{
+    name = 'read_page shifts every column by one'
+    file = 'backend/database.mbt'
+    old  = '    title: stmt.column(index=1),'
+    new  = '    title: stmt.column(index=2),'
+  },
+  # Seed behaviour the tests claim to pin.
+  @{
+    name = 'seed stops after the first page'
+    file = 'backend/database.mbt'
+    old  = '  for page in pages {'
+    new  = '  for page in pages[0:1] {'
+  },
+  @{
+    name = 'seed never binds the sort key'
+    file = 'backend/database.mbt'
+    old  = '    stmt.bind(index=8, page.sort.to_int64())'
+    new  = '    stmt.bind(index=8, 0L)'
+  },
+  @{
+    name = 'seed never binds the nav flag'
+    file = 'backend/database.mbt'
+    old  = '    stmt.bind(index=7, if page.in_navigation { 1L } else { 0L })'
+    new  = '    stmt.bind(index=7, 1L)'
+  },
+  # The order the whole project treats as load-bearing. This is the mutation
+  # that looks the most harmless and is caught by exactly one test.
+  @{
+    name = 'ring order tidied into spelling order'
+    file = 'backend/pages.mbt'
+    old  = "    (`"model`", `"Model`", `"M`", `"the model formulator`"),
+    (`"data`", `"Data`", `"D`", `"the data turbine`"),
+    (`"experience`", `"Experience`", `"E`", `"the experience absorber`"),
+    (`"attack`", `"Attack`", `"A`", `"the attack generator`"),
+    (`"knowledge`", `"Knowledge`", `"K`", `"the knowledge distiller`"),"
+    new  = "    (`"model`", `"Model`", `"M`", `"the model formulator`"),
+    (`"attack`", `"Attack`", `"A`", `"the attack generator`"),
+    (`"knowledge`", `"Knowledge`", `"K`", `"the knowledge distiller`"),
+    (`"experience`", `"Experience`", `"E`", `"the experience absorber`"),
+    (`"data`", `"Data`", `"D`", `"the data turbine`"),"
+  }
+)
+
+# --- run ------------------------------------------------------------------
+$survivors = @()
+$equivalent = @()
+foreach ($m in $mutations) {
+  $full = Join-Path $PWD $m.file
+  $original = [System.IO.File]::ReadAllText($full)
+  try {
+    # A silent no-op Replace reports a mutation that never happened as a
+    # surviving test, which reads as a test weakness and is not one. Make an
+    # unmatched anchor an error instead.
+    if (-not $original.Contains($m.old)) {
+      throw "anchor not present in $($m.file) -- mutation never applied"
+    }
+    [System.IO.File]::WriteAllText($full, $original.Replace($m.old, $m.new), $enc)
+    $out = & moon test --target native backend 2>&1 | Out-String
+    $killed = ($LASTEXITCODE -ne 0) -or ($out -match 'failed: [1-9]')
+    if ($killed) {
+      Write-Output ("KILLED   {0}" -f $m.name)
+    } elseif ($m.equivalent) {
+      Write-Output ("EQUIV    {0}" -f $m.name)
+      $equivalent += $m.name
+    } else {
+      Write-Output ("SURVIVED {0}" -f $m.name)
+      $survivors += $m.name
+    }
+  } catch {
+    Write-Output ("ERROR    {0} :: {1}" -f $m.name, $_.Exception.Message)
+    $survivors += $m.name
+  } finally {
+    [System.IO.File]::WriteAllText($full, $original, $enc)
+  }
+}
+
+Write-Output ""
+Write-Output ("survivors: {0}   (expected-equivalent: {1})" -f $survivors.Count, $equivalent.Count)

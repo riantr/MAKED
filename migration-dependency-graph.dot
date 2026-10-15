@@ -1,0 +1,69 @@
+digraph migration_dependencies {
+  rankdir=LR;
+  fontname="Helvetica";
+  node [fontname="Helvetica", fontsize=10, shape=box, style=filled];
+  edge [fontname="Helvetica", fontsize=9];
+  
+  // Phase 1: Immediate
+  node [fillcolor=lightcoral];
+  slice1 [label="切片 1\n解锁 Loop\n前进能力\n─────────\n优先级: 高\n风险: 低\n工时: 1-2天"];
+  slice2 [label="切片 2\n集成测试\n基础设施\n─────────\n优先级: 高\n风险: 中\n工时: 2-3天"];
+  
+  // Phase 2: Short-term
+  node [fillcolor=lightyellow];
+  slice3 [label="切片 3\n状态管理\n重构\n─────────\n优先级: 中\n风险: 高\n工时: 3-5天"];
+  slice4 [label="切片 4\n配置系统\n─────────\n优先级: 中\n风险: 低\n工时: 2-3天"];
+  
+  // Phase 3: Medium-term
+  node [fillcolor=lightgreen];
+  slice5 [label="切片 5\n状态持久化\n─────────\n优先级: 低\n风险: 中\n工时: 2-3天"];
+  slice6 [label="切片 6\n可观测性\n─────────\n优先级: 低\n风险: 低\n工时: 2-3天"];
+  
+  // Dependencies
+  edge [color=blue, style=solid];
+  slice2 -> slice3 [label="安全网\n(必须先有\n集成测试)"];
+  slice3 -> slice4 [label="Context\n传递\n配置"];
+  slice3 -> slice5 [label="Context\n管理\nDatabase"];
+  slice3 -> slice6 [label="Context\n传递\nLogger"];
+  
+  // Parallel paths
+  edge [color=gray, style=dashed];
+  slice1 -> slice2 [label="可并行\n(无依赖)", constraint=false];
+  
+  // Critical path
+  edge [color=red, penwidth=2];
+  slice1 -> slice3 [label="关键路径", constraint=false];
+  
+  // Milestones
+  node [shape=diamond, fillcolor=gold, width=2];
+  m1 [label="里程碑 1\nLoop 可运行"];
+  m2 [label="里程碑 2\n测试安全网"];
+  m3 [label="里程碑 3\n架构稳固"];
+  m4 [label="里程碑 4\n生产就绪"];
+  
+  edge [style=dotted, color=darkgreen];
+  slice1 -> m1;
+  slice2 -> m2;
+  slice3 -> m3;
+  slice4 -> m3;
+  slice5 -> m4;
+  slice6 -> m4;
+  
+  // Legend
+  subgraph cluster_legend {
+    label="图例";
+    style=solid;
+    
+    node [shape=plaintext, fillcolor=white];
+    legend [label=<
+      <table border="0" cellborder="1" cellspacing="0">
+        <tr><td bgcolor="lightcoral">阶段 1: 立即</td></tr>
+        <tr><td bgcolor="lightyellow">阶段 2: 短期</td></tr>
+        <tr><td bgcolor="lightgreen">阶段 3: 中期</td></tr>
+        <tr><td><font color="red">→</font></td><td>关键路径</td></tr>
+        <tr><td><font color="blue">→</font></td><td>依赖关系</td></tr>
+        <tr><td><font color="gray">- -→</font></td><td>可并行</td></tr>
+      </table>
+    >];
+  }
+}

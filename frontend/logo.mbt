@@ -20,10 +20,16 @@
 // place SVG text. Overlaying HTML keeps the letters in the page font, lets
 // them scale with the container, and sidesteps the gap entirely.
 
-///| Node letters and colours, clockwise from the top.
+///|
+/// Node letters and colours, clockwise from the top.
 /// A function rather than a `const`: MoonBit only allows immutable primitives
 /// in constants, and this is a list of tuples.
-fn nodes() -> Array[(String, String)] {
+///
+/// Public, and with `node_xy`/`node_percent` purely so `frontend_test.mbt`
+/// can pin the mark: `_test.mbt` is a blackbox package and sees only `pub`.
+/// The letters-in-ring-order property is the one thing here a plausible
+/// plausible "tidying" would break while still rendering a plausible logo.
+pub fn nodes() -> Array[(String, String)] {
   [
     ("M", "#2c3e9e"),
     ("D", "#27ae60"),
@@ -33,19 +39,29 @@ fn nodes() -> Array[(String, String)] {
   ]
 }
 
-///| The SVG coordinate space; the viewBox is 0 0 200 200.
-const VIEW : Int = 200
+///|
+/// The SVG coordinate space; the viewBox is 0 0 200 200.
+const VIEW : Int32 = 200
 
-const CX : Int = 100
+// Private on purpose: the tests assert literal coordinates rather than
+// recomputing them from these, because an expectation derived from the
+// implementation's own inputs cannot fail when those inputs change.
 
-const CY : Int = 100
+///|
+const CX : Int32 = 100
 
-const RING_R : Int = 68
+///|
+const CY : Int32 = 100
 
-const NODE_R : Int = 22
+///|
+const RING_R : Int32 = 68
 
-///| Angle in radians for node `i` of 5, clockwise from straight up.
-fn node_angle(i : Int) -> Double {
+///|
+const NODE_R : Int32 = 22
+
+///|
+/// Angle in radians for node `i` of 5, clockwise from straight up.
+fn node_angle(i : Int32) -> Double {
   // 72 degrees per node; -90 degrees puts node 0 at the top.
   let degrees = -90.0 + 72.0 * i.to_double()
   degrees * 3.141592653589793 / 180.0
@@ -54,7 +70,7 @@ fn node_angle(i : Int) -> Double {
 ///|
 /// Integer centre for node `i`. SVG coordinates are `Int`, so the trig is
 /// rounded rather than left fractional.
-fn node_xy(i : Int) -> (Int, Int) {
+pub fn node_xy(i : Int32) -> (Int32, Int32) {
   let angle = node_angle(i)
   let x = CX.to_double() + RING_R.to_double() * @math.cos(angle)
   let y = CY.to_double() + RING_R.to_double() * @math.sin(angle)
@@ -63,7 +79,7 @@ fn node_xy(i : Int) -> (Int, Int) {
 
 ///|
 /// The same centre as a percentage of the viewBox, for the HTML overlay.
-fn node_percent(i : Int) -> (String, String) {
+pub fn node_percent(i : Int32) -> (String, String) {
   let (x, y) = node_xy(i)
   (
     (x.to_double() * 100.0 / VIEW.to_double()).to_string() + "%",
@@ -126,7 +142,7 @@ fn ring_svg() -> @html.Html {
         cx=x,
         cy=y,
         r=NODE_R,
-        fill=(nodes())[i].1,
+        fill=nodes()[i].1,
         stroke="#ffffff",
         stroke_width=2,
       ),
@@ -144,25 +160,28 @@ fn ring_svg() -> @html.Html {
 ///|
 /// The letters, positioned over the ring.
 fn ring_letters() -> @html.Html {
-  @html.div(class="maked-ring-letters", {
-    let letters = []
-    for i in 0..<5 {
-      let (left, top) = node_percent(i)
-      letters.push(
-        @html.span(
-          class="maked-ring-letter",
-          style=["left: " + left, "top: " + top],
-          (nodes())[i].0,
-        ),
-      )
-    }
-    letters
-  })
+  @html.div(
+    class="maked-ring-letters",
+    {
+      let letters = []
+      for i in 0..<5 {
+        let (left, top) = node_percent(i)
+        letters.push(
+          @html.span(
+            class="maked-ring-letter",
+            style=["left: " + left, "top: " + top],
+            nodes()[i].0,
+          ),
+        )
+      }
+      letters
+    },
+  )
 }
 
 ///|
 /// The complete mark with letters, for the index hero.
-pub fn logo(size : Int) -> @html.Html {
+pub fn logo(size : Int32) -> @html.Html {
   @html.div(
     class="maked-mark",
     style=["width: \{size}px", "height: \{size}px"],
@@ -173,7 +192,7 @@ pub fn logo(size : Int) -> @html.Html {
 ///|
 /// A compact variant for the header: the ring without the letter text, which
 /// stays legible at small sizes.
-pub fn logo_mark(size : Int) -> @html.Html {
+pub fn logo_mark(size : Int32) -> @html.Html {
   @html.div(
     class="maked-mark",
     style=["width: \{size}px", "height: \{size}px"],

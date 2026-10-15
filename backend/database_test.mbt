@@ -12,6 +12,10 @@
 /// makes it fail, not merely change shape. A test that passes either way is
 /// not evidence, so where a guard exists the test asserts on the *outcome*
 /// the guard protects rather than on the guard itself.
+///
+/// MoonBit compiles a `_test.mbt` file as a *blackbox* package: it sees only
+/// `pub` items and wants cross-file names qualified as `@backend.<name>`. An
+/// unqualified one is a `test_unqualified_package` warning, not an error.
 
 ///|
 fn temp_db(name : String) -> String {
@@ -26,16 +30,16 @@ async fn drop_db(path : String) -> Unit {
 }
 
 ///|
-async fn open_fresh(name : String) -> Database {
+async fn open_fresh(name : String) -> @backend.Database {
   let path = temp_db(name)
   drop_db(path)
-  Database::open(path)
+  @backend.Database::open(path)
 }
 
 ///|
 async test "seeded pages round-trip through SQLite" {
   let db = open_fresh("roundtrip")
-  let pages = seed_pages()
+  let pages = @backend.seed_pages()
   db.seed(pages)
   let loaded = db.all_pages()
   assert_eq(loaded.length(), pages.length())
@@ -46,15 +50,12 @@ async test "seeded pages round-trip through SQLite" {
 ///|
 async test "ring order survives storage: M D E A K" {
   let db = open_fresh("ring")
-  db.seed(seed_pages())
+  db.seed(@backend.seed_pages())
   let loaded = db.all_pages()
   let domains = loaded.filter(fn(p) { p.letter != "" })
   // This is the load-bearing property: the order the logo draws the ring in,
   // not the order the name is spelled.
-  assert_eq(
-    domains.map(fn(p) { p.letter }),
-    ["M", "D", "E", "A", "K"],
-  )
+  assert_eq(domains.map(fn(p) { p.letter }), ["M", "D", "E", "A", "K"])
   db.close()
   drop_db(temp_db("ring"))
 }
@@ -62,9 +63,9 @@ async test "ring order survives storage: M D E A K" {
 ///|
 async test "re-seeding updates in place instead of duplicating" {
   let db = open_fresh("reseed")
-  db.seed(seed_pages())
+  db.seed(@backend.seed_pages())
   let first = db.all_pages().length()
-  db.seed(seed_pages())
+  db.seed(@backend.seed_pages())
   let second = db.all_pages().length()
   // Seed runs on every start-up, so it has to be idempotent.
   assert_eq(first, second)
@@ -75,7 +76,7 @@ async test "re-seeding updates in place instead of duplicating" {
 ///|
 async test "text content survives the round trip byte for byte" {
   let db = open_fresh("cjk")
-  let page : Page = {
+  let page : @backend.Page = {
     slug: "cjk",
     title: "标题",
     letter: "字",
@@ -94,7 +95,10 @@ async test "text content survives the round trip byte for byte" {
       assert_eq(loaded.letter, "字")
       assert_eq(loaded.role, "的角色")
       assert_eq(loaded.summary, "摘要 — 带破折号")
-      assert_eq(loaded.body, "<p>模型攻击与对抗 — 太极环 &amp; more</p>")
+      assert_eq(
+        loaded.body,
+        "<p>模型攻击与对抗 — 太极环 &amp; more</p>",
+      )
       assert_eq(loaded.in_navigation, true)
       assert_eq(loaded.sort, 7)
     }
@@ -111,10 +115,26 @@ async test "seeding two pages in one call does not repeat the first" {
   // to reset between iterations, the second insert would fail or carry the
   // first row's bindings, and this would catch it.
   db.seed([
-    { slug: "one", title: "One", letter: "", role: "", summary: "s1",
-      body: "b1", in_navigation: true, sort: 0 },
-    { slug: "two", title: "Two", letter: "", role: "", summary: "s2",
-      body: "b2", in_navigation: false, sort: 1 },
+    {
+      slug: "one",
+      title: "One",
+      letter: "",
+      role: "",
+      summary: "s1",
+      body: "b1",
+      in_navigation: true,
+      sort: 0,
+    },
+    {
+      slug: "two",
+      title: "Two",
+      letter: "",
+      role: "",
+      summary: "s2",
+      body: "b2",
+      in_navigation: false,
+      sort: 1,
+    },
   ])
   assert_eq(db.all_pages().length(), 2)
   match db.page_by_slug("one") {
@@ -142,9 +162,9 @@ async test "seeding two pages in one call does not repeat the first" {
 ///|
 async test "a query for a missing slug returns None rather than raising" {
   let db = open_fresh("missing")
-  db.seed(seed_pages())
+  db.seed(@backend.seed_pages())
   // Asserted by matching rather than `assert_eq` on an Option: that would
-  // require a Debug impl on Page just to print a failure.
+  // require a Debug impl on @backend.Page just to print a failure.
   assert_true(db.page_by_slug("no-such-page") is None)
   db.close()
   drop_db(temp_db("missing"))
@@ -152,16 +172,16 @@ async test "a query for a missing slug returns None rather than raising" {
 
 ///|
 async test "migrate is idempotent and exec really executes" {
-  // `Database::open` calls `migrate`, which creates the table. Opening the
+  // `@backend.Database::open` calls `migrate`, which creates the table. Opening the
   // same file twice is only safe if the DDL actually ran the first time AND
   // the schema statement is idempotent. A never-stepped DDL statement would
   // leave no table, and the seed below would fail with "no such table".
   let path = temp_db("migrate")
   drop_db(path)
-  let first = Database::open(path)
-  first.seed(seed_pages())
+  let first = @backend.Database::open(path)
+  first.seed(@backend.seed_pages())
   first.close()
-  let second = Database::open(path)
+  let second = @backend.Database::open(path)
   assert_true(second.all_pages().length() > 0)
   second.close()
   drop_db(path)
@@ -170,8 +190,8 @@ async test "migrate is idempotent and exec really executes" {
 ///|
 async test "navigation and lookup see seeded content" {
   let db = open_fresh("nav")
-  db.seed(seed_pages())
-  db.seed([home_page(), not_found_page()])
+  db.seed(@backend.seed_pages())
+  db.seed([@backend.home_page(), @backend.not_found_page()])
   let all = db.all_pages()
   // index sorts first, then the five domains in ring order, then utilities.
   assert_eq(all[0].slug, "index")

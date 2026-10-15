@@ -2,6 +2,13 @@
 //
 // This is a library package so the views can be tested without a browser; the
 // bundle is produced by `cmd/web`, which is the executable that mounts it.
+//
+// `Json` is a builtin and needs no import, and `assert_eq`/`assert_true` come
+// from the prelude, so neither `moonbitlang/core/json` nor
+// `moonbitlang/core/test` is listed: importing either is an `unused_package`
+// warning. `string` is used by `frontend_test.mbt` alone, so it goes in the
+// `for "test"` block -- in the main block it is likewise unused. `double` is
+// not listed at all: `sqrt`/`abs` resolve as `Double` methods without it.
 import {
   "moonbit-community/rabbita",
   "moonbit-community/rabbita/cmd",
@@ -11,8 +18,11 @@ import {
   "moonbit-community/rabbita/sub",
   "moonbit-community/rabbita/svg",
   "moonbit-community/rabbita/url",
-  "moonbitlang/core/json",
   "moonbitlang/core/math",
 }
 
 supported_targets = "js"
+
+import {
+  "moonbitlang/core/string",
+} for "test"

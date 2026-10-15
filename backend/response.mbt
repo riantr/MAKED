@@ -8,7 +8,7 @@
 ///|
 /// JSON response payload plus the status and headers a handler wants.
 pub(all) struct Response {
-  status : Int
+  status : Int32
   headers : Array[(String, String)]
   body : Body
 }
@@ -21,13 +21,13 @@ pub(all) enum Body {
 }
 
 ///|
-pub fn Response::text(body : String, status? : Int = 200) -> Response {
-  { status, headers: [], body: Text(body) }
+pub fn Response::text(body : String, status~ : Int32 = 200) -> Response {
+  { status, headers: [], body: Text(body), }
 }
 
 ///|
-pub fn Response::json(body : Json, status? : Int = 200) -> Response {
-  { status, headers: [], body: Json(body) }
+pub fn Response::json(body : Json, status~ : Int32 = 200) -> Response {
+  { status, headers: [], body: Json(body), }
 }
 
 ///|
@@ -36,7 +36,11 @@ pub fn Response::with_header(
   name : String,
   value : String,
 ) -> Response {
-  { status: self.status, headers: [..self.headers, (name, value)], body: self.body }
+  {
+    status: self.status,
+    headers: [..self.headers, (name, value)],
+    body: self.body,
+  }
 }
 
 ///|

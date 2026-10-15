@@ -1,0 +1,74 @@
+digraph evolution {
+  rankdir=TB;
+  fontname="Helvetica";
+  node [fontname="Helvetica", fontsize=10];
+  edge [fontname="Helvetica", fontsize=9];
+  
+  subgraph cluster_current {
+    label="当前架构（原型阶段）";
+    style=dashed;
+    color=gray60;
+    
+    node [shape=box, style=filled, fillcolor=lightblue];
+    
+    cmd_server [label="cmd/server\n(native exe)"];
+    cmd_web [label="cmd/web\n(js exe)"];
+    backend [label="backend\n(native lib)\n─────────\napi.mbt\nloop.mbt (全局状态)\npages.mbt\ndatabase.mbt"];
+    frontend [label="frontend\n(js lib)\n─────────\napp.mbt\nviews.mbt\nloop_state.mbt"];
+    pyroduct [label="pyroduct\n(外部依赖)\n─────────\n迁移表: 全部 Block"];
+    
+    cmd_server -> backend [label="import @maked"];
+    cmd_web -> frontend [label="import"];
+    backend -> pyroduct [label="@sm.step()\n返回 Block"];
+    backend -> backend [label="g_loop_state[0]\n模块级全局", style=dotted];
+  }
+  
+  subgraph cluster_target {
+    label="目标架构（生产就绪）";
+    style=dashed;
+    color=gray60;
+    
+    node [shape=box, style=filled, fillcolor=lightgreen];
+    
+    cmd_server_t [label="cmd/server\n(native exe)"];
+    cmd_web_t [label="cmd/web\n(js exe)"];
+    app_layer [label="应用层\n─────────\nAppContext\n依赖注入\n配置加载"];
+    backend_t [label="backend\n(native lib)\n─────────\n领域逻辑\n(无全局状态)"];
+    infra [label="基础设施层\n─────────\nDatabase\nLogger\nMetrics"];
+    frontend_t [label="frontend\n(js lib)\n─────────\nSlot 选择器\n配置驱动"];
+    pyroduct_t [label="pyroduct\n(外部依赖)\n─────────\n迁移表: 有效迁移"];
+    config [label="配置系统\n─────────\nloop_config.json\n环境变量"];
+    
+    cmd_server_t -> app_layer;
+    cmd_web_t -> frontend_t;
+    app_layer -> backend_t;
+    app_layer -> infra;
+    app_layer -> config [label="加载配置"];
+    backend_t -> pyroduct_t [label="@sm.step()\n返回 Moved/Held"];
+    frontend_t -> app_layer [label="API 调用\n(带 slot 参数)"];
+  }
+  
+  // Migration arrows
+  edge [style=bold, color=red, constraint=false];
+  backend -> app_layer [label="切片3:\n状态管理\n重构"];
+  pyroduct -> pyroduct_t [label="切片1:\n解锁迁移表\n或包装逻辑"];
+  frontend -> frontend_t [label="切片1:\n添加 slot\n选择器"];
+  backend_t -> config [label="切片4:\n配置驱动"];
+  infra -> backend_t [label="切片5:\n持久化"];
+  
+  // Legend
+  subgraph cluster_legend {
+    label="图例";
+    style=solid;
+    color=black;
+    
+    node [shape=plaintext];
+    legend [label=<
+      <table border="0" cellborder="1" cellspacing="0">
+        <tr><td bgcolor="lightblue">当前组件</td></tr>
+        <tr><td bgcolor="lightgreen">目标组件</td></tr>
+        <tr><td><font color="red">→</font></td><td>迁移路径</td></tr>
+      </table>
+    >];
+  }
+}

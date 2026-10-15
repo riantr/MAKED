@@ -1,0 +1,102 @@
+// MAKED Evolution Roadmap &mdash; Graphviz DOT
+// Skill: evolution-planner + graphviz
+//
+// Shows the migration slices as a timeline with dependencies.
+// Render: dot -Tsvg evolution.dot -o evolution.svg
+
+digraph maked_evolution {
+  rankdir=LR
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10]
+  edge [fontname="Helvetica", fontsize=8]
+
+  // --- Current state ---
+  subgraph cluster_current {
+    label="Current state\n(as built)"
+    style=bold
+    color="#333333"
+    fillcolor="#f9f9f9"
+
+    current [
+      label="MAKED\n──────────\n• 2-target MoonBit\n• Single process\n• 9 read-only pages\n• SQLite\n• rabbita SPA\n• 16 tests\n• localhost:8080"
+      fillcolor="#d4e6f1"
+      width=2.5
+    ]
+  }
+
+  // --- Slices ---
+  subgraph cluster_slices {
+    label="Migration slices"
+    style=dashed
+    color="#666666"
+
+    slice1 [
+      label="Slice 1: CI gate\n──────────\n• moon test on push\n• moon build checks\n• 2 hours, low risk"
+      fillcolor="#d5f5e3"
+    ]
+
+    slice2 [
+      label="Slice 2: Containerize\n──────────\n• Dockerfile\n• docker-compose\n• 4 hours, low risk"
+      fillcolor="#d5f5e3"
+    ]
+
+    slice3 [
+      label="Slice 3: Harden\n──────────\n• /health endpoint\n• JSON logging\n• SQLite WAL\n• TLS via Caddy\n• 1 day, medium risk"
+      fillcolor="#fde8cd"
+    ]
+
+    slice4 [
+      label="Slice 4: Edit content\n──────────\n• Auth middleware\n• POST/PUT/DELETE API\n• Admin UI\n• Input sanitization\n• 1-2 weeks, high risk"
+      fillcolor="#fadbd8"
+    ]
+
+    slice5 [
+      label="Slice 5: Framework\n──────────\n• Extract maked/framework\n• Publish to registry\n• 3-5 days, low risk"
+      fillcolor="#e8daef"
+      style=dashed
+    ]
+  }
+
+  // --- Target states ---
+  subgraph cluster_targets {
+    label="Target states"
+    style=dashed
+    color="#999999"
+
+    target_a [
+      label="Option A:\nProduction-ready\nsingle server"
+      shape=ellipse
+      fillcolor="#d5f5e3"
+    ]
+
+    target_b [
+      label="Option B:\nContent\nmanagement"
+      shape=ellipse
+      fillcolor="#fadbd8"
+    ]
+
+    target_d [
+      label="Option D:\nFramework\nextraction"
+      shape=ellipse
+      fillcolor="#e8daef"
+    ]
+  }
+
+  // --- Edges ---
+  current -> slice1 [label="start here", penwidth=2, color="#27ae60"]
+  slice1 -> slice2 [label="unlocks\ndeployment"]
+  slice2 -> slice3 [label="enables\nmonitoring"]
+  slice3 -> slice4 [label="production\nfirst"]
+  slice3 -> target_a [style=dashed, label="achieves"]
+  slice4 -> target_b [style=dashed, label="achieves"]
+  current -> slice5 [style=dashed, label="independent\npath", color="#8e44ad"]
+  slice5 -> target_d [style=dashed, label="achieves"]
+
+  // --- Timeline annotation ---
+  timeline [
+    label="Timeline\n──────────\nNow → +1 week → +2 weeks → +1 month → +2 months"
+    shape=note
+    fillcolor="#e8e8e8"
+  ]
+
+  slice1 -> timeline [style=invis]
+}

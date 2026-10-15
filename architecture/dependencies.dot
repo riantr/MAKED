@@ -1,0 +1,95 @@
+// MAKED Dependency Graph &mdash; Graphviz DOT
+// Skill: dependency-impact-analyzer + graphviz
+//
+// Shows package-level dependencies with change-impact annotations.
+// Node size reflects blast radius (larger = more downstream impact).
+// Render: dot -Tsvg dependencies.dot -o dependencies.svg
+
+digraph maked_dependencies {
+  rankdir=TB
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10]
+  edge [fontname="Helvetica", fontsize=8]
+
+  // --- Internal packages (sized by blast radius) ---
+  subgraph cluster_project {
+    label="Project packages"
+    style=dashed
+    color="#333333"
+
+    backend [
+      label="backend/\n──────────\napp.mbt (Handler, Middleware, App)\napi.mbt (4 endpoints)\ndatabase.mbt (SQLite)\npages.mbt (Page, seed)\nrequest.mbt, response.mbt\nmaked_app.mbt (assembly)",
+      fillcolor="#d4e6f1"
+      width=3.5
+    ]
+
+    frontend [
+      label="frontend/\n──────────\napp.mbt (Model, Msg, TEA)\npage.mbt (JSON decode)\nviews.mbt (rendering)\nlogo.mbt (SVG ring)",
+      fillcolor="#d9ead3"
+      width=3
+    ]
+
+    cmd_server [
+      label="cmd/server/\n──────────\nmain.mbt (native entry)",
+      fillcolor="#fde8cd"
+      width=2
+    ]
+
+    cmd_web [
+      label="cmd/web/\n──────────\nmain.mbt (js entry)",
+      fillcolor="#fde8cd"
+      width=2
+    ]
+  }
+
+  // --- External dependencies ---
+  subgraph cluster_external {
+    label="External dependencies"
+    style=dashed
+    color="#999999"
+    node [shape=component, fillcolor="#e8e8e8"]
+
+    moonback [label="moonback@0.8.6\nHTTP server + router"]
+    moonback_static [label="unstable_static\nstatic file middleware"]
+    sqlite3 [label="sqlite3@0.2.3\nSQLite FFI"]
+    async [label="async@0.22.4\nruntime + fs + http"]
+    rabbita [label="rabbita@0.16.4\nElm-style SPA"]
+    rabbita_html [label="rabbita/html\nvirtual DOM"]
+    rabbita_nav [label="rabbita/nav\nHistory API"]
+    rabbita_sub [label="rabbita/sub\nsubscriptions"]
+    rabbita_cmd [label="rabbita/cmd\nCmd + Emit"]
+    rabbita_http [label="rabbita/http\nHTTP client"]
+    rabbita_svg [label="rabbita/svg\nSVG elements"]
+    rabbita_url [label="rabbita/url\nURL parsing"]
+  }
+
+  // --- JSON contract (the only backend↔frontend link) ---
+  json_contract [
+    label="JSON API contract\n──────────\nGET /api/status\nGET /api/pages\nGET /api/pages/:slug\nGET /api/domains",
+    shape=note
+    fillcolor="#fce5cd"
+    style=dashed
+  ]
+
+  // --- Internal edges ---
+  cmd_server -> backend [label="imports @maked", penwidth=2, color="#4a7c9e"]
+  cmd_web -> frontend [label="imports @frontend", penwidth=2, color="#7c9e4a"]
+  backend -> json_contract [style=dashed, label="produces", color="#9e7c4a"]
+  frontend -> json_contract [style=dashed, label="consumes", color="#9e7c4a"]
+
+  // --- Backend external edges ---
+  backend -> moonback [label="adapts to\nModule/Handler/Responder"]
+  backend -> moonback_static [label="static_files()"]
+  backend -> sqlite3 [label="prepare/reset/bind/\nstep/finalize"]
+  backend -> async [label="async runtime"]
+  backend -> async [label="fs.read_file\n(index.html)", style=dashed]
+
+  // --- Frontend external edges ---
+  frontend -> rabbita [label="create_state_with_init\nnew().mount()"]
+  frontend -> rabbita_html [label="Html builders\n(div, header, article...)"]
+  frontend -> rabbita_nav [label="push_url()"]
+  frontend -> rabbita_sub [label="on_url_changed"]
+  frontend -> rabbita_cmd [label="Emit, Cmd"]
+  frontend -> rabbita_http [label="GET /api/pages\nexpect_json"]
+  frontend -> rabbita_svg [label="svg primitives\n(path, circle...)"]
+  frontend -> rabbita_url [label="Url type"]
+}

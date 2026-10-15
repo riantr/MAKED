@@ -21,8 +21,12 @@ pub(all) struct Page {
   summary : String
   body : String
   in_navigation : Bool
-  sort : Int
+  sort : Int32
 } derive(Eq)
+
+// The `implicit_impl_as_method` deprecation warning on that derive is accepted.
+// Declaring `extend Page with Eq::{not_equal, equal}` silences it but trades it
+// for two `unused_value` warnings, since nothing calls the promoted forms.
 
 ///|
 pub fn Page::to_json(self : Page) -> Json {
@@ -54,15 +58,20 @@ pub fn ring_domains() -> Array[(String, String, String, String)] {
 
 ///|
 fn domain_body(title : String, letter : String, role : String) -> String {
-  let head = "<p class=\"lead\"><strong>" + title + "</strong> &mdash; " + role + ".</p>"
-  let ring =
-    "This page is the <span class=\"letter\">" + letter +
+  let head = "<p class=\"lead\"><strong>" +
+    title +
+    "</strong> &mdash; " +
+    role +
+    ".</p>"
+  let ring = "This page is the <span class=\"letter\">" +
+    letter +
     "</span> node of that ring."
-  let tail =
-    "<p>What the cycle is meant to achieve was never written down. Four of the five applications are still empty scaffolds.</p>"
+  let tail = "<p>What the cycle is meant to achieve was never written down. Four of the five applications are still empty scaffolds.</p>"
   head +
   "<p>The mark arranges the five domains as a closed ring around a taijitu, running clockwise <strong>M &rarr; D &rarr; E &rarr; A &rarr; K</strong>. " +
-  ring + "</p>" + tail
+  ring +
+  "</p>" +
+  tail
 }
 
 ///|
@@ -130,11 +139,12 @@ pub fn seed_pages() -> Array[Page] {
     })
     sort += 1
   }
-  for (slug, title, summary, body) in [
-    ("tutorial", "Tutorial", "how to run it", tutorial_body()),
-    ("about", "About", "what this is", about_body()),
-    ("tasks", "Tasks", "what the server is doing", tasks_body()),
-  ] {
+  for
+    (slug, title, summary, body) in [
+      ("tutorial", "Tutorial", "how to run it", tutorial_body()),
+      ("about", "About", "what this is", about_body()),
+      ("tasks", "Tasks", "what the server is doing", tasks_body()),
+    ] {
     pages.push({
       slug,
       title,
