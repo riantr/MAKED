@@ -326,3 +326,29 @@ pub fn Paper::to_json(self : Paper) -> Json {
     "link": self.link,
   }
 }
+
+///|
+/// Test helpers: expose private functions for blackbox tests.
+pub fn to_lowercase_ascii_for_test(s : String) -> String {
+  s.to_lowercase_ascii()
+}
+
+///|
+pub fn clean_text_for_test(s : String) -> String {
+  clean_text(s)
+}
+
+///|
+pub fn extract_tag_for_test(xml : String, tag : String) -> String {
+  extract_tag(xml, tag)
+}
+
+///|
+pub fn split_entries_for_test(body : String) -> Array[String] {
+  split_entries(body)
+}
+
+///|
+pub fn parse_entry_for_test(entry : String) -> Paper? {
+  parse_entry(entry)
+}

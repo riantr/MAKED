@@ -15,7 +15,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-PORT=${MAKED_PORT:-$(( 9000 + RANDOM % 1000 ))}
+PORT=${MAKED_PORT:-$(( 49100 + RANDOM % 1000 ))}
 DB="_build/test-integration-$$.db"
 SERVER_PID=""
 PASS=0
