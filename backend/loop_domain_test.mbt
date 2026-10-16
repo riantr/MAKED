@@ -313,3 +313,107 @@ test "domain_from_english returns None for invalid input" {
   assert_true(@backend.domain_from_english("unknown") is None)
   assert_true(@backend.domain_from_english("M") is None)
 }
+
+///|
+/// LoopMode::designation returns correct Chinese names.
+test "LoopMode::designation returns correct names" {
+  assert_eq(@backend.Structured.designation(), "结构")
+  assert_eq(@backend.Free.designation(), "自由")
+}
+
+///|
+/// LoopMode::gloss returns correct descriptions.
+test "LoopMode::gloss returns correct descriptions" {
+  assert_eq(
+    @backend.Structured.gloss(),
+    "遵循环序 M→D→E→A→K，每域使用驱动槽",
+  )
+  assert_eq(@backend.Free.gloss(), "任意槽驱动，探索状态空间")
+}
+
+///|
+/// LoopState::new defaults to Structured mode.
+test "LoopState::new defaults to Structured mode" {
+  let state = @backend.LoopState::new()
+  assert_true(state.mode is @backend.Structured)
+}
+
+///|
+/// LoopState::new_with_mode creates state in specified mode.
+test "LoopState::new_with_mode creates correct mode" {
+  let structured = @backend.LoopState::new_with_mode(@backend.Structured)
+  assert_true(structured.mode is @backend.Structured)
+  let free = @backend.LoopState::new_with_mode(@backend.Free)
+  assert_true(free.mode is @backend.Free)
+}
+
+///|
+/// LoopState::to_json includes mode fields.
+test "LoopState::to_json includes mode fields" {
+  let state = @backend.LoopState::new()
+  let json = state.to_json()
+  match json {
+    Object(fields) => {
+      assert_true(fields.get("mode") is Some(_))
+      assert_true(fields.get("mode_designation") is Some(_))
+      assert_true(fields.get("mode_gloss") is Some(_))
+    }
+    _ => fail("to_json did not return an object")
+  }
+}
+
+///|
+/// step_with_slot preserves mode field.
+test "step_with_slot preserves mode" {
+  let state = @backend.LoopState::new_with_mode(@backend.Free)
+  let stepped = state.step_with_slot(@sm.Occasion)
+  assert_true(stepped.mode is @backend.Free)
+}
+
+///|
+/// Free mode: step stays on same domain when outcome is Block.
+test "free mode stays on Block" {
+  let state = @backend.LoopState::new_with_mode(@backend.Free)
+  let initial_domain = state.current
+  // Step - if outcome is Block, should stay on same domain
+  let stepped = state.step()
+  // Check if the outcome was Block by looking at the last event
+  match stepped.history.last() {
+    Some(event) =>
+      if event.outcome_label == "无路" {
+        // Should stay on same domain
+        assert_eq(stepped.current, initial_domain)
+      }
+    // If not Block, it advances (tested in structured mode)
+    None => fail("step should always add an event")
+  }
+}
+
+///|
+/// Structured mode: step always advances to next domain.
+test "structured mode always advances" {
+  let state = @backend.LoopState::new_with_mode(@backend.Structured)
+  let initial_domain = state.current
+  let stepped = state.step()
+  // In structured mode, always advances regardless of outcome
+  assert_eq(stepped.current, initial_domain.next())
+}
+
+///|
+/// set_loop_mode changes the mode.
+test "set_loop_mode changes mode" {
+  @backend.reset_loop() |> ignore
+  let state1 = @backend.set_loop_mode(@backend.Free)
+  assert_true(state1.mode is @backend.Free)
+  let state2 = @backend.set_loop_mode(@backend.Structured)
+  assert_true(state2.mode is @backend.Structured)
+}
+
+///|
+/// get_loop_mode returns current mode.
+test "get_loop_mode returns current mode" {
+  @backend.reset_loop() |> ignore
+  @backend.set_loop_mode(@backend.Free) |> ignore
+  let mode = @backend.get_loop_mode()
+  assert_true(mode is @backend.Free)
+}

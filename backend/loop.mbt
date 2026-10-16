@@ -36,6 +36,39 @@ pub extend Domain with Eq::{not_equal, equal}
 pub extend Domain with Debug::{to_repr}
 
 ///|
+/// The loop mode: structured (follow ring order) or free (explore state space).
+pub(all) enum LoopMode {
+  /// Structured mode: each domain uses its designated drive slot, following
+  /// the ring order M→D→E→A→K. This is the philosophical default.
+  Structured
+  /// Free mode: any slot can be used at any position, allowing exploration
+  /// of different trajectories through the pyroduct state space.
+  Free
+} derive(Eq, Debug)
+
+///|
+pub extend LoopMode with Eq::{not_equal, equal}
+
+///|
+pub extend LoopMode with Debug::{to_repr}
+
+///|
+pub fn LoopMode::designation(self : LoopMode) -> String {
+  match self {
+    Structured => "结构"
+    Free => "自由"
+  }
+}
+
+///|
+pub fn LoopMode::gloss(self : LoopMode) -> String {
+  match self {
+    Structured => "遵循环序 M→D→E→A→K，每域使用驱动槽"
+    Free => "任意槽驱动，探索状态空间"
+  }
+}
+
+///|
 pub fn Domain::letter(self : Domain) -> String {
   match self {
     Model => "M"
@@ -280,12 +313,13 @@ pub fn DomainState::step(self : DomainState, slot : @sm.Slot) -> DomainState {
 }
 
 ///|
-/// The loop state: current domain + per-domain independent state machines + group state.
+/// The loop state: current domain + per-domain independent state machines + group state + mode.
 pub(all) struct LoopState {
   current : Domain
   domain_states : Map[Domain, DomainState]
   group_state : @group.GroupState
   history : Array[LoopEvent]
+  mode : LoopMode
 } derive(Eq)
 
 ///|
@@ -297,7 +331,13 @@ pub fn LoopState::new() -> LoopState {
   for domain in ring_domains_loop() {
     domain_states[domain] = DomainState::new(domain)
   }
-  { current: Model, domain_states, group_state: @group.Scattered, history: [], }
+  {
+    current: Model,
+    domain_states,
+    group_state: @group.Scattered,
+    history: [],
+    mode: Structured,
+  }
 }
 
 ///|
@@ -314,6 +354,23 @@ pub fn LoopState::new_from(domain : Domain) -> LoopState {
     domain_states,
     group_state: @group.Scattered,
     history: [],
+    mode: Structured,
+  }
+}
+
+///|
+/// Create a new loop state in the specified mode.
+pub fn LoopState::new_with_mode(mode : LoopMode) -> LoopState {
+  let domain_states = Map([], capacity=8)
+  for domain in ring_domains_loop() {
+    domain_states[domain] = DomainState::new(domain)
+  }
+  {
+    current: Model,
+    domain_states,
+    group_state: @group.Scattered,
+    history: [],
+    mode,
   }
 }
 
@@ -360,12 +417,16 @@ fn compute_group_state(
 /// Take one step: record the current position × slot outcome, advance to the
 /// next domain. The outcome comes from pyroduct's migration table -- the loop
 /// never invents a move.
+///
+/// In Structured mode, always advances to the next domain (ring order).
+/// In Free mode, only advances if the outcome is not Block ("无路").
 pub fn LoopState::step(self : LoopState) -> LoopState {
   let domain = self.current
   let domain_state = self.domain_states[domain]
   let slot = domain.slot_to_next()
   let new_domain_state = domain_state.step(slot)
   let history = self.history
+  let mode = self.mode
   // Get the last event from the new domain state's history
   match new_domain_state.history.last() {
     Some(event) => {
@@ -373,8 +434,17 @@ pub fn LoopState::step(self : LoopState) -> LoopState {
       let domain_states = self.domain_states
       domain_states[domain] = new_domain_state
       let group_state = compute_group_state(domain_states)
-      // Always advance to the next domain in the ring
-      { current: domain.next(), domain_states, group_state, history, }
+      // In Structured mode, always advance. In Free mode, only advance if not Block.
+      let next_domain = match mode {
+        Structured => domain.next()
+        Free =>
+          if event.outcome_label == "无路" {
+            domain
+          } else {
+            domain.next()
+          }
+      }
+      { current: next_domain, domain_states, group_state, history, mode, }
     }
     None => {
       let group_state = compute_group_state(self.domain_states)
@@ -384,6 +454,7 @@ pub fn LoopState::step(self : LoopState) -> LoopState {
         domain_states: self.domain_states,
         group_state,
         history,
+        mode,
       }
     }
   }
@@ -391,6 +462,7 @@ pub fn LoopState::step(self : LoopState) -> LoopState {
 
 ///|
 /// Step by an explicit slot (for the API: let the caller choose the drive).
+/// Preserves the current mode (Structured/Free).
 pub fn LoopState::step_with_slot(
   self : LoopState,
   slot : @sm.Slot,
@@ -399,6 +471,7 @@ pub fn LoopState::step_with_slot(
   let domain_state = self.domain_states[domain]
   let new_domain_state = domain_state.step(slot)
   let history = self.history
+  let mode = self.mode
   // Get the last event from the new domain state's history
   match new_domain_state.history.last() {
     Some(event) => {
@@ -412,7 +485,7 @@ pub fn LoopState::step_with_slot(
       } else {
         domain.next()
       }
-      { current: next_domain, domain_states, group_state, history, }
+      { current: next_domain, domain_states, group_state, history, mode, }
     }
     None => {
       let group_state = compute_group_state(self.domain_states)
@@ -422,6 +495,7 @@ pub fn LoopState::step_with_slot(
         domain_states: self.domain_states,
         group_state,
         history,
+        mode,
       }
     }
   }
@@ -515,6 +589,27 @@ pub fn reset_to(domain : Domain) -> LoopState {
 }
 
 ///|
+/// Get the current loop mode.
+pub fn get_loop_mode() -> LoopMode {
+  g_loop_state[0].mode
+}
+
+///|
+/// Set the loop mode (Structured or Free).
+pub fn set_loop_mode(mode : LoopMode) -> LoopState {
+  let current = g_loop_state[0]
+  let new_state = {
+    current: current.current,
+    domain_states: current.domain_states,
+    group_state: current.group_state,
+    history: current.history,
+    mode,
+  }
+  g_loop_state[0] = new_state
+  new_state
+}
+
+///|
 /// All eight drive slots with their designation and gloss, for the frontend.
 pub fn all_slots_info() -> Array[(String, String, String, String)] {
   let slots = @sm.all_slots()
@@ -569,5 +664,11 @@ pub fn LoopState::to_json(self : LoopState) -> Json {
     "domain_states": [..domain_states_json],
     "group_state": self.group_state.designation(),
     "group_state_gloss": self.group_state.gloss(),
+    "mode": match self.mode {
+      Structured => "structured"
+      Free => "free"
+    },
+    "mode_designation": self.mode.designation(),
+    "mode_gloss": self.mode.gloss(),
   }
 }

@@ -126,6 +126,48 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       }
     }
   })
+  // Loop mode endpoints: get/set the loop mode (structured/free).
+  // GET  /api/loop/mode          → current mode
+  // POST /api/loop/mode/:mode    → set mode (structured or free)
+  app.get("/api/loop/mode", _req => {
+    let mode = get_loop_mode()
+    let body : Json = {
+      "mode": match mode {
+        Structured => "structured"
+        Free => "free"
+      },
+      "designation": mode.designation(),
+      "gloss": mode.gloss(),
+    }
+    Response::json(body)
+  })
+  app.post("/api/loop/mode/:mode", req => {
+    match req.param("mode") {
+      Some(mode_name) => {
+        let parsed = match mode_name {
+          "structured" => Some(Structured)
+          "free" => Some(Free)
+          "结构" => Some(Structured)
+          "自由" => Some(Free)
+          _ => None
+        }
+        match parsed {
+          Some(mode) => {
+            let state = set_loop_mode(mode)
+            Response::json(state.to_json())
+          }
+          None => {
+            let body : Json = { "error": "unknown_mode", "mode": mode_name }
+            Response::json(body, status=400)
+          }
+        }
+      }
+      None => {
+        let body : Json = { "error": "missing_mode" }
+        Response::json(body, status=400)
+      }
+    }
+  })
   // Research endpoints: arxiv-driven SNN research cycle.
   // GET  /api/research/papers  → fetch recent SNN papers from arxiv
   // POST /api/research/drive   → fetch papers and drive the Loop with them
