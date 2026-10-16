@@ -228,3 +228,88 @@ test "reset_loop resets all domain states" {
   }
   assert_true(state.group_state is @group.Scattered)
 }
+
+///|
+/// LoopState::new_from starts at the specified domain.
+test "LoopState::new_from starts at specified domain" {
+  let state_m = @backend.LoopState::new_from(@backend.Model)
+  assert_eq(state_m.current, @backend.Model)
+  let state_d = @backend.LoopState::new_from(@backend.Data)
+  assert_eq(state_d.current, @backend.Data)
+  let state_e = @backend.LoopState::new_from(@backend.Experience)
+  assert_eq(state_e.current, @backend.Experience)
+  let state_a = @backend.LoopState::new_from(@backend.Attack)
+  assert_eq(state_a.current, @backend.Attack)
+  let state_k = @backend.LoopState::new_from(@backend.Knowledge)
+  assert_eq(state_k.current, @backend.Knowledge)
+}
+
+///|
+/// LoopState::new_from initializes all domain states correctly.
+test "LoopState::new_from initializes all domain states" {
+  let state = @backend.LoopState::new_from(@backend.Data)
+  // Current is Data
+  assert_eq(state.current, @backend.Data)
+  // But all domains still have their own anchor positions
+  for domain in @backend.ring_domains_loop() {
+    let ds = state.domain_state(domain)
+    assert_eq(ds.domain, domain)
+    assert_eq(ds.position, domain.position())
+    assert_eq(ds.history.length(), 0)
+  }
+  // Group state is Scattered
+  assert_true(state.group_state is @group.Scattered)
+}
+
+///|
+/// reset_to resets to the specified domain.
+test "reset_to resets to specified domain" {
+  @backend.reset_loop() |> ignore
+  @backend.step_loop() |> ignore
+  let state = @backend.reset_to(@backend.Attack)
+  assert_eq(state.current, @backend.Attack)
+  assert_eq(state.history.length(), 0)
+  assert_true(state.group_state is @group.Scattered)
+}
+
+///|
+/// domain_from_letter parses all five domain letters.
+test "domain_from_letter parses all five letters" {
+  assert_true(@backend.domain_from_letter("M") is Some(@backend.Model))
+  assert_true(@backend.domain_from_letter("D") is Some(@backend.Data))
+  assert_true(@backend.domain_from_letter("E") is Some(@backend.Experience))
+  assert_true(@backend.domain_from_letter("A") is Some(@backend.Attack))
+  assert_true(@backend.domain_from_letter("K") is Some(@backend.Knowledge))
+}
+
+///|
+/// domain_from_letter returns None for invalid input.
+test "domain_from_letter returns None for invalid input" {
+  assert_true(@backend.domain_from_letter("") is None)
+  assert_true(@backend.domain_from_letter("X") is None)
+  assert_true(@backend.domain_from_letter("model") is None)
+}
+
+///|
+/// domain_from_english parses all five English names (case-insensitive).
+test "domain_from_english parses all five names" {
+  assert_true(@backend.domain_from_english("model") is Some(@backend.Model))
+  assert_true(@backend.domain_from_english("Model") is Some(@backend.Model))
+  assert_true(@backend.domain_from_english("MODEL") is Some(@backend.Model))
+  assert_true(@backend.domain_from_english("data") is Some(@backend.Data))
+  assert_true(
+    @backend.domain_from_english("experience") is Some(@backend.Experience),
+  )
+  assert_true(@backend.domain_from_english("attack") is Some(@backend.Attack))
+  assert_true(
+    @backend.domain_from_english("knowledge") is Some(@backend.Knowledge),
+  )
+}
+
+///|
+/// domain_from_english returns None for invalid input.
+test "domain_from_english returns None for invalid input" {
+  assert_true(@backend.domain_from_english("") is None)
+  assert_true(@backend.domain_from_english("unknown") is None)
+  assert_true(@backend.domain_from_english("M") is None)
+}

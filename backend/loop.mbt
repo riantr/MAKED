@@ -174,6 +174,54 @@ pub fn Domain::next(self : Domain) -> Domain {
 }
 
 ///|
+/// Parse a domain from its letter (M, D, E, A, K).
+pub fn domain_from_letter(s : String) -> Domain? {
+  match s {
+    "M" => Some(Model)
+    "D" => Some(Data)
+    "E" => Some(Experience)
+    "A" => Some(Attack)
+    "K" => Some(Knowledge)
+    _ => None
+  }
+}
+
+///|
+/// Parse a domain from its English name (case-insensitive).
+pub fn domain_from_english(s : String) -> Domain? {
+  // Simple lowercase conversion for ASCII
+  let lower = {
+    let result = []
+    for i in 0..<s.length() {
+      let c = s[i]
+      let code = c.to_int()
+      if code >= 65 && code <= 90 {
+        result.push((code + 32).to_uint16())
+      } else {
+        result.push(c)
+      }
+    }
+    let bytes : Array[UInt16] = result
+    bytes
+    .map(fn(b) {
+      match b.to_char() {
+        Some(c) => c.to_string()
+        None => ""
+      }
+    })
+    .join("")
+  }
+  match lower {
+    "model" => Some(Model)
+    "data" => Some(Data)
+    "experience" => Some(Experience)
+    "attack" => Some(Attack)
+    "knowledge" => Some(Knowledge)
+    _ => None
+  }
+}
+
+///|
 /// All five domains in ring order.
 pub fn ring_domains_loop() -> Array[Domain] {
   [Model, Data, Experience, Attack, Knowledge]
@@ -250,6 +298,23 @@ pub fn LoopState::new() -> LoopState {
     domain_states[domain] = DomainState::new(domain)
   }
   { current: Model, domain_states, group_state: @group.Scattered, history: [], }
+}
+
+///|
+/// Create a new loop state starting from the specified domain.
+/// Each domain's state machine still starts at its own anchor position;
+/// only the `current` pointer changes.
+pub fn LoopState::new_from(domain : Domain) -> LoopState {
+  let domain_states = Map([], capacity=8)
+  for d in ring_domains_loop() {
+    domain_states[d] = DomainState::new(d)
+  }
+  {
+    current: domain,
+    domain_states,
+    group_state: @group.Scattered,
+    history: [],
+  }
 }
 
 ///|
@@ -436,6 +501,15 @@ pub fn step_loop_with_slot(slot : @sm.Slot) -> LoopState {
 /// Reset the loop to its initial state (Model, empty history).
 pub fn reset_loop() -> LoopState {
   let fresh = LoopState::new()
+  g_loop_state[0] = fresh
+  fresh
+}
+
+///|
+/// Reset the loop to start from the specified domain (empty history).
+/// Each domain's state machine still starts at its own anchor position.
+pub fn reset_to(domain : Domain) -> LoopState {
+  let fresh = LoopState::new_from(domain)
   g_loop_state[0] = fresh
   fresh
 }

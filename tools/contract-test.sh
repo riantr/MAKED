@@ -215,6 +215,24 @@ assert_contract "reset response history_length is 0" "$RESP" \
   "assert d['history_length'] == 0"
 
 # ---------------------------------------------------------------------------
+# Contract: POST /api/loop/reset/:domain
+# ---------------------------------------------------------------------------
+echo "  Contract: POST /api/loop/reset/:domain"
+RESP=$(curl -s -X POST "http://localhost:$PORT/api/loop/reset/D")
+assert_contract "reset to D has current_domain D" "$RESP" \
+  "assert d['current_domain'] == 'D'"
+assert_contract "reset to D has history_length 0" "$RESP" \
+  "assert d['history_length'] == 0"
+
+RESP=$(curl -s -X POST "http://localhost:$PORT/api/loop/reset/attack")
+assert_contract "reset to attack (english) has current_domain A" "$RESP" \
+  "assert d['current_domain'] == 'A'"
+
+RESP=$(curl -s -X POST "http://localhost:$PORT/api/loop/reset/invalid")
+assert_contract "reset to invalid domain returns error" "$RESP" \
+  "assert 'error' in d"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""

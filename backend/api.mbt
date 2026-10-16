@@ -98,6 +98,34 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     let state = reset_loop()
     Response::json(state.to_json())
   })
+  // POST /api/loop/reset/:domain → reset to start from the specified domain
+  app.post("/api/loop/reset/:domain", req => {
+    match req.param("domain") {
+      Some(domain_name) => {
+        let parsed = match domain_from_letter(domain_name) {
+          Some(d) => Some(d)
+          None => domain_from_english(domain_name)
+        }
+        match parsed {
+          Some(domain) => {
+            let state = reset_to(domain)
+            Response::json(state.to_json())
+          }
+          None => {
+            let body : Json = {
+              "error": "unknown_domain",
+              "domain": domain_name,
+            }
+            Response::json(body, status=400)
+          }
+        }
+      }
+      None => {
+        let body : Json = { "error": "missing_domain" }
+        Response::json(body, status=400)
+      }
+    }
+  })
   // Research endpoints: arxiv-driven SNN research cycle.
   // GET  /api/research/papers  → fetch recent SNN papers from arxiv
   // POST /api/research/drive   → fetch papers and drive the Loop with them
