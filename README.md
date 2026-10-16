@@ -26,6 +26,8 @@ MAKED 是一个五相递归认知架构：Model → Data → Experience → Atta
 2. **群组层**：域间协调的群组状态（散在 → 趋同 → 共语 → 宁定，20 状态）
 3. **社会层**：待实现
 
+**灵活起点**：Loop 可以从任意域开始（默认 Model），通过 `POST /api/loop/reset/:domain` 切换起点。每个域的状态机独立初始化，仅 `current` 指针改变。
+
 ### 对抗性知识循环
 
 区别于传统数据管道的关键：**Attack 域**。模型不是被数据"喂养"的，而是被攻击"锤炼"的。研究论文通过关键词启发映射到 pyroduct 触发器，驱动状态机迁移；DoubleML 因果推断估计论文"新颖性"对"影响力"的因果效应。
@@ -64,11 +66,21 @@ moon run --release --target native cmd/server
 
 | 路由 | 返回 |
 |---|---|
-| `GET /api/loop/status` | 当前域、位置、历史、域状态、群组状态 |
+| `GET /api/loop/status` | 当前域、位置、历史、域状态、群组状态、模式 |
 | `GET /api/loop/slots` | 八个驱动槽（两字定名 + 英文 + 释义）|
+| `GET /api/loop/mode` | 当前模式（structured/free）|
 | `POST /api/loop/step` | 步进一环（使用当前域的默认驱动槽）|
 | `POST /api/loop/step/:slot` | 步进一环（使用指定槽，支持英文或两字定名）|
 | `POST /api/loop/reset` | 重置到初始状态 |
+| `POST /api/loop/reset/:domain` | 重置到指定域为起点（支持字母或英文名）|
+| `POST /api/loop/mode/:mode` | 切换模式（structured/free 或 结构/自由）|
+
+### 循环模式
+
+- **结构模式 (Structured)**：遵循环序 M→D→E→A→K，每域使用指定驱动槽，步进后总是前进到下一域
+- **自由模式 (Free)**：任意槽驱动，探索状态空间；当结果为"无路"(Block)时停留在当前域，否则前进
+
+默认使用结构模式。自由模式允许探索 pyroduct 状态空间中非环序的迁移路径。
 
 ### 研究循环
 

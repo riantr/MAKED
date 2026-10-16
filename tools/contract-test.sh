@@ -233,6 +233,52 @@ assert_contract "reset to invalid domain returns error" "$RESP" \
   "assert 'error' in d"
 
 # ---------------------------------------------------------------------------
+# Contract: GET /api/loop/mode
+# ---------------------------------------------------------------------------
+echo "  Contract: GET /api/loop/mode"
+RESP=$(curl -s "http://localhost:$PORT/api/loop/mode")
+assert_contract "mode response has string 'mode'" "$RESP" \
+  "assert isinstance(d['mode'], str)"
+assert_contract "mode response mode is structured or free" "$RESP" \
+  "assert d['mode'] in ['structured', 'free']"
+assert_contract "mode response has string 'designation'" "$RESP" \
+  "assert isinstance(d['designation'], str)"
+assert_contract "mode response has string 'gloss'" "$RESP" \
+  "assert isinstance(d['gloss'], str)"
+
+# ---------------------------------------------------------------------------
+# Contract: POST /api/loop/mode/:mode
+# ---------------------------------------------------------------------------
+echo "  Contract: POST /api/loop/mode/:mode"
+RESP=$(curl -s -X POST "http://localhost:$PORT/api/loop/mode/free")
+assert_contract "set mode to free succeeds" "$RESP" \
+  "assert d['mode'] == 'free'"
+assert_contract "set mode response has mode_designation" "$RESP" \
+  "assert isinstance(d['mode_designation'], str)"
+assert_contract "set mode response has mode_gloss" "$RESP" \
+  "assert isinstance(d['mode_gloss'], str)"
+
+RESP=$(curl -s -X POST "http://localhost:$PORT/api/loop/mode/structured")
+assert_contract "set mode to structured succeeds" "$RESP" \
+  "assert d['mode'] == 'structured'"
+
+RESP=$(curl -s -X POST "http://localhost:$PORT/api/loop/mode/invalid")
+assert_contract "set invalid mode returns error" "$RESP" \
+  "assert 'error' in d"
+
+# ---------------------------------------------------------------------------
+# Contract: mode fields in loop status
+# ---------------------------------------------------------------------------
+echo "  Contract: mode fields in loop status"
+RESP=$(curl -s "http://localhost:$PORT/api/loop/status")
+assert_contract "status has mode field" "$RESP" \
+  "assert isinstance(d['mode'], str)"
+assert_contract "status has mode_designation field" "$RESP" \
+  "assert isinstance(d['mode_designation'], str)"
+assert_contract "status has mode_gloss field" "$RESP" \
+  "assert isinstance(d['mode_gloss'], str)"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
