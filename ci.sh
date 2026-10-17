@@ -188,6 +188,13 @@ gate_bdd() {
 }
 
 # ---------------------------------------------------------------------------
+# Gate 14: Dependency version check (warning only)
+# ---------------------------------------------------------------------------
+gate_dep_check() {
+  bash tools/dep-check.sh
+}
+
+# ---------------------------------------------------------------------------
 # Run gates based on mode
 # ---------------------------------------------------------------------------
 echo "MAKED CI Pipeline"
@@ -228,6 +235,7 @@ case "$MODE" in
     gate "sast"            gate_sast
     gate "mutation"        gate_mutation
     gate "dast"            gate_dast
+    gate "dep-check"       gate_dep_check
     ;;
 esac
 

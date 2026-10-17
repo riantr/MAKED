@@ -33,6 +33,6 @@ import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/moonback@0.8.6",
   "moonbitlang/x@0.5.5",
-  "riantr/pyroduct@0.1.29",
+  "riantr/pyroduct@0.1.30",
   "riantr/moonbit_doubleML@0.162.0",
 }
