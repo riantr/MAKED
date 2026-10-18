@@ -51,3 +51,29 @@ You can browse and install extra skills here:
   scientific computations), prefer assertion tests. You can use
   `moon coverage analyze > uncovered.log` to see which parts of your code are
   not covered by tests.
+
+## Build and verify
+
+- **`.\build.ps1` is the only thing that stages the browser bundle.**
+  `moon build --release --target js cmd/web` writes
+  `_build/js/release/build/cmd/web/web.js`; the server serves `frontend/dist/`,
+  and only `build.ps1` copies one to the other. Verifying the UI in a browser
+  after a bare `moon build` tests the *previous* bundle, with no error anywhere
+  to say so. It reports success and leaves `frontend/dist/main.js` untouched.
+
+- **Stop the server before building.** A running release server holds
+  `_build/native/release/build/cmd/server/server.exe` open, and the link step
+  fails with `LNK1104`. Check for strays with
+  `Get-Process -Name 'server','moon'` and `Stop-Process -Id <pid> -Force`;
+  cancelling the task that launched it does not kill the child process.
+
+- **Run the mutation suites alone.** `tools/mutate-loop.ps1`,
+  `tools/mutate-backend.ps1` and `tools/mutate-frontend.ps1` mutate source and
+  re-run the tests, so no other `moon` command may be in flight. Their exit code
+  is meaningless -- it is the last `moon test` propagating through PowerShell --
+  so read the `survivors:` line, not `$LASTEXITCODE`.
+
+- Read the endpoint with `Invoke-WebRequest` before suspecting the backend. A
+  loop panel stuck on "Loading loop status..." while the server answers 200 is
+  a client-side fault, and the browser's own network/console capture is not
+  populated in this project's provider.
