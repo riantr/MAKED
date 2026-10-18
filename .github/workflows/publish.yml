@@ -85,7 +85,18 @@ jobs:
           moon version --all
 
       - name: Update dependencies
-        run: moon update
+        run: |
+          moon update
+          # `moon update` refreshes the registry index and rewrites the
+          # lockfile, but it does NOT download packages: on a fresh checkout
+          # `.mooncakes/` is still absent when it finishes. `moon install` is
+          # what actually populates it, and the staging step below has nothing
+          # to copy into until it has run.
+          #
+          # Verified on a runner, not predicted: without this line the staging
+          # step exits 1 with ".mooncakes/riantr/pyroduct/src is missing", and
+          # the publish never reaches `moon publish`.
+          moon install
 
       # Must come after `moon update` and before anything that compiles.
       # `.mooncakes/` is a gitignored dependency cache, so the English

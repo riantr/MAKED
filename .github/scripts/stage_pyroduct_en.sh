@@ -18,7 +18,12 @@
 # produces. Local Windows builds never see it because build.ps1 already staged
 # the files, which is exactly why the bug survived a green local gate.
 #
-# Run AFTER `moon update`, since `moon update` is what populates `.mooncakes`.
+# Run AFTER `moon install`, which is what populates `.mooncakes/`.
+# `moon update` alone is NOT enough: it refreshes the registry index and
+# rewrites the lockfile, but it does not download packages, so on a fresh
+# checkout `.mooncakes/` does not exist when it returns. This was measured on a
+# clean runner, not assumed -- the first tag push died here with
+# ".mooncakes/riantr/pyroduct/src is missing".
 set -euo pipefail
 
 subject_src=".mooncakes/riantr/pyroduct/src"
@@ -26,7 +31,7 @@ group_src=".mooncakes/riantr/pyroduct/group"
 
 for dir in "$subject_src" "$group_src"; do
   if [ ! -d "$dir" ]; then
-    echo "::error::$dir is missing -- run 'moon update' before this script"
+    echo "::error::$dir is missing -- run 'moon install' before this script"
     exit 1
   fi
 done

@@ -24,6 +24,14 @@ jobs:
         run: |
           moon version --all
           moon update
+          # `moon update` refreshes the registry index and rewrites the
+          # lockfile, but it does NOT download packages: on a fresh checkout
+          # `.mooncakes/` is still absent when it finishes. `moon install` is
+          # what actually populates it, and the staging step below has nothing
+          # to copy into until it has run. Verified on a runner: without this
+          # line the staging step exits 1 with
+          # ".mooncakes/riantr/pyroduct/src is missing".
+          moon install
 
       # `.mooncakes/` is a gitignored dependency cache, so the English
       # vocabulary in `deps/` has to be copied in before anything compiles.
@@ -55,6 +63,14 @@ jobs:
         run: |
           moon version --all
           moon update
+          # `moon update` refreshes the registry index and rewrites the
+          # lockfile, but it does NOT download packages: on a fresh checkout
+          # `.mooncakes/` is still absent when it finishes. `moon install` is
+          # what actually populates it, and the staging step below has nothing
+          # to copy into until it has run. Verified on a runner: without this
+          # line the staging step exits 1 with
+          # ".mooncakes/riantr/pyroduct/src is missing".
+          moon install
 
       # `.mooncakes/` is a gitignored dependency cache, so the English
       # vocabulary in `deps/` has to be copied in before anything compiles.
@@ -83,6 +99,14 @@ jobs:
         run: |
           moon version --all
           moon update
+          # `moon update` refreshes the registry index and rewrites the
+          # lockfile, but it does NOT download packages: on a fresh checkout
+          # `.mooncakes/` is still absent when it finishes. `moon install` is
+          # what actually populates it, and the staging step below has nothing
+          # to copy into until it has run. Verified on a runner: without this
+          # line the staging step exits 1 with
+          # ".mooncakes/riantr/pyroduct/src is missing".
+          moon install
 
       # `.mooncakes/` is a gitignored dependency cache, so the English
       # vocabulary in `deps/` has to be copied in before anything compiles.
