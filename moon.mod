@@ -15,13 +15,30 @@ version = "0.1.4"
 
 license = "Apache-2.0"
 
+readme = "README.md"
+
+repository = "https://github.com/riantr/MAKED.git"
+
 keywords = [ "web", "rabbita", "moonback", "sqlite" ]
 
 // MAKED_moonbit is a two-target project:
 //   backend/ + cmd/server  -> native (moonback HTTP server + sqlite3)
 //   frontend/ + cmd/web    -> js    (rabbita SPA, runs in the browser)
-// Neither target is "primary", so only the union is declared here and each
-// package picks its own default via its own `preferred-target` in moon.pkg.
+// The union is what the module declares; each package narrows it with its own
+// `supported_targets` in its moon.pkg (native for backend, js for frontend).
+//
+// `preferred_target` exists for `moon publish`, not for ordinary builds. Publish
+// does not check this tree: it zips the module, extracts it to a temporary
+// directory and verifies THAT copy, and the check it runs defaults to the wasm
+// backend. Without this line the release dies before it uploads anything with
+//
+//   Selected package(s) do not support target backend 'wasm'
+//
+// because wasm is not in the supported set. Setting it to "native" points the
+// publish-time check at a target the project actually builds. Ordinary builds
+// are unaffected -- they pass --target explicitly.
+
+preferred_target = "native"
 
 supported_targets = "js+native"
 
@@ -33,6 +50,6 @@ import {
   "moonbitlang/async@0.22.5",
   "moonbitlang/moonback@0.8.9",
   "moonbitlang/x@0.5.5",
-  "riantr/pyroduct@0.1.30",
+  "riantr/pyroduct@0.1.31",
   "riantr/moonbit_doubleML@0.163.3",
 }

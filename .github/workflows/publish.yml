@@ -93,19 +93,10 @@ jobs:
           # what actually populates it, and the staging step below has nothing
           # to copy into until it has run.
           #
-          # Verified on a runner, not predicted: without this line the staging
-          # step exits 1 with ".mooncakes/riantr/pyroduct/src is missing", and
-          # the publish never reaches `moon publish`.
+          # Verified on a runner, not predicted: without this line a later step
+          # that needs the dependency tree fails, because `moon update` alone
+          # leaves `.mooncakes/` absent on a fresh checkout.
           moon install
-
-      # Must come after `moon update` and before anything that compiles.
-      # `.mooncakes/` is a gitignored dependency cache, so the English
-      # vocabulary in deps/ has to be copied in or the backend does not build
-      # ("SubjectState has no method en_label"). build.ps1 does this locally,
-      # which is exactly why CI would have failed while every local gate was
-      # green.
-      - name: Stage English pyroduct vocabulary
-        run: bash .github/scripts/stage_pyroduct_en.sh
 
       - name: Check package
         run: |

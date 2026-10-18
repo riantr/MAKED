@@ -6,7 +6,7 @@ Current release: **v0.1.4** — published as [`riantr/maked_moonbit`](https://mo
 
 MAKED is a five-domain recursive cognitive architecture: Model → Data → Experience → Attack → Knowledge forms a closed ring, each domain being the adversarial overcoming of the one before it. The system drives state transitions through its own cycle — from arxiv research papers, to causal inference, to the pyroduct state machine — forming a self-driving closed loop of knowledge evolution.
 
-Technical implementation: [rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.16.5) single-page frontend + a Flask-style micro-framework backend on [moonback](https://mooncakes.io), with SQLite storage.
+Technical implementation: [rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.16.5) single-page frontend + a Flask-style micro-framework backend on [moonback](https://mooncakes.io), with SQLite storage. The state machine is [riantr/pyroduct](https://mooncakes.io/docs/riantr/pyroduct@0.1.31)@0.1.31, which also supplies the English rendering (`en_label` / `en_gloss` / `en_designation`) that every user-visible string here comes from.
 
 ## Core Concepts
 

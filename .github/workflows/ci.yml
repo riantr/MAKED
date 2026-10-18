@@ -33,13 +33,6 @@ jobs:
           # ".mooncakes/riantr/pyroduct/src is missing".
           moon install
 
-      # `.mooncakes/` is a gitignored dependency cache, so the English
-      # vocabulary in `deps/` has to be copied in before anything compiles.
-      # Without this every job below fails with "SubjectState has no method
-      # en_label" -- see the script for the full account.
-      - name: Stage English pyroduct vocabulary
-        run: bash .github/scripts/stage_pyroduct_en.sh
-
       - name: Run tests (native)
         run: moon test --target native
 
@@ -72,13 +65,6 @@ jobs:
           # ".mooncakes/riantr/pyroduct/src is missing".
           moon install
 
-      # `.mooncakes/` is a gitignored dependency cache, so the English
-      # vocabulary in `deps/` has to be copied in before anything compiles.
-      # Without this every job below fails with "SubjectState has no method
-      # en_label" -- see the script for the full account.
-      - name: Stage English pyroduct vocabulary
-        run: bash .github/scripts/stage_pyroduct_en.sh
-
       - name: Build backend (native)
         run: moon build --target native cmd/server
 
@@ -107,13 +93,6 @@ jobs:
           # line the staging step exits 1 with
           # ".mooncakes/riantr/pyroduct/src is missing".
           moon install
-
-      # `.mooncakes/` is a gitignored dependency cache, so the English
-      # vocabulary in `deps/` has to be copied in before anything compiles.
-      # Without this every job below fails with "SubjectState has no method
-      # en_label" -- see the script for the full account.
-      - name: Stage English pyroduct vocabulary
-        run: bash .github/scripts/stage_pyroduct_en.sh
 
       - name: Build frontend (js)
         run: moon build --target js cmd/web
