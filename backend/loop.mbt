@@ -1,23 +1,34 @@
 ///| MAKED Loop: five domains as a pyroduct-driven state cycle.
 ///
-/// The five MAKED domains (M/D/E/A/K) are mapped to five positions on pyroduct's
-/// subject state machine. Navigation around the ring is a `step(position, slot)`
-/// call; the Outcome (Moved / Held / Open / Same / Block) is recorded in an
-/// append-only history so the cycle is observable, not just navigable.
+/// The five MAKED domains (M/D/E/A/K) are anchors on pyroduct's subject state
+/// machine. Each domain carries its own position and its own history, so the
+/// five evolve independently rather than as one ring. Navigation is a
+/// `step(position, slot)` call; the Outcome (Moved / Held / Open / Same /
+/// Block) is recorded in an append-only history so the cycle is observable,
+/// not just navigable.
 ///
-/// Mapping rationale (each domain names the structural relation the position
-/// denotes, not the domain's content):
+/// Mapping (each domain names the structural relation the position denotes,
+/// not the domain's content):
 ///
-///   M Model      → Standing  立位  the model stands, one foot in past one in future
-///   D Data       → Encounter 相遇  the model meets the other (data as other)
-///   E Experience → Honor     受赏  experience absorbed as reward from the idol
-///   A Attack     → Evil      受挫  attack as the hard cold thing that shrinks the horizon
-///   K Knowledge  → Discipline 修习  knowledge distilled through enduring and removing reefs
+///   M Model      → Standing   the model stands, one foot in past one in future
+///   D Data       → Encounter  the model meets the other (data as other)
+///   E Experience → Honor      experience absorbed as reward from the idol
+///   A Attack     → Evil       attack as the hard cold thing that shrinks the horizon
+///   K Knowledge  → Discipline knowledge distilled through enduring and removing reefs
 ///
-/// The ring order M → D → E → A → K → M is preserved; each step names the
-/// drive slot that *would* move the subject from the current position toward
-/// the next domain. Whether the step actually moves, holds, or blocks is
-/// answered by pyroduct's migration table -- the loop never invents a move.
+/// **The drive slot is read from pyroduct's table, never chosen by meaning.**
+/// An earlier version hard-coded one slot per domain on the reasoning that the
+/// slot should name the structural relation to the next domain -- Model meets
+/// data, so CoBeing. That reasoning produced five slots, and the table has no
+/// edge for any of them: stepping the loop recorded Moved-looking history while
+/// every position stayed exactly where it started, and the ring pointer
+/// rotated so the page looked like it was working. The table is the authority;
+/// `drive_slot` derives from it, `exitable_slots` reports what it offers, and a
+/// position with no outgoing edge is reported as blocked instead of advanced.
+///
+/// The ring order M → D → E → A → K → M is still the *presentation* order --
+/// it is the order the logo draws, and it is how the site narrates itself. It
+/// is no longer mistaken for a claim that the state machine moved.
 
 ///|
 /// The five domains, in ring order.
@@ -34,6 +45,55 @@ pub extend Domain with Eq::{not_equal, equal}
 
 ///|
 pub extend Domain with Debug::{to_repr}
+
+///|
+/// What a step did to the subject.
+///
+/// The distinction the cursor depends on. `Advanced` covers Moved and Held --
+/// the position changed, or the table deliberately held it there. `Undecided`
+/// and `Blocked` both mean the subject did *not* go anywhere, and neither is
+/// progress: Undecided is a question the table declined to answer, Blocked is a
+/// gap. So the cursor stays put for both.
+///
+/// This type exists because the cursor previously advanced by comparing
+/// `outcome_label` against a label string, which missed Undecided entirely -- a
+/// step the table explicitly refused to make still advanced the cursor, and the
+/// page looked like it was moving. Comparing a label string to learn whether
+/// the subject moved is the bug this replaces.
+pub(all) enum StepEffect {
+  /// Moved, Held or Converge: the position changed, or the table settled it.
+  Advanced
+  /// Undecided: the table offers several successors and picks none.
+  Undecided
+  /// No Edge: no edge at all.
+  Blocked
+} derive(Eq, Debug)
+
+///|
+pub extend StepEffect with Eq::{not_equal, equal}
+
+///|
+pub extend StepEffect with Debug::{to_repr}
+
+///|
+pub fn StepEffect::of(outcome : @sm.Outcome) -> StepEffect {
+  match outcome {
+    @sm.Moved(_, _) => Advanced
+    @sm.Held(_, _) => Advanced
+    @sm.Same(_, _, _) => Advanced
+    @sm.Open(_) => Undecided
+    @sm.Block(_) => Blocked
+  }
+}
+
+///|
+/// Whether the subject actually went anywhere.
+pub fn StepEffect::moved(self : StepEffect) -> Bool {
+  match self {
+    Advanced => true
+    Undecided | Blocked => false
+  }
+}
 
 ///|
 /// The loop mode: structured (follow ring order) or free (explore state space).
@@ -55,16 +115,17 @@ pub extend LoopMode with Debug::{to_repr}
 ///|
 pub fn LoopMode::designation(self : LoopMode) -> String {
   match self {
-    Structured => "结构"
-    Free => "自由"
+    Structured => "Structured"
+    Free => "Free"
   }
 }
 
 ///|
 pub fn LoopMode::gloss(self : LoopMode) -> String {
   match self {
-    Structured => "遵循环序 M→D→E→A→K，每域使用驱动槽"
-    Free => "任意槽驱动，探索状态空间"
+    Structured =>
+      "Follows the ring order M→D→E→A→K, each domain driven by its slot"
+    Free => "Any slot may drive, exploring the state space"
   }
 }
 
@@ -102,37 +163,137 @@ pub fn Domain::role(self : Domain) -> String {
 }
 
 ///|
-/// The drive slot that names the structural relation between this domain and
-/// the next one in the ring. The slot is the *kind* of push that would move
-/// the subject from the current position toward the next domain's position.
-pub fn Domain::slot_to_next(self : Domain) -> @sm.Slot {
-  match self {
-    // Standing → Encounter: the model meets data as other → CoBeing
-    Model => @sm.CoBeing
-    // Encounter → Honor: experience absorbed as feedback → Feedback
-    Data => @sm.Feedback
-    // Honor → Evil: attack as unconcealment of遮蔽 → Unveil
-    Experience => @sm.Unveil
-    // Evil → Discipline: attack's residue held and沉淀 → Hold
-    Attack => @sm.Hold
-    // Discipline → Standing: knowledge re-orients the model → Orientation
-    Knowledge => @sm.Orientation
+/// The slots that pyroduct's table says can actually move `state`.
+///
+/// Read from the table rather than assumed. Of the 34 x 8 = 272 combinations,
+/// 228 are Block -- a slot is only usable where the table has a real edge, so
+/// any slot list hard-coded from the *meaning* of a domain will eventually name
+/// a combination the table has no edge for. That is not hypothetical: the
+/// mapping this replaced named five slots, and all five were Block.
+pub fn exitable_slots(state : @sm.SubjectState) -> Array[@sm.Slot] {
+  let usable = []
+  for slot in @sm.all_slots() {
+    if @sm.exitable(state, slot) {
+      usable.push(slot)
+    }
+  }
+  usable
+}
+
+///|
+/// The slot to drive `state` with, chosen from the table rather than by
+/// semantics.
+///
+/// Preference order, and why:
+///
+///   1. a slot whose outcome is `Moved` -- a domain would otherwise sit on a
+///      `Same` self-edge while a real move sits one slot later;
+///   2. otherwise the first exitable slot in canonical order, which covers
+///      `Held` and `Same` (Converge): both are legitimate receipts that keep
+///      the subject where it is, so taking one is not inventing anything.
+///
+/// Returns None when the position has no outgoing edge at all -- a real gap in
+/// the table. The caller must report that, never paper over it.
+pub fn drive_slot(state : @sm.SubjectState) -> @sm.Slot? {
+  let moving = []
+  let staying = []
+  for slot in exitable_slots(state) {
+    match @sm.step(state, slot) {
+      @sm.Moved(_, _) => moving.push(slot)
+      _ => staying.push(slot)
+    }
+  }
+  if moving.length() > 0 {
+    Some(moving[0])
+  } else if staying.length() > 0 {
+    Some(staying[0])
+  } else {
+    None
   }
 }
 
 ///|
-/// Parse a slot designation (两字定名) back into a Slot value.
-/// Returns None if the string does not match any slot.
+/// Whether the table offers several successors from `state` and refuses to
+/// pick between them (`Open` / Undecided). pyroduct's own position is that a
+/// gap and an undecided branch are both legitimate receipts: better to stop
+/// where you are than to invent a next step. The loop takes the same position
+/// -- it surfaces the candidates and waits.
+pub fn is_undecided(state : @sm.SubjectState) -> Bool {
+  let usable = exitable_slots(state)
+  if usable.length() == 0 {
+    return false
+  }
+  for slot in usable {
+    match @sm.step(state, slot) {
+      @sm.Open(_) => return true
+      _ => ()
+    }
+  }
+  false
+}
+
+///|
+/// The successor positions reachable from `state` in at most `depth` steps,
+/// with pyroduct picking no slot for the subject: `after_open` is the model's
+/// own answer to "what could happen next", as opposed to `expand`, which
+/// requires the caller to name the slot sequence in advance.
+///
+/// Returns `Array[(SubjectState, Int)]` exactly as pyroduct does -- state and
+/// the number of steps that reach it.
+pub fn continuations(
+  state : @sm.SubjectState,
+  depth : Int32,
+) -> Array[(@sm.SubjectState, Int32)] {
+  let usable = exitable_slots(state)
+  // `SubjectState` derives Eq but not Hash, so a Map keyed by it will not
+  // compile, and the element type has to be named for the tuple fields to
+  // resolve. Dedup with a linear scan instead: the candidate list is at most a
+  // few dozen entries, and this runs once per API call, not per step.
+  let seen : Array[(@sm.SubjectState, Int32)] = []
+  let out : Array[(@sm.SubjectState, Int32)] = []
+  for slot in usable {
+    for pair in @sm.after_open(state, slot, depth) {
+      let (next, steps) = pair
+      let mut index = -1
+      let mut at = 0
+      for prev in seen {
+        if prev.0 == next {
+          index = at
+        }
+        at += 1
+      }
+      if index == -1 {
+        seen.push((next, steps))
+        out.push((next, steps))
+      } else if steps < out[index].1 {
+        // Same position by a shorter route. Without this, Opening appears twice
+        // from Encounter -- one step via CoBeing, two via Holding -- which reads
+        // as two distinct futures when it is one position reached two ways. The
+        // slot-by-slot view is where alternative routes belong.
+        seen[index] = (next, steps)
+        out[index] = (next, steps)
+      }
+    }
+  }
+  out
+}
+
+///|
+/// Parse a slot designation back into a Slot value.
+///
+/// Accepts either the English designation as displayed ("Co-being") or the
+/// URL-safe name ("cobeing"), case-insensitively. Returns None if the string
+/// does not match any slot.
 pub fn slot_from_designation(s : String) -> @sm.Slot? {
   match s {
-    "处境" => Some(@sm.Occasion)
-    "取向" => Some(@sm.Orientation)
-    "先行" => Some(@sm.Antecedent)
-    "行动" => Some(@sm.Act)
-    "反馈" => Some(@sm.Feedback)
-    "持存" => Some(@sm.Hold)
-    "共在" => Some(@sm.CoBeing)
-    "揭蔽" => Some(@sm.Unveil)
+    "Occasion" | "occasion" => Some(@sm.Occasion)
+    "Orientation" | "orientation" => Some(@sm.Orientation)
+    "Anticipation" | "antecedent" => Some(@sm.Antecedent)
+    "Action" | "act" => Some(@sm.Act)
+    "Feedback" | "feedback" => Some(@sm.Feedback)
+    "Holding" | "hold" => Some(@sm.Hold)
+    "Co-being" | "cobeing" => Some(@sm.CoBeing)
+    "Unveiling" | "unveil" => Some(@sm.Unveil)
     _ => None
   }
 }
@@ -265,10 +426,10 @@ pub fn ring_domains_loop() -> Array[Domain] {
 pub(all) struct LoopEvent {
   domain : Domain
   slot : @sm.Slot
-  outcome_label : String // 迁/守/未定/同归/无路
+  outcome_label : String // Moved/Held/Undecided/Converge/No Edge
   outcome_detail : String // human-readable detail
-  position_designation : String // 两字定名
-  position_label : String // 原文名
+  position_designation : String // the state name
+  position_label : String // the state name (English collapses the two source layers)
 } derive(Eq, Debug)
 
 ///|
@@ -414,82 +575,78 @@ fn compute_group_state(
 }
 
 ///|
-/// Take one step: record the current position × slot outcome, advance to the
-/// next domain. The outcome comes from pyroduct's migration table -- the loop
-/// never invents a move.
+/// Take one step: record the current position x slot outcome, then move the
+/// viewing cursor to the next domain.
 ///
-/// In Structured mode, always advances to the next domain (ring order).
-/// In Free mode, only advances if the outcome is not Block ("无路").
+/// The slot comes from `drive_slot`, evaluated against the domain's **actual**
+/// current position -- not its anchor. A domain that has already moved keeps
+/// being driven from wherever it now is.
+///
+/// Both modes refuse to advance on a Block. The cursor advances because a step
+/// was *recorded*, not because the subject *moved*; when nothing could move,
+/// saying "next domain" would be the loop narrating progress it did not make.
+///
+/// Structured and Free differ only in who picks the slot: structured takes the
+/// one `drive_slot` derives from the table, free takes whatever the caller
+/// names. Neither mode invents an edge.
 pub fn LoopState::step(self : LoopState) -> LoopState {
   let domain = self.current
   let domain_state = self.domain_states[domain]
-  let slot = domain.slot_to_next()
-  let new_domain_state = domain_state.step(slot)
-  let history = self.history
-  let mode = self.mode
-  // Get the last event from the new domain state's history
-  match new_domain_state.history.last() {
-    Some(event) => {
-      history.push(event)
-      let domain_states = self.domain_states
-      domain_states[domain] = new_domain_state
-      let group_state = compute_group_state(domain_states)
-      // In Structured mode, always advance. In Free mode, only advance if not Block.
-      let next_domain = match mode {
-        Structured => domain.next()
-        Free =>
-          if event.outcome_label == "无路" {
-            domain
-          } else {
-            domain.next()
-          }
-      }
-      { current: next_domain, domain_states, group_state, history, mode, }
-    }
-    None => {
-      let group_state = compute_group_state(self.domain_states)
-      // This should never happen since step() always adds an event
-      {
-        current: domain.next(),
-        domain_states: self.domain_states,
-        group_state,
-        history,
-        mode,
-      }
-    }
-  }
+  // Derived once: the table is the authority, and asking it twice could in
+  // principle answer differently mid-call.
+  let chosen = drive_slot(domain_state.position)
+  let blocked = chosen is None
+  self.step_domain_with(
+    domain,
+    match chosen {
+      Some(slot) => slot
+      // No outgoing edge from here. Record the gap honestly and stay put,
+      // rather than drive a slot the table does not have.
+      None => @sm.Hold
+    },
+    blocked,
+  )
 }
 
 ///|
-/// Step by an explicit slot (for the API: let the caller choose the drive).
-/// Preserves the current mode (Structured/Free).
-pub fn LoopState::step_with_slot(
+/// Step the given domain with the given slot and update the cursor.
+///
+/// `blocked` records that the default drive had no edge. Kept as a parameter
+/// rather than re-derived so the recorded reason matches the decision that was
+/// actually taken.
+pub fn LoopState::step_domain_with(
   self : LoopState,
+  domain : Domain,
   slot : @sm.Slot,
+  blocked : Bool,
 ) -> LoopState {
-  let domain = self.current
   let domain_state = self.domain_states[domain]
   let new_domain_state = domain_state.step(slot)
   let history = self.history
   let mode = self.mode
-  // Get the last event from the new domain state's history
   match new_domain_state.history.last() {
     Some(event) => {
       history.push(event)
       let domain_states = self.domain_states
       domain_states[domain] = new_domain_state
       let group_state = compute_group_state(domain_states)
-      // Only advance if the outcome is not Block ("无路")
-      let next_domain = if event.outcome_label == "无路" {
-        domain
-      } else {
+      // Advance only when the subject actually went somewhere. Judged by
+      // StepEffect rather than by the outcome label string: Blocked was the
+      // only case checked before, so Undecided -- the table declining to
+      // choose -- still advanced the cursor.
+      let effect = StepEffect::of(@sm.step(domain_state.position, slot))
+      // `blocked` -- that the derived drive had no edge -- is a second,
+      // independent reason not to advance: the cursor may be asked to advance
+      // for a step that landed nowhere even when the table did have edges.
+      let next_domain = if effect.moved() && !blocked {
         domain.next()
+      } else {
+        domain
       }
       { current: next_domain, domain_states, group_state, history, mode, }
     }
     None => {
       let group_state = compute_group_state(self.domain_states)
-      // This should never happen since step() always adds an event
       {
         current: domain,
         domain_states: self.domain_states,
@@ -502,45 +659,65 @@ pub fn LoopState::step_with_slot(
 }
 
 ///|
+/// Step by an explicit slot (for the API: let the caller choose the drive).
+///
+/// Preserves the current mode. A slot the table has no edge for records a Block
+/// and leaves the cursor where it was, whatever the mode.
+pub fn LoopState::step_with_slot(
+  self : LoopState,
+  slot : @sm.Slot,
+) -> LoopState {
+  self.step_domain_with(self.current, slot, false)
+}
+
+///|
 fn event_from_outcome(
   domain : Domain,
   slot : @sm.Slot,
   position : @sm.SubjectState,
   outcome : @sm.Outcome,
 ) -> LoopEvent {
-  let detail = outcome_detail(outcome)
+  let detail = outcome_detail(outcome, position, slot)
   {
     domain,
     slot,
-    outcome_label: outcome.label(),
+    outcome_label: outcome.en_label(),
     outcome_detail: detail,
-    position_designation: position.designation(),
-    position_label: position.label(),
+    position_designation: position.en_label(),
+    position_label: position.en_label(),
   }
 }
 
 ///|
-fn outcome_detail(outcome : @sm.Outcome) -> String {
+/// A human-readable account of what one step did.
+///
+/// `Block` carries a message that pyroduct writes in Chinese, so it is rebuilt
+/// here from the slot and position, which is both English and more precise than
+/// reusing the model's own wording.
+fn outcome_detail(
+  outcome : @sm.Outcome,
+  at : @sm.SubjectState,
+  slot : @sm.Slot,
+) -> String {
   match outcome {
-    @sm.Moved(tr, to) =>
-      "\{tr.label()} → \{to.designation()}（\{to.label()}）"
-    @sm.Held(tr, s) =>
-      "\{tr.label()} → 守于 \{s.designation()}（\{s.label()}）"
+    @sm.Moved(tr, to) => "\{tr.en_label()} → \{to.en_label()}"
+    @sm.Held(tr, s) => "\{tr.en_label()} → held at \{s.en_label()}"
     @sm.Open(cands) => {
       let parts = []
       for c in cands {
-        parts.push("\{c.0.label()} → \{c.1.designation()}")
+        parts.push("\{c.0.en_label()} → \{c.1.en_label()}")
       }
-      "未定: " + parts.join(" / ")
+      "Undecided: " + parts.join(" / ")
     }
     @sm.Same(sl, named, to) => {
       let names = []
       for tr in named {
-        names.push(tr.label())
+        names.push(tr.en_label())
       }
-      "\{sl.designation()} 同归 → \{to.designation()}（\{names.join(" / ")}）"
+      "\{sl.en_designation()} converge → \{to.en_label()} (\{names.join(" / ")})"
     }
-    @sm.Block(msg) => msg
+    @sm.Block(_) =>
+      "No outgoing edge for \{slot.en_designation()} at \{at.en_label()}"
   }
 }
 
@@ -569,6 +746,23 @@ pub fn step_loop_with_slot(slot : @sm.Slot) -> LoopState {
   let new_state = g_loop_state[0].step_with_slot(slot)
   g_loop_state[0] = new_state
   new_state
+}
+
+///|
+/// The same loop state with the viewing cursor moved to `domain`.
+///
+/// Separate from `reset_to`, which rebuilds every state machine. This only
+/// changes which domain is on screen, which is what "look at Knowledge next"
+/// means. Exposed because the API has no other way to aim the cursor, and
+/// because rebuilding from scratch to inspect a domain would destroy history.
+pub fn LoopState::focus(self : LoopState, domain : Domain) -> LoopState {
+  {
+    current: domain,
+    domain_states: self.domain_states,
+    group_state: self.group_state,
+    history: self.history,
+    mode: self.mode,
+  }
 }
 
 ///|
@@ -610,27 +804,82 @@ pub fn set_loop_mode(mode : LoopMode) -> LoopState {
 }
 
 ///|
-/// All eight drive slots with their designation and gloss, for the frontend.
-pub fn all_slots_info() -> Array[(String, String, String, String)] {
+/// All eight drive slots with their English designation and gloss, for the
+/// frontend.
+///
+/// pyroduct's `Slot::source()` is the Chinese source quote, and it is the one
+/// field deliberately not carried here: the source layer exists to trace a
+/// name back to the original Chinese text, so there is no English form of it,
+/// and inventing one would break exactly the traceability it is for.
+pub fn all_slots_info() -> Array[(String, String, String)] {
   let slots = @sm.all_slots()
   let result = []
   for slot in slots {
     result.push(
-      (slot_english_name(slot), slot.designation(), slot.gloss(), slot.source()),
+      (slot_english_name(slot), slot.en_designation(), slot.en_gloss()),
     )
   }
   result
 }
 
 ///|
+/// JSON shape for an exitable slot at the current position.
+fn open_slot_json(state : @sm.SubjectState, slot : @sm.Slot) -> Json {
+  let outcome = @sm.step(state, slot)
+  let targets = []
+  match outcome {
+    @sm.Moved(_, to) => targets.push(to.en_label())
+    @sm.Held(_, to) => targets.push(to.en_label())
+    @sm.Same(_, _, to) => targets.push(to.en_label())
+    @sm.Open(cands) =>
+      for c in cands {
+        targets.push(c.1.en_label())
+      }
+    @sm.Block(_) => ()
+  }
+  let item : Json = {
+    "name": slot_english_name(slot),
+    "designation": slot.en_designation(),
+    "outcome": outcome.en_label(),
+    "targets": targets_json(targets),
+  }
+  item
+}
+
+///|
+/// Lift a list of strings into a `Json` array.
+///
+/// Measured, not assumed: `Array[Json]` spreads into `Json`, `Array[String]`
+/// does not, and pushing a `String` into an `Array[Json]` is rejected with an
+/// `Expr Type Mismatch`. The one form that works is a one-element array
+/// *literal* per element, collected and spread.
+fn targets_json(names : Array[String]) -> Json {
+  let items : Array[Json] = []
+  for name in names {
+    // A one-element array literal is the form that coerces to `Json`; the
+    // element itself stays a `String`.
+    items.push([name])
+  }
+  [..items]
+}
+
+///|
 /// JSON shape for the loop status API.
+///
+/// `current_position` and `drive_slot` are read from the domain's **actual**
+/// position. They used to be read from `Domain::position`, the static anchor,
+/// which meant a domain that had genuinely moved still reported its starting
+/// position -- the status contradicted the history sitting next to it in the
+/// same response. `open_slots` is the replacement for the old hard-coded slot:
+/// it is what the table offers here, so a caller never has to guess.
 pub fn LoopState::to_json(self : LoopState) -> Json {
-  let current_pos = self.current.position()
+  let current_ds = self.domain_states[self.current]
+  let current_pos = current_ds.position
   let history_json = []
   for e in self.history {
     let item : Json = {
       "domain": e.domain.letter(),
-      "slot": e.slot.designation(),
+      "slot": e.slot.en_designation(),
       "outcome": e.outcome_label,
       "detail": e.outcome_detail,
       "position": e.position_designation,
@@ -645,25 +894,44 @@ pub fn LoopState::to_json(self : LoopState) -> Json {
     let item : Json = {
       "domain": domain.letter(),
       "title": domain.title(),
-      "position": ds.position.designation(),
-      "position_label": ds.position.label(),
+      "position": ds.position.en_label(),
+      "position_label": ds.position.en_label(),
       "history_length": ds.history.length(),
+      "drivable": drive_slot(ds.position) is Some(_),
+      "at_anchor": ds.position == domain.position(),
     }
     domain_states_json.push(item)
+  }
+  let open_slots_json = []
+  for slot in exitable_slots(current_pos) {
+    open_slots_json.push(open_slot_json(current_pos, slot))
   }
   {
     "current_domain": self.current.letter(),
     "current_title": self.current.title(),
-    "current_position": current_pos.designation(),
-    "current_position_label": current_pos.label(),
-    "current_gloss": current_pos.gloss(),
+    "current_position": current_pos.en_label(),
+    "current_position_label": current_pos.en_label(),
+    "current_gloss": current_pos.en_gloss(),
     "next_domain": self.current.next().letter(),
-    "drive_slot": self.current.slot_to_next().designation(),
+    // Empty string when the table has no outgoing edge from here. An empty
+    // drive slot is a true statement; a plausible-looking slot that always
+    // reports No Edge is not.
+    "drive_slot": match drive_slot(current_pos) {
+      Some(slot) => slot.en_designation()
+      None => ""
+    },
+    "drive_slot_name": match drive_slot(current_pos) {
+      Some(slot) => slot_english_name(slot)
+      None => ""
+    },
+    "blocked": exitable_slots(current_pos).length() == 0,
+    "undecided": is_undecided(current_pos),
+    "open_slots": [..open_slots_json],
     "history_length": self.history.length(),
     "history": [..history_json],
     "domain_states": [..domain_states_json],
-    "group_state": self.group_state.designation(),
-    "group_state_gloss": self.group_state.gloss(),
+    "group_state": self.group_state.en_designation(),
+    "group_state_gloss": self.group_state.en_gloss(),
     "mode": match self.mode {
       Structured => "structured"
       Free => "free"

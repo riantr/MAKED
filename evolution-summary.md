@@ -1,157 +1,159 @@
-# MAKED_moonbit 架构演进总结
+# MAKED_moonbit Architecture Evolution Summary
 
-## 核心发现
+## Core Findings
 
-通过使用 Architecture Visualization 插件分析，识别出 MAKED_moonbit 从原型到生产就绪系统的**6 个演进切片**，分为 3 个阶段实施。
+By using the Architecture Visualization plugin for the analysis, **6 evolution slices** were identified for taking MAKED_moonbit from prototype to production-ready system, to be implemented in 3 phases.
 
-## 关键问题诊断
+## Key Problem Diagnosis
 
-### 1. Loop 阻塞问题（最紧急）
-**现状**：所有 5 个 domain 的默认 drive slot 在 pyroduct 迁移表中返回 `Block("无路")`，导致 Loop 无法前进。
+### 1. Loop blocking issue (most urgent)
+**Status at the time of the analysis**: the hard-coded default drive slot of all 5 domains returned `Block` (no path) in the pyroduct transition table, so the Loop could not advance.
 
-**根因**：pyroduct 迁移表未为 MAKED 的 5 个 domain position（Standing/Encounter/Honor/Evil/Discipline）配置有效迁移路径。
+**Root cause**: pyroduct's transition table had no valid transition path configured for MAKED's 5 domain positions (Standing/Encounter/Honor/Evil/Discipline).
 
-**影响**：核心功能无法使用，前端 Step 按钮点击后状态不变。
+**Impact**: the core functionality was unusable — clicking the front-end Step button left the state unchanged.
 
-### 2. 测试覆盖盲区
-**现状**：76 个单元测试全部通过，但缺少 API 集成测试。
+**Resolution**: drive slots are no longer hard-coded per domain; they are now derived from the pyroduct transition table at runtime (`drive_slot(state)` prefers an edge whose outcome is `Moved`, otherwise the first exitable slot), and the API reports `blocked` / `undecided` honestly instead of rotating a cursor that changes no position. See "Slice 1 Completed" in `architecture-evolution-roadmap.md`.
 
-**根因**：moonback 的 Request 类型是不透明的，无法在测试中构造实例。
+### 2. Test coverage blind spot
+**Status**: all 76 unit tests pass, but API integration tests are missing.
 
-**影响**：无法验证 API 端点的完整请求-响应流程，重构风险高。
+**Root cause**: moonback's Request type is opaque and cannot be instantiated in tests.
 
-### 3. 状态管理耦合
-**现状**：模块级全局状态 `g_loop_state : Array[LoopState]` 使用单例模式。
+**Impact**: the complete request-response flow of the API endpoints cannot be verified, so refactoring carries high risk.
 
-**根因**：MoonBit 没有 `let mut` 模块级绑定，Array 单例是标准 workaround。
+### 3. State management coupling
+**Status**: module-level global state `g_loop_state : Array[LoopState]` uses the singleton pattern.
 
-**影响**：难以测试（无法注入 mock 状态）、难以扩展（无法支持多租户）。
+**Root cause**: MoonBit has no `let mut` module-level bindings, so the Array singleton is the standard workaround.
 
-## 演进路线图
+**Impact**: hard to test (mock state cannot be injected), hard to extend (multi-tenancy cannot be supported).
 
-### 阶段 1：解锁核心功能（1-2 周）
+## Evolution Roadmap
 
-**切片 1：解锁 Loop 前进能力**
-- **方案**：前端添加 slot 选择器，使用 `step_with_slot(slot)` API
-- **工时**：1-2 天
-- **风险**：低
-- **验证**：Loop 可以执行完整的 M→D→E→A→K 循环
+### Phase 1: unlock the core functionality (1-2 weeks)
 
-**切片 2：集成测试基础设施**
-- **方案**：引入 HTTP 客户端测试框架，启动测试服务器实例
-- **工时**：2-3 天
-- **风险**：中（moonback 可能缺少测试辅助）
-- **验证**：3 个 Loop API 端点的集成测试通过
+**Slice 1: unlock Loop forward progress**
+- **Approach**: add a slot selector to the front end, use the `step_with_slot(slot)` API
+- **Effort**: 1-2 days
+- **Risk**: low
+- **Validation**: the Loop can execute a complete M→D→E→A→K cycle
 
-**关键决策**：
-- 是否与 pyroduct 维护者协调修改迁移表？
-- 推荐：先在 MAKED 层包装 slot 选择逻辑，同时沟通长期方案
+**Slice 2: integration test infrastructure**
+- **Approach**: bring in an HTTP client testing framework, start a test server instance
+- **Effort**: 2-3 days
+- **Risk**: medium (moonback may lack test helpers)
+- **Validation**: integration tests for the 3 Loop API endpoints pass
 
-### 阶段 2：架构稳固（2-3 周）
+**Key decision**:
+- Coordinate a change to the transition table with the pyroduct maintainers?
+- Recommendation: wrap the slot selection logic at the MAKED layer first, while discussing the long-term solution in parallel
 
-**切片 3：状态管理重构**
-- **方案**：引入 `AppContext` 结构体，依赖注入替代全局状态
-- **工时**：3-5 天
-- **风险**：高（破坏现有 API，需要更新所有测试）
-- **前置条件**：切片 2（集成测试安全网）
-- **验证**：可以创建多个独立的 AppContext 实例
+### Phase 2: harden the architecture (2-3 weeks)
 
-**切片 4：配置系统**
-- **方案**：定义 `LoopConfig` 结构体，从文件/环境变量加载
-- **工时**：2-3 天
-- **风险**：低
-- **前置条件**：切片 3（Context 传递配置）
-- **验证**：配置文件可以改变 Loop 行为
+**Slice 3: state management refactor**
+- **Approach**: introduce the `AppContext` struct, dependency injection instead of global state
+- **Effort**: 3-5 days
+- **Risk**: high (breaks the existing API, all tests have to be updated)
+- **Prerequisite**: Slice 2 (integration test safety net)
+- **Validation**: multiple independent AppContext instances can be created
 
-### 阶段 3：生产就绪（2-3 周）
+**Slice 4: configuration system**
+- **Approach**: define the `LoopConfig` struct, load it from a file / environment variables
+- **Effort**: 2-3 days
+- **Risk**: low
+- **Prerequisite**: Slice 3 (context passes the configuration)
+- **Validation**: a configuration file can change Loop behaviour
 
-**切片 5：状态持久化**
-- **方案**：扩展数据库 schema，每次 step 后持久化
-- **工时**：2-3 天
-- **风险**：中
-- **前置条件**：切片 3（Context 管理 Database）
-- **验证**：服务器重启后状态保持一致
+### Phase 3: production readiness (2-3 weeks)
 
-**切片 6：可观测性**
-- **方案**：结构化日志 + 指标导出
-- **工时**：2-3 天
-- **风险**：低
-- **前置条件**：切片 3（Context 传递 Logger）
-- **验证**：`/metrics` 端点返回指标数据
+**Slice 5: state persistence**
+- **Approach**: extend the database schema, persist after every step
+- **Effort**: 2-3 days
+- **Risk**: medium
+- **Prerequisite**: Slice 3 (context manages the Database)
+- **Validation**: state stays consistent after a server restart
 
-## 依赖关系图
+**Slice 6: observability**
+- **Approach**: structured logging + metrics export
+- **Effort**: 2-3 days
+- **Risk**: low
+- **Prerequisite**: Slice 3 (context passes the Logger)
+- **Validation**: the `/metrics` endpoint returns metrics data
+
+## Dependency Graph
 
 ```
-切片 1 (解锁 Loop) ──┐
-                      ├──→ 切片 3 (状态重构) ──┬──→ 切片 4 (配置系统)
-切片 2 (集成测试) ───┘                        ├──→ 切片 5 (持久化)
-                                               └──→ 切片 6 (可观测性)
+Slice 1 (unblock Loop)         ──┐
+                                 ├──→ Slice 3 (state refactor) ──┬──→ Slice 4 (config system)
+Slice 2 (integration tests)   ───┘                               ├──→ Slice 5 (persistence)
+                                                                 └──→ Slice 6 (observability)
 ```
 
-**关键路径**：切片 1 → 切片 3 → 切片 4/5/6
+**Critical path**: Slice 1 → Slice 3 → Slice 4/5/6
 
-## 风险矩阵
+## Risk Matrix
 
-| 风险 | 影响 | 概率 | 缓解措施 |
+| Risk | Impact | Probability | Mitigation |
 |------|------|------|----------|
-| moonback 不支持 context 传递 | 切片 3 无法实施 | 中 | 先做 POC 验证 |
-| pyroduct 维护者不配合 | 切片 1 方案 B 不可行 | 低 | 已有方案 A/C 作为备选 |
-| 重构破坏现有功能 | 回归 bug | 中 | 切片 2 先建立集成测试安全网 |
-| 持久化引入性能问题 | 响应延迟增加 | 低 | 异步写入 + 批量提交 |
+| moonback does not support context passing | Slice 3 cannot be implemented | Medium | Validate with a POC first |
+| pyroduct maintainers do not cooperate | Slice 1 option B is not viable | Low | Options A/C already exist as fallbacks |
+| The refactor breaks existing functionality | Regression bugs | Medium | Slice 2 establishes an integration test safety net first |
+| Persistence introduces performance problems | Increased response latency | Low | Asynchronous writes + batch commits |
 
-## 下一步行动
+## Next Steps
 
-### 本周（立即）
-1. **实施切片 1A**：前端添加 slot 选择器
-   - 在 `frontend/views.mbt` 的 `loop_view` 中添加 8 个 slot 按钮
-   - 每个按钮调用 `POST /api/loop/step?slot=<slot_name>`
-   - 验证 Loop 可以完整循环
+### This week (immediate)
+1. **Implement Slice 1A**: add a slot selector to the front end
+   - Add 8 slot buttons in `loop_view` in `frontend/views.mbt`
+   - Each button calls `POST /api/loop/step?slot=<slot_name>`
+   - Verify that the Loop can cycle through completely
 
-2. **评估切片 2 可行性**：调研 moonback 测试支持
-   - 检查 moonback 文档是否有 testing utilities
-   - 如果没有，考虑使用 mock server 或只测试领域逻辑
+2. **Evaluate the feasibility of Slice 2**: research moonback test support
+   - Check whether the moonback documentation has testing utilities
+   - If not, consider using a mock server or testing only the domain logic
 
-### 下周（短期）
-3. **实施切片 2**：建立集成测试基础设施
-   - 创建 `backend/api_integration_test.mbt`
-   - 启动测试服务器（随机端口）
-   - 编写 3 个 Loop API 端点的端到端测试
+### Next week (short term)
+3. **Implement Slice 2**: establish integration test infrastructure
+   - Create `backend/api_integration_test.mbt`
+   - Start a test server (random port)
+   - Write end-to-end tests for the 3 Loop API endpoints
 
-4. **评估切片 3 可行性**：moonback context 支持 POC
-   - 创建实验分支
-   - 尝试为单个 API 端点添加 context 参数
-   - 验证 moonback 是否支持自定义 context 传递
+4. **Evaluate the feasibility of Slice 3**: POC for moonback context support
+   - Create an experimental branch
+   - Try adding a context parameter to a single API endpoint
+   - Verify whether moonback supports custom context passing
 
-### 本月（中期）
-5. **决策点**：基于 POC 结果决定是否推进切片 3
-   - 如果 moonback 支持 context → 全面推进重构
-   - 如果不支持 → 保持现状，专注于切片 4/5/6 的替代方案
+### This month (mid term)
+5. **Decision point**: decide whether to push Slice 3 forward based on the POC result
+   - If moonback supports context → roll the refactor out in full
+   - If not → keep the current design and focus on the alternatives for Slices 4/5/6
 
-## 成功标准
+## Success Criteria
 
-- [ ] Loop 能够执行完整的 M→D→E→A→K 循环（切片 1）
-- [ ] API 集成测试覆盖所有端点（切片 2）
-- [ ] 可以创建多个独立的 AppContext 实例（切片 3）
-- [ ] 配置文件可以改变 Loop 行为（切片 4）
-- [ ] 服务器重启后状态保持一致（切片 5）
-- [ ] 生产环境可以收集日志和指标（切片 6）
+- [ ] The Loop can execute a complete M→D→E→A→K cycle (Slice 1)
+- [ ] API integration tests cover every endpoint (Slice 2)
+- [ ] Multiple independent AppContext instances can be created (Slice 3)
+- [ ] A configuration file can change Loop behaviour (Slice 4)
+- [ ] State stays consistent after a server restart (Slice 5)
+- [ ] Logs and metrics can be collected in a production environment (Slice 6)
 
-## 产出物
+## Deliverables
 
-1. **`architecture-evolution-roadmap.md`**：详细的演进路线图，包含 6 个切片的方案、工时、风险、验证信号
-2. **`current-vs-target-architecture.dot`**：当前架构与目标架构对比图（Graphviz DOT 格式）
-3. **`migration-dependency-graph.dot`**：迁移依赖关系图，展示切片间的依赖和关键路径
-4. **`evolution-summary.md`**：本文档，总结核心发现和下一步行动
+1. **`architecture-evolution-roadmap.md`**: the detailed evolution roadmap, containing the approach, effort, risks and validation signals of the 6 slices
+2. **`current-vs-target-architecture.dot`**: comparison diagram of the current architecture against the target architecture (Graphviz DOT format)
+3. **`migration-dependency-graph.dot`**: migration dependency graph, showing the dependencies between slices and the critical path
+4. **`evolution-summary.md`**: this document, summarising the core findings and the next steps
 
-## 工具使用总结
+## Tool Usage Summary
 
-本次分析使用了 Architecture Visualization 插件的以下技能：
-- **`explore`**：识别这是一个"架构如何演进"的问题，路由到 evolution-planner
-- **`evolution-planner`**：分析当前状态与目标状态的差距，制定迁移切片和路线图
-- **`graphviz`**（隐式）：使用 DOT 格式创建架构图和依赖图
+This analysis used the following skills of the Architecture Visualization plugin:
+- **`explore`**: recognised this as a "how does the architecture evolve" question and routed it to evolution-planner
+- **`evolution-planner`**: analysed the gap between the current state and the target state, and formulated the migration slices and the roadmap
+- **`graphviz`** (implicit): created the architecture diagram and the dependency graph in DOT format
 
-分析基于以下证据：
-- 代码结构：5 个包的依赖关系和职责划分
-- 测试覆盖：76 个测试的分布和盲区
-- 运行时行为：Loop 引擎的 Block 问题
-- 框架约束：moonback Request 的不透明性
+The analysis is based on the following evidence:
+- Code structure: the dependencies and the responsibility split of the 5 packages
+- Test coverage: the distribution and the blind spots of the 76 tests
+- Runtime behaviour: the Loop engine's Block problem
+- Framework constraints: the opacity of moonback Request

@@ -315,10 +315,10 @@ test "domain_from_english returns None for invalid input" {
 }
 
 ///|
-/// LoopMode::designation returns correct Chinese names.
+/// LoopMode::designation returns the correct English names.
 test "LoopMode::designation returns correct names" {
-  assert_eq(@backend.Structured.designation(), "结构")
-  assert_eq(@backend.Free.designation(), "自由")
+  assert_eq(@backend.Structured.designation(), "Structured")
+  assert_eq(@backend.Free.designation(), "Free")
 }
 
 ///|
@@ -326,9 +326,12 @@ test "LoopMode::designation returns correct names" {
 test "LoopMode::gloss returns correct descriptions" {
   assert_eq(
     @backend.Structured.gloss(),
-    "遵循环序 M→D→E→A→K，每域使用驱动槽",
+    "Follows the ring order M→D→E→A→K, each domain driven by its slot",
   )
-  assert_eq(@backend.Free.gloss(), "任意槽驱动，探索状态空间")
+  assert_eq(
+    @backend.Free.gloss(),
+    "Any slot may drive, exploring the state space",
+  )
 }
 
 ///|
@@ -380,7 +383,7 @@ test "free mode stays on Block" {
   // Check if the outcome was Block by looking at the last event
   match stepped.history.last() {
     Some(event) =>
-      if event.outcome_label == "无路" {
+      if event.outcome_label == "No Edge" {
         // Should stay on same domain
         assert_eq(stepped.current, initial_domain)
       }

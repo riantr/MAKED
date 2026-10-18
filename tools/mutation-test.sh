@@ -23,6 +23,12 @@ KILLED=0
 SURVIVED=0
 TOTAL=0
 
+# backend/loop.mbt keys slot_from_designation by the English designation. This
+# used to be a Chinese string that had to be spelled as UTF-8 byte escapes to
+# keep this script ASCII; the vocabulary is English now, so the escapes are gone.
+# The mutation below anchors on the constructor instead of the key, which also
+# keeps sed away from the `|` alternation metacharacter in the match arms.
+
 mutate_and_test() {
   local desc="$1"
   local file="$2"
@@ -99,10 +105,10 @@ mutate_and_test \
 # ---------------------------------------------------------------------------
 echo "  Mutation: Slot designation parsing"
 mutate_and_test \
-  "slot_from_designation '处境' changed to return Orientation" \
+  "slot_from_designation Occasion changed to return Orientation" \
   "backend/loop.mbt" \
-  '"处境" => Some(@sm.Occasion)' \
-  '"处境" => Some(@sm.Orientation)'
+  "Some(@sm.Occasion)" \
+  "Some(@sm.Orientation)"
 
 # ---------------------------------------------------------------------------
 # Mutation 5: Change paper_to_trigger priority

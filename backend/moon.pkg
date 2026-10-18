@@ -10,6 +10,7 @@ import {
   "moonbitlang/async/fs",
   "moonbitlang/async/http",
   "moonbitlang/core/debug",
+  "moonbitlang/core/string",
   "moonbitlang/moonback",
   "moonbitlang/moonback/middlewares/unstable_static" @static,
   "riantr/moonbit_doubleML" @dml,

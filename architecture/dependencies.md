@@ -30,10 +30,10 @@ communicate only through the JSON API contract at runtime.
 ### External dependency tree
 
 ```
-moonbitlang/moonback@0.8.6          ← HTTP server framework
-moonbitlang/async@0.22.4            ← Async runtime (fs, http, process)
+moonbitlang/moonback@0.8.9          ← HTTP server framework
+moonbitlang/async@0.22.5            ← Async runtime (fs, http, process)
 moonbit-community/sqlite3@0.2.3     ← SQLite FFI bindings
-moonbit-community/rabbita@0.16.4    ← Elm-style SPA framework
+moonbit-community/rabbita@0.16.5    ← Elm-style SPA framework
 moonbitlang/x@0.5.5                 ← Utility library (transitive)
 ```
 

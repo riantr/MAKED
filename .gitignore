@@ -14,3 +14,8 @@
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Local server log captures from ad-hoc QA runs
+/_s.log
+/_s.err
+/_s.out

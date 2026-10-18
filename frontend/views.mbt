@@ -154,7 +154,8 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
         ),
       ])
       let slot_designations = [
-        "处境", "取向", "先行", "行动", "反馈", "持存", "共在", "揭蔽",
+        "Occasion", "Orientation", "Anticipation", "Action", "Feedback", "Holding",
+        "Co-being", "Unveiling",
       ]
       let slot_buttons : Array[@html.Html] = []
       for slot in slot_designations {
@@ -174,7 +175,7 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
       let slot_selector = @html.div(class="maked-loop-slots", [
         @html.p(
           class="maked-loop-slots-label",
-          "选择驱动槽（高亮为当前域的默认槽）：",
+          "Choose a drive slot (the highlighted one is this domain's drive slot):",
         ),
         @html.div(class="maked-loop-slot-grid", slot_buttons),
       ])

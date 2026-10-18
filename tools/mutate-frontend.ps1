@@ -70,11 +70,9 @@ $mutations = @(
   @{
     name = 'decode_pages raises shape instead of falling back'
     file = 'frontend/page.mbt'
-    old  = '    Some(Array(items)) =>
-      items.map(fn(item) { page_from_json(item) })
+    old  = '    Some(Array(items)) => items.map(fn(item) { page_from_json(item) })
     _ => []'
-    new  = '    Some(Array(items)) =>
-      items.map(fn(item) { page_from_json(item) })
+    new  = '    Some(Array(items)) => items.map(fn(item) { page_from_json(item) })
     _ => panic'
   },
   @{
@@ -106,14 +104,14 @@ $mutations = @(
   @{
     name = 'ring radius shrinks by 4'
     file = 'frontend/logo.mbt'
-    old  = 'const RING_R : Int = 68'
-    new  = 'const RING_R : Int = 64'
+    old  = 'const RING_R : Int32 = 68'
+    new  = 'const RING_R : Int32 = 64'
   },
   @{
     name = 'ring centre moves off the middle of the viewBox'
     file = 'frontend/logo.mbt'
-    old  = 'const CY : Int = 100'
-    new  = 'const CY : Int = 96'
+    old  = 'const CY : Int32 = 100'
+    new  = 'const CY : Int32 = 96'
   },
   @{
     name = 'percentages forget the 100x scale'

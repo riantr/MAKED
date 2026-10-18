@@ -1,144 +1,161 @@
-# MAKED_moonbit 演进路线图
+# MAKED_moonbit Evolution Roadmap
 
-## 当前状态（证据支撑）
+## Current Status (evidence-backed)
 
-### 架构结构
-- **5 个包**：backend (native lib), frontend (js lib), cmd/server (native exe), cmd/web (js exe), root
-- **双目标编译**：native（后端服务）+ js（前端 SPA）
-- **核心集成**：pyroduct 状态机驱动 M→D→E→A→K 五域循环
+### Architecture Structure
+- **5 packages**: backend (native lib), frontend (js lib), cmd/server (native exe), cmd/web (js exe), root
+- **Dual-target compilation**: native (backend service) + js (frontend SPA)
+- **Core integration**: the pyroduct state machine drives the five-domain M→D→E→A→K loop
 
-### 测试覆盖
-- 76 个测试全部通过（64 native + 12 JS）
-- 单元测试覆盖：Loop 引擎、页面数据、响应构造、App 路由
-- 缺失：API 集成测试、Request 包装器测试
+### Test Coverage
+- All 76 tests pass (64 native + 12 JS)
+- Unit tests cover: Loop engine, page data, response construction, App routing
+- Missing: API integration tests, Request wrapper tests
 
-### 关键问题
-1. **Loop 阻塞**：所有 5 个 domain 的默认 drive slot 在 pyroduct 迁移表中返回 `Block("无路")`
-2. **状态管理**：模块级可变状态使用 `Array[LoopState]` 单例模式
-3. **测试盲区**：moonback Request 是不透明类型，无法构造测试实例
-4. **无配置系统**：迁移规则硬编码在 pyroduct 依赖中
-
----
-
-## 目标状态
-
-### 功能目标
-- Loop 能够正常推进 M→D→E→A→K 循环
-- 支持自定义迁移阈值/规则
-- Loop 状态可持久化
-- 完整的 API 测试覆盖
-
-### 架构目标
-- 显式状态管理（依赖注入替代模块级全局）
-- 配置驱动的迁移规则
-- 清晰的分层：领域逻辑 / 应用服务 / 基础设施
-- 生产就绪的可观测性（日志、指标）
+### Key Problems
+1. ~~**Loop blocking**~~ **Resolved** (see "Slice 1 Completed" below)
+2. **State management**: module-level mutable state uses an `Array[LoopState]` singleton pattern
+3. **Test blind spot**: moonback Request is an opaque type, so test instances cannot be constructed
+4. **No configuration system**: transition rules are hard-coded inside the pyroduct dependency
 
 ---
 
-## 演进切片（按依赖排序）
+## Slice 1 Completed (2026-10-17)
 
-### 切片 1：解锁 Loop 前进能力（高优先级，低风险）
+**Root cause**: `Domain::slot_to_next` hard-coded one drive slot per domain by semantics — the rationale being "this slot represents this domain's structural relation to the next domain". The five slots that rationale produced had **not a single outgoing edge** in the pyroduct transition table. Measured: after 18 consecutive steps the positions of all five domains had not moved at all, every outcome was `Block` (no path); meanwhile the `next_domain` ring pointer kept rotating as usual, so the page looked perfectly normal.
 
-**问题**：所有 domain 的默认 slot 返回 Block，Loop 无法前进
+**Fix** (option 2 + 3):
 
-**方案选项**：
-- **A. 使用 step_with_slot API**：让调用者选择非默认 slot
-  - 优点：立即可用，不改 pyroduct
-  - 缺点：需要前端/客户端理解 slot 语义
-- **B. 修改 pyroduct 迁移表**：为 5 个 domain position 配置有效迁移
-  - 优点：符合 pyroduct 设计意图
-  - 缺点：需要修改外部依赖
-- **C. 混合方案**：默认 slot 阻塞时自动尝试备选 slot
-  - 优点：保持 API 简洁
-  - 缺点：隐藏了迁移语义
+| Change | Location |
+|---|---|
+| Removed `Domain::slot_to_next`; `drive_slot(state)` now derives the slot from the transition table | `backend/loop.mbt` |
+| `exitable_slots(state)` exposes the slots that genuinely have an outgoing edge from the current position | `backend/loop.mbt` |
+| `is_undecided(state)`: honestly flags the case where the table refuses to choose, instead of choosing on behalf of the subject | `backend/loop.mbt` |
+| `StepEffect`: Moved/Held/Same count as progress, Undecided/Block do not | `backend/loop.mbt` |
+| `to_json`'s `current_position` now reads the real position (it used to read a static anchor) | `backend/loop.mbt` |
+| status adds `open_slots` / `blocked` / `undecided` / `at_anchor` | `backend/loop.mbt` |
+| `GET /api/loop/continuations?depth=N`: uses `after_open` to hand back the model's own continuations | `backend/api.mbt` |
 
-**推荐**：先实施方案 A（前端添加 slot 选择器），同时与 pyroduct 维护者协调方案 B
+**Measured result** (real service via `moon run`):
 
-**验证信号**：
-- 前端能够执行完整的 M→D→E→A→K 循环
-- Loop history 记录 5 个有效事件
+```
+Initial:  M Standing  drive=Action  open_slots=[act/Moved]
+1: M xAction = Moved    M=Freedom   cursor=D
+2: D xCo-being = Moved              cursor=E
+3: E xHolding = Moved              cursor=A
+4: A xUnveiling = Moved            cursor=K
+5: K xFeedback = Moved            cursor=M
+6: M xSituation = Undecided   M=Freedom    cursor=M   ← the table refuses to choose, the cursor does not advance
+```
 
-**依赖**：无
+`/api/loop/continuations` starting from Encounter: `Encounter@1 Opening@1 Frustration@2 Selfhood@3`.
 
----
+**Verification**: `tools/mutate-loop.ps1`, 14 mutations, 0 unexpected survivors (1 EQUIV: all 34 positions have an outgoing edge, so `drive_slot`'s None branch is currently unreachable and stays on the books). Tests 137 → 152.
 
-### 切片 2：集成测试基础设施（高优先级，中风险）
-
-**问题**：无法测试 API 端点的完整请求-响应流程
-
-**方案**：
-1. 引入 HTTP 客户端测试框架（如 MoonBit 的 http testing 工具）
-2. 启动测试服务器实例（随机端口）
-3. 编写端到端测试：
-   - `GET /api/loop/status` 返回正确 JSON
-   - `POST /api/loop/step` 推进状态
-   - `POST /api/loop/reset` 重置状态
-
-**技术挑战**：
-- moonback 可能缺少测试辅助工具
-- 需要处理服务器启动/关闭生命周期
-
-**验证信号**：
-- 3 个 Loop API 端点的集成测试通过
-- 测试覆盖率报告排除集成测试盲区
-
-**依赖**：无
+**New API fields**: `GET /api/loop/status` additionally returns `drive_slot_name` / `blocked` / `undecided` / `open_slots` / `at_anchor` / `drivable`; `GET /api/loop/continuations` is a new endpoint.
 
 ---
 
-### 切片 3：状态管理重构（中优先级，高风险）
+## Target State
 
-**问题**：模块级 `Array[LoopState]` 单例难以测试和扩展
+### Functional Goals
+- The Loop can advance normally through the M→D→E→A→K cycle
+- Support custom transition thresholds/rules
+- Loop state can be persisted
+- Complete API test coverage
 
-**当前模式**：
+### Architectural Goals
+- Explicit state management (dependency injection instead of module-level globals)
+- Configuration-driven transition rules
+- Clear layering: domain logic / application services / infrastructure
+- Production-ready observability (logging, metrics)
+
+---
+
+## Evolution Slices (ordered by dependency)
+
+### Slice 1: Unlock Loop Forward Progress ✅ Completed
+
+See "Slice 1 Completed" above. What was actually adopted was neither the originally recommended A (add a front-end slot selector) nor B (modify pyroduct), but **letting the transition table speak**: the drive slot is derived from the table, `blocked` is reported honestly when a position has no outgoing edge, and `undecided` is reported honestly when the table refuses to choose, in which case the candidates are handed to a human. Option A only exposes the dead end; the loop still does not move.
+
+---
+
+### Slice 2: Integration Test Infrastructure (high priority, medium risk)
+
+**Problem**: the complete request-response flow of the API endpoints cannot be tested
+
+**Approach**:
+1. Bring in an HTTP client testing framework (e.g. MoonBit's http testing tooling)
+2. Start a test server instance (random port)
+3. Write end-to-end tests:
+   - `GET /api/loop/status` returns the correct JSON
+   - `POST /api/loop/step` advances the state
+   - `POST /api/loop/reset` resets the state
+
+**Technical challenges**:
+- moonback may lack test helper tooling
+- The server start/stop lifecycle has to be handled
+
+**Validation signals**:
+- Integration tests for the 3 Loop API endpoints pass
+- The coverage report no longer excludes the integration test blind spot
+
+**Dependencies**: none
+
+---
+
+### Slice 3: State Management Refactor (medium priority, high risk)
+
+**Problem**: the module-level `Array[LoopState]` singleton is hard to test and to extend
+
+**Current pattern**:
 ```moonbit
 let g_loop_state : Array[LoopState] = [LoopState::new()]
 pub fn get_loop_state() -> LoopState { g_loop_state[0] }
 ```
 
-**目标模式**：显式依赖注入
+**Target pattern**: explicit dependency injection
 ```moonbit
-// 应用上下文
+// Application context
 struct AppContext {
-  loop_state : Ref[LoopState]  // 或类似的引用类型
+  loop_state : Ref[LoopState]  // or a similar reference type
   database : Database
   config : AppConfig
 }
 
-// API 处理器接收上下文
+// API handlers receive the context
 app.get("/api/loop/status", ctx => {
   let state = ctx.loop_state.get()
   Response::json(state.to_json())
 })
 ```
 
-**迁移步骤**：
-1. 创建 `AppContext` 结构体
-2. 修改 `maked_app` 构建器接收 context
-3. 逐步迁移 API 处理器从全局函数到 context 方法
-4. 删除模块级全局状态
+**Migration steps**:
+1. Create the `AppContext` struct
+2. Change the `maked_app` builder to accept a context
+3. Migrate the API handlers step by step from global functions to context methods
+4. Delete the module-level global state
 
-**风险**：
-- 破坏现有 API 签名
-- 需要修改所有测试
-- moonback 可能不支持 context 传递
+**Risks**:
+- Breaking existing API signatures
+- All tests have to be modified
+- moonback may not support context passing
 
-**验证信号**：
-- 所有现有测试通过（可能需要更新）
-- 可以创建多个独立的 AppContext 实例
-- 单元测试可以注入 mock context
+**Validation signals**:
+- All existing tests pass (may need updating)
+- Multiple independent AppContext instances can be created
+- Unit tests can inject a mock context
 
-**依赖**：切片 2（集成测试确保重构不破坏功能）
+**Dependencies**: Slice 2 (integration tests ensure the refactor does not break functionality)
 
 ---
 
-### 切片 4：配置系统（中优先级，低风险）
+### Slice 4: Configuration System (medium priority, low risk)
 
-**问题**：迁移规则硬编码在 pyroduct 中，无法运行时调整
+**Problem**: transition rules are hard-coded in pyroduct and cannot be adjusted at runtime
 
-**方案**：
-1. 定义配置结构体：
+**Approach**:
+1. Define the configuration struct:
 ```moonbit
 struct LoopConfig {
   default_slot_strategy : String  // "default" | "round_robin" | "random"
@@ -147,126 +164,126 @@ struct LoopConfig {
 }
 ```
 
-2. 从文件/环境变量加载配置
-3. Loop 引擎使用配置决定 slot 选择策略
+2. Load the configuration from a file / environment variables
+3. The Loop engine uses the configuration to decide the slot selection strategy
 
-**验证信号**：
-- 可以通过配置文件改变 Loop 行为
-- 不同配置下的测试通过
+**Validation signals**:
+- Loop behaviour can be changed through a configuration file
+- Tests pass under different configurations
 
-**依赖**：切片 3（需要 context 传递配置）
+**Dependencies**: Slice 3 (context passing is needed to deliver the configuration)
 
 ---
 
-### 切片 5：状态持久化（低优先级，中风险）
+### Slice 5: State Persistence (low priority, medium risk)
 
-**问题**：服务器重启丢失 Loop 状态
+**Problem**: the server loses Loop state on restart
 
-**方案**：
-1. 扩展数据库 schema：
+**Approach**:
+1. Extend the database schema:
 ```sql
 CREATE TABLE loop_state (
-  id INTEGER PRIMARY KEY CHECK (id = 1),  -- 单行表
+  id INTEGER PRIMARY KEY CHECK (id = 1),  -- single-row table
   current_domain TEXT NOT NULL,
   history_json TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
 ```
 
-2. 每次 step 后持久化
-3. 启动时从数据库恢复
+2. Persist after every step
+3. Restore from the database at startup
 
-**验证信号**：
-- 重启服务器后 Loop 状态保持一致
-- 并发访问不损坏状态
+**Validation signals**:
+- Loop state stays consistent after a server restart
+- Concurrent access does not corrupt the state
 
-**依赖**：切片 3（需要 context 管理 database 连接）
-
----
-
-### 切片 6：可观测性（低优先级，低风险）
-
-**问题**：缺少生产环境所需的日志和指标
-
-**方案**：
-1. 结构化日志：
-   - Loop 每次 step 记录：domain, slot, outcome, duration
-   - API 请求记录：method, path, status, duration
-
-2. 指标导出：
-   - Loop 循环次数
-   - 各 outcome 分布（Moved/Held/Block/Open/Same）
-   - API 请求延迟
-
-**验证信号**：
-- 日志输出符合结构化格式
-- 指标可以通过 `/metrics` 端点访问
-
-**依赖**：切片 3（context 传递 logger/metrics collector）
+**Dependencies**: Slice 3 (context is needed to manage the database connection)
 
 ---
 
-## 演进路线图
+### Slice 6: Observability (low priority, low risk)
+
+**Problem**: missing the logging and metrics that a production environment needs
+
+**Approach**:
+1. Structured logging:
+   - Every Loop step logs: domain, slot, outcome, duration
+   - API requests log: method, path, status, duration
+
+2. Metrics export:
+   - Loop iteration count
+   - Outcome distribution (Moved/Held/Block/Open/Same)
+   - API request latency
+
+**Validation signals**:
+- Log output follows the structured format
+- Metrics are reachable through the `/metrics` endpoint
+
+**Dependencies**: Slice 3 (context passes the logger / metrics collector)
+
+---
+
+## Evolution Roadmap
 
 ```
-阶段 1（立即）：解锁核心功能
-├─ 切片 1：使用 step_with_slot 解锁 Loop
-└─ 切片 2：建立集成测试基础设施
+Phase 1 (immediate): unlock the core functionality
+├─ Slice 1: unblock the Loop with step_with_slot
+└─ Slice 2: establish integration test infrastructure
 
-阶段 2（短期）：架构稳固
-├─ 切片 3：状态管理重构（依赖注入）
-└─ 切片 4：配置系统
+Phase 2 (short term): harden the architecture
+├─ Slice 3: state management refactor (dependency injection)
+└─ Slice 4: configuration system
 
-阶段 3（中期）：生产就绪
-├─ 切片 5：状态持久化
-└─ 切片 6：可观测性
+Phase 3 (mid term): production readiness
+├─ Slice 5: state persistence
+└─ Slice 6: observability
 ```
 
-## 关键决策点
+## Key Decision Points
 
-### 决策 1：pyroduct 迁移表策略
-- **约束**：pyroduct 是外部依赖，修改需要协调
-- **选项**：
-  - 等待 pyroduct 更新（被动）
-  - fork pyroduct 并自定义（主动）
-  - 在 MAKED 层包装 slot 选择逻辑（折中）
-- **推荐**：先实施折中方案，同时与 pyroduct 维护者沟通
+### Decision 1: pyroduct transition table strategy
+→- **Constraint**: pyroduct is an external dependency, modifying it requires coordination
+- **Options**:
+  - Wait for a pyroduct update (passive)
+  - Fork pyroduct and customise it (proactive)
+  - Wrap the slot selection logic at the MAKED layer (compromise)
+- **Recommendation**: implement the compromise first, and communicate with the pyroduct maintainers in parallel
 
-### 决策 2：状态管理重构时机
-- **约束**：重构会破坏现有 API，需要更新所有测试
-- **风险**：moonback 框架可能不支持 context 传递模式
-- **缓解**：先做小规模实验（单个 API 端点），验证可行性后再全面推广
+### Decision 2: timing of the state management refactor
+- **Constraint**: the refactor breaks the existing API and requires updating all tests
+- **Risk**: the moonback framework may not support the context-passing pattern
+- **Mitigation**: run a small-scale experiment first (a single API endpoint), then roll it out once feasibility is confirmed
 
-### 决策 3：测试策略
-- **约束**：moonback Request 是不透明类型
-- **选项**：
-  - 等待 moonback 提供测试辅助
-  - 使用 mock server 替代真实请求
-  - 只测试不依赖 Request 的逻辑
-- **推荐**：混合策略，优先测试领域逻辑，集成测试等待框架支持
+### Decision 3: testing strategy
+- **Constraint**: moonback Request is an opaque type
+- **Options**:
+  - Wait for moonback to provide test helpers
+  - Use a mock server instead of real requests
+  - Test only the logic that does not depend on Request
+- **Recommendation**: a hybrid strategy — test domain logic first, and wait for framework support before adding integration tests
 
-## 风险与缓解
+## Risks and Mitigations
 
-| 风险 | 影响 | 概率 | 缓解措施 |
+| Risk | Impact | Probability | Mitigation |
 |------|------|------|----------|
-| moonback 不支持 context 传递 | 切片 3 无法实施 | 中 | 先做 POC 验证 |
-| pyroduct 维护者不配合 | 切片 1 方案 B 不可行 | 低 | 已有方案 A/C 作为备选 |
-| 重构破坏现有功能 | 回归 bug | 中 | 切片 2 先建立集成测试安全网 |
-| 持久化引入性能问题 | 响应延迟增加 | 低 | 异步写入 + 批量提交 |
+| moonback does not support context passing | Slice 3 cannot be implemented | Medium | Validate with a POC first |
+| pyroduct maintainers do not cooperate | Slice 1 option B is not viable | Low | Options A/C already exist as fallbacks |
+| The refactor breaks existing functionality | Regression bugs | Medium | Slice 2 establishes an integration test safety net first |
+| Persistence introduces performance problems | Increased response latency | Low | Asynchronous writes + batch commits |
 
-## 下一步行动
+## Next Steps
 
-1. **本周**：实施切片 1A（前端添加 slot 选择器），验证 Loop 可以完整循环
-2. **下周**：实施切片 2（集成测试基础设施），建立回归测试安全网
-3. **本月**：评估切片 3 可行性（moonback context 支持），决定是否推进重构
+1. **This week**: implement Slice 1A (add a slot selector to the front end), verify that the Loop can cycle through completely
+2. **Next week**: implement Slice 2 (integration test infrastructure), establish a regression test safety net
+3. **This month**: evaluate the feasibility of Slice 3 (moonback context support), decide whether to push the refactor forward
 
 ---
 
-## 成功标准
+## Success Criteria
 
-- Loop 能够执行完整的 M→D→E→A→K 循环（切片 1）
-- API 集成测试覆盖所有端点（切片 2）
-- 可以创建多个独立的 AppContext 实例（切片 3）
-- 配置文件可以改变 Loop 行为（切片 4）
-- 服务器重启后状态保持一致（切片 5）
-- 生产环境可以收集日志和指标（切片 6）
+- The Loop can execute a complete M→D→E→A→K cycle (Slice 1)
+- API integration tests cover every endpoint (Slice 2)
+- Multiple independent AppContext instances can be created (Slice 3)
+- A configuration file can change Loop behaviour (Slice 4)
+- State stays consistent after a server restart (Slice 5)
+- Logs and metrics can be collected in a production environment (Slice 6)

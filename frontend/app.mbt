@@ -107,7 +107,17 @@ fn update(model : Model, msg : Msg, emit : @cmd.Emit[Msg]) -> (Model, @cmd.Cmd) 
           causal_result: model.causal_result,
           causal_error: model.causal_error,
         },
-        @cmd.none,
+        // The loop status is fetched here rather than batched alongside the
+        // pages request in `init`. Batching the two made every later
+        // click-initiated POST reach the server but never deliver its response:
+        // the request executed, the view stayed frozen on stale state, and no
+        // error was ever shown. Issuing the second request from here, once the
+        // first has already been answered, keeps click-initiated commands
+        // working. The cost is one extra round trip before the loop panel
+        // fills in.
+        @http.get("/api/loop/status").expect_json(
+          emit.map(fn(result) { LoopLoaded(result) }),
+        ),
       )
     Loaded(Err(_)) =>
       (
@@ -154,14 +164,14 @@ fn update(model : Model, msg : Msg, emit : @cmd.Emit[Msg]) -> (Model, @cmd.Cmd) 
       )
     SlotStepClicked(slot) => {
       let name = match slot {
-        "处境" => "occasion"
-        "取向" => "orientation"
-        "先行" => "antecedent"
-        "行动" => "act"
-        "反馈" => "feedback"
-        "持存" => "hold"
-        "共在" => "cobeing"
-        "揭蔽" => "unveil"
+        "Occasion" => "occasion"
+        "Orientation" => "orientation"
+        "Anticipation" => "antecedent"
+        "Action" => "act"
+        "Feedback" => "feedback"
+        "Holding" => "hold"
+        "Co-being" => "cobeing"
+        "Unveiling" => "unveil"
         _ => slot
       }
       (
@@ -290,24 +300,31 @@ fn view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
 ///|
 /// The root component. Public because `cmd/web` mounts it.
 ///
-/// Uses `create_state` inside a builder so the view receives the emitter and
-/// can issue commands (step/reset POST requests) from button clicks. The
-/// initial data fetch is issued through the emitter right after state
-/// creation.
+/// Uses `create_state_with_init` inside a builder so the view receives the
+/// emitter and can issue commands (step/reset POST requests) from button
+/// clicks. The initial data fetch is returned from `init`, which is the only
+/// place the runtime will actually dispatch it.
+///
+/// The batch must be the `Cmd` half of `init`'s return value. `@rabbita.new`
+/// takes a builder returning `Val[Html]` only, so a command issued in the
+/// builder body has nowhere to go: `create_state` synthesises an init of
+/// `_ => (model, none)`, and discarding the batch leaves both requests
+/// undispatched -- the app renders its shell and then waits forever on
+/// "Loading...", with every request returning a healthy 200.
 pub fn app() -> @rabbita.App {
   @rabbita.new(fn() {
-    let (model, emit) = @rabbita.create_state(
-      initial(),
+    let (model, emit) = @rabbita.create_state_with_init(
+      init=fn(emit) {
+        (
+          initial(),
+          @http.get("/api/pages").expect_json(
+            emit.map(fn(result) { Loaded(result) }),
+          ),
+        )
+      },
       update~,
       subscriptions~,
     )
-    let pages_request = @http.get("/api/pages").expect_json(
-      emit.map(fn(result) { Loaded(result) }),
-    )
-    let loop_request = @http.get("/api/loop/status").expect_json(
-      emit.map(fn(result) { LoopLoaded(result) }),
-    )
-    @cmd.batch([pages_request, loop_request]) |> ignore
     model.map(fn(m) { view(emit, m) })
   })
 }

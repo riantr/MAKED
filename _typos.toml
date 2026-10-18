@@ -1,0 +1,29 @@
+# typos configuration
+#
+# `Check typos` is the gate that has actually stopped a release on this account
+# before, so it is worth writing down why the one word this project needs to
+# whitelist is the project's own name.
+#
+# `maked` is not a misspelling of "marked"/"made"/"makes" here. It is the
+# project name, and it appears in 281 places across the repository:
+#
+#   - the MoonBit package alias `@maked` (backend/moon.pkg, cmd/server/moon.pkg)
+#   - the CSS class prefix `.maked-*` in frontend/dist/styles.css, which is
+#     tracked source (only the generated main.js is gitignored)
+#   - the environment variables MAKED_PORT / MAKED_DB / MAKED_DIST
+#   - the default SQLite filename `maked.db`
+#   - document headings and prose across architecture/, README and the roadmap
+#   - the module name `riantr/maked_moonbit`
+#
+# Without this entry `typos` exits non-zero and blocks the publish step.
+#
+# This is deliberately the ONLY word in this file. A real typo should fail the
+# gate and be fixed, not quietly appended here. If a second project-specific
+# word ever needs whitelisting, it belongs in this file with the reason stated.
+#
+# `extend-words` maps the word to itself, which teaches the dictionary that this
+# spelling is intentional. It applies case-insensitively, so both `maked` and
+# `MAKED` are covered by the single entry below.
+
+[default.extend-words]
+maked = "maked"

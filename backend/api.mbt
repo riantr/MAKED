@@ -46,7 +46,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   // GET  /api/loop/status       → current domain, position, history
   // GET  /api/loop/slots        → all eight drive slots with designation and gloss
   // POST /api/loop/step         → advance one step using the domain's drive slot
-  // POST /api/loop/step/:slot   → advance one step using the named slot (两字定名)
+  // POST /api/loop/step/:slot   → advance one step using the named slot
   // POST /api/loop/reset        → return to Model with empty history
   app.get("/api/loop/status", _req => {
     let state = get_loop_state()
@@ -54,16 +54,64 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   })
   app.get("/api/loop/slots", _req => {
     let items = []
-    for (english, designation, gloss, source) in all_slots_info() {
+    for (english, designation, gloss) in all_slots_info() {
       let item : Json = {
         "name": english,
         "designation": designation,
         "gloss": gloss,
-        "source": source,
       }
       items.push(item)
     }
     let body : Json = { "slots": [..items] }
+    Response::json(body)
+  })
+  // GET /api/loop/continuations?depth=3
+  //
+  // What the model itself says could happen next from the current position,
+  // via pyroduct's `after_open` -- the table's own answer to "all possible
+  // continuations", as distinct from `expand`, which wants the caller to name
+  // the slot sequence first. This is the replacement for deciding the ring's
+  // next step by meaning: the machine does not choose, and neither does this
+  // endpoint -- it returns the candidates and lets a person pick.
+  app.get("/api/loop/continuations", req => {
+    let state = get_loop_state()
+    let current_pos = state.domain_state(state.current).position
+    let depth = match req.query("depth") {
+      Some(text) => @string.parse_int(text) catch { _ => 3 }
+      None => 3
+    }
+    let bounded = if depth <= 0 || depth > 8 { 3 } else { depth }
+    let items = []
+    for (next, steps) in continuations(current_pos, bounded) {
+      let item : Json = {
+        "position": next.en_label(),
+        "position_label": next.en_label(),
+        "steps": steps,
+      }
+      items.push(item)
+    }
+    let by_slot = []
+    for slot in exitable_slots(current_pos) {
+      let targets = []
+      for (next, steps) in @sm.after_open(current_pos, slot, bounded) {
+        let target : Json = { "position": next.en_label(), "steps": steps }
+        targets.push(target)
+      }
+      let entry : Json = {
+        "name": slot_english_name(slot),
+        "designation": slot.en_designation(),
+        "targets": [..targets],
+      }
+      by_slot.push(entry)
+    }
+    let body : Json = {
+      "from": current_pos.en_label(),
+      "from_label": current_pos.en_label(),
+      "depth": bounded,
+      "continuations": [..items],
+      "by_slot": [..by_slot],
+      "note": "The machine does not choose for the subject: this lists the edges the transition table really offers, and the choosing is left to the person.",
+    }
     Response::json(body)
   })
   app.post("/api/loop/step", _req => {
@@ -147,8 +195,8 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
         let parsed = match mode_name {
           "structured" => Some(Structured)
           "free" => Some(Free)
-          "结构" => Some(Structured)
-          "自由" => Some(Free)
+          "Structured" => Some(Structured)
+          "Free" => Some(Free)
           _ => None
         }
         match parsed {
@@ -180,7 +228,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       let item : Json = {
         "paper_id": p.id,
         "trigger": @debug.to_string(t),
-        "slot": s.designation(),
+        "slot": s.en_designation(),
         "slot_english": slot_english_name(s),
       }
       item
@@ -204,7 +252,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
         "paper_id": paper.id,
         "paper_title": paper.title,
         "trigger": @debug.to_string(trigger),
-        "slot": slot.designation(),
+        "slot": slot.en_designation(),
         "slot_english": slot_english_name(slot),
         "domain_before": state_before.current.letter(),
         "domain_after": state_after.current.letter(),

@@ -14,6 +14,19 @@ Set-Location (Split-Path -Parent $PSCommandPath)
 
 $moon = if ($env:MOON) { $env:MOON } else { 'moon' }
 
+# `.mooncakes/` is gitignored -- it is a dependency cache, so an edit there is
+# invisible to git, to CI, and to anyone who runs `moon update`. The English
+# vocabulary therefore lives in `deps/pyroduct-en.mbt`, which is tracked, and
+# is staged into the vendored package on every build. Edit the tracked file, not
+# the copy.
+Write-Host '==> staging the English pyroduct vocabulary'
+$pyroduct_src = '.mooncakes/riantr/pyroduct/src'
+$pyroduct_group_src = '.mooncakes/riantr/pyroduct/group'
+if (-not (Test-Path $pyroduct_src)) { throw "expected $pyroduct_src to exist" }
+if (-not (Test-Path $pyroduct_group_src)) { throw "expected $pyroduct_group_src to exist" }
+Copy-Item 'deps/pyroduct-en.mbt' "$pyroduct_src/en.mbt" -Force
+Copy-Item 'deps/pyroduct-group-en.mbt' "$pyroduct_group_src/en.mbt" -Force
+
 Write-Host '==> building the browser bundle'
 & $moon build --release --target js cmd/web
 if ($LASTEXITCODE -ne 0) { throw "js build failed ($LASTEXITCODE)" }

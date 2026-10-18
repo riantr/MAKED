@@ -138,7 +138,7 @@ test "Scenario: Block outcome keeps domain in place" {
   // Then the current domain stays at Model
   assert_eq(stepped.current, @backend.Model)
   // And the outcome is Block
-  assert_eq(stepped.history[0].outcome_label, "无路")
+  assert_eq(stepped.history[0].outcome_label, "No Edge")
 }
 
 ///|
@@ -173,7 +173,7 @@ test "Scenario: slot designation round-trips" {
   let slots = @sm.all_slots()
   for slot in slots {
     // When I parse each designation
-    let designation = slot.designation()
+    let designation = slot.en_designation()
     let parsed = @backend.slot_from_designation(designation)
     // Then I get back the original slot
     match parsed {

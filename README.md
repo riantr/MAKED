@@ -1,170 +1,228 @@
 # MAKED on MoonBit
 
-**递归自进化建模框架** — 以对抗性知识循环为设计哲学。
+**A recursively self-evolving modelling framework** — designed around an adversarial knowledge loop.
 
-MAKED 是一个五相递归认知架构：Model → Data → Experience → Attack → Knowledge 构成闭环，每一相都是上一相的对抗与超越。系统通过自身的循环驱动状态迁移，从 arxiv 研究论文到因果推断再到 pyroduct 状态机，形成自驱动的知识进化闭环。
+Current release: **v0.1.4** — published as [`riantr/maked_moonbit`](https://mooncakes.io) on mooncakes.io.
 
-技术实现：[rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.16.4) 单页前端 + [moonback](https://mooncakes.io) 上的 Flask 风格微框架后端，SQLite 存储。
+MAKED is a five-domain recursive cognitive architecture: Model → Data → Experience → Attack → Knowledge forms a closed ring, each domain being the adversarial overcoming of the one before it. The system drives state transitions through its own cycle — from arxiv research papers, to causal inference, to the pyroduct state machine — forming a self-driving closed loop of knowledge evolution.
 
-## 核心概念
+Technical implementation: [rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.16.5) single-page frontend + a Flask-style micro-framework backend on [moonback](https://mooncakes.io), with SQLite storage.
 
-### 五相环 (M → D → E → A → K)
+## Core Concepts
 
-| 相 | 域 | Pyroduct 位置 | 驱动槽 | 结构关系 |
+### The Five-Domain Ring (M → D → E → A → K)
+
+| Letter | Domain | Pyroduct Position | Drive Slot | Structural Relation |
 |---|---|---|---|---|
-| M | Model | 立位 Standing | 共在 CoBeing | 模型立足，一脚踏入过去，一脚踏入未来 |
-| D | Data | 相遇 Encounter | 反馈 Feedback | 模型与他者（数据）的不可回避的遭遇 |
-| E | Experience | 受赏 Honor | 揭蔽 Unveil | 经验作为来自偶像的奖赏被吸收 |
-| A | Attack | 受挫 Evil | 持存 Hold | 攻击作为收缩视域的冰冷之物 |
-| K | Knowledge | 修习 Discipline | 取向 Orientation | 知识通过承受与消除暗礁而蒸馏 |
+| M | Model | Standing | derived from the table | the model stands, one foot in the past and one in the future |
+| D | Data | Encounter | derived from the table | the model's inescapable encounter with the other (data) |
+| E | Experience | Honor | derived from the table | experience absorbed as a reward bestowed by the idol |
+| A | Attack | Evil | derived from the table | attack as the hard, cold thing that contracts the horizon |
+| K | Knowledge | Discipline | derived from the table | knowledge distilled by enduring and clearing the reefs |
 
-环序 M → D → E → A → K 是 logo 顺时针绘制的路径，不是名字拼写的顺序。
+The ring order M → D → E → A → K is the path the logo draws clockwise, not the alphabetical order of the names.
 
-### 三层状态机
+### The Three-Layer State Machine
 
-1. **主体层**：每个域拥有独立的 pyroduct 状态机（34 位置 × 8 槽 × 53 迁移）
-2. **群组层**：域间协调的群组状态（散在 → 趋同 → 共语 → 宁定，20 状态）
-3. **社会层**：待实现
+1. **Subject layer**: every domain owns an independent pyroduct state machine (34 positions × 8 slots × 53 transitions)
+2. **Group layer**: group states that coordinate across domains (Scattered → Converging → Common Tongue → Settled, 20 states)
+3. **Society layer**: not yet implemented
 
-**灵活起点**：Loop 可以从任意域开始（默认 Model），通过 `POST /api/loop/reset/:domain` 切换起点。每个域的状态机独立初始化，仅 `current` 指针改变。
+**Flexible starting point**: the loop may start at any domain (Model by default); switch the starting domain with `POST /api/loop/reset/:domain`. Each domain's state machine initialises independently — only the `current` pointer changes.
 
-### 对抗性知识循环
+### Drive Slots Come from the Transition Table, Not from Semantics
 
-区别于传统数据管道的关键：**Attack 域**。模型不是被数据"喂养"的，而是被攻击"锤炼"的。研究论文通过关键词启发映射到 pyroduct 触发器，驱动状态机迁移；DoubleML 因果推断估计论文"新颖性"对"影响力"的因果效应。
+Which slots can actually push a given position is answered by the pyroduct transition table: `exitable_slots` lists the slots that have an outgoing edge from that position, and `drive_slot` prefers one among them that genuinely moves. Of the 272 = 34 × 8 combinations, 228 are `Block` — no way out.
 
-## 快速开始
+This rule was forced by measurement. Earlier, each domain hard-coded one "semantically corresponding" drive slot (Model meets data → Co-being); the five slots that came out of that had **not one outgoing edge** in the transition table: stepping the loop 18 times in a row left all five domains' positions completely unchanged, while the `next_domain` ring pointer rotated as usual and the page looked perfectly normal.
+
+The behaviour now:
+
+| Situation | Behaviour |
+|---|---|
+| The table has a `Moved` outgoing edge | Take it; `drive_slot` reports the concrete slot |
+| Only `Held` / `Same` outgoing edges | Record them faithfully; the position does not move and the cursor does not advance |
+| Only `Open` outgoing edges | `undecided: true`, listing the candidates, **does not choose for the subject** |
+| No outgoing edge at all | `blocked: true`, `drive_slot` is the empty string |
+
+The ring order M → D → E → A → K → M is kept as the **presentation order** — it is the order the logo draws and the way the site narrates itself; but it is no longer treated as evidence that the state machine moved.
+
+### The Adversarial Knowledge Loop
+
+The key difference from a traditional data pipeline: the **Attack** domain. The model is not "fed" by data, it is "forged" by attack. Research papers are mapped onto pyroduct triggers by keyword heuristics, driving state machine transitions; DoubleML causal inference estimates the causal effect of a paper's "novelty" on its "influence".
+
+## Quick Start
 
 ```bash
 .\build.ps1
 moon run --release --target native cmd/server
 ```
 
-打开 <http://127.0.0.1:8080/>。
+Open <http://127.0.0.1:8080/>.
 
-`build.ps1` 构建浏览器包、暂存到后端服务位置、类型检查后端、运行全部测试、构建服务器。后端同时提供 JSON API 和前端静态文件，无需第二个 web 服务器，无需配置 CORS。
+`build.ps1` builds the browser bundle, stages it to the backend's serving location, type-checks the backend, runs all tests, and builds the server. The backend serves both the JSON API and the frontend static files, so there is no second web server and no CORS configuration.
 
-### 环境变量
+### Environment Variables
 
-| 变量 | 默认值 | 含义 |
+| Variable | Default | Meaning |
 |---|---|---|
-| `MAKED_PORT` | `8080` | 监听端口 |
-| `MAKED_DB` | `maked.db` | SQLite 文件路径 |
-| `MAKED_DIST` | `frontend/dist` | 前端构建产物目录 |
+| `MAKED_PORT` | `8080` | listen port |
+| `MAKED_DB` | `maked.db` | SQLite file path |
+| `MAKED_DIST` | `frontend/dist` | frontend build output directory |
 
 ## API
 
-### 页面与域
+### Pages and Domains
 
-| 路由 | 返回 |
+| Route | Returns |
 |---|---|
-| `GET /api/status` | 数据库路径、页面数、五域信息 |
-| `GET /api/pages` | 所有页面（按 sort 排序）|
-| `GET /api/pages/:slug` | 单个页面，或 404 |
-| `GET /api/domains` | 五域（环序）|
+| `GET /api/status` | database path, page count, the five domains |
+| `GET /api/pages` | all pages (sorted by sort) |
+| `GET /api/pages/:slug` | a single page, or 404 |
+| `GET /api/domains` | the five domains (ring order) |
 
-### 状态循环
+### State Loop
 
-| 路由 | 返回 |
+| Route | Returns |
 |---|---|
-| `GET /api/loop/status` | 当前域、位置、历史、域状态、群组状态、模式 |
-| `GET /api/loop/slots` | 八个驱动槽（两字定名 + 英文 + 释义）|
-| `GET /api/loop/mode` | 当前模式（structured/free）|
-| `POST /api/loop/step` | 步进一环（使用当前域的默认驱动槽）|
-| `POST /api/loop/step/:slot` | 步进一环（使用指定槽，支持英文或两字定名）|
-| `POST /api/loop/reset` | 重置到初始状态 |
-| `POST /api/loop/reset/:domain` | 重置到指定域为起点（支持字母或英文名）|
-| `POST /api/loop/mode/:mode` | 切换模式（structured/free 或 结构/自由）|
+| `GET /api/loop/status` | current domain, position, history, domain states, group state, mode |
+| `GET /api/loop/slots` | the eight drive slots (two-character designation + English + gloss) |
+| `GET /api/loop/mode` | the current mode (structured/free) |
+| `POST /api/loop/step` | advance one ring step (using the current domain's default drive slot) |
+| `POST /api/loop/step/:slot` | advance one ring step (using a named slot, English or two-character designation) |
+| `POST /api/loop/reset` | reset to the initial state |
+| `POST /api/loop/reset/:domain` | reset with the given domain as the starting point (accepts a letter or the English name) |
+| `POST /api/loop/mode/:mode` | switch mode (structured/free) |
+| `GET /api/loop/continuations?depth=N` | the model's own "all possible continuations" (`after_open`) |
 
-### 循环模式
+Besides the original fields, `GET /api/loop/status` also returns `drive_slot_name`, `blocked`, `undecided`,
+`open_slots` (the slots that really have an outgoing edge at the current position, with their outcomes),
+and `at_anchor` / `drivable` for each domain.
 
-- **结构模式 (Structured)**：遵循环序 M→D→E→A→K，每域使用指定驱动槽，步进后总是前进到下一域
-- **自由模式 (Free)**：任意槽驱动，探索状态空间；当结果为"无路"(Block)时停留在当前域，否则前进
+`/api/loop/continuations` is built on pyroduct's `after_open` — the transition table's own answer to "all
+possible continuations", as distinct from `expand`, which requires the caller to name a slot sequence
+up front. It lists only edges that really exist and **does not choose for the subject**: when the same
+position is reachable by several routes it is listed once at the shortest distance, and the slot-grouped
+view is where the alternative routes become visible.
 
-默认使用结构模式。自由模式允许探索 pyroduct 状态空间中非环序的迁移路径。
+### Loop Modes
 
-### 研究循环
+- **Structured mode**: follows the ring order M→D→E→A→K, uses the designated drive slot for each domain, and always advances to the next domain after a step
+- **Free mode**: driven by any slot, exploring the state space; it stays in the current domain when the outcome is `Block` ("no way out"), otherwise it advances
 
-| 路由 | 返回 |
+Structured mode is the default. Free mode allows exploring transition paths through the pyroduct state space that do not follow the ring order.
+
+### Research Loop
+
+| Route | Returns |
 |---|---|
-| `GET /api/research/papers` | arxiv SNN 论文 + 触发映射 |
-| `POST /api/research/drive` | 获取论文并驱动循环 |
-| `GET /api/research/causal` | DoubleML 因果推断结果 |
+| `GET /api/research/papers` | arxiv SNN papers + trigger mapping |
+| `POST /api/research/drive` | fetch papers and drive the loop |
+| `GET /api/research/causal` | DoubleML causal inference results |
 
-## 项目结构
+## Project Structure
 
 ```
-backend/          微框架、存储层、API 路由、状态循环引擎
-  app.mbt           App: 路由表 + 有序中间件链
-  request.mbt       Request 封装
-  response.mbt      Response 值与分发
-  database.mbt      SQLite 存储层
-  pages.mbt         内容模型 + 九页种子数据
-  api.mbt           JSON API 路由
-  loop.mbt          五相环状态循环引擎（主体 + 群组状态机）
-  research.mbt      arxiv 研究论文获取与触发映射
-  causal.mbt        DoubleML 因果推断
-  maked_app.mbt     组装、静态文件、SPA 回退
-frontend/         rabbita 单页应用
-  app.mbt           状态机与路由
-  views.mbt         头部、域卡片、页面渲染
-  logo.mbt          五环标记（SVG）
-  loop_state.mbt    循环状态可视化
-  page.mbt          后端 JSON 的类型化访问器
-cmd/server/       native 入口
-cmd/web/          js 入口（浏览器包）
-tools/            CI 与测试工具
-ci.sh             CI 流水线（15 门禁）
+backend/          micro-framework, storage layer, API routes, state loop engine
+  app.mbt           App: route table + ordered middleware chain
+  request.mbt       Request wrapper
+  response.mbt      Response value and dispatch
+  database.mbt      SQLite storage layer
+  pages.mbt         content model + nine pages of seed data
+  api.mbt           JSON API routes
+  loop.mbt          five-domain ring loop engine (subject + group state machines)
+  research.mbt      arxiv research paper fetching and trigger mapping
+  causal.mbt        DoubleML causal inference
+  maked_app.mbt     assembly, static files, SPA fallback
+frontend/         rabbita single-page application
+  app.mbt           state machine and router
+  views.mbt         header, domain cards, page rendering
+  logo.mbt          five-ring mark (SVG)
+  loop_state.mbt    loop state visualisation
+  page.mbt          typed accessors for the backend JSON
+cmd/server/       native entry point
+cmd/web/          js entry point (browser bundle)
+tools/            CI and test tooling
+ci.sh             CI pipeline (15 gates)
 ```
 
-## CI 流水线
+## CI Pipeline
 
 ```bash
-bash ci.sh              # 全部 15 门禁
-bash ci.sh --quick      # 跳过慢速门禁
-bash ci.sh --unit-only  # 仅类型检查 + 单元测试
+bash ci.sh              # all 15 gates
+bash ci.sh --quick      # skip the slow gates
+bash ci.sh --unit-only  # type check + unit tests only
 ```
 
-| 门禁 | 工具 | 检查内容 |
+There is no bash on this Windows machine, so `ci.sh` cannot be run locally; the parts that can be reproduced
+locally are covered by `.\build.ps1`
+(bundle → check → backend tests → frontend tests → server build). Of the 15 gates, 9 exist only as a
+shell implementation and cannot be reproduced locally.
+
+### Mutation Checks
+
+Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be run separately:
+
+```
+.\tools\mutate-backend.ps1     # 11 mutations, 0 survived, 1 expected-equivalent
+.\tools\mutate-frontend.ps1    # 15 mutations, 0 survived
+.\tools\mutate-loop.ps1        # 14 mutations, 0 survived, 1 expected-equivalent
+```
+
+That one EQUIV in `mutate-loop` is deliberate: measurement shows that all 34 positions **do have outgoing
+edges**, so the `None` branch of `drive_slot` is currently unreachable. It stays in the roster on purpose —
+if the transition table ever gains a genuinely dead position, it will flip to `KILLED`, and that is exactly
+the signal we want.
+
+| Gate | Tool | What it checks |
 |---|---|---|
-| native-check | `moon check --target native` | 后端类型安全 |
-| js-check | `moon check --target js` | 前端类型安全 |
-| fmt | `moon fmt --check` | 代码格式 |
-| tree | `moon tree` | 依赖审计 |
-| unit-native | `moon test --target native` | 120 后端测试 |
-| unit-js | `moon test --target js` | 12 前端测试 |
-| coverage | `moon test --enable-coverage` | 覆盖率 |
-| bench | `moon bench` | 基准测试 |
-| prove | `moon prove` | 形式化验证 (Why3) |
-| bdd | `bdd_test.mbt` | 14 个 Given/When/Then 场景 |
-| contract | `contract-test.sh` | 46 个 API 契约断言 |
-| component | `component-test.sh` | 6 个跨模块集成检查 |
-| sast | `sast-check.sh` | 11 个静态安全检查 |
-| mutation | `mutation-test.sh` | 10 个变异测试 (80% 杀灭率) |
-| dast | `dast-check.sh` | 5 个动态安全检查 |
+| native-check | `moon check --target native` | backend type safety |
+| js-check | `moon check --target js` | frontend type safety |
+| fmt | `moon fmt --check` | code formatting |
+| tree | `moon tree` | dependency audit |
+| unit-native | `moon test --target native` | 120 backend tests |
+| unit-js | `moon test --target js` | 12 frontend tests |
+| coverage | `moon test --enable-coverage` | coverage |
+| bench | `moon bench` | benchmarks |
+| prove | `moon prove` | formal verification (Why3) |
+| bdd | `bdd_test.mbt` | 14 Given/When/Then scenarios |
+| contract | `contract-test.sh` | 46 API contract assertions |
+| component | `component-test.sh` | 6 cross-module integration checks |
+| sast | `sast-check.sh` | 11 static security checks |
+| mutation | `mutation-test.sh` | 10 mutation tests (80% kill rate) |
+| dast | `dast-check.sh` | 5 dynamic security checks |
 
-## 请求处理
+## Request Handling
 
-三层，由外到内：
+Three layers, outside in:
 
-1. `static_files`：从 `frontend/dist` 提供真实文件
-2. `spa_fallback`：未匹配的浏览器导航返回 `index.html`（支持 `/about` 冷加载）
-3. 路由器：服务 `/api/...`，其余返回 JSON 404
+1. `static_files`: serves real files from `frontend/dist`
+2. `spa_fallback`: an unmatched browser navigation returns `index.html` (so `/about` cold-loads correctly)
+3. the router: serves `/api/...`, everything else returns a JSON 404
 
-回退排除 `/api/` 路径。含点号的末段被视为资源（缺失样式表返回 404 而非 HTML）。路由冲突中止启动（`fail`，非 `raise`）。
+The fallback excludes `/api/` paths. A final segment containing a dot is treated as an asset (a missing stylesheet returns 404 rather than HTML). A route conflict aborts startup (`fail`, not `raise`).
 
-## SQLite 存储层
+## The Two Initial Fetches Are Chained, Not Batched
 
-三个关键行为（已验证，非假设）：
+`init` issues **one** request (`GET /api/pages`). The loop status (`GET /api/loop/status`) is requested from the `Loaded` handler, after the first response has already arrived.
 
-1. `prepare` 只编译不执行。未 `step` 的语句被 `finalize` 静默丢弃——DDL 走 `exec`
-2. 执行完毕的语句必须 `reset` 后才能重用。`bind` 原地覆盖绑定
-3. `finalize` 报告最近一次求值的错误码——失败的 `step` 会污染后续的 `finalize`
+Batching the two with `@cmd.batch` looks equivalent and is not. With the batch, every click-initiated POST still reached the server and still changed state, but **no response ever came back**: Step, Reset and the slot buttons all mutated the backend while the view stayed frozen on stale data, with no error shown anywhere. Chaining the second request restores them.
 
-## 发版约定
+The cause was not root-caused — the same build works when the init issues a GET and a POST, and fails when it issues two GETs, which points at how two concurrent requests are dispatched rather than at anything in the loop engine. The safe rule to preserve: **issue the two initial fetches one after the other.** Re-batching them is a silent regression that no unit test catches.
 
-- 补丁版本递进：v0.1.x（除非指定，不发次版本）
-- Gitee 做日常存储，GitHub 用于发版
-- 发版前跑 `bash ci.sh` 全绿
+## SQLite Storage Layer
+
+Three key behaviours (verified, not assumed):
+
+1. `prepare` only compiles, it does not execute. A statement that was never `step`ped is silently dropped by `finalize` — DDL goes through `exec`
+2. A finished statement must be `reset` before it can be reused. `bind` overwrites the bindings in place
+3. `finalize` reports the error code of the most recent evaluation — a failed `step` poisons the following `finalize`
+
+## Release Conventions
+
+- Patch version progression: v0.1.x (no minor releases unless specified)
+- Gitee for day-to-day storage, GitHub for releases
+- Run `bash ci.sh` and get an all-green result before releasing
 
 ## License
 

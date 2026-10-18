@@ -1,0 +1,170 @@
+name: publish-package
+run-name: publish maked_moonbit ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+on:
+  # Tag-push triggering is ON.
+  #
+  # It was never enabled on this repository before: MAKED had only ci.yml, so a
+  # tag produced no publish run at all. moonbit_doubleML's history is the
+  # cautionary tale -- its tag triggering was switched off (7186945) because
+  # every tag push went red, and the recorded reason ("the token is not set")
+  # turned out to be incomplete: the last run to reach the end died at
+  # `Check typos`, not at the token.
+  #
+  # So the two things that made that repository red are handled here
+  # explicitly, before the publish step can be reached:
+  #   1. `Check typos` runs as its own gate, and it is the gate most likely to
+  #      fail on a documentation-heavy release.
+  #   2. The publish step guards a missing secret before it writes anything,
+  #      and says what the secret must CONTAIN if it is present but wrong.
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag, for example v0.1.4"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-maked-moonbit-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_COLOR: 1
+      TYPOS_VERSION: v1.19.0
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+      # The tag and the manifest must agree. If they drift, `moon publish`
+      # uploads a version that no tag describes, and mooncakes `latest` then
+      # points at something the tag order does not suggest.
+      - name: Resolve release version
+        id: release
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="$GITHUB_REF_NAME"
+          fi
+
+          case "$tag" in
+            v*) version="${tag#v}" ;;
+            *)
+              echo "Release tag must use the v* format, got: $tag" >&2
+              exit 1
+              ;;
+          esac
+
+          manifest_version="$(awk -F'"' '/^version = / { print $2; exit }' moon.mod)"
+          if [ "$version" != "$manifest_version" ]; then
+            echo "Tag version $version does not match moon.mod version $manifest_version" >&2
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: MoonBit version
+        run: |
+          moon version --all
+
+      - name: Update dependencies
+        run: moon update
+
+      # Must come after `moon update` and before anything that compiles.
+      # `.mooncakes/` is a gitignored dependency cache, so the English
+      # vocabulary in deps/ has to be copied in or the backend does not build
+      # ("SubjectState has no method en_label"). build.ps1 does this locally,
+      # which is exactly why CI would have failed while every local gate was
+      # green.
+      - name: Stage English pyroduct vocabulary
+        run: bash .github/scripts/stage_pyroduct_en.sh
+
+      - name: Check package
+        run: |
+          echo "::group::moon check --target native"
+          moon check --target native
+          echo "::endgroup::"
+          echo "::group::moon check --target js"
+          moon check --target js
+          echo "::endgroup::"
+
+      - name: Test package
+        run: |
+          echo "::group::moon test --target native"
+          moon test --target native
+          echo "::endgroup::"
+          echo "::group::moon test --target js"
+          moon test --target js
+          echo "::endgroup::"
+
+      - name: Check formatting
+        run: moon fmt --check
+
+      # The historical blocker on this account. Kept as its own step so a typo
+      # names itself instead of surfacing as an unexplained red publish.
+      - name: Download typos
+        run: curl -LsSf https://github.com/crate-ci/typos/releases/download/$TYPOS_VERSION/typos-$TYPOS_VERSION-x86_64-unknown-linux-musl.tar.gz | tar zxf - -C "${CARGO_HOME:-$HOME/.cargo}/bin"
+
+      - name: Check typos
+        run: typos
+
+      # Runs immediately before the publish step, because publishing is the
+      # only thing that puts this README in front of users.
+      #
+      # The version is checked rather than the whole file: `moon.mod` is the
+      # authority (checked against the tag above) and README is the other place
+      # a version string can go stale, where nothing would catch it.
+      - name: Check README version matches the manifest
+        run: |
+          manifest_version="$(awk -F'"' '/^version = / { print $2; exit }' moon.mod)"
+          if ! grep -q "v${manifest_version}" README.md; then
+            echo "::error::README.md does not mention v${manifest_version}; sync it before tagging" >&2
+            exit 1
+          fi
+
+      # moon publish exits 255 for "secret missing", "secret has the wrong
+      # shape", "publish rejected" and "version already exists", so without
+      # this guard the annotation names none of them.
+      #
+      # WHAT THE SECRET MUST CONTAIN: the JSON BODY of
+      # ~/.moon/credentials.json -- an object with non-empty "token" and
+      # "username" keys -- NOT a bare token string. The step below writes
+      # $SECRET straight to that path, so a bare token produces a file that
+      # does not parse and moon publish fails with an opaque auth error.
+      - name: Publish to Mooncakes
+        run: |
+          if [ -z "$SECRET" ]; then
+            echo "::error::MOONCAKES_RIANTR_TOKEN is not set on this repository; moon publish cannot authenticate. If it IS set, check its SHAPE: it must be the JSON body of ~/.moon/credentials.json, not a bare token."
+            exit 1
+          fi
+          mkdir -p "$HOME/.moon"
+          printf '%s' "$SECRET" > "$HOME/.moon/credentials.json"
+          trap 'rm -f "$HOME/.moon/credentials.json"' EXIT
+          moon publish
+        env:
+          SECRET: ${{ secrets.MOONCAKES_RIANTR_TOKEN }}
+
+      - name: Create GitHub Release
+        run: |
+          gh release create "${{ steps.release.outputs.tag }}" \
+            --title "maked_moonbit ${{ steps.release.outputs.version }}" \
+            --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

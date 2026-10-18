@@ -240,20 +240,20 @@ test "decode_loop_status reads the backend loop payload" {
   let json : Json = {
     "current_domain": "M",
     "current_title": "Model",
-    "current_position": "立位",
-    "current_position_label": "站立",
-    "current_gloss": "人双脚站在地上...",
+    "current_position": "Standing",
+    "current_position_label": "Standing",
+    "current_gloss": "The person stands with both feet on the ground...",
     "next_domain": "D",
-    "drive_slot": "共在",
+    "drive_slot": "Co-being",
     "history_length": 0,
     "history": [],
   }
   let status = @frontend.decode_loop_status(json)
   assert_eq(status.current_domain, "M")
   assert_eq(status.current_title, "Model")
-  assert_eq(status.current_position, "立位")
+  assert_eq(status.current_position, "Standing")
   assert_eq(status.next_domain, "D")
-  assert_eq(status.drive_slot, "共在")
+  assert_eq(status.drive_slot, "Co-being")
   assert_eq(status.history_length, 0)
   assert_eq(status.history.length(), 0)
 }
@@ -263,20 +263,20 @@ test "decode_loop_status reads history events" {
   let json : Json = {
     "current_domain": "D",
     "current_title": "Data",
-    "current_position": "相遇",
-    "current_position_label": "相遇",
-    "current_gloss": "无法避免的...",
+    "current_position": "Encounter",
+    "current_position_label": "Encounter",
+    "current_gloss": "Unavoidably, the person encounters the other...",
     "next_domain": "E",
-    "drive_slot": "反馈",
+    "drive_slot": "Feedback",
     "history_length": 1,
     "history": [
       {
         "domain": "M",
-        "slot": "共在",
-        "outcome": "无路",
-        "detail": "立位 处没有「共在」的出边",
-        "position": "立位",
-        "position_label": "站立",
+        "slot": "Co-being",
+        "outcome": "No Edge",
+        "detail": "No outgoing edge for Co-being at Standing",
+        "position": "Standing",
+        "position_label": "Standing",
       },
     ],
   }
@@ -285,9 +285,9 @@ test "decode_loop_status reads history events" {
   assert_eq(status.history.length(), 1)
   let event = status.history[0]
   assert_eq(event.domain, "M")
-  assert_eq(event.slot, "共在")
-  assert_eq(event.outcome, "无路")
-  assert_eq(event.position, "立位")
+  assert_eq(event.slot, "Co-being")
+  assert_eq(event.outcome, "No Edge")
+  assert_eq(event.position, "Standing")
 }
 
 ///|
@@ -303,4 +303,75 @@ test "decode_loop_status survives malformed payloads" {
   assert_eq(status.current_domain, "M")
   assert_eq(status.history_length, 5)
   assert_eq(status.history.length(), 0)
+}
+
+///|
+fn bare_model() -> @frontend.Model {
+  {
+    pages: [],
+    current: "index",
+    loaded: true,
+    error: "",
+    loop_status: None,
+    loop_error: "",
+    research_papers: [],
+    research_triggers: [],
+    research_error: "",
+    causal_result: None,
+    causal_error: "",
+  }
+}
+
+///|
+test "Model Eq distinguishes a scalar field change" {
+  let m = bare_model()
+  assert_true(!Eq::equal(m, { ..m, current: "tutorial", }))
+}
+
+///|
+test "Model Eq distinguishes Some(status) from None" {
+  // rabbita gates every re-render on `Eq::equal(old_model, new_model)`
+  // (rabbita/incremental.mbt: create_state_machine -> duplix.recompute). If a
+  // changed field compares equal, the whole update is dropped and the view
+  // silently keeps showing the previous state -- with no error anywhere.
+  let payload : Json = {
+    "current_domain": "M",
+    "current_position": "Standing",
+    "drive_slot": "Action",
+    "history_length": 0,
+    "history": [],
+  }
+  let with_status = {
+    ..bare_model(),
+    loop_status: Some(@frontend.decode_loop_status(payload)),
+  }
+  assert_true(!Eq::equal(with_status, bare_model()))
+}
+
+///|
+test "Model Eq distinguishes two different loop statuses" {
+  let a : Json = {
+    "current_domain": "M",
+    "current_position": "Standing",
+    "drive_slot": "Action",
+    "history_length": 0,
+    "history": [],
+  }
+  let b : Json = {
+    "current_domain": "D",
+    "current_position": "Encounter",
+    "drive_slot": "Co-being",
+    "history_length": 1,
+    "history": [],
+  }
+  let ma = {
+    ..bare_model(),
+    loop_status: Some(@frontend.decode_loop_status(a)),
+  }
+  let mb = {
+    ..bare_model(),
+    loop_status: Some(@frontend.decode_loop_status(b)),
+  }
+  assert_true(!Eq::equal(ma, mb))
+  assert_true(Eq::equal(ma, ma))
 }

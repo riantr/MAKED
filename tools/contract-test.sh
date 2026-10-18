@@ -187,8 +187,11 @@ assert_contract "slot has string 'designation'" "$RESP" \
   "assert isinstance(d['slots'][0]['designation'], str)"
 assert_contract "slot has string 'gloss'" "$RESP" \
   "assert isinstance(d['slots'][0]['gloss'], str)"
-assert_contract "slot has string 'source'" "$RESP" \
-  "assert isinstance(d['slots'][0]['source'], str)"
+# `source` is deliberately absent: pyroduct's Slot::source() is the Chinese
+# source quote, kept so a name can be traced back to the original text. There
+# is no English form of it, so the English API does not pretend to carry one.
+assert_contract "slot has no 'source' field" "$RESP" \
+  "assert 'source' not in d['slots'][0]"
 
 # ---------------------------------------------------------------------------
 # Contract: POST /api/loop/step

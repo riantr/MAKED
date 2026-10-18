@@ -278,7 +278,7 @@ for attempt in $(seq 1 20); do
     # If domain changed or history grew with a non-Block outcome, we made progress.
     if [ "$AFTER_LEN" -gt "$BEFORE_LEN" ]; then
       OUTCOME=$(echo "$AFTER" | python -c "import sys,json; h=json.load(sys.stdin)['history']; print(h[-1]['outcome'] if h else '')" 2>/dev/null)
-      if [ "$OUTCOME" != "无路" ]; then
+      if [ "$OUTCOME" != $'\xe6\x97\xa0\xe8\xb7\xaf' ]; then
         DOMAINS_TRAVERSED=$((DOMAINS_TRAVERSED + 1))
         break
       fi

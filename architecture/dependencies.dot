@@ -48,11 +48,11 @@ digraph maked_dependencies {
     color="#999999"
     node [shape=component, fillcolor="#e8e8e8"]
 
-    moonback [label="moonback@0.8.6\nHTTP server + router"]
+    moonback [label="moonback@0.8.9\nHTTP server + router"]
     moonback_static [label="unstable_static\nstatic file middleware"]
     sqlite3 [label="sqlite3@0.2.3\nSQLite FFI"]
-    async [label="async@0.22.4\nruntime + fs + http"]
-    rabbita [label="rabbita@0.16.4\nElm-style SPA"]
+    async [label="async@0.22.5\nruntime + fs + http"]
+    rabbita [label="rabbita@0.16.5\nElm-style SPA"]
     rabbita_html [label="rabbita/html\nvirtual DOM"]
     rabbita_nav [label="rabbita/nav\nHistory API"]
     rabbita_sub [label="rabbita/sub\nsubscriptions"]
