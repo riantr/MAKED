@@ -153,30 +153,79 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
           "Reset",
         ),
       ])
-      let slot_designations = [
-        "Occasion", "Orientation", "Anticipation", "Action", "Feedback", "Holding",
-        "Co-being", "Unveiling",
-      ]
+      // Rendered from the backend's own slot list, so this panel cannot drift
+      // out of step with the machine. Each button says what the transition
+      // table says about that slot at this position, which is the whole point:
+      // 228 of the 272 position-slot combinations have no outgoing edge, and
+      // silently doing nothing is indistinguishable from a broken button.
       let slot_buttons : Array[@html.Html] = []
-      for slot in slot_designations {
-        let is_drive = if slot == status.drive_slot {
+      for slot in model.slots {
+        let live = find_open_slot(status, slot.name)
+        let is_drive = if slot.name == status.drive_slot_name {
           " maked-loop-slot--drive"
         } else {
           ""
         }
+        let note = match live {
+          Some(open) => {
+            let outcome = if open.outcome == "" {
+              ""
+            } else {
+              " · \{open.outcome}"
+            }
+            let targets = if open.targets.length() == 0 {
+              ""
+            } else {
+              " → \{open.targets.join(", ")}"
+            }
+            "\{open.designation}\{outcome}\{targets}"
+          }
+          None => "\{slot.designation} · no edge here"
+        }
+        let state_class = match live {
+          Some(_) => " maked-loop-slot--open"
+          None => " maked-loop-slot--closed"
+        }
         slot_buttons.push(
           @html.button(
-            class="maked-loop-slot\{is_drive}",
-            on_click=emit(SlotStepClicked(slot)),
-            slot,
+            class="maked-loop-slot\{state_class}\{is_drive}",
+            title=slot.gloss,
+            on_click=emit(SlotStepClicked(slot.name)),
+            [
+              @html.span(class="maked-loop-slot-name", slot.designation),
+              @html.span(class="maked-loop-slot-note", note),
+            ],
           ),
         )
+      }
+      // The one line that turns "nothing happened" into an explanation. It
+      // states how many of the eight slots the transition table actually offers
+      // here, and says plainly which of the three cases applies.
+      let open_count = status.open_slots.length()
+      let count_text = open_count.to_string()
+      let situation = if status.blocked {
+        "Nothing can move from here: no slot has an outgoing edge at this position. That is a property of the model, not a failure, so Step will not change the position."
+      } else if status.undecided {
+        "The table offers " +
+        count_text +
+        " outgoing edges here and declines to choose between them. Pick one on purpose."
+      } else {
+        count_text +
+        " of the 8 slots can move this position. The rest have no outgoing edge here and will do nothing."
+      }
+      let situation_class = if status.blocked {
+        " maked-loop-why--blocked"
+      } else if status.undecided {
+        " maked-loop-why--undecided"
+      } else {
+        ""
       }
       let slot_selector = @html.div(class="maked-loop-slots", [
         @html.p(
           class="maked-loop-slots-label",
-          "Choose a drive slot (the highlighted one is this domain's drive slot):",
+          "Drive slots. Each one says whether the transition table has an outgoing edge from this position; the highlighted one is this domain's drive slot.",
         ),
+        @html.p(class="maked-loop-why\{situation_class}", situation),
         @html.div(class="maked-loop-slot-grid", slot_buttons),
       ])
       let current = @html.div(class="maked-loop-current", [

@@ -864,6 +864,23 @@ fn targets_json(names : Array[String]) -> Json {
 }
 
 ///|
+/// The same eight slots as `all_slots_info`, in the JSON shape the frontend
+/// decodes. Shared by `GET /api/loop/slots` and by the `slots` field of the
+/// status response, so the two can never drift apart.
+pub fn slots_json() -> Json {
+  let items = []
+  for (english, designation, gloss) in all_slots_info() {
+    let item : Json = {
+      "name": english,
+      "designation": designation,
+      "gloss": gloss,
+    }
+    items.push(item)
+  }
+  [..items]
+}
+
+///|
 /// JSON shape for the loop status API.
 ///
 /// `current_position` and `drive_slot` are read from the domain's **actual**
@@ -927,6 +944,15 @@ pub fn LoopState::to_json(self : LoopState) -> Json {
     "blocked": exitable_slots(current_pos).length() == 0,
     "undecided": is_undecided(current_pos),
     "open_slots": [..open_slots_json],
+    // The full eight-slot vocabulary travels with the status, so one request
+    // is enough to render the whole loop panel. It used to be a second
+    // endpoint the client had to fetch afterwards, which made the panel depend
+    // on a three-step request chain: pages -> slots -> status. That chain
+    // stalled intermittently after the second step -- the request reached the
+    // server and answered 200, but the reply never reached `update`, with
+    // nothing logged anywhere. Folding the vocabulary in here removes the step
+    // that stalled rather than working around it.
+    "slots": slots_json(),
     "history_length": self.history.length(),
     "history": [..history_json],
     "domain_states": [..domain_states_json],

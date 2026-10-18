@@ -283,6 +283,41 @@ test "status drive_slot comes from the table" {
 }
 
 ///|
+/// The status response carries the full slot vocabulary, so the client can
+/// render the whole loop panel from one request. This replaced a third
+/// round-trip: the panel used to wait on `/api/loop/slots` before it could ask
+/// for the status, and that chain stalled after the second step.
+test "status carries the whole slot vocabulary, not just the open ones" {
+  let state = @backend.LoopState::new()
+  let json = state.to_json()
+  let slots = json_array(json, "slots")
+  // All eight, whereas `open_slots` holds only what this position can reach.
+  assert_eq(slots.length(), 8)
+  assert_eq(json_array(json, "open_slots").length(), 1)
+  let seen : Array[String] = []
+  for item in slots {
+    let name = json_str(item, "name")
+    assert_true(name != "")
+    assert_true(json_str(item, "designation") != "")
+    assert_true(json_str(item, "gloss") != "")
+    // Every listed name must round-trip back to a real pyroduct slot, so the
+    // frontend can POST it to /api/loop/step/:slot.
+    match @backend.slot_from_english(name) {
+      Some(_) => ()
+      None => fail("slots named an unknown slot: \{name}")
+    }
+    // Eight distinct names: a repeated slug would make two of the eight
+    // buttons drive the same transition.
+    assert_true(!seen.contains(name))
+    seen.push(name)
+  }
+  assert_eq(seen.length(), 8)
+  // The standalone endpoint and the status field are the same helper's output,
+  // so they cannot drift apart.
+  assert_eq(@backend.slots_json(), [..slots])
+}
+
+///|
 /// `open_slots` is what the table offers here -- not all eight slots.
 test "status open_slots lists only slots the table has edges for" {
   let state = @backend.LoopState::new()

@@ -247,6 +247,176 @@ body {
 .maked-domain--E .letter { color: #e74c3c; }
 .maked-domain--D .letter { color: #27ae60; }
 
+/* --- loop panel ----------------------------------------------------------- */
+/*
+ * The loop panel had no styles at all: every class it emitted
+ * (maked-loop, maked-loop-slot, ...) was absent from this file, so the whole
+ * interactive surface rendered as unstyled default buttons. That is part of
+ * why "nothing happened" read as a broken page rather than a dead edge.
+ */
+.maked-loop {
+    margin: 32px auto;
+    max-width: 900px;
+    padding: 24px;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background: #fafafa;
+}
+.maked-loop-title {
+    margin: 0 0 16px;
+    font-size: 13px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #999;
+}
+.maked-loop-loading,
+.maked-loop-empty {
+    color: #999;
+    font-size: 14px;
+    margin: 8px 0;
+}
+.maked-loop-current {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+.maked-loop-domain {
+    font-weight: 700;
+    color: #2c3e9e;
+    letter-spacing: 1px;
+}
+.maked-loop-position {
+    font-weight: 600;
+}
+.maked-loop-sep { color: #ccc; }
+.maked-loop-gloss {
+    flex-basis: 100%;
+    color: #666;
+    font-size: 14px;
+    line-height: 1.5;
+}
+.maked-loop-drive {
+    font-size: 13px;
+    color: #888;
+}
+.maked-loop-buttons {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+.maked-loop-btn {
+    padding: 8px 16px;
+    border: 1px solid #2c3e9e;
+    border-radius: 4px;
+    background: #2c3e9e;
+    color: #fff;
+    font-size: 14px;
+    cursor: pointer;
+}
+.maked-loop-btn:hover { background: #23336f; }
+.maked-loop-btn--reset {
+    background: #fff;
+    color: #555;
+    border-color: #ccc;
+}
+.maked-loop-btn--reset:hover { background: #f0f0f0; }
+
+/* --- why a step may do nothing -------------------------------------------- */
+.maked-loop-slots-label {
+    margin: 0 0 6px;
+    font-size: 13px;
+    color: #888;
+}
+/*
+ * The banner is the whole point of the panel: it converts "I clicked and
+ * nothing happened" into a stated fact. Blocked gets the strongest colour
+ * because it is the case that used to be indistinguishable from a bug.
+ */
+.maked-loop-why {
+    margin: 0 0 14px;
+    padding: 10px 12px;
+    border-left: 3px solid #27ae60;
+    background: #fff;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #444;
+}
+.maked-loop-why--blocked {
+    border-left-color: #e74c3c;
+    color: #7d2a1f;
+}
+.maked-loop-why--undecided {
+    border-left-color: #f1c40f;
+    color: #6b5300;
+}
+.maked-loop-slot-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 8px;
+}
+.maked-loop-slot {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fff;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+}
+.maked-loop-slot-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: #333;
+}
+/*
+ * A slot with no outgoing edge is dimmed rather than disabled. It is still
+ * clickable on purpose: pressing it and reading "no edge here" is how the
+ * reader learns that the block is the model's answer and not a dead button.
+ */
+.maked-loop-slot--closed {
+    background: #f6f6f6;
+    border-style: dashed;
+}
+.maked-loop-slot--closed .maked-loop-slot-name { color: #999; }
+.maked-loop-slot--open {
+    border-color: #27ae60;
+    background: #f2fbf6;
+}
+.maked-loop-slot--drive {
+    outline: 2px solid #2c3e9e;
+    outline-offset: -1px;
+}
+.maked-loop-slot-note {
+    font-size: 12px;
+    color: #777;
+}
+.maked-loop-slot--closed .maked-loop-slot-note { color: #aaa; }
+.maked-loop-history {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 13px;
+    color: #555;
+}
+.maked-loop-event {
+    display: flex;
+    gap: 8px;
+    padding: 2px 0;
+}
+.maked-loop-event-domain { font-weight: 600; color: #2c3e9e; }
+.maked-loop-error {
+    margin-top: 12px;
+    padding: 8px 10px;
+    border-left: 3px solid #e74c3c;
+    background: #fdf3f2;
+    color: #7d2a1f;
+    font-size: 14px;
+}
+
 /* --- footer -------------------------------------------------------------- */
 .maked-footer {
     border-top: 1px solid #e0e0e0;

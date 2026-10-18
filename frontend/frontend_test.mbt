@@ -306,6 +306,169 @@ test "decode_loop_status survives malformed payloads" {
 }
 
 ///|
+/// The shape the backend actually sends, captured from a running server.
+///
+/// It is pasted here rather than built up field by field so that a change to
+/// the backend's `open_slots` encoding fails here instead of silently
+/// decoding to an empty list -- which would put every slot back to "no edge
+/// here" and look like a model that cannot move.
+test "decode_loop_status reads the reasons a step may do nothing" {
+  let json : Json = {
+    "current_domain": "M",
+    "current_position": "Standing",
+    "drive_slot": "Action",
+    "drive_slot_name": "act",
+    "blocked": false,
+    "undecided": false,
+    "open_slots": [
+      {
+        "name": "act",
+        "designation": "Action",
+        "outcome": "Moved",
+        "targets": [["Freedom"]],
+      },
+    ],
+    "history_length": 0,
+  }
+  let status = @frontend.decode_loop_status(json)
+  assert_eq(status.drive_slot_name, "act")
+  assert_true(!status.blocked)
+  assert_true(!status.undecided)
+  assert_eq(status.open_slots.length(), 1)
+  let open = status.open_slots[0]
+  assert_eq(open.name, "act")
+  assert_eq(open.outcome, "Moved")
+  // `targets` is a list of [from, to] pairs; the reader keeps the destinations.
+  assert_eq(open.targets.length(), 1)
+  assert_eq(open.targets[0], "Freedom")
+}
+
+///|
+/// `assert_eq` against `None` would require `OpenSlot: Debug`, which the
+/// production type does not derive for a test's convenience. Match instead.
+fn absent(v : @frontend.OpenSlot?) -> Bool {
+  match v {
+    Some(_) => false
+    None => true
+  }
+}
+
+///|
+test "a blocked position with no open slots decodes as such" {
+  let json : Json = {
+    "current_domain": "M",
+    "blocked": true,
+    "undecided": false,
+    "open_slots": [],
+  }
+  let status = @frontend.decode_loop_status(json)
+  assert_true(status.blocked)
+  assert_eq(status.open_slots.length(), 0)
+  assert_true(absent(@frontend.find_open_slot(status, "act")))
+}
+
+///|
+test "find_open_slot distinguishes the slots the table offers from those it does not" {
+  let json : Json = {
+    "open_slots": [
+      {
+        "name": "cobeing",
+        "designation": "Co-being",
+        "outcome": "Undecided",
+        "targets": [],
+      },
+      {
+        "name": "act",
+        "designation": "Action",
+        "outcome": "Moved",
+        "targets": [["Freedom"]],
+      },
+    ],
+  }
+  let status = @frontend.decode_loop_status(json)
+  match @frontend.find_open_slot(status, "act") {
+    Some(s) => assert_eq(s.outcome, "Moved")
+    None => assert_true(false)
+  }
+  match @frontend.find_open_slot(status, "cobeing") {
+    Some(s) => assert_eq(s.outcome, "Undecided")
+    None => assert_true(false)
+  }
+  // A slot with no outgoing edge here must be absent, not defaulted.
+  assert_true(absent(@frontend.find_open_slot(status, "hold")))
+}
+
+///|
+test "decode_slots reads the backend's slot list instead of a hard-coded one" {
+  let json : Json = {
+    "slots": [
+      {
+        "name": "occasion",
+        "designation": "Occasion",
+        "gloss": "a giving not initiated",
+      },
+      {
+        "name": "unveil",
+        "designation": "Unveiling",
+        "gloss": "unveiling and concealing",
+      },
+    ],
+  }
+  let slots = @frontend.decode_slots(json)
+  assert_eq(slots.length(), 2)
+  assert_eq(slots[0].name, "occasion")
+  assert_eq(slots[0].designation, "Occasion")
+  assert_eq(slots[1].name, "unveil")
+  // The slug is what POST /api/loop/step/:slot takes, so it must survive.
+  assert_eq(slots[1].name, "unveil")
+}
+
+///|
+test "decode_slots survives a payload with no slots array" {
+  assert_eq(@frontend.decode_slots(Json::empty_object()).length(), 0)
+}
+
+///|
+/// The panel is rendered from one response. This is the contract that replaced
+/// the three-hop request chain: the loop status and the slot vocabulary arrive
+/// in the same payload, so a client never has to fetch the vocabulary first and
+/// wait on it before asking for the status.
+test "one status payload decodes both the position and the slot vocabulary" {
+  let json : Json = {
+    "current_domain": "M",
+    "current_position": "Standing",
+    "blocked": false,
+    "undecided": false,
+    "open_slots": [
+      {
+        "name": "act",
+        "designation": "Action",
+        "outcome": "Moved",
+        "targets": [["Freedom"]],
+      },
+    ],
+    "slots": [
+      { "name": "act", "designation": "Action", "gloss": "acting" },
+      { "name": "hold", "designation": "Holding", "gloss": "holding" },
+      { "name": "cobeing", "designation": "Co-being", "gloss": "staying" },
+    ],
+  }
+  let status = @frontend.decode_loop_status(json)
+  let slots = @frontend.decode_slots(json)
+  assert_eq(status.current_position, "Standing")
+  assert_eq(status.open_slots.length(), 1)
+  assert_eq(slots.length(), 3)
+  // The two decoders are independent views of one payload, so a slot named in
+  // `open_slots` has to match the slot of the same name in `slots`.
+  let live = @frontend.find_open_slot(status, "act")
+  match live {
+    Some(open) => assert_eq(open.designation, "Action")
+    None => assert_true(false)
+  }
+  assert_eq(slots[1].name, "hold")
+}
+
+///|
 fn bare_model() -> @frontend.Model {
   {
     pages: [],
@@ -314,6 +477,7 @@ fn bare_model() -> @frontend.Model {
     error: "",
     loop_status: None,
     loop_error: "",
+    slots: [],
     research_papers: [],
     research_triggers: [],
     research_error: "",

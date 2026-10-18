@@ -55,7 +55,9 @@ pub fn get_int(json : Json, key : String, fallback : Int32) -> Int32 {
 }
 
 ///|
-fn get_bool(json : Json, key : String, fallback : Bool) -> Bool {
+/// Public because `loop_state.mbt` decodes the backend's `blocked` /
+/// `undecided` flags with it.
+pub fn get_bool(json : Json, key : String, fallback : Bool) -> Bool {
   match field(json, key) {
     Some(True) => true
     Some(False) => false

@@ -42,6 +42,9 @@ pub(all) struct Model {
   error : String
   loop_status : LoopStatus?
   loop_error : String
+  /// The eight drive slots, fetched once and held. This replaces two
+  /// hard-coded copies of the vocabulary that used to live in this package.
+  slots : Array[Slot]
   research_papers : Array[Json]
   research_triggers : Array[Json]
   research_error : String
@@ -58,6 +61,7 @@ fn initial() -> Model {
     error: "",
     loop_status: None,
     loop_error: "",
+    slots: [],
     research_papers: [],
     research_triggers: [],
     research_error: "",
@@ -101,20 +105,28 @@ fn update(model : Model, msg : Msg, emit : @cmd.Emit[Msg]) -> (Model, @cmd.Cmd) 
           error: "",
           loop_status: model.loop_status,
           loop_error: model.loop_error,
+          slots: model.slots,
           research_papers: model.research_papers,
           research_triggers: model.research_triggers,
           research_error: model.research_error,
           causal_result: model.causal_result,
           causal_error: model.causal_error,
         },
-        // The loop status is fetched here rather than batched alongside the
-        // pages request in `init`. Batching the two made every later
-        // click-initiated POST reach the server but never deliver its response:
-        // the request executed, the view stayed frozen on stale state, and no
-        // error was ever shown. Issuing the second request from here, once the
-        // first has already been answered, keeps click-initiated commands
-        // working. The cost is one extra round trip before the loop panel
-        // fills in.
+        // Requests are issued one after another, never with @cmd.batch.
+        // Batching two GETs in `init` made every later click-initiated POST
+        // reach the server but never deliver its response: the request
+        // executed, the view stayed frozen on stale state, and no error was
+        // ever shown. Each request below is therefore issued from the handler
+        // for the previous one, which has already been answered.
+        //
+        // Exactly one chained hop, and no more. The loop status carries the
+        // eight-slot vocabulary in its own body, so the panel needs a single
+        // response. This used to be a three-hop chain -- pages, then
+        // `/api/loop/slots`, then `/api/loop/status` -- and it stalled
+        // intermittently after the second hop: the request was answered 200 by
+        // the server, but the reply never reached `update`, so the panel sat on
+        // "Loading loop status..." with no error anywhere. Do not split these
+        // into more sequential requests to "tidy up" the flow.
         @http.get("/api/loop/status").expect_json(
           emit.map(fn(result) { LoopLoaded(result) }),
         ),
@@ -129,6 +141,10 @@ fn update(model : Model, msg : Msg, emit : @cmd.Emit[Msg]) -> (Model, @cmd.Cmd) 
         {
           ..model,
           loop_status: Some(decode_loop_status(json)),
+          // Same payload: the status response carries the vocabulary, so a
+          // missing `slots` field simply leaves the panel without slot
+          // buttons rather than failing the whole update.
+          slots: decode_slots(json),
           loop_error: "",
         },
         @cmd.none,
@@ -162,25 +178,17 @@ fn update(model : Model, msg : Msg, emit : @cmd.Emit[Msg]) -> (Model, @cmd.Cmd) 
           emit.map(fn(result) { LoopStepped(result) }),
         ),
       )
-    SlotStepClicked(slot) => {
-      let name = match slot {
-        "Occasion" => "occasion"
-        "Orientation" => "orientation"
-        "Anticipation" => "antecedent"
-        "Action" => "act"
-        "Feedback" => "feedback"
-        "Holding" => "hold"
-        "Co-being" => "cobeing"
-        "Unveiling" => "unveil"
-        _ => slot
-      }
+    // The message carries the slot's URL slug, which the backend supplied with
+    // the slot itself. This used to carry the display name and be mapped to a
+    // slug by a second hand-written table in this file, which had to be kept in
+    // step with the one in `views.mbt` by hand.
+    SlotStepClicked(name) =>
       (
         model,
         @http.post("/api/loop/step/\{name}").expect_json(
           emit.map(fn(result) { LoopStepped(result) }),
         ),
       )
-    }
     ResetClicked =>
       (
         model,

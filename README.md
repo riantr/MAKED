@@ -180,8 +180,8 @@ the signal we want.
 | js-check | `moon check --target js` | frontend type safety |
 | fmt | `moon fmt --check` | code formatting |
 | tree | `moon tree` | dependency audit |
-| unit-native | `moon test --target native` | 152 backend tests (includes the BDD suite below) |
-| unit-js | `moon test --target js` | 15 frontend tests |
+| unit-native | `moon test --target native` | 153 backend tests (includes the BDD suite below) |
+| unit-js | `moon test --target js` | 21 frontend tests |
 | coverage | `moon test --enable-coverage` | coverage |
 | bench | `moon bench` | benchmarks |
 | prove | `moon prove` | formal verification (Why3) |

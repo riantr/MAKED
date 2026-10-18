@@ -53,16 +53,9 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     Response::json(state.to_json())
   })
   app.get("/api/loop/slots", _req => {
-    let items = []
-    for (english, designation, gloss) in all_slots_info() {
-      let item : Json = {
-        "name": english,
-        "designation": designation,
-        "gloss": gloss,
-      }
-      items.push(item)
-    }
-    let body : Json = { "slots": [..items] }
+    // The same array the status response carries under `slots`, from the same
+    // helper, so the two endpoints cannot disagree about the vocabulary.
+    let body : Json = { "slots": slots_json() }
     Response::json(body)
   })
   // GET /api/loop/continuations?depth=3
