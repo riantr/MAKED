@@ -163,9 +163,23 @@ jobs:
         env:
           SECRET: ${{ secrets.MOONCAKES_RIANTR_TOKEN }}
 
+      # Idempotent on purpose. `gh release create` aborts when a release for the
+      # tag already exists, so re-tagging an already-published version turns the
+      # run red at THIS step even though `moon publish` on the step above
+      # succeeded and the package is on the registry. Re-tagging is routine here
+      # -- it happened when v0.1.4 was re-cut under the name riantr/MAKED -- so
+      # "already exists" is the expected state, not a failure.
+      #
+      # The delete keeps the tag: only the release object is replaced, and
+      # --generate-notes rebuilds the notes from the new commits.
       - name: Create GitHub Release
         run: |
-          gh release create "${{ steps.release.outputs.tag }}" \
+          tag="${{ steps.release.outputs.tag }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "a release for $tag already exists; replacing it"
+            gh release delete "$tag" --yes
+          fi
+          gh release create "$tag" \
             --title "MAKED ${{ steps.release.outputs.version }}" \
             --generate-notes
         env:
