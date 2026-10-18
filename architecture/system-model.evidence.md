@@ -7,7 +7,7 @@ files. Confidence is **high** unless noted otherwise.
 
 | Claim | Source | Confidence |
 |-------|--------|------------|
-| Module name is `riantr/maked_moonbit` | `moon.mod` | high |
+| Module name is `riantr/MAKED` | `moon.mod` | high |
 | Two targets: `js+native` | `moon.mod:25` | high |
 | Five project packages: root, backend, frontend, cmd/server, cmd/web | `moon.pkg` files (5 found, excluding `.mooncakes/`) | high |
 | Backend is native-only | `backend/moon.pkg:23` (`supported_targets = "native"`) | high |

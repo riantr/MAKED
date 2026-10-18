@@ -2,7 +2,7 @@
 
 **A recursively self-evolving modelling framework** — designed around an adversarial knowledge loop.
 
-Current release: **v0.1.4** — published as [`riantr/maked_moonbit`](https://mooncakes.io) on mooncakes.io.
+Current release: **v0.1.4** — published as [`riantr/MAKED`](https://mooncakes.io) on mooncakes.io.
 
 MAKED is a five-domain recursive cognitive architecture: Model → Data → Experience → Attack → Knowledge forms a closed ring, each domain being the adversarial overcoming of the one before it. The system drives state transitions through its own cycle — from arxiv research papers, to causal inference, to the pyroduct state machine — forming a self-driving closed loop of knowledge evolution.
 

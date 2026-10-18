@@ -9,7 +9,7 @@
 //   "moonbitlang/x@0.4.6",
 // }
 
-name = "riantr/maked_moonbit"
+name = "riantr/MAKED"
 
 version = "0.1.4"
 

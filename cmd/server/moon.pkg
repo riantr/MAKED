@@ -1,7 +1,7 @@
 pkgtype(kind: "executable")
 
 import {
-  "riantr/maked_moonbit/backend" @maked,
+  "riantr/MAKED/backend" @maked,
   "moonbitlang/async",
   "moonbitlang/async/fs",
   "moonbitlang/core/env",

@@ -1,7 +1,7 @@
 pkgtype(kind: "executable")
 
 import {
-  "riantr/maked_moonbit/frontend",
+  "riantr/MAKED/frontend",
   "moonbit-community/rabbita",
 }
 

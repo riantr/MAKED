@@ -1,5 +1,5 @@
 name: publish-package
-run-name: publish maked_moonbit ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+run-name: publish MAKED ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
 on:
   # Tag-push triggering is ON.
@@ -166,7 +166,7 @@ jobs:
       - name: Create GitHub Release
         run: |
           gh release create "${{ steps.release.outputs.tag }}" \
-            --title "maked_moonbit ${{ steps.release.outputs.version }}" \
+            --title "MAKED ${{ steps.release.outputs.version }}" \
             --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}

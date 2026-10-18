@@ -13,7 +13,7 @@
 #   - the environment variables MAKED_PORT / MAKED_DB / MAKED_DIST
 #   - the default SQLite filename `maked.db`
 #   - document headings and prose across architecture/, README and the roadmap
-#   - the module name `riantr/maked_moonbit`
+#   - the module name `riantr/MAKED`
 #
 # Without this entry `typos` exits non-zero and blocks the publish step.
 #
