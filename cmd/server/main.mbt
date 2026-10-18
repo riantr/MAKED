@@ -30,6 +30,15 @@ async fn main {
     println("warning: \{dist} not found; only the API will be served.")
     println("  build it with: moon build --release --target js cmd/web")
   }
+  // Say so when the port is not the default: the usual reason someone is staring
+  // at a working server that will not answer on localhost:8080 is that this
+  // process is somewhere else.
+  if port != 8080 {
+    println(
+      "WARNING: MAKED_PORT is set, so MAKED listens on \{port} instead of 8080.",
+    )
+    println("  unset MAKED_PORT to go back to the default port")
+  }
   let app = @maked.create_app(db_path)
   let routes = app.to_module()
   // Order is outermost-first: statics serves a real file, then spa_fallback
@@ -44,7 +53,35 @@ async fn main {
     ctx.add_middleware(spa)
   })
   let server = @moonback.App(root)
-  let listener = @moonback.listen(port~)
+  // A failed bind is the one startup error a user cannot self-diagnose from the
+  // message alone, so replace it with the two facts that actually decide it:
+  // which port, and how to find what is holding it.
+  let listener = @moonback.listen(port~) catch {
+    _ => {
+      println("WARNING: MAKED cannot bind port \{port}.")
+      println("")
+      println(
+        "  Something else already holds that port. On Windows that is often a",
+      )
+      println(
+        "  SYSTEM service rather than a leftover dev server, which is why the",
+      )
+      println(
+        "  OS reports 'access permissions' and not 'address already in use' --",
+      )
+      println("  so the error text points away from the real cause.")
+      println("")
+      println("  Find the owner:")
+      println(
+        "    Get-NetTCPConnection -LocalPort \{port} | Select-Object OwningProcess",
+      )
+      println("    tasklist /svc /fi \"PID eq <that pid>\"")
+      println("")
+      println("  Or serve on a different port:")
+      println("    $env:MAKED_PORT = '\{port + 1}'")
+      return
+    }
+  }
   println("MAKED listening on http://127.0.0.1:\{port}")
   println("  api:  http://127.0.0.1:\{port}/api/pages")
   println("  data: \{db_path}")
