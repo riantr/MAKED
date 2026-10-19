@@ -115,6 +115,52 @@ jobs:
       - name: Build frontend (js)
         run: moon build --target js cmd/web
 
+  # The integration tests are the safety net for the failure that cost this
+  # project the most: a batch of requests at start-up that reached the server,
+  # changed the state, and never came back. The screen froze on stale data
+  # and nothing in the console said why.
+  #
+  # The unit tests cannot catch that class -- it is a property of the HTTP
+  # round-trip, not of any one function -- and the container job only asks
+  # one question of a running image. So the whole route table is exercised
+  # here, over real HTTP, with the requests fired *concurrently* and the
+  # assertions made on what the server ended up with.
+  #
+  # The script is PowerShell rather than bash so that one file serves this
+  # machine and the runner: the runner's ubuntu image carries `pwsh`. The
+  # bash twin (`tools/integration-test.sh`) stays for the bash-only gates.
+  #
+  # The runner is ubuntu, not windows: that is the platform the product
+  # ships on (the container below), and it is the platform this repository's
+  # CI already knows how to provision a MoonBit toolchain for.
+  integration:
+    name: Integration
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+
+      - name: Update MoonBit dependencies
+        run: |
+          moon version --all
+          moon update
+
+      - name: Build the browser bundle
+        run: moon build --release --target js cmd/web
+
+      - name: Stage the bundle where the server looks for it
+        run: |
+          cp _build/js/release/build/cmd/web/web.js frontend/dist/main.js
+
+      - name: Run the integration tests
+        run: pwsh tools/integration-test.ps1
+
   # The container is built on every push, not only at release time, and it is
   # started and asked a question. A Dockerfile that builds but serves
   # nothing is worse than no Dockerfile: it looks like it works.

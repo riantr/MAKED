@@ -114,6 +114,22 @@ fn json_field(json : Json, key : String) -> Json? {
 }
 
 ///|
+/// The id of a session, in either spelling.
+///
+/// The backend holds an id as an `Int64`, and MoonBit's own `ToJson` encodes
+/// an `Int64` as a *string* -- so that is how the id travels. The client
+/// accepts both spellings, and so does this helper: what is being checked
+/// here is which session the payload is about, not how its id is written
+/// down.
+fn payload_id(json : Json) -> Int64 {
+  match json_field(json, "id") {
+    Some(Json::String(text)) => @string.parse_int64(text) catch { _ => 0L }
+    Some(Json::Number(n, ..)) => n.to_int64()
+    _ => 0L
+  }
+}
+
+///|
 /// The session as it stands in the table, not as it was when it was created.
 ///
 /// A `Session` value is a snapshot: the one `insert_session` hands back has
@@ -334,6 +350,55 @@ async test "a branch is its own session and leaves the original alone" {
   assert_eq(db.steps_of_session(active.id).length(), 3)
   db.close()
   drop_db(session_db_path("branch"))
+}
+
+///|
+/// The payload names the session it acted on.
+///
+/// The state under "session" is the *active* session. A route that acts on
+/// some other session has to name its subject as well, or the answer is
+/// about a session the caller did not ask about -- and a caller that renamed
+/// a background session would be told about the foreground one and conclude
+/// that the rename had gone somewhere else.
+async test "a payload names the session it acted on, not only the active one" {
+  let db = open_session_db("payload")
+  let active = fresh_session(db, "The live one")
+  // A zero id would make every id comparison below vacuously true, so the
+  // ids are checked for being real first.
+  assert_true(active.id != 0L)
+  // A second session, so that "the active one" and "the renamed one" are
+  // two different sessions and the difference can be seen at all.
+  let background = db.insert_session(
+    "The background one", 0L, 0L, "M", "structured",
+  )
+  assert_true(db.rename_session(background.id, "Renamed"))
+  let renamed = reload(db, background.id)
+  let payload = @backend.session_payload_with(db, "renamed", renamed)
+  // The renamed session is there, under its own key, with its new name.
+  match json_field(payload, "renamed") {
+    Some(Json::Object(fields)) =>
+      match fields.get("name") {
+        Some(Json::String(name)) => assert_eq(name, "Renamed")
+        _ => fail("the renamed session should carry its name")
+      }
+    _ => fail("the payload should carry the renamed session")
+  }
+  // It is the session that was renamed, not some other one.
+  match json_field(payload, "renamed") {
+    Some(renamed) => assert_eq(payload_id(renamed), background.id)
+    None => fail("the payload should carry the renamed session")
+  }
+  // The active session is still reported under "session": the two keys are
+  // there for two different questions, and neither replaces the other.
+  match json_field(payload, "session") {
+    Some(live) => assert_eq(payload_id(live), active.id)
+    None => fail("the payload should carry the active session")
+  }
+  // And the live status still travels with it, so a client that renamed a
+  // session does not have to ask for the status again.
+  assert_true(json_field(payload, "loop") is Some(_))
+  db.close()
+  drop_db(session_db_path("payload"))
 }
 
 ///|

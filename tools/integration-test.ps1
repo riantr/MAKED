@@ -1,0 +1,566 @@
+# End-to-end integration test for MAKED.
+#
+#   pwsh tools/integration-test.ps1
+#
+# Run from anywhere; the repo root is derived from this script's own path.
+#
+# Why this exists in PowerShell and not only in bash: the CI runners are
+# ubuntu, and their images carry `pwsh`, so one script serves both this
+# machine and the runner. The bash twin (`tools/integration-test.sh`) stays
+# for the bash-only gates, but the safety net that matters most should not
+# depend on which shell the machine happens to have.
+#
+# What it checks, and why each part exists:
+#
+#   - Every route, on its happy path and on its refusal path. A route that
+#     answers 200 with a body nobody can read is a route that looks fine and
+#     is useless.
+#   - **The silent-failure class.** The worst bug this project ever had was
+#     a batch of requests at start-up: every POST reached the server and
+#     changed the state, and not one response came back. The screen froze
+#     on stale data with nothing in the console. So the requests here are
+#     fired *concurrently* and the assertions are on what the server ended
+#     up with, not only on what came back: eight concurrent steps must
+#     leave eight more steps in the history. A lost response and a lost
+#     write are the same bug seen from two ends.
+#   - **The client-side anti-pattern that caused it.** `@cmd.batch` is the
+#     thing that turned two harmless GETs into a frozen page, and it is
+#     exactly the kind of change that comes back later as a "small
+#     optimisation". So the source is checked: no batching, and one request
+#     at start-up.
+#
+# A failed assertion prints what was expected and what was found. The exit
+# code is 0 when every check passed and 1 otherwise.
+
+param(
+  [int]$Port = 18188,
+  [switch]$SkipBuild,
+  [switch]$KeepDatabase
+)
+
+Set-Location (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+
+$ErrorActionPreference = 'Continue'
+$repo = $PWD.Path
+
+# --- assertions -------------------------------------------------------------
+$script:passed = 0
+$script:failed = 0
+
+function Assert-True {
+  param([string]$Desc, [bool]$Condition, [string]$Detail = "")
+  if ($Condition) {
+    Write-Host ("  PASS  {0}" -f $Desc)
+    $script:passed += 1
+  } else {
+    Write-Host ("  FAIL  {0}" -f $Desc)
+    if ($Detail -ne "") { Write-Host ("        {0}" -f $Detail) }
+    $script:failed += 1
+  }
+}
+
+function Assert-Status {
+  param([string]$Desc, [int]$Expected, $Response)
+  Assert-True $Desc ($Response.Status -eq $Expected) `
+    ("expected HTTP {0}, got {1} -- body: {2}" -f $Expected, $Response.Status, (Limit $Response.Body))
+}
+
+function Assert-Field {
+  param([string]$Desc, $Json, [string]$Field, $Expected)
+  $actual = Field $Json $Field
+  Assert-True $Desc ("$actual" -eq "$Expected") `
+    ("expected '{0}' to be '{1}', got '{2}'" -f $Field, $Expected, $actual)
+}
+
+function Assert-FieldNotEmpty {
+  param([string]$Desc, $Json, [string]$Field)
+  $actual = Field $Json $Field
+  Assert-True $Desc ("$actual" -ne "") `
+    ("expected '{0}' to be present and not empty" -f $Field)
+}
+
+function Assert-ArrayLength {
+  param([string]$Desc, $Json, [string]$Field, [int]$Expected)
+  $actual = (Field $Json $Field)
+  $count = if ($null -eq $actual) { -1 } else { @($actual).Count }
+  Assert-True $Desc ($count -eq $Expected) `
+    ("expected '{0}' to hold {1} entries, got {2}" -f $Field, $Expected, $count)
+}
+
+function Assert-HasField {
+  param([string]$Desc, $Json, [string]$Field)
+  $has = $false
+  if ($null -ne $Json) {
+    $has = $null -ne $Json.PSObject.Properties[$Field]
+  }
+  Assert-True $Desc $has ("expected the field '{0}' to be there" -f $Field)
+}
+
+function Assert-Contains {
+  param([string]$Desc, [string]$Haystack, [string]$Needle)
+  Assert-True $Desc ($Haystack -like "*$Needle*") `
+    ("expected the text to contain '{0}'" -f $Needle)
+}
+
+function Limit {
+  param([string]$Text)
+  if ($null -eq $Text) { return "" }
+  if ($Text.Length -gt 200) { return $Text.Substring(0, 200) + "..." }
+  return $Text
+}
+
+# --- the code, without the prose around it ----------------------------------
+function Remove-Comments {
+  param([string]$Text)
+  # The string literals are blanked out first, so that a "//" inside a string
+  # is not mistaken for the start of a comment, and so that a string cannot
+  # hide a use of the thing being looked for. Then the comments go.
+  $withoutStrings = [regex]::Replace($Text, '"(?:[^"\\]|\\.)*"', '""')
+  $kept = foreach ($line in ($withoutStrings -split "`r?`n")) {
+    $line -replace '//.*$', ''
+  }
+  return ($kept -join "`n")
+}
+
+# --- HTTP -------------------------------------------------------------------
+$base = "http://127.0.0.1:$Port"
+
+function Invoke-Api {
+  param(
+    [string]$Method = "GET",
+    [string]$Path,
+    [string]$Body = $null,
+    [int]$TimeoutSec = 20
+  )
+  $params = @{
+    Uri         = "$base$Path"
+    Method      = $Method
+    UseBasicParsing = $true
+    TimeoutSec  = $TimeoutSec
+  }
+  # `[string]$Body = $null` is an *empty string*, not a null: PowerShell casts
+  # $null to [string] as "". Testing `$null -ne $Body` therefore always adds a
+  # body, and `Invoke-WebRequest` refuses a body on a GET -- "cannot send a
+  # content-body with this predicate-type". So the emptiness is what is
+  # tested, not the null.
+  if (-not [string]::IsNullOrEmpty($Body)) {
+    $params["Body"] = $Body
+    $params["ContentType"] = "application/json"
+  }
+  try {
+    $response = Invoke-WebRequest @params
+    return @{ Status = [int]$response.StatusCode; Body = $response.Content }
+  } catch {
+    $ex = $_.Exception
+    if ($null -ne $ex.Response) {
+      $text = ""
+      try {
+        $reader = New-Object System.IO.StreamReader($ex.Response.GetResponseStream())
+        $text = $reader.ReadToEnd()
+        $reader.Close()
+      } catch {
+        $text = ""
+      }
+      return @{ Status = [int]$ex.Response.StatusCode; Body = $text; Error = "" }
+    }
+    return @{ Status = 0; Body = ""; Error = $ex.Message }
+  }
+}
+
+function Get-Json {
+  param([string]$Path)
+  $response = Invoke-Api -Method GET -Path $Path
+  if ($response.Status -eq 0) { return $null }
+  try { return ($response.Body | ConvertFrom-Json) } catch { return $null }
+}
+
+function Post-Json {
+  param([string]$Path, $Payload = $null)
+  $body = if ($null -eq $Payload) { "{}" } else { ($Payload | ConvertTo-Json -Compress -Depth 6) }
+  return Invoke-Api -Method POST -Path $Path -Body $body
+}
+
+function Field {
+  param($Json, [string]$Name)
+  if ($null -eq $Json) { return $null }
+  $property = $Json.PSObject.Properties[$Name]
+  if ($null -eq $property) { return $null }
+  return $property.Value
+}
+
+# --- build and start --------------------------------------------------------
+$exe = $null
+if (-not $SkipBuild) {
+  Write-Host "==> building the server"
+  & moon build --release --target native cmd/server 2>&1 | Out-Null
+  if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: the server did not build"; exit 1 }
+}
+foreach ($candidate in @(
+    "_build/native/release/build/cmd/server/server.exe",
+    "_build/native/release/build/cmd/server/server",
+    "_build/native/debug/build/cmd/server/server.exe",
+    "_build/native/debug/build/cmd/server/server")) {
+  if ($null -eq $exe -and (Test-Path $candidate)) { $exe = (Resolve-Path $candidate).Path }
+}
+if ($null -eq $exe) { Write-Host "FAIL: no server binary found -- run without -SkipBuild"; exit 1 }
+
+# The temporary directory is asked of the runtime rather than of the
+# environment: PowerShell Core on a Linux runner has no TEMP at all, and
+# `Join-Path $null` throws. One script, this machine and the runner.
+$tempDir = if ([string]::IsNullOrEmpty($env:TEMP)) {
+  [System.IO.Path]::GetTempPath()
+} else {
+  $env:TEMP
+}
+$tempDir = $tempDir.TrimEnd('/', '\')
+
+$db = Join-Path $tempDir "maked_integration.db"
+$dist = Join-Path $tempDir "maked_integration_dist"
+if (Test-Path $db) { Remove-Item $db -Force }
+if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
+New-Item -ItemType Directory -Path $dist | Out-Null
+Copy-Item (Join-Path $repo "frontend/dist/index.html") $dist
+Copy-Item (Join-Path $repo "frontend/dist/styles.css") $dist
+if (Test-Path (Join-Path $repo "frontend/dist/main.js")) {
+  Copy-Item (Join-Path $repo "frontend/dist/main.js") $dist
+}
+
+Write-Host "==> starting the server on port $Port"
+$env:MAKED_PORT = "$Port"
+$env:MAKED_DB = $db
+$env:MAKED_DIST = $dist
+$startArgs = @{
+  FilePath               = $exe
+  PassThru               = $true
+  RedirectStandardOutput = (Join-Path $tempDir "maked_integration_out.log")
+  RedirectStandardError  = (Join-Path $tempDir "maked_integration_err.log")
+}
+# `-WindowStyle` is Windows-only: on Linux it is not a parameter of
+# Start-Process at all, and passing it stops the script with a message about
+# the operating system. The window is hidden on Windows so that a test run
+# does not flash a console at the person running it.
+if ($IsWindows -or $PSVersionTable.PSVersion.Major -lt 6) {
+  $startArgs["WindowStyle"] = "Hidden"
+}
+$server = Start-Process @startArgs
+
+function Stop-Server {
+  if ($null -ne $server -and -not $server.HasExited) {
+    Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+  }
+}
+
+try {
+  $ready = $false
+  for ($i = 0; $i -lt 60; $i++) {
+    Start-Sleep -Milliseconds 250
+    $probe = Invoke-Api -Method GET -Path "/api/status" -TimeoutSec 2
+    if ($probe.Status -eq 200) { $ready = $true; break }
+  }
+  if (-not $ready) {
+    Write-Host "FAIL: the server never answered on port $Port"
+    Write-Host ("  binary: {0}" -f $exe)
+    Write-Host ("  exited: {0}" -f $server.HasExited)
+    if ($server.HasExited) {
+      Write-Host ("  exit code: {0}" -f $server.ExitCode)
+    }
+    Write-Host ("  probe: {0}" -f (Limit $probe.Body))
+    if ($probe.Error -ne "") { Write-Host ("  probe error: {0}" -f $probe.Error) }
+    Write-Host "--- stdout ---"
+    Get-Content (Join-Path $tempDir "maked_integration_out.log") -ErrorAction SilentlyContinue
+    Write-Host "--- stderr ---"
+    Get-Content (Join-Path $tempDir "maked_integration_err.log") -ErrorAction SilentlyContinue
+    exit 1
+  }
+
+  Write-Host "==> running the integration tests"
+  Write-Host ""
+
+  # ── the read paths ───────────────────────────────────────────────────────
+  Write-Host "-- GET /api/status"
+  $status = Get-Json "/api/status"
+  Assert-True "GET /api/status returns 200" ($null -ne $status)
+  Assert-Field "the status is 'ok'" $status "status" "ok"
+  Assert-HasField "the page count is reported" $status "page_count"
+  Assert-ArrayLength "the five domains are listed" $status "domains" 5
+
+  Write-Host ""
+  Write-Host "-- GET /api/pages"
+  $pages = Get-Json "/api/pages"
+  Assert-True "GET /api/pages returns a list" ($null -ne $pages)
+  Assert-True "the page list holds the nine seeded pages" (@(Field $pages "pages").Count -ge 9)
+
+  Write-Host ""
+  Write-Host "-- GET /api/pages/:slug"
+  $model = Get-Json "/api/pages/model"
+  Assert-Field "the model page is 'model'" $model "slug" "model"
+  Assert-Field "the model page is the letter M" $model "letter" "M"
+  $missing = Invoke-Api -Method GET -Path "/api/pages/nonexistent"
+  Assert-Status "a page that is not there is a 404" 404 $missing
+  Assert-Field "and it says which one" ($missing.Body | ConvertFrom-Json) "error" "not_found"
+
+  Write-Host ""
+  Write-Host "-- GET /api/domains"
+  $domains = Get-Json "/api/domains"
+  Assert-ArrayLength "the five domains are listed in ring order" $domains "domains" 5
+
+  Write-Host ""
+  Write-Host "-- GET /api/bootstrap"
+  $boot = Get-Json "/api/bootstrap"
+  Assert-HasField "the pages come with it" $boot "pages"
+  Assert-HasField "the workspace entries come with it" $boot "entries"
+  Assert-HasField "the session state comes with it" $boot "session_state"
+  $bootState = Field $boot "session_state"
+  Assert-HasField "the session state carries the list" $bootState "sessions"
+  Assert-HasField "the session state carries the path" $bootState "path"
+
+  # ── the workspace ────────────────────────────────────────────────────────
+  Write-Host ""
+  Write-Host "-- the workspace"
+  $created = Post-Json "/api/entries" @{ domain = "M"; title = "the model I use"; body = "a linear fit on 200 rows" }
+  Assert-Status "creating a record is a 201" 201 $created
+  $entry = (Field ($created.Body | ConvertFrom-Json) "entry")
+  Assert-Field "the record keeps its domain" $entry "domain" "M"
+  Assert-Field "the record keeps its title" $entry "title" "the model I use"
+  $entryId = Field $entry "id"
+
+  $refused = Post-Json "/api/entries" @{ domain = "Z"; title = "wrong domain" }
+  Assert-Status "a record in a domain that is not one of the five is refused" 400 $refused
+  $refusal = $refused.Body | ConvertFrom-Json
+  Assert-Field "and the refusal says so" $refusal "error" "invalid_entry"
+  Assert-FieldNotEmpty "and gives a reason" $refusal "reason"
+
+  $blank = Post-Json "/api/entries" @{ domain = "M"; title = "   " }
+  Assert-Status "a record with a blank title is refused" 400 $blank
+
+  $list = Get-Json "/api/entries"
+  Assert-True "the record is in the list" (@(Field $list "entries").Count -ge 1)
+
+  $deleted = Invoke-Api -Method DELETE -Path "/api/entries/$entryId"
+  Assert-Status "deleting a record is a 200" 200 $deleted
+  $again = Invoke-Api -Method DELETE -Path "/api/entries/$entryId"
+  Assert-Status "deleting it again is a 404" 404 $again
+
+  # ── the loop ─────────────────────────────────────────────────────────────
+  Write-Host ""
+  Write-Host "-- the loop"
+  $loop = Get-Json "/api/loop/status"
+  Assert-HasField "the status names the current domain" $loop "current_domain"
+  Assert-HasField "the status carries the open slots" $loop "open_slots"
+  Assert-HasField "the status carries the eight-slot vocabulary" $loop "slots"
+  Assert-ArrayLength "the vocabulary is eight slots long" $loop "slots" 8
+
+  $step = Post-Json "/api/loop/step"
+  Assert-Status "a step is a 200" 200 $step
+  $afterStep = $step.Body | ConvertFrom-Json
+  Assert-True "and the history grew" ((Field $afterStep "history_length") -ge 1)
+
+  $named = Post-Json "/api/loop/step/act"
+  Assert-Status "a step by a named slot is a 200" 200 $named
+  $unknown = Post-Json "/api/loop/step/not-a-slot"
+  Assert-Status "a step by a slot that does not exist is a 400" 400 $unknown
+  Assert-Field "and says which one" ($unknown.Body | ConvertFrom-Json) "error" "unknown_slot"
+
+  $continuations = Get-Json "/api/loop/continuations?depth=2"
+  Assert-HasField "the continuations are listed" $continuations "continuations"
+
+  $mode = Post-Json "/api/loop/mode/free"
+  Assert-Status "switching mode is a 200" 200 $mode
+  Assert-Field "and the mode changed" ($mode.Body | ConvertFrom-Json) "mode" "free"
+  $null = Post-Json "/api/loop/mode/structured"
+  $badMode = Post-Json "/api/loop/mode/sideways"
+  Assert-Status "an unknown mode is a 400" 400 $badMode
+
+  $reset = Post-Json "/api/loop/reset"
+  Assert-Status "a reset is a 200" 200 $reset
+  Assert-Field "and the history is empty again" ($reset.Body | ConvertFrom-Json) "history_length" 0
+
+  # ── the sessions ─────────────────────────────────────────────────────────
+  Write-Host ""
+  Write-Host "-- the sessions"
+  $newSession = Post-Json "/api/sessions" @{ name = "Integration run" }
+  Assert-Status "creating a session is a 201" 201 $newSession
+  $sessionState = $newSession.Body | ConvertFrom-Json
+  $session = Field $sessionState "session"
+  Assert-Field "the session carries its name" $session "name" "Integration run"
+  $sessionId = Field $session "id"
+
+  $noName = Post-Json "/api/sessions" @{ name = "  " }
+  Assert-Status "a session with no name is refused" 400 $noName
+  Assert-Field "and says so" ($noName.Body | ConvertFrom-Json) "error" "invalid_name"
+
+  $null = Post-Json "/api/loop/step"
+  $null = Post-Json "/api/loop/step"
+  $timeline = Get-Json "/api/sessions/$sessionId"
+  Assert-ArrayLength "the timeline holds the two steps that were taken" $timeline "path" 2
+  $firstStep = @(Field $timeline "path")[0]
+  Assert-FieldNotEmpty "each step says why it was possible" $firstStep "why"
+  Assert-HasField "each step records the slot" $firstStep "slot"
+  Assert-HasField "each step records the position it started from" $firstStep "position_before"
+
+  $replay = Post-Json "/api/sessions/$sessionId/replay" @{ step = (Field $firstStep "id") }
+  Assert-Status "going back to a step is a 200" 200 $replay
+  Assert-ArrayLength "and the timeline is shorter" ($replay.Body | ConvertFrom-Json) "path" 1
+
+  $branch = Post-Json "/api/sessions/$sessionId/branch" @{ step = (Field $firstStep "id"); name = "The other road" }
+  Assert-Status "forking a session is a 201" 201 $branch
+  $branchState = $branch.Body | ConvertFrom-Json
+  Assert-Field "the fork carries its name" (Field $branchState "session") "name" "The other road"
+  Assert-Field "the fork remembers where it came from" (Field $branchState "session") "parent_id" $sessionId
+
+  # The rename is asked of the *parent* session, which is not the active one
+  # any more: the fork took over. So the answer has to name the session that
+  # was renamed, and not the one that happens to be live -- a response that
+  # answered with the active session would look correct and be about the
+  # wrong session.
+  $renamed = Post-Json "/api/sessions/$sessionId/rename" @{ name = "Renamed" }
+  Assert-Status "renaming a session is a 200" 200 $renamed
+  $renameState = $renamed.Body | ConvertFrom-Json
+  Assert-Field "and the answer names the renamed session" (Field $renameState "renamed") "name" "Renamed"
+  Assert-Field "and it is the right one" (Field $renameState "renamed") "id" $sessionId
+  # The list still carries it, so a client that only reads the list sees the
+  # new name too.
+  $renamedInList = @(Field $renameState "sessions") | Where-Object { $_.id -eq $sessionId }
+  Assert-Field "and the list carries the new name" @($renamedInList)[0] "name" "Renamed"
+
+  $markdown = Invoke-Api -Method GET -Path "/api/sessions/$sessionId/export?format=md"
+  Assert-Status "the markdown export is a 200" 200 $markdown
+  Assert-Contains "and it names the session" $markdown.Body "MAKED session: Renamed"
+  Assert-Contains "and it has a timeline" $markdown.Body "## Timeline"
+  $exported = Get-Json "/api/sessions/$sessionId/export?format=json"
+  Assert-Field "the json export says what it is" $exported "format" "maked.session.v1"
+  Assert-HasField "and carries the path" $exported "path"
+
+  $badFormat = Invoke-Api -Method GET -Path "/api/sessions/$sessionId/export?format=xml"
+  Assert-Status "an export in an unknown format is a 400" 400 $badFormat
+
+  $sessions = Get-Json "/api/sessions"
+  Assert-True "the session list holds the sessions" (@(Field $sessions "sessions").Count -ge 2)
+
+  $drop = Invoke-Api -Method DELETE -Path "/api/sessions/$sessionId"
+  Assert-Status "deleting a session is a 200" 200 $drop
+  $dropAgain = Invoke-Api -Method DELETE -Path "/api/sessions/$sessionId"
+  Assert-Status "deleting it again is a 404" 404 $dropAgain
+
+  # ── the silent-failure class ─────────────────────────────────────────────
+  Write-Host ""
+  Write-Host "-- the silent-failure class: requests that must all come back"
+  if (-not ("System.Net.Http.HttpClient" -as [type])) {
+    Add-Type -AssemblyName System.Net.Http
+  }
+  $client = New-Object System.Net.Http.HttpClient
+  $client.Timeout = [TimeSpan]::FromSeconds(30)
+
+  # Eight GETs at once. The old bug was two GETs in flight at start-up:
+  # sometimes neither answer came back, and the screen sat on "Loading..."
+  # with nothing in the console.
+  $gets = @()
+  for ($i = 0; $i -lt 8; $i++) {
+    $gets += $client.GetAsync("$base/api/loop/status")
+  }
+  [System.Threading.Tasks.Task]::WaitAll([System.Threading.Tasks.Task[]]$gets)
+  $answered = 0
+  foreach ($task in $gets) {
+    if ($task.Result.StatusCode.value__ -eq 200 -and $task.Result.Content.ReadAsStringAsync().Result.Length -gt 0) {
+      $answered += 1
+    }
+  }
+  Assert-True "eight concurrent GETs all came back with a body" ($answered -eq 8) `
+    ("only {0} of 8 answered" -f $answered)
+
+  # Eight POSTs at once. The stronger assertion is not that the responses
+  # came back -- it is that the server ended up with all eight steps. A lost
+  # response and a lost write are the same bug seen from two ends, and this
+  # is the end that matters.
+  #
+  # Two counts are kept, because they are kept in two places. The loop's
+  # history is in memory and the session's steps are on the disk, and a write
+  # that is lost on the way to the disk is lost for good: the screen would
+  # look right until the process ended, and then the walk would be gone.
+  $activeId = Field (Get-Json "/api/sessions") "active_session_id"
+  $pathBefore = @((Field (Get-Json "/api/sessions/$activeId") "path")).Count
+  $before = Field (Get-Json "/api/loop/status") "history_length"
+  $posts = @()
+  for ($i = 0; $i -lt 8; $i++) {
+    $content = New-Object System.Net.Http.StringContent("{}", [System.Text.Encoding]::UTF8, "application/json")
+    $posts += $client.PostAsync("$base/api/loop/step", $content)
+  }
+  [System.Threading.Tasks.Task]::WaitAll([System.Threading.Tasks.Task[]]$posts)
+  $postAnswered = 0
+  foreach ($task in $posts) {
+    if ($task.Result.StatusCode.value__ -eq 200 -and $task.Result.Content.ReadAsStringAsync().Result.Length -gt 0) {
+      $postAnswered += 1
+    }
+  }
+  Assert-True "eight concurrent POSTs all came back with a body" ($postAnswered -eq 8) `
+    ("only {0} of 8 answered" -f $postAnswered)
+  $after = Field (Get-Json "/api/loop/status") "history_length"
+  Assert-True "and the server ended up with all eight of them" ($after -eq ($before + 8)) `
+    ("the history went from {0} to {1}, not {2}" -f $before, $after, ($before + 8))
+  $pathAfter = @((Field (Get-Json "/api/sessions/$activeId") "path")).Count
+  Assert-True "and all eight of them were written down" ($pathAfter -eq ($pathBefore + 8)) `
+    ("the timeline went from {0} steps to {1}, not {2}" -f $pathBefore, $pathAfter, ($pathBefore + 8))
+
+  # A GET immediately followed by a POST: the shape the client actually uses
+  # when it chains one request from the answer of another.
+  $chainGet = Invoke-Api -Method GET -Path "/api/loop/status"
+  $chainPost = Post-Json "/api/loop/step"
+  Assert-Status "a GET followed by a POST: the GET answers" 200 $chainGet
+  Assert-Status "a GET followed by a POST: the POST answers" 200 $chainPost
+
+  # A refused POST has to bring its reason back, not just its status code.
+  # A refusal that arrives as a 400 with an empty body is the "button is
+  # broken but it does not say why" failure, in a different costume.
+  $refusedPost = Post-Json "/api/entries" @{ domain = "Q"; title = "x" }
+  Assert-Status "a refused POST answers with its status" 400 $refusedPost
+  $refusedBody = $refusedPost.Body | ConvertFrom-Json
+  Assert-FieldNotEmpty "and with the reason it was refused" $refusedBody "reason"
+
+  # ── the client-side anti-pattern that caused it ──────────────────────────
+  Write-Host ""
+  Write-Host "-- the client must not batch its requests"
+  $appSource = Get-Content (Join-Path $repo "frontend/app.mbt") -Raw
+  # The check is about the code, not about the prose around it. A comment
+  # that says "never with @cmd.batch" is the opposite of a violation, and a
+  # plain substring search cannot tell the two apart -- it reads the comment
+  # as the crime. So the comments are dropped before the search.
+  $appCode = Remove-Comments $appSource
+  Assert-True "the frontend does not use @cmd.batch" ($appCode -notmatch '@cmd\.batch') `
+    "@cmd.batch is the thing that froze the page; issue requests one at a time"
+  if ($appCode -match '(?s)init=fn\(emit\)\s*\{(.*?)\n\s*update~') {
+    $initBlock = $Matches[1]
+    $initRequests = ([regex]::Matches($initBlock, '@http\.(get|post|delete)')).Count
+    Assert-True "the start-up issues exactly one request" ($initRequests -eq 1) `
+      ("the start-up issues {0} requests" -f $initRequests)
+  } else {
+    Assert-True "the start-up issues exactly one request" $false "the init block could not be found"
+  }
+
+  # ── the static layer ─────────────────────────────────────────────────────
+  Write-Host ""
+  Write-Host "-- the static layer"
+  $root = Invoke-Api -Method GET -Path "/"
+  Assert-Status "the browser shell is served at /" 200 $root
+  Assert-Contains "and it is HTML" $root.Body "<!DOCTYPE html>"
+  $deep = Invoke-Api -Method GET -Path "/sessions"
+  Assert-Status "a deep link is served the shell too" 200 $deep
+  Assert-Contains "and it is HTML" $deep.Body "<!DOCTYPE html>"
+  $apiMiss = Invoke-Api -Method GET -Path "/api/nonexistent"
+  Assert-Status "an API path that is not a route is a 404" 404 $apiMiss
+  Assert-Contains "and it is JSON, not the shell" $apiMiss.Body "not_found"
+  $bundle = Invoke-Api -Method GET -Path "/main.js"
+  Assert-Status "the browser bundle is served" 200 $bundle
+  Assert-True "and it is not empty" ($bundle.Body.Length -gt 1000)
+} finally {
+  Stop-Server
+  Start-Sleep -Milliseconds 300
+  if (-not $KeepDatabase) {
+    if (Test-Path $db) { Remove-Item $db -Force -ErrorAction SilentlyContinue }
+    if (Test-Path $dist) { Remove-Item $dist -Recurse -Force -ErrorAction SilentlyContinue }
+  }
+}
+
+Write-Host ""
+Write-Host ("checks: {0} passed, {1} failed" -f $script:passed, $script:failed)
+if ($script:failed -gt 0) { exit 1 }
+exit 0

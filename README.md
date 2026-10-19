@@ -223,6 +223,14 @@ is not amnesia. The whole session state — the list, the active session, its
 path, the branches off it — rides along in `/api/bootstrap`, so the start-up
 chain stays two requests rather than three.
 
+**The state under `session` is the *active* session.** A route that acts on
+some other session names its subject as well, so the answer is about the
+session the caller asked about: `POST /api/sessions/:id/rename` returns the
+renamed session under `renamed`, next to the state it changed. Without that,
+renaming a session that is not the live one would answer with a session the
+caller never asked about — a response that looks right and is about the wrong
+thing.
+
 #### The sessions screen
 
 `/sessions` is the route where the history is read. Like `/workspace`, it is a
@@ -309,6 +317,7 @@ docker-compose.yml  the container with a volume for the records
 packaging/RUN.txt what a user reads after unpacking a prebuilt binary
 tools/            CI and test tooling
 ci.sh             CI pipeline (15 gates)
+integration-test.ps1  the end-to-end tests over real HTTP
 ```
 
 ## CI Pipeline
@@ -324,14 +333,20 @@ locally are covered by `.\build.ps1`
 (bundle → check → backend tests → frontend tests → server build). Of the 15 gates, 9 exist only as a
 shell implementation and cannot be reproduced locally.
 
+`ci.yml` runs four jobs: the unit tests on both targets, the two builds, the
+container, and the **integration** job — the end-to-end suite over real HTTP,
+which `ci.yml` did not run at all before. The script is PowerShell rather than
+bash so that one file serves this machine and the runner: the runner's ubuntu
+image carries `pwsh`.
+
 ### Mutation Checks
 
 Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be run separately:
 
 ```
-.\tools\mutate-backend.ps1     # 11 mutations, 0 survived, 1 expected-equivalent
+.\tools\mutate-backend.ps1     # 15 mutations, 0 survived, 1 expected-equivalent
 .\tools\mutate-frontend.ps1    # 15 mutations, 0 survived
-.\tools\mutate-loop.ps1        # 14 mutations, 0 survived, 1 expected-equivalent
+.\tools\mutate-loop.ps1        # 16 mutations, 0 survived, 1 expected-equivalent
 ```
 
 That one EQUIV in `mutate-loop` is deliberate: measurement shows that all 34 positions **do have outgoing
@@ -345,8 +360,8 @@ the signal we want.
 | js-check | `moon check --target js` | frontend type safety |
 | fmt | `moon fmt --check` | code formatting |
 | tree | `moon tree` | dependency audit |
-| unit-native | `moon test --target native` | 171 backend tests (includes the BDD suite below) |
-| unit-js | `moon test --target js` | 42 frontend tests |
+| unit-native | `moon test --target native` | 185 backend tests (includes the BDD suite below) |
+| unit-js | `moon test --target js` | 56 frontend tests |
 | coverage | `moon test --enable-coverage` | coverage |
 | bench | `moon bench` | benchmarks |
 | prove | `moon prove` | formal verification (Why3) |
@@ -375,7 +390,67 @@ The bootstrap carries everything else the app needs to start: the pages, the wor
 
 Batching the two with `@cmd.batch` looks equivalent and is not. With the batch, every click-initiated POST still reached the server and still changed state, but **no response ever came back**: Step, Reset and the slot buttons all mutated the backend while the view stayed frozen on stale data, with no error shown anywhere. Chaining the second request restores them.
 
-The cause was not root-caused — the same build works when the init issues a GET and a POST, and fails when it issues two GETs, which points at how two concurrent requests are dispatched rather than at anything in the loop engine. The safe rule to preserve: **issue the two initial fetches one after the other.** Re-batching them is a silent regression that no unit test catches.
+The cause was not root-caused — the same build works when the init issues a GET and a POST, and fails when it issues two GETs, which points at how two concurrent requests are dispatched rather than at anything in the loop engine. The safe rule to preserve: **issue the two initial fetches one after the other.** Re-batching them is a silent regression that no unit test catches; the [integration tests](#the-integration-tests-are-the-net-for-that-class-of-bug) check the source for it.
+
+## The Integration Tests Are The Net For That Class Of Bug
+
+```powershell
+.\tools\integration-test.ps1              # builds the server, then runs 85 checks
+.\tools\integration-test.ps1 -SkipBuild   # reuse the binary that is already built
+```
+
+The unit tests cannot catch the bug described above: it is a property of the
+HTTP round-trip, not of any one function, and the container job only asks one
+question of a running image. So the whole route table is exercised over real
+HTTP, and the requests are fired **concurrently** with the assertions made on
+what the server ended up with, not only on what came back.
+
+That distinction is the whole point. A lost response and a lost write are the
+same bug seen from two ends, so there are two checks, and they are kept
+separately because they are kept in separate places:
+
+| Check | What it holds the server to |
+|---|---|
+| eight concurrent GETs all came back with a body | the answers are not lost |
+| eight concurrent POSTs all came back with a body | the answers are not lost |
+| the server ended up with all eight of them | the loop's in-memory history grew |
+| all eight of them were written down | the session's steps reached the disk |
+
+The third and the fourth are not the same check. A server that accepts a
+request and forgets to write it down passes the third — the loop's history is
+in memory and it did grow — and fails the fourth. A write lost on the way to
+the disk is lost for good: the screen would look right until the process
+ended, and then the walk would be gone.
+
+The script also checks the two ways a route can be useless while looking
+fine: a route that answers 200 with a body nobody can read, and a refusal
+that arrives as a 400 with an empty body — the "the button is broken but it
+does not say why" failure, in a different costume.
+
+**A test that has never failed is not known to work.** Each of the two halves
+of the failure class was proved by breaking the server on purpose and
+watching the suite go red:
+
+| The probe | What went red |
+|---|---|
+| the step route stops recording the step | "and all eight of them were written down" |
+| the step route answers with an empty body | "eight concurrent POSTs all came back with a body" |
+| the rename route answers about the active session | "the answer names the renamed session" |
+
+The third one matters because **the unit suite structurally cannot reach a
+route.** A handler is `async (Request) -> Response` over moonback's own
+request, and there is no way to build one in a test. Anything a route does is
+covered by the integration test alone — which is why it runs in CI, and why
+`ci.yml` grew an `integration` job.
+
+Two of the checks read the source rather than the server, because the
+regression they guard against *is* a source change:
+
+- the frontend does not use `@cmd.batch`. The comments are stripped before
+  the search, because a line that says "never with @cmd.batch" is the
+  opposite of a violation, and a plain substring search cannot tell the two
+  apart — it reads the comment as the crime.
+- the start-up issues exactly one request.
 
 ## Deep Links Need A `<base>` Tag
 
@@ -410,6 +485,9 @@ process: the steps are rows, not memory.
 - Patch version progression: v0.1.x (no minor releases unless specified)
 - Gitee for day-to-day storage, GitHub for releases
 - Run `bash ci.sh` and get an all-green result before releasing
+- On this machine that means `.\build.ps1`, the three mutation scans, and
+  `.\tools\integration-test.ps1` — the last one is the only gate that
+  exercises a route, and a route is where a release can break
 
 ## License
 

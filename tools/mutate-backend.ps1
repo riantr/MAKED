@@ -158,6 +158,17 @@ $mutations = @(
     file = 'backend/session.mbt'
     old  = '    blocked: blocked_slots_text(position_before),'
     new  = '    blocked: "",'
+  },
+  # A route that acts on one session names that session in its answer. The
+  # state under "session" is the *active* one, so a payload that dropped the
+  # named session would answer "here is the session you renamed" with the
+  # session that happened to be live -- which is the wrong session whenever
+  # the two are not the same one.
+  @{
+    name = 'the payload does not name the session it acted on'
+    file = 'backend/session.mbt'
+    old  = '      merged[key] = session.to_json()'
+    new  = '      merged[key] = Json::empty_object()'
   }
 )
 

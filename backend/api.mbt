@@ -159,6 +159,12 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   // POST   /api/sessions/:id/rename   → give it a different name
   // DELETE /api/sessions/:id          → forget it and its steps
   // GET    /api/sessions/:id/export   → ?format=md|json
+  //
+  // The session state always carries the *active* session under "session".
+  // A route that acts on some other session names its subject as well: the
+  // renamed one comes back under "renamed", so the answer is about the
+  // session the caller asked about and not about the one that happens to be
+  // live.
   app.get("/api/sessions", _req => Response::json(sessions_payload(db)))
   app.post("/api/sessions", req => {
     let payload = req.json().unwrap_or(Json::empty_object())
@@ -301,7 +307,13 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
         Accepted(name) =>
           if db.rename_session(id.to_int64(), name) {
             match db.session_by_id(id.to_int64()) {
-              Some(_) => Response::json(session_payload(db))
+              // The renamed session travels under "renamed" because it need
+              // not be the active one: the state under "session" is the
+              // active session, and a rename of some other session would
+              // otherwise answer with a session the caller did not ask
+              // about.
+              Some(session) =>
+                Response::json(session_payload_with(db, "renamed", session))
               None => {
                 let body : Json = { "error": "not_found", "id": id }
                 Response::json(body, status=404)

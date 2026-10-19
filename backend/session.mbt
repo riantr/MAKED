@@ -809,6 +809,34 @@ pub fn session_payload(db : Database) -> Json raise {
 }
 
 ///|
+/// The session state, plus one named session of its own.
+///
+/// The state carries the *active* session under "session". A route that acts
+/// on a session which is not the active one -- renaming, say -- would then
+/// answer a question nobody asked: "here is the session you renamed" has to
+/// be answerable, and "here is the session that happens to be active" does
+/// not answer it when the two are not the same session. So the acted-on
+/// session travels under its own key, next to the state it changed.
+pub fn session_payload_with(
+  db : Database,
+  key : String,
+  session : Session,
+) -> Json raise {
+  let state = session_payload(db)
+  match state {
+    Object(fields) => {
+      let merged = Map([], capacity=16)
+      for (name, value) in fields {
+        merged[name] = value
+      }
+      merged[key] = session.to_json()
+      Json::object(merged)
+    }
+    _ => state
+  }
+}
+
+///|
 /// The list of sessions, newest first.
 ///
 /// The active flag is computed rather than stored: the live session is a
