@@ -222,18 +222,15 @@ jobs:
         include:
           - os: ubuntu-latest
             target: linux-x86_64
-            shell: bash
             archive: tar.gz
           # macos-14 is the arm64 runner, and it has to be: the toolchain
           # installer recognises "Darwin arm64" and "Linux x86_64" only, so
           # an Intel macOS runner fails with "Unsupported platform".
           - os: macos-14
             target: macos-arm64
-            shell: bash
             archive: tar.gz
           - os: windows-latest
             target: windows-x64
-            shell: pwsh
             archive: zip
     steps:
       - uses: actions/checkout@v5
@@ -275,7 +272,11 @@ jobs:
           "$HOME\.moon\bin" >> $env:GITHUB_PATH
 
       - name: Install dependencies
-        shell: ${{ matrix.shell }}
+        # No `shell:` here on purpose. The `matrix` context is not available
+        # to a step's `shell` key -- GitHub rejects the whole workflow with
+        # "Unrecognized named-value: 'matrix'" -- and the runner's default
+        # shell is already the right one per platform: bash on Linux and
+        # macOS, pwsh on Windows. Both run these two commands the same way.
         run: |
           moon version --all
           # The toolchain resolves the dependency tree itself during
@@ -284,7 +285,6 @@ jobs:
           moon update
 
       - name: Build
-        shell: ${{ matrix.shell }}
         run: |
           moon build --release --target js cmd/web
           moon build --release --target native cmd/server
