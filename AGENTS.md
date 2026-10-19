@@ -77,3 +77,15 @@ You can browse and install extra skills here:
   loop panel stuck on "Loading loop status..." while the server answers 200 is
   a client-side fault, and the browser's own network/console capture is not
   populated in this project's provider.
+
+- **Keep source files LF.** `git checkout` on this machine rewrites `.mbt` files
+  to CRLF, and the mutation scripts match their anchors against LF text. A
+  CRLF file does not fail a test -- it reports `anchor not present ... mutation
+  never applied` and is counted as a **survivor**, which looks exactly like a
+  real coverage hole. After any `git checkout`, convert back before running the
+  mutation suites:
+
+  ```powershell
+  $p = "<abs path>"; $t = [System.IO.File]::ReadAllText($p)
+  [System.IO.File]::WriteAllText($p, $t.Replace("`r`n", "`n"), (New-Object System.Text.UTF8Encoding($false)))
+  ```
