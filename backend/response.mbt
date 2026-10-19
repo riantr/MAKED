@@ -44,10 +44,38 @@ pub fn Response::with_header(
 }
 
 ///|
+/// The headers to send, with a content type unless the caller named one.
+///
+/// moonback's `send_text` puts its own `text/plain` in front of the caller's
+/// headers, so a response that names its own content type ends up with two
+/// of them -- and a message with two `Content-Type` headers has a content
+/// type that is neither. Deciding here, where the headers are known, is what
+/// keeps the export's `text/markdown` from being shadowed by `text/plain`.
+fn with_content_type(
+  headers : Array[(String, String)],
+  fallback : String,
+) -> Array[(String, String)] {
+  for (name, _) in headers {
+    if name.to_lower() == "content-type" {
+      return headers
+    }
+  }
+  [("Content-Type", fallback), ..headers]
+}
+
+///|
 async fn Response::send(self : Response, res : @moonback.Responder) -> Unit {
   match self.body {
     Empty => res.send_void(status=self.status, headers=self.headers)
-    Text(text) => res.send_text(text, status=self.status, headers=self.headers)
+    Text(text) => {
+      // Written through `respond` rather than `send_text`, so that the
+      // content type is the one this response chose.
+      let writer = res.respond(
+        status=self.status,
+        headers=with_content_type(self.headers, "text/plain; charset=utf-8"),
+      )
+      writer.write(text)
+    }
     Json(json) => res.send_json(json, status=self.status, headers=self.headers)
   }
 }

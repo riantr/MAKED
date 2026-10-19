@@ -579,6 +579,33 @@ fn compute_group_state(
 }
 
 ///|
+/// Copy the per-domain states, so a new state and the one it came from do
+/// not share a map.
+///
+/// MoonBit's `Map` is mutable and is not copy-on-write, so
+/// `domain_states[domain] = new_state` would change the map that the
+/// *previous* state still points at. That is invisible while the previous
+/// state is thrown away, and it is wrong the moment anybody wants to compare
+/// the two: the position a step started from would read as the position it
+/// landed on, and a session recording "where I was" would record "where I
+/// ended up" instead.
+///
+/// The copy is five entries, so it costs nothing that matters, and it makes
+/// `LoopState` a value: a state can be kept, compared, and replayed.
+fn copy_domain_states(
+  source : Map[Domain, DomainState],
+) -> Map[Domain, DomainState] {
+  let copy = Map([], capacity=8)
+  for domain in ring_domains_loop() {
+    match source.get(domain) {
+      Some(state) => copy[domain] = state
+      None => ()
+    }
+  }
+  copy
+}
+
+///|
 /// Take one step: record the current position x slot outcome, then move the
 /// viewing cursor to the next domain.
 ///
@@ -631,7 +658,9 @@ pub fn LoopState::step_domain_with(
   match new_domain_state.history.last() {
     Some(event) => {
       history.push(event)
-      let domain_states = self.domain_states
+      // Copied, not shared: see `copy_domain_states`. The state this step
+      // came from has to stay readable as it was.
+      let domain_states = copy_domain_states(self.domain_states)
       domain_states[domain] = new_domain_state
       let group_state = compute_group_state(domain_states)
       // Advance only when the subject actually went somewhere. Judged by
@@ -793,16 +822,37 @@ pub fn get_loop_mode() -> LoopMode {
 }
 
 ///|
-/// Set the loop mode (Structured or Free).
-pub fn set_loop_mode(mode : LoopMode) -> LoopState {
-  let current = g_loop_state[0]
-  let new_state = {
-    current: current.current,
-    domain_states: current.domain_states,
-    group_state: current.group_state,
-    history: current.history,
+/// The same state with a different loop mode.
+///
+/// The mode is a property of the *session* as much as of the live state, so
+/// it is set on a value rather than on the module cell: a session that is
+/// replayed has to be able to say which mode it was in, and that is a
+/// question about the state, not about the process.
+pub fn LoopState::with_mode(self : LoopState, mode : LoopMode) -> LoopState {
+  {
+    current: self.current,
+    domain_states: self.domain_states,
+    group_state: self.group_state,
+    history: self.history,
     mode,
   }
+}
+
+///|
+/// Install a loop state as the live one.
+///
+/// Used by the session layer: a session is put back in front of the user by
+/// replaying its steps, and the result has to become the live state. Kept
+/// apart from `reset_loop`, which builds a *fresh* state rather than
+/// installing one.
+pub fn set_loop_state(state : LoopState) -> Unit {
+  g_loop_state[0] = state
+}
+
+///|
+/// Set the loop mode (Structured or Free).
+pub fn set_loop_mode(mode : LoopMode) -> LoopState {
+  let new_state = g_loop_state[0].with_mode(mode)
   g_loop_state[0] = new_state
   new_state
 }

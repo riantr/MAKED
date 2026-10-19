@@ -130,6 +130,34 @@ $mutations = @(
     (`"knowledge`", `"Knowledge`", `"K`", `"the knowledge distiller`"),
     (`"experience`", `"Experience`", `"E`", `"the experience absorber`"),
     (`"data`", `"Data`", `"D`", `"the data turbine`"),"
+  },
+  # A session's steps are a tree, and the tree is the parent link. A copy
+  # that forgot to carry it would give the branch a path of one step and the
+  # rest floating beside it, and the branch would be a session whose history
+  # is a pile rather than a walk.
+  @{
+    name = 'a forked step is not chained to the step before it'
+    file = 'backend/session.mbt'
+    old  = '      parent_step_id: parent,'
+    new  = '      parent_step_id: 0L,'
+  },
+  # A session's head is where it is standing. Forgetting to move it would
+  # leave the session pointing at a step the user has already walked past,
+  # and the timeline would show the wrong path.
+  @{
+    name = 'the session head is never moved'
+    file = 'backend/session.mbt'
+    old  = '  db.set_session_head(session_id, step.id)'
+    new  = '  let _ = step'
+  },
+  # The reason a step was possible is snapshotted when the step is taken.
+  # Dropping the blocked slots would leave a reader with "it moved" and no
+  # way of knowing that six of the other seven slots could not have.
+  @{
+    name = 'the blocked slots are not recorded'
+    file = 'backend/session.mbt'
+    old  = '    blocked: blocked_slots_text(position_before),'
+    new  = '    blocked: "",'
   }
 )
 

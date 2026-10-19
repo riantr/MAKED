@@ -490,6 +490,15 @@ fn bare_model() -> @frontend.Model {
     draft_body: "",
     workspace_error: "",
     workspace_notice: "",
+    sessions: [],
+    active_session: @frontend.empty_session(),
+    session_path: [],
+    session_others: [],
+    session_error: "",
+    session_notice: "",
+    session_name_draft: "",
+    session_rename_draft: "",
+    session_delete_pending: 0,
   }
 }
 
@@ -881,4 +890,283 @@ test "update on a deleted entry removes it from the list" {
   )
   assert_eq(model.entries.length(), 0)
   assert_eq(model.workspace_error, "")
+}
+
+///|
+/// A session payload, shaped like the one the server sends.
+///
+/// The ids are deliberately in both spellings the wire uses: a session id
+/// arrives as a *string* because the backend holds it as an `Int64`, and the
+/// step counts arrive as numbers. A decoder that read only one of them would
+/// report zero sessions or zero steps, and the page would look empty rather
+/// than wrong.
+fn session_payload() -> Json {
+  {
+    "sessions": [
+      {
+        "id": "1",
+        "name": "First exploration",
+        "parent_id": "0",
+        "forked_step_id": "0",
+        "head_step_id": "2",
+        "start_cursor": "M",
+        "mode": "structured",
+        "created_at": "2026-10-19T18:27:45Z",
+        "updated_at": "2026-10-19T18:28:00Z",
+        "steps": 2,
+        "total_steps": 3,
+        "active": true,
+      },
+    ],
+    "active_session_id": 1,
+    "session": {
+      "id": "1",
+      "name": "First exploration",
+      "parent_id": "0",
+      "forked_step_id": "0",
+      "head_step_id": "2",
+      "start_cursor": "M",
+      "mode": "structured",
+      "created_at": "2026-10-19T18:27:45Z",
+      "updated_at": "2026-10-19T18:28:00Z",
+    },
+    "path": [
+      {
+        "id": "1",
+        "index": 1,
+        "domain": "M",
+        "domain_title": "Model",
+        "slot": "act",
+        "slot_designation": "Action",
+        "outcome": "Moved",
+        "detail": "Standing -> Freedom",
+        "position_before": "Standing",
+        "position_after": "Freedom",
+        "cursor_after": "D",
+        "group_state": "Converging",
+        "source": "drive",
+        "why": "1 of the 8 slots had an outgoing edge here",
+        "available": [["act"]],
+        "blocked": [["hold"], ["unveil"]],
+        "created_at": "2026-10-19T18:27:45Z",
+      },
+    ],
+    "other_steps": [
+      {
+        "id": "3",
+        "index": 2,
+        "domain": "D",
+        "domain_title": "Data",
+        "slot": "hold",
+        "slot_designation": "Holding",
+        "outcome": "No-way",
+        "detail": "No road from Encounter through Holding",
+        "position_before": "Encounter",
+        "position_after": "Encounter",
+        "cursor_after": "D",
+        "group_state": "Converging",
+        "source": "explicit",
+        "why": "no slot had an outgoing edge here",
+        "available": [],
+        "blocked": [["hold"], ["unveil"]],
+        "created_at": "2026-10-19T18:28:00Z",
+      },
+    ],
+  }
+}
+
+///|
+test "the session state decodes the list, the active session and the path" {
+  let state = @frontend.decode_session_state(session_payload())
+  assert_eq(state.sessions.length(), 1)
+  assert_eq(state.sessions[0].name, "First exploration")
+  assert_eq(state.sessions[0].id, 1)
+  assert_eq(state.sessions[0].steps, 2)
+  assert_eq(state.sessions[0].total_steps, 3)
+  assert_true(state.sessions[0].active)
+  assert_eq(state.active_session_id, 1)
+  assert_eq(state.session.name, "First exploration")
+  assert_eq(state.path.length(), 1)
+  assert_eq(state.other_steps.length(), 1)
+}
+
+///|
+test "a step decodes the reason the backend wrote for it" {
+  // The "why" is written by the server, on purpose: a second copy of that
+  // rule in the client would be a second thing to keep in step with the
+  // first, and the two would eventually disagree.
+  let state = @frontend.decode_session_state(session_payload())
+  let step = state.path[0]
+  assert_eq(step.why, "1 of the 8 slots had an outgoing edge here")
+  assert_eq(step.domain, "M")
+  assert_eq(step.slot_designation, "Action")
+  assert_eq(step.outcome, "Moved")
+  assert_eq(step.position_before, "Standing")
+  assert_eq(step.position_after, "Freedom")
+  assert_eq(step.source, "drive")
+}
+
+///|
+test "the slot lists are unwrapped from the one-element arrays" {
+  // The backend sends a list of strings as a list of one-element arrays,
+  // because that is the shape MoonBit's `Json` builder accepts. A decoder
+  // that forgot the unwrapping would show "[[act]]" where "[act]" belongs.
+  let state = @frontend.decode_session_state(session_payload())
+  assert_eq(state.path[0].available, ["act"])
+  assert_eq(state.path[0].blocked, ["hold", "unveil"])
+  // An empty list is an empty list, not one empty piece.
+  assert_eq(state.other_steps[0].available.length(), 0)
+}
+
+///|
+test "the session state survives a malformed payload without raising" {
+  let empty = @frontend.decode_session_state(Json::empty_object())
+  assert_eq(empty.sessions.length(), 0)
+  assert_eq(empty.path.length(), 0)
+  assert_eq(empty.session.name, "")
+  let wrong_shape : Json = { "sessions": "not-an-array", "path": 7 }
+  let state = @frontend.decode_session_state(wrong_shape)
+  assert_eq(state.sessions.length(), 0)
+  assert_eq(state.path.length(), 0)
+}
+
+///|
+test "a refused session request is recognised and explained" {
+  // The HTTP status never reaches the client, so the body is the only place
+  // a refusal can be seen. Without this the page would show a refusal as
+  // though it were a success.
+  let refusal : Json = {
+    "error": "invalid_name",
+    "reason": "give the session a name",
+  }
+  assert_true(@frontend.session_refused(refusal))
+  assert_eq(
+    @frontend.session_refusal_reason(refusal),
+    "give the session a name",
+  )
+  assert_true(!@frontend.session_refused(session_payload()))
+}
+
+///|
+test "a branch is named after the session it came from" {
+  assert_eq(
+    @frontend.branch_name("First exploration"),
+    "First exploration (branch)",
+  )
+  // A session with no name still gets a name a person can find it by.
+  assert_eq(@frontend.branch_name(""), "Branch")
+  assert_eq(@frontend.branch_name("   "), "Branch")
+}
+
+///|
+test "update on a new session with no name says so instead of posting nothing" {
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::NewSessionClicked,
+    silent_emit(),
+  )
+  assert_eq(model.session_error, "give the session a name")
+  assert_eq(model.session_notice, "")
+}
+
+///|
+test "update on a new session takes the typed name" {
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::SessionNameChanged("the run that failed"),
+    silent_emit(),
+  )
+  assert_eq(model.session_name_draft, "the run that failed")
+}
+
+///|
+test "update on a created session puts the new timeline in the model" {
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::SessionCreated(Ok(session_payload())),
+    silent_emit(),
+  )
+  assert_eq(model.sessions.length(), 1)
+  assert_eq(model.active_session.name, "First exploration")
+  assert_eq(model.session_path.length(), 1)
+  assert_eq(model.session_others.length(), 1)
+  assert_eq(model.session_error, "")
+  assert_true(model.session_notice != "")
+}
+
+///|
+test "update on a refused session request shows the reason" {
+  let refusal : Json = { "error": "not_on_path", "step": 9 }
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::SessionReplayed(Ok(refusal)),
+    silent_emit(),
+  )
+  assert_eq(model.session_error, "not_on_path")
+  assert_eq(model.session_notice, "")
+}
+
+///|
+test "update on an unreachable session server says so" {
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::SessionBranched(Err(TestError("boom"))),
+    silent_emit(),
+  )
+  assert_eq(model.session_error, "could not reach the server")
+  assert_eq(model.session_notice, "")
+}
+
+///|
+test "a delete takes two presses, and the first says so" {
+  // A history is worth more than the click that deletes it.
+  let (armed, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::DeleteSessionClicked(4),
+    silent_emit(),
+  )
+  assert_eq(armed.session_delete_pending, 4)
+  assert_true(armed.session_notice.contains("again"))
+  // A delete of a different session arms that one instead.
+  let (other, _) = @frontend.update(
+    armed,
+    @frontend.Msg::DeleteSessionClicked(5),
+    silent_emit(),
+  )
+  assert_eq(other.session_delete_pending, 5)
+}
+
+///|
+test "the session fields are distinguished by the model's equality" {
+  // rabbita drops an update whose new model compares equal to the old one
+  // (see the note on the Some/None test below). A session field that
+  // compared equal would be a field the screen silently refuses to show.
+  let m = bare_model()
+  assert_true(!Eq::equal(m, { ..m, session_name_draft: "a name", }))
+  assert_true(!Eq::equal(m, { ..m, session_notice: "something happened", }))
+  assert_true(!Eq::equal(m, { ..m, session_error: "something went wrong", }))
+  assert_true(!Eq::equal(m, { ..m, session_rename_draft: "another name", }))
+  assert_true(!Eq::equal(m, { ..m, session_delete_pending: 3, }))
+}
+
+///|
+test "the bootstrap's nested session state is found and decoded" {
+  // The bootstrap carries the session state under `session_state`, not at the
+  // top level. Decoding the wrong level does not fail -- it yields an empty
+  // list, and the page says "No sessions yet" while the server has one.
+  let bootstrap : Json = {
+    "pages": [],
+    "entries": [],
+    "entry_domains": ["M", "D", "E", "A", "K"],
+    "session_state": session_payload(),
+  }
+  let state = @frontend.decode_bootstrap_session_state(bootstrap)
+  assert_eq(state.sessions.length(), 1)
+  assert_eq(state.session.name, "First exploration")
+  assert_eq(state.path.length(), 1)
+  assert_eq(state.other_steps.length(), 1)
+  // A bootstrap without one decodes to nothing rather than raising.
+  let empty = @frontend.decode_bootstrap_session_state(Json::empty_object())
+  assert_eq(empty.sessions.length(), 0)
+  assert_eq(empty.path.length(), 0)
 }

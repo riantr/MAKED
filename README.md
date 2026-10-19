@@ -8,6 +8,8 @@ MAKED is a five-domain recursive cognitive architecture: Model → Data → Expe
 
 Technical implementation: [rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.16.5) single-page frontend + a Flask-style micro-framework backend on [moonback](https://mooncakes.io), with SQLite storage. The state machine is [riantr/pyroduct](https://mooncakes.io/docs/riantr/pyroduct@0.1.32)@0.1.32, which also supplies the English rendering (`en_label` / `en_gloss` / `en_designation`) that every user-visible string here comes from.
 
+What a person can do with it: put their own model, dataset or recorded failure into the [workspace](#workspace); run an exploration as a named [session](#sessions) whose every step is recorded with the reason it was possible, which can be replayed, forked, and exported as Markdown or JSON; and read the loop itself — which positions the transition table offers, and which it refuses.
+
 ## Core Concepts
 
 ### The Five-Domain Ring (M → D → E → A → K)
@@ -176,6 +178,67 @@ meant the client sometimes never saw either answer, and the screen sat on
 a time, and `/api/bootstrap` and `/api/entries` are sent as `no-store` — a
 cached copy of the list would be a stale claim about what the server holds.
 
+### Sessions
+
+A named exploration, kept. The loop state used to be a module-level singleton:
+one exploration, no name, no history that outlived the process, and nothing to
+take away. A user who spent twenty steps working out why their model would not
+move had nowhere to put any of it, and restarting the server threw it away.
+
+| Route | Returns |
+|---|---|
+| `GET /api/sessions` | every session, most recently touched first, with the active one marked |
+| `POST /api/sessions` | create one from `{name}`; 201 with the session state, or 400 with a reason |
+| `GET /api/sessions/:id` | one session: its path, the branches off it, and the live loop status |
+| `POST /api/sessions/:id/activate` | make it the active session and replay it into the loop |
+| `POST /api/sessions/:id/replay` | rewind to `{step}`; the steps beyond it are kept, not deleted |
+| `POST /api/sessions/:id/branch` | fork a new session at `{step}`, named `{name}`; 201 |
+| `POST /api/sessions/:id/rename` | rename it from `{name}` |
+| `DELETE /api/sessions/:id` | forget it and its steps |
+| `GET /api/sessions/:id/export?format=md` | the session as Markdown, as a download |
+| `GET /api/sessions/:id/export?format=json` | the session as JSON (`maked.session.v1`) |
+
+Every step taken through the loop is recorded in the active session, with the
+domain, the slot, the outcome, the positions before and after, and **why the
+step was possible**: which slots had an outgoing edge at that position, which
+had none, whether the table declined to choose, and what its own drive slot
+was. That snapshot is taken when the step is taken, not looked up afterwards, so
+it describes the moment rather than the table as it stands now.
+
+**A session's steps are a tree, not a list.** Each step records the step it
+came from, and the session records which step it is standing on. Rewinding moves
+the head back and leaves the steps beyond it in the table as the other
+branches; a list would have had to delete them, and "let me try the other road
+from step 7" is the whole reason to keep a history at all. A fork copies the
+path up to a step into a new session and leaves the original exactly as it was.
+
+**Replay re-derives, it does not restore.** A step records the domain and the
+slot, not a snapshot of the positions, so putting a session back together runs
+those steps through the transition table again. What comes back is the state the
+table really produces, so a record that had drifted from the table shows up as a
+different result rather than as a quiet lie.
+
+The server restores the most recently touched session on start-up, so a restart
+is not amnesia. The whole session state — the list, the active session, its
+path, the branches off it — rides along in `/api/bootstrap`, so the start-up
+chain stays two requests rather than three.
+
+#### The sessions screen
+
+`/sessions` is the route where the history is read. Like `/workspace`, it is a
+client-side route, so it survives a cold load and a deep link alike.
+
+- The timeline is one entry per step: what moved, from where to where, what the
+  transition table said, and why that step was possible at all.
+- Each step offers **Go back to here** (rewind; the steps beyond it are kept and
+  become the roads not taken) and **Fork from here** (a new named session with a
+  copy of the path up to that step).
+- A session can be renamed, exported as Markdown or JSON, opened again later,
+  and deleted. A delete takes two presses, because a history is worth more than
+  the click that deletes it.
+- The "why" line is written by the server. A second copy of that rule in the
+  browser would be a second thing to keep in step with the first.
+
 ### State Loop
 
 | Route | Returns |
@@ -226,6 +289,7 @@ backend/          micro-framework, storage layer, API routes, state loop engine
   pages.mbt         content model + nine pages of seed data
   api.mbt           JSON API routes
   loop.mbt          five-domain ring loop engine (subject + group state machines)
+  session.mbt       named explorations: the step tree, replay, forking, export
   research.mbt      arxiv research paper fetching and trigger mapping
   causal.mbt        DoubleML causal inference
   maked_app.mbt     assembly, static files, SPA fallback
@@ -233,6 +297,7 @@ frontend/         rabbita single-page application
   app.mbt           state machine and router
   views.mbt         header, domain cards, page rendering
   entries.mbt       workspace records and the draft that becomes one
+  session.mbt       sessions and the step timeline, decoded from the server
   logo.mbt          five-ring mark (SVG)
   loop_state.mbt    loop state visualisation
   page.mbt          typed accessors for the backend JSON
@@ -304,7 +369,9 @@ The fallback excludes `/api/` paths. A final segment containing a dot is treated
 
 ## The Two Initial Fetches Are Chained, Not Batched
 
-`init` issues **one** request (`GET /api/pages`). The loop status (`GET /api/loop/status`) is requested from the `Loaded` handler, after the first response has already arrived.
+`init` issues **one** request (`GET /api/bootstrap`). The loop status (`GET /api/loop/status`) is requested from the `Loaded` handler, after the first response has already arrived.
+
+The bootstrap carries everything else the app needs to start: the pages, the workspace entries, and the session state (the list of sessions, the active one, its path and the branches off it). Each of those rode along with the first response rather than needing a request of its own, because a third hop at start-up is where this chain used to die.
 
 Batching the two with `@cmd.batch` looks equivalent and is not. With the batch, every click-initiated POST still reached the server and still changed state, but **no response ever came back**: Step, Reset and the slot buttons all mutated the backend while the view stayed frozen on stale data, with no error shown anywhere. Chaining the second request restores them.
 
@@ -332,6 +399,11 @@ Three key behaviours (verified, not assumed):
 1. `prepare` only compiles, it does not execute. A statement that was never `step`ped is silently dropped by `finalize` — DDL goes through `exec`
 2. A finished statement must be `reset` before it can be reused. `bind` overwrites the bindings in place
 3. `finalize` reports the error code of the most recent evaluation — a failed `step` poisons the following `finalize`
+
+Four tables: `pages` (the site's own content), `entries` (the user's workspace
+records), and `sessions` + `session_steps` (the named explorations and the
+tree of steps inside them). The last two are what make the history outlive the
+process: the steps are rows, not memory.
 
 ## Release Conventions
 

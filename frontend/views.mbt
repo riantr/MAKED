@@ -68,6 +68,15 @@ fn nav_items(current : String, pages : Array[Page]) -> Array[@html.Html] {
       @html.a(href="/workspace", "Workspace"),
     ]),
   )
+  // The sessions come after the workspace: both hold the user's own work,
+  // and the workspace is the one that holds their records rather than the
+  // path they took to get there.
+  let sessions_active = if current == "sessions" { " active" } else { "" }
+  items.push(
+    @html.li(class=sessions_active, on_click=@nav.push_url("/sessions"), [
+      @html.a(href="/sessions", "Sessions"),
+    ]),
+  )
   items
 }
 
@@ -254,6 +263,22 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
         @html.span(class="maked-loop-sep", "·"),
         @html.span(class="maked-loop-drive", "drive: \{status.drive_slot}"),
       ])
+      // Which exploration the steps are being recorded into. A step taken
+      // here belongs to a session, and a person taking a step should be able
+      // to see which one without going to another page.
+      let session_line = if model.active_session.name == "" {
+        @html.nothing
+      } else {
+        @html.div(class="maked-loop-session", [
+          @html.span(
+            class="maked-loop-session-text",
+            "Recording into “\{model.active_session.name}” · " +
+            model.session_path.length().to_string() +
+            " steps · ",
+          ),
+          @html.a(href="/sessions", "open the sessions"),
+        ])
+      }
       let history_items : Array[@html.Html] = []
       let n = status.history.length()
       let mut i = n
@@ -276,6 +301,7 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
       @html.section(class="maked-loop", [
         @html.h2(class="maked-loop-title", "Loop"),
         current,
+        session_line,
         buttons,
         slot_selector,
         history,
@@ -416,6 +442,241 @@ pub fn causal_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     result_view,
     error,
   ])
+}
+
+///|
+/// The sessions page: the named explorations, the timeline of the one in
+/// front of the user, and the two ways out of a step -- go back, or fork.
+///
+
+///| Built around what a person wants from a history: what happened, why it
+
+///| was possible, and how to try the other road. The "why" line is written
+
+///| by the backend, so the explanation on screen is the explanation the
+
+///| transition table gives rather than a second reading of it.
+///
+
+///| The two buttons on a step do different things and say so. "Go back to
+
+///| here" rewinds the session and keeps the steps it walked back from --
+
+///| they become the roads not taken. "Fork from here" makes a new session
+
+///|
+/// with a copy of the path up to that step, and leaves this one alone.
+pub fn sessions_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
+  let active = model.active_session
+  let compose = @html.div(class="maked-ss-compose", [
+    @html.label(
+      class="maked-ss-label",
+      for_="maked-ss-name",
+      "Name a new session",
+    ),
+    @html.input(
+      id="maked-ss-name",
+      class="maked-ss-input",
+      placeholder="What is this exploration called?",
+      value=model.session_name_draft,
+      maxlength=120,
+      on_input=emit.map(fn(text) { SessionNameChanged(text) }),
+    ),
+    @html.button(
+      class="maked-ss-btn maked-ss-btn--primary",
+      on_click=emit(NewSessionClicked),
+      "New session",
+    ),
+  ])
+  let status = if model.session_error != "" {
+    @html.p(class="maked-ss-error", model.session_error)
+  } else if model.session_notice != "" {
+    @html.p(class="maked-ss-notice", model.session_notice)
+  } else {
+    @html.nothing
+  }
+  // The exports are plain links to the API rather than fetches: the server
+  // sends them as attachments, and a link is what a browser knows how to
+  // download.
+  let export_base = "/api/sessions/" + active.id.to_string() + "/export"
+  let exports = @html.div(class="maked-ss-exports", [
+    @html.a(
+      href=export_base + "?format=md",
+      class="maked-ss-btn maked-ss-btn--link",
+      "Export Markdown",
+    ),
+    @html.a(
+      href=export_base + "?format=json",
+      class="maked-ss-btn maked-ss-btn--link",
+      "Export JSON",
+    ),
+  ])
+  let rename = @html.div(class="maked-ss-rename", [
+    @html.label(class="maked-ss-label", for_="maked-ss-rename", "Rename"),
+    @html.input(
+      id="maked-ss-rename",
+      class="maked-ss-input",
+      value=rename_text(model),
+      maxlength=120,
+      on_input=emit.map(fn(text) { SessionRenameChanged(text) }),
+    ),
+    @html.button(
+      class="maked-ss-btn",
+      on_click=emit(RenameSessionClicked),
+      "Rename",
+    ),
+  ])
+  // How many steps the session has, and how many of them are off the path.
+  // The second number is the branches: steps that were taken and then walked
+  // back from. They are still recorded, and a reader should know they exist.
+  let count_text = model.session_path.length().to_string() +
+    " steps on this path"
+  let count_text = if model.session_others.length() == 0 {
+    count_text
+  } else {
+    count_text +
+    " · " +
+    model.session_others.length().to_string() +
+    " other steps recorded"
+  }
+  let head = @html.div(class="maked-ss-head", [
+    @html.h3(class="maked-ss-current-name", active.name),
+    @html.span(class="maked-ss-current-count", count_text),
+    @html.div(class="maked-ss-head-actions", [rename, exports]),
+  ])
+  let step_items : Array[@html.Html] = []
+  for step in model.session_path {
+    step_items.push(
+      @html.li(class="maked-ss-step", [
+        @html.div(class="maked-ss-step-head", [
+          @html.span(class="maked-ss-step-index", step.index.to_string()),
+          @html.span(class="maked-ss-step-domain", step.domain),
+          @html.span(class="maked-ss-step-slot", step.slot_designation),
+          @html.span(class="maked-ss-step-outcome", step.outcome),
+          @html.span(class="maked-ss-step-source", step.source),
+        ]),
+        @html.p(
+          class="maked-ss-step-position",
+          step.position_before + " → " + step.position_after,
+        ),
+        @html.p(class="maked-ss-step-detail", step.detail),
+        @html.p(class="maked-ss-step-why", step.why),
+        @html.div(class="maked-ss-step-actions", [
+          @html.button(
+            class="maked-ss-btn",
+            on_click=emit(ReplayStepClicked(step.id)),
+            "Go back to here",
+          ),
+          @html.button(
+            class="maked-ss-btn",
+            on_click=emit(BranchStepClicked(step.id)),
+            "Fork from here",
+          ),
+        ]),
+      ]),
+    )
+  }
+  let timeline = if model.session_path.length() == 0 {
+    @html.p(
+      class="maked-ss-empty",
+      "No steps yet. Take one in the Loop panel and it will be recorded here.",
+    )
+  } else {
+    @html.ol(class="maked-ss-timeline", step_items)
+  }
+  let other_items : Array[@html.Html] = []
+  for step in model.session_others {
+    other_items.push(
+      @html.li(class="maked-ss-other", [
+        @html.span(class="maked-ss-step-index", step.index.to_string()),
+        @html.span(class="maked-ss-step-domain", step.domain),
+        @html.span(class="maked-ss-step-slot", step.slot_designation),
+        @html.span(class="maked-ss-step-outcome", step.outcome),
+        @html.span(class="maked-ss-other-detail", step.detail),
+      ]),
+    )
+  }
+  let others = if model.session_others.length() == 0 {
+    @html.nothing
+  } else {
+    @html.div(class="maked-ss-others", [
+      @html.h3(class="maked-ss-subtitle", "Other roads taken"),
+      @html.p(
+        class="maked-ss-note",
+        "These steps are recorded in the session but are not on its current path: the branches that were walked and then walked back from.",
+      ),
+      @html.ul(class="maked-ss-others-list", other_items),
+    ])
+  }
+  let list_items : Array[@html.Html] = []
+  for session in model.sessions {
+    let active_class = if session.active {
+      " maked-ss-item--active"
+    } else {
+      ""
+    }
+    let pending = model.session_delete_pending == session.id
+    let delete_label = if pending { "Really delete?" } else { "Delete" }
+    list_items.push(
+      @html.li(class="maked-ss-item\{active_class}", [
+        @html.span(class="maked-ss-item-name", session.name),
+        @html.span(
+          class="maked-ss-item-steps",
+          session.steps.to_string() + " steps",
+        ),
+        @html.button(
+          class="maked-ss-btn",
+          on_click=emit(OpenSessionClicked(session.id)),
+          "Open",
+        ),
+        @html.button(
+          class="maked-ss-btn maked-ss-btn--danger",
+          title="Delete this session and every step in it",
+          on_click=emit(DeleteSessionClicked(session.id)),
+          delete_label,
+        ),
+      ]),
+    )
+  }
+  let all_sessions = @html.div(class="maked-ss-list", [
+    @html.h3(class="maked-ss-subtitle", "All sessions"),
+    if model.sessions.length() == 0 {
+      @html.p(class="maked-ss-empty", "No sessions yet.")
+    } else {
+      @html.ul(class="maked-ss-items", list_items)
+    },
+  ])
+  @html.section(class="maked-sessions", [
+    @html.h2(class="maked-ss-title", "Sessions"),
+    @html.p(
+      class="maked-ss-lede",
+      "A session is one exploration, kept. Name it, take steps in it, and come back to it later: the steps are stored with the machine, not in the page, so a restart does not lose them.",
+    ),
+    compose,
+    status,
+    head,
+    @html.div(class="maked-ss-timeline-section", [
+      @html.h3(class="maked-ss-subtitle", "Timeline"),
+      timeline,
+    ]),
+    others,
+    all_sessions,
+  ])
+}
+
+///|
+/// The name in the rename box: what the user typed, or the session's own
+/// name when they have not typed anything.
+///
+/// The input shows the session's name until it is typed into, so the box
+/// never has to be synced back from the server: a rename that arrived from
+/// somewhere else would otherwise leave a stale name in the box.
+fn rename_text(model : Model) -> String {
+  if model.session_rename_draft == "" {
+    model.active_session.name
+  } else {
+    model.session_rename_draft
+  }
 }
 
 ///|

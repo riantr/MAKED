@@ -32,6 +32,21 @@ pub(all) enum Msg {
   DraftBodyChanged(String)
   DraftSubmitClicked
   EntryDeleteClicked(Int32)
+  // The sessions: named explorations, and the history inside them.
+  SessionCreated(Result[Json, Error])
+  SessionActivated(Result[Json, Error])
+  SessionReplayed(Result[Json, Error])
+  SessionBranched(Result[Json, Error])
+  SessionRenamed(Result[Json, Error])
+  SessionDeleted(Result[Json, Error])
+  SessionNameChanged(String)
+  SessionRenameChanged(String)
+  NewSessionClicked
+  OpenSessionClicked(Int32)
+  ReplayStepClicked(Int32)
+  BranchStepClicked(Int32)
+  RenameSessionClicked
+  DeleteSessionClicked(Int32)
 }
 
 ///|
@@ -72,6 +87,30 @@ pub(all) struct Model {
   /// is refused with a reason, or fails to reach the server.
   workspace_error : String
   workspace_notice : String
+  /// The sessions, newest first.
+  sessions : Array[Session]
+  /// The session in front of the user.
+  active_session : Session
+  /// The steps on the active session's current path, oldest first.
+  session_path : Array[SessionStep]
+  /// The steps that are recorded but not on the current path: the roads that
+  /// were walked and then walked back from.
+  session_others : Array[SessionStep]
+  /// What the sessions panel says after the last action.
+  session_error : String
+  session_notice : String
+  /// The name being typed for a new session.
+  session_name_draft : String
+  /// The name being typed for a rename. Empty means "the session's own
+  /// name", which is what the box shows until it is typed into.
+  session_rename_draft : String
+  /// The session a delete is waiting to be confirmed for, or 0.
+  ///
+  /// A history is worth more than the click that deletes it, so a delete
+  /// takes two presses: the first arms it and says so, the second carries
+  /// it out. The armed session is named, so a second click somewhere else
+  /// does not delete the wrong one.
+  session_delete_pending : Int32
 } derive(Eq)
 
 ///|
@@ -96,6 +135,15 @@ fn initial() -> Model {
     draft_body: "",
     workspace_error: "",
     workspace_notice: "",
+    sessions: [],
+    active_session: empty_session(),
+    session_path: [],
+    session_others: [],
+    session_error: "",
+    session_notice: "",
+    session_name_draft: "",
+    session_rename_draft: "",
+    session_delete_pending: 0,
   }
 }
 
@@ -140,8 +188,12 @@ pub fn update(
         // field: a list like that is a place for a new field to be forgotten,
         // and forgetting one here is silent -- the panel simply stops
         // updating, with nothing in the console to say why.
+        //
+        // The session state is folded in by a helper, because there are
+        // seven places that take one and a hand-written list at each of them
+        // would be seven places for a field to be forgotten.
         {
-          ..model,
+          ..apply_session_state(model, decode_bootstrap_session_state(json)),
           pages: decode_pages(json),
           entries: decode_entries(json),
           entry_domains: decode_entry_domains(json),
@@ -432,6 +484,319 @@ pub fn update(
         },
         @cmd.none,
       )
+    // The sessions.
+    //
+    // Every arm of this group says what happened, in the same place, every
+    // time -- the rule the workspace follows and the reason it exists. A
+    // click that produces no visible change anywhere is the failure this
+    // project exists to remove, so there is no branch here that returns
+    // without a word: the action either lands, is refused with a reason, or
+    // fails to reach the server, and each of those three says so.
+    //
+    // The responses all carry the same session state, so the panel is
+    // rebuilt from one shape no matter which action produced it.
+    SessionCreated(Ok(json)) =>
+      if session_refused(json) {
+        (
+          {
+            ..model,
+            session_notice: "",
+            session_error: session_refusal_reason(json),
+          },
+          @cmd.none,
+        )
+      } else {
+        (
+          {
+            ..apply_session_state(model, decode_session_state(json)),
+            session_error: "",
+            session_notice: "Started a new session.",
+            session_name_draft: "",
+          },
+          @cmd.none,
+        )
+      }
+    SessionCreated(Err(_)) =>
+      (
+        {
+          ..model,
+          session_notice: "",
+          session_error: "could not reach the server",
+        },
+        @cmd.none,
+      )
+    SessionActivated(Ok(json)) =>
+      if session_refused(json) {
+        (
+          {
+            ..model,
+            session_notice: "",
+            session_error: session_refusal_reason(json),
+          },
+          @cmd.none,
+        )
+      } else {
+        (
+          {
+            ..apply_session_state(model, decode_session_state(json)),
+            session_error: "",
+            session_notice: "Opened that session and put the loop back where it was.",
+          },
+          @cmd.none,
+        )
+      }
+    SessionActivated(Err(_)) =>
+      (
+        {
+          ..model,
+          session_notice: "",
+          session_error: "could not reach the server",
+        },
+        @cmd.none,
+      )
+    SessionReplayed(Ok(json)) =>
+      if session_refused(json) {
+        (
+          {
+            ..model,
+            session_notice: "",
+            session_error: session_refusal_reason(json),
+          },
+          @cmd.none,
+        )
+      } else {
+        (
+          {
+            ..apply_session_state(model, decode_session_state(json)),
+            session_error: "",
+            session_notice: "Went back to that step. The steps after it are still recorded.",
+          },
+          @cmd.none,
+        )
+      }
+    SessionReplayed(Err(_)) =>
+      (
+        {
+          ..model,
+          session_notice: "",
+          session_error: "could not reach the server",
+        },
+        @cmd.none,
+      )
+    SessionBranched(Ok(json)) =>
+      if session_refused(json) {
+        (
+          {
+            ..model,
+            session_notice: "",
+            session_error: session_refusal_reason(json),
+          },
+          @cmd.none,
+        )
+      } else {
+        (
+          {
+            ..apply_session_state(model, decode_session_state(json)),
+            session_error: "",
+            session_notice: "Forked a new session at that step. The loop is standing there; pick a slot to try another road.",
+          },
+          @cmd.none,
+        )
+      }
+    SessionBranched(Err(_)) =>
+      (
+        {
+          ..model,
+          session_notice: "",
+          session_error: "could not reach the server",
+        },
+        @cmd.none,
+      )
+    SessionRenamed(Ok(json)) =>
+      if session_refused(json) {
+        (
+          {
+            ..model,
+            session_notice: "",
+            session_error: session_refusal_reason(json),
+          },
+          @cmd.none,
+        )
+      } else {
+        (
+          {
+            ..apply_session_state(model, decode_session_state(json)),
+            session_error: "",
+            session_notice: "Renamed the session.",
+          },
+          @cmd.none,
+        )
+      }
+    SessionRenamed(Err(_)) =>
+      (
+        {
+          ..model,
+          session_notice: "",
+          session_error: "could not reach the server",
+        },
+        @cmd.none,
+      )
+    SessionDeleted(Ok(json)) =>
+      if session_refused(json) {
+        (
+          {
+            ..model,
+            session_notice: "",
+            session_error: session_refusal_reason(json),
+          },
+          @cmd.none,
+        )
+      } else {
+        (
+          {
+            ..apply_session_state(model, decode_session_state(json)),
+            session_error: "",
+            session_notice: "Forgot that session and its steps.",
+          },
+          @cmd.none,
+        )
+      }
+    SessionDeleted(Err(_)) =>
+      (
+        {
+          ..model,
+          session_notice: "",
+          session_error: "could not reach the server",
+        },
+        @cmd.none,
+      )
+    SessionNameChanged(text) =>
+      ({ ..model, session_name_draft: text, }, @cmd.none)
+    SessionRenameChanged(text) =>
+      ({ ..model, session_rename_draft: text, }, @cmd.none)
+    NewSessionClicked => {
+      // The same check the server applies, made here so that the common
+      // mistake produces a sentence straight away instead of a round trip.
+      let name = model.session_name_draft.trim().to_owned()
+      if name == "" {
+        (
+          {
+            ..model,
+            session_notice: "",
+            session_error: "give the session a name",
+          },
+          @cmd.none,
+        )
+      } else {
+        let payload : Json = { "name": name }
+        (
+          { ..model, session_notice: "Starting…", session_error: "", },
+          @http.post("/api/sessions")
+          .with_json(payload)
+          .expect_json(emit.map(fn(result) { SessionCreated(result) })),
+        )
+      }
+    }
+    OpenSessionClicked(id) =>
+      (
+        { ..model, session_notice: "Opening…", session_error: "", },
+        @http.post("/api/sessions/\{id}/activate").expect_json(
+          emit.map(fn(result) { SessionActivated(result) }),
+        ),
+      )
+    ReplayStepClicked(id) => {
+      let payload : Json = { "step": id }
+      (
+        { ..model, session_notice: "Going back…", session_error: "", },
+        @http.post("/api/sessions/\{model.active_session.id}/replay")
+        .with_json(payload)
+        .expect_json(emit.map(fn(result) { SessionReplayed(result) })),
+      )
+    }
+    BranchStepClicked(id) => {
+      let payload : Json = {
+        "step": id,
+        "name": branch_name(model.active_session.name),
+      }
+      (
+        { ..model, session_notice: "Forking…", session_error: "", },
+        @http.post("/api/sessions/\{model.active_session.id}/branch")
+        .with_json(payload)
+        .expect_json(emit.map(fn(result) { SessionBranched(result) })),
+      )
+    }
+    RenameSessionClicked => {
+      let name = rename_text(model).trim().to_owned()
+      if name == "" {
+        (
+          {
+            ..model,
+            session_notice: "",
+            session_error: "give the session a name",
+          },
+          @cmd.none,
+        )
+      } else {
+        let payload : Json = { "name": name }
+        (
+          { ..model, session_notice: "Renaming…", session_error: "", },
+          @http.post("/api/sessions/\{model.active_session.id}/rename")
+          .with_json(payload)
+          .expect_json(emit.map(fn(result) { SessionRenamed(result) })),
+        )
+      }
+    }
+    DeleteSessionClicked(id) =>
+      if model.session_delete_pending == id {
+        (
+          {
+            ..model,
+            session_notice: "Deleting…",
+            session_error: "",
+            session_delete_pending: 0,
+          },
+          @http.delete("/api/sessions/\{id}").expect_json(
+            emit.map(fn(result) { SessionDeleted(result) }),
+          ),
+        )
+      } else {
+        (
+          {
+            ..model,
+            session_notice: "Click Delete again to delete that session and every step in it.",
+            session_error: "",
+            session_delete_pending: id,
+          },
+          @cmd.none,
+        )
+      }
+  }
+}
+
+///|
+/// Fold a session state into the model.
+///
+/// Done here rather than at each call site because there are seven places
+/// that take one, and a hand-written list at each of them would be seven
+/// places for a field to be forgotten. Forgetting one is silent: the panel
+/// would stop showing something, and nothing would say why.
+fn apply_session_state(model : Model, state : SessionState) -> Model {
+  {
+    ..model,
+    sessions: state.sessions,
+    active_session: state.session,
+    session_path: state.path,
+    session_others: state.other_steps,
+    // The live status travels with a session action, because the action
+    // changed the live state. A response without one -- the bootstrap --
+    // leaves the panel as it was rather than blanking it.
+    loop_status: match state.loop_status {
+      Some(status) => Some(status)
+      None => model.loop_status
+    },
+    // The list has changed, so an armed delete is no longer pointing at
+    // anything the user can see.
+    session_delete_pending: 0,
   }
 }
 
@@ -481,6 +846,12 @@ fn view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     // them -- and a patched control is a different thing from an inserted one.
     workspace_view(emit, model)
   } else if model.current == "workspace" {
+    loading_view()
+  } else if model.current == "sessions" && model.loaded {
+    // The sessions, for the same reason as the workspace: a client-side
+    // route over data the backend holds, not a row in the `pages` table.
+    sessions_view(emit, model)
+  } else if model.current == "sessions" {
     loading_view()
   } else {
     content

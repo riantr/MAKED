@@ -136,6 +136,34 @@ $mutations = @(
     file = 'frontend/logo.mbt'
     old  = 'let degrees = -90.0 + 72.0 * i.to_double()'
     new  = 'let degrees = 90.0 + 72.0 * i.to_double()'
+  },
+  # A session id arrives as a *string*, because the backend holds it as an
+  # `Int64` and MoonBit encodes an `Int64` as a string. A decoder that read
+  # only the number would report zero for every session, and the page would
+  # show an empty list rather than a wrong one.
+  @{
+    name = 'the session id is decoded as a number'
+    file = 'frontend/session.mbt'
+    old  = "    id: get_id(json, `"id`"),
+    name: get_string(json, `"name`", `"`"),"
+    new  = "    id: 0,
+    name: get_string(json, `"name`", `"`"),"
+  },
+  # The reason a step was possible is written by the server. A client that
+  # dropped it would show the timeline with no explanation on any of it.
+  @{
+    name = 'the reason a step was possible is not decoded'
+    file = 'frontend/session.mbt'
+    old  = '    why: get_string(json, "why", ""),'
+    new  = '    why: "",'
+  },
+  # A delete takes two presses. A client that deleted on the first would
+  # throw away a history on a single mistaken click.
+  @{
+    name = 'a session is deleted on the first click'
+    file = 'frontend/app.mbt'
+    old  = '      if model.session_delete_pending == id {'
+    new  = '      if true {'
   }
 )
 

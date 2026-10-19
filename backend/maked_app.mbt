@@ -15,6 +15,7 @@ pub fn create_app(db_path : String) -> App raise {
   // The index is a page like any other; store it so it is served from the
   // same table as the rest rather than special-cased in a handler.
   db.seed([home, not_found_page()])
+  restore_session(db)
   let app = App::new()
   app.add_middleware(logging_middleware())
   build_api(app, db, db_path)
@@ -26,6 +27,35 @@ pub fn create_app(db_path : String) -> App raise {
   // still in the `pages` table; the SPA reads it out of `GET /api/pages` like
   // every other page.
   app
+}
+
+///|
+/// Put the last session back in front of the user when the server starts.
+///
+/// A restart used to reset the loop to its first step with no way back, which
+/// is the same as having no history: the user comes back to a blank panel and
+/// has to redo the twenty steps that led there. The session's steps are
+/// replayed through the transition table, so what comes back is the state the
+/// table really produces rather than a stored copy of it.
+///
+/// A server with no sessions at all gets one, so the very first step has
+/// somewhere to be recorded.
+pub fn restore_session(db : Database) -> Unit raise {
+  let sessions = db.all_sessions()
+  if sessions.length() == 0 {
+    let fresh = db.insert_session(
+      "First exploration", 0L, 0L, "M", "structured",
+    )
+    set_active_session_id(fresh.id)
+    return
+  }
+  let latest = sessions[0]
+  match activate_session(db, latest.id) {
+    Done(_) => ()
+    MissingSession => set_active_session_id(latest.id)
+    MissingStep => set_active_session_id(latest.id)
+    Refused(_) => set_active_session_id(latest.id)
+  }
 }
 
 ///|

@@ -55,6 +55,17 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       "pages": pages,
       "entries": entries,
       "entry_domains": entry_domains(),
+      // The sessions ride along with the first request rather than needing
+      // one of their own. The start-up chain is the shape this client is
+      // known to survive -- one request out, one answer in, then the loop
+      // status -- and a third hop at start-up is exactly where that chain
+      // used to die.
+      //
+      // The whole session state travels: the list, the active one, its path
+      // and the branches that are not on the path. A client that had to ask
+      // for the timeline separately would be one request further from the
+      // answer on every page that shows it.
+      "session_state": session_state_json(db),
     }
     Response::json(body).with_header("Cache-Control", "no-store")
   })
@@ -137,6 +148,237 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       Response::json(body, status=404)
     }
   })
+  // Session endpoints: the named explorations, and the history inside them.
+  //
+  // GET    /api/sessions              → every session, newest first
+  // POST   /api/sessions              → create one, named, and make it active
+  // GET    /api/sessions/:id          → one session with its timeline
+  // POST   /api/sessions/:id/activate → make it active and replay it
+  // POST   /api/sessions/:id/replay   → rewind to one of its steps
+  // POST   /api/sessions/:id/branch   → fork a new session at one of its steps
+  // POST   /api/sessions/:id/rename   → give it a different name
+  // DELETE /api/sessions/:id          → forget it and its steps
+  // GET    /api/sessions/:id/export   → ?format=md|json
+  app.get("/api/sessions", _req => Response::json(sessions_payload(db)))
+  app.post("/api/sessions", req => {
+    let payload = req.json().unwrap_or(Json::empty_object())
+    match Session::validate_name(json_string(payload, "name")) {
+      Rejected(reason) => {
+        let body : Json = { "error": "invalid_name", "reason": reason }
+        Response::json(body, status=400)
+      }
+      Accepted(name) => {
+        let session = db.insert_session(
+          name,
+          0L,
+          0L,
+          "M",
+          mode_name(get_loop_mode()),
+        )
+        set_active_session_id(session.id)
+        // A new session is a new walk, not a continuation of the old one: it
+        // starts from the first domain with no history. The session it
+        // replaced keeps its own steps and can be activated again, so
+        // starting a new one never costs the old one.
+        set_loop_state(LoopState::new().with_mode(get_loop_mode()))
+        Response::json(session_payload(db), status=201)
+      }
+    }
+  })
+  app.get("/api/sessions/:id", req => {
+    let id = session_id_param(req)
+    if id < 0 {
+      let body : Json = { "error": "bad_id" }
+      Response::json(body, status=400)
+    } else {
+      match db.session_by_id(id.to_int64()) {
+        Some(_) => Response::json(session_payload(db))
+        None => {
+          let body : Json = { "error": "not_found", "id": id }
+          Response::json(body, status=404)
+        }
+      }
+    }
+  })
+  app.post("/api/sessions/:id/activate", req => {
+    let id = session_id_param(req)
+    if id < 0 {
+      let body : Json = { "error": "bad_id" }
+      Response::json(body, status=400)
+    } else {
+      match activate_session(db, id.to_int64()) {
+        Done(_) => Response::json(session_payload(db))
+        MissingSession => {
+          let body : Json = { "error": "not_found", "id": id }
+          Response::json(body, status=404)
+        }
+        MissingStep => {
+          let body : Json = { "error": "not_on_path", "id": id }
+          Response::json(body, status=400)
+        }
+        Refused(reason) => {
+          let body : Json = { "error": "refused", "reason": reason }
+          Response::json(body, status=400)
+        }
+      }
+    }
+  })
+  app.post("/api/sessions/:id/replay", req => {
+    let id = session_id_param(req)
+    if id < 0 {
+      let body : Json = { "error": "bad_id" }
+      Response::json(body, status=400)
+    } else {
+      let payload = req.json().unwrap_or(Json::empty_object())
+      let step = json_int(payload, "step")
+      match rewind_session(db, id.to_int64(), step.to_int64()) {
+        Done(_) => Response::json(session_payload(db))
+        MissingSession => {
+          let body : Json = { "error": "not_found", "id": id }
+          Response::json(body, status=404)
+        }
+        MissingStep => {
+          // The step is not on this session's current path, so rewinding to
+          // it would silently resurrect a branch that was already abandoned.
+          let body : Json = { "error": "not_on_path", "step": step }
+          Response::json(body, status=400)
+        }
+        Refused(reason) => {
+          let body : Json = { "error": "refused", "reason": reason }
+          Response::json(body, status=400)
+        }
+      }
+    }
+  })
+  app.post("/api/sessions/:id/branch", req => {
+    let id = session_id_param(req)
+    if id < 0 {
+      let body : Json = { "error": "bad_id" }
+      Response::json(body, status=400)
+    } else {
+      let payload = req.json().unwrap_or(Json::empty_object())
+      let step = json_int(payload, "step")
+      let named = match Session::validate_name(json_string(payload, "name")) {
+        Accepted(value) => Ok(value)
+        Rejected(reason) => Err(reason)
+      }
+      match named {
+        Err(reason) => {
+          let body : Json = { "error": "invalid_name", "reason": reason }
+          Response::json(body, status=400)
+        }
+        Ok(name) =>
+          match branch_session(db, id.to_int64(), step.to_int64(), name) {
+            Done(_) => Response::json(session_payload(db), status=201)
+            MissingSession => {
+              let body : Json = { "error": "not_found", "id": id }
+              Response::json(body, status=404)
+            }
+            MissingStep => {
+              let body : Json = { "error": "not_on_path", "step": step }
+              Response::json(body, status=400)
+            }
+            Refused(reason) => {
+              let body : Json = { "error": "refused", "reason": reason }
+              Response::json(body, status=400)
+            }
+          }
+      }
+    }
+  })
+  app.post("/api/sessions/:id/rename", req => {
+    let id = session_id_param(req)
+    if id < 0 {
+      let body : Json = { "error": "bad_id" }
+      Response::json(body, status=400)
+    } else {
+      let payload = req.json().unwrap_or(Json::empty_object())
+      match Session::validate_name(json_string(payload, "name")) {
+        Rejected(reason) => {
+          let body : Json = { "error": "invalid_name", "reason": reason }
+          Response::json(body, status=400)
+        }
+        Accepted(name) =>
+          if db.rename_session(id.to_int64(), name) {
+            match db.session_by_id(id.to_int64()) {
+              Some(_) => Response::json(session_payload(db))
+              None => {
+                let body : Json = { "error": "not_found", "id": id }
+                Response::json(body, status=404)
+              }
+            }
+          } else {
+            let body : Json = { "error": "not_found", "id": id }
+            Response::json(body, status=404)
+          }
+      }
+    }
+  })
+  app.delete("/api/sessions/:id", req => {
+    let id = session_id_param(req)
+    if id < 0 {
+      let body : Json = { "error": "bad_id" }
+      Response::json(body, status=400)
+    } else if db.delete_session(id.to_int64()) {
+      // The live session cannot be a session that no longer exists. If it
+      // was the one that was deleted, another takes its place, so the loop
+      // is never left pointing at nothing.
+      if active_session_id() == id.to_int64() {
+        let rest = db.all_sessions()
+        if rest.length() == 0 {
+          set_active_session_id(0L)
+          set_loop_state(LoopState::new())
+        } else {
+          match activate_session(db, rest[0].id) {
+            Done(_) => ()
+            MissingSession => set_active_session_id(rest[0].id)
+            MissingStep => set_active_session_id(rest[0].id)
+            Refused(_) => set_active_session_id(rest[0].id)
+          }
+        }
+      }
+      let body : Json = { "deleted": id }
+      Response::json(body)
+    } else {
+      let body : Json = { "error": "not_found", "id": id }
+      Response::json(body, status=404)
+    }
+  })
+  app.get("/api/sessions/:id/export", req => {
+    let id = session_id_param(req)
+    if id < 0 {
+      let body : Json = { "error": "bad_id" }
+      Response::json(body, status=400)
+    } else {
+      match db.session_by_id(id.to_int64()) {
+        None => {
+          let body : Json = { "error": "not_found", "id": id }
+          Response::json(body, status=404)
+        }
+        Some(session) =>
+          match req.query("format") {
+            Some("json") => Response::json(export_json(db, session))
+            Some("md") | Some("markdown") =>
+              Response::text(export_markdown(db, session))
+              .with_header("Content-Type", "text/markdown; charset=utf-8")
+              .with_header(
+                "Content-Disposition",
+                "attachment; filename=\"maked-session-\{id}.md\"",
+              )
+            _ => {
+              let body : Json = {
+                "error": "unknown_format",
+                "format": match req.query("format") {
+                  Some(text) => text
+                  None => ""
+                },
+              }
+              Response::json(body, status=400)
+            }
+          }
+      }
+    }
+  })
   // Loop endpoints: the pyroduct-driven state cycle.
   // GET  /api/loop/status       → current domain, position, history
   // GET  /api/loop/slots        → all eight drive slots with designation and gloss
@@ -203,8 +445,13 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     Response::json(body)
   })
   app.post("/api/loop/step", _req => {
-    let state = step_loop()
-    Response::json(state.to_json())
+    // The two states are what the step is recorded from: `before` says where
+    // the domain stood and `after` says where it landed, so the recording
+    // never has to be told anything the step itself did not produce.
+    let before = get_loop_state()
+    let after = step_loop()
+    record_step(db, before, after, "drive")
+    Response::json(after.to_json())
   })
   app.post("/api/loop/step/:slot", req => {
     match req.param("slot") {
@@ -215,8 +462,10 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
         }
         match parsed {
           Some(slot) => {
-            let state = step_loop_with_slot(slot)
-            Response::json(state.to_json())
+            let before = get_loop_state()
+            let after = step_loop_with_slot(slot)
+            record_step(db, before, after, "explicit")
+            Response::json(after.to_json())
           }
           None => {
             let body : Json = { "error": "unknown_slot", "slot": slot_name }
@@ -231,7 +480,8 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     }
   })
   app.post("/api/loop/reset", _req => {
-    let state = reset_loop()
+    let state = reset_to(Model)
+    reset_session_start(db, state)
     Response::json(state.to_json())
   })
   // POST /api/loop/reset/:domain → reset to start from the specified domain
@@ -245,6 +495,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
         match parsed {
           Some(domain) => {
             let state = reset_to(domain)
+            reset_session_start(db, state)
             Response::json(state.to_json())
           }
           None => {
@@ -279,8 +530,8 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   })
   app.post("/api/loop/mode/:mode", req => {
     match req.param("mode") {
-      Some(mode_name) => {
-        let parsed = match mode_name {
+      Some(raw_mode) => {
+        let parsed = match raw_mode {
           "structured" => Some(Structured)
           "free" => Some(Free)
           "Structured" => Some(Structured)
@@ -290,10 +541,15 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
         match parsed {
           Some(mode) => {
             let state = set_loop_mode(mode)
+            // The mode belongs to the session as well as to the live state:
+            // a session replayed tomorrow has to come back in the mode it
+            // was explored in.
+            let session_id = ensure_session(db)
+            db.set_session_mode(session_id, mode_name(mode))
             Response::json(state.to_json())
           }
           None => {
-            let body : Json = { "error": "unknown_mode", "mode": mode_name }
+            let body : Json = { "error": "unknown_mode", "mode": raw_mode }
             Response::json(body, status=400)
           }
         }
@@ -336,6 +592,10 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       let slot = trigger_to_slot(trigger)
       let state_before = get_loop_state()
       let state_after = step_loop_with_slot(slot)
+      // A step taken by a paper is a step like any other, and it belongs in
+      // the timeline: "the model moved because of this paper" is exactly the
+      // kind of thing a session is for.
+      record_step(db, state_before, state_after, "research")
       let result : Json = {
         "paper_id": paper.id,
         "paper_title": paper.title,
@@ -371,8 +631,20 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
 }
 
 ///|
-/// The five domains in ring order, for the frontend to draw the ring.
+/// The session id in a path parameter, or -1 when it is not a number.
 ///
+/// Rowids start at 1, so the sentinel cannot collide with a real session and
+/// it keeps the handler flat: a missing or malformed id can never name a
+/// session, and saying so plainly beats a 404 that implies it might exist.
+fn session_id_param(req : Request) -> Int32 {
+  match req.param("id") {
+    Some(raw) => @string.parse_int(raw) catch { _ => -1 }
+    None => -1
+  }
+}
+
+///|
+/// The five domains in ring order, for the frontend to draw the ring.///
 /// The array is returned as `[..items]` rather than `items`: an
 /// `Array[Json]` does not coerce to `Json` on its own, but an array *literal*
 /// does, and the spread is the only difference between the two here.

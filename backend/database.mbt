@@ -102,6 +102,58 @@ fn Database::migrate(self : Database) -> Unit raise {
       #|)
     ),
   )
+  // Sessions: the named explorations, and the steps inside them.
+  //
+  // A session's steps are a tree, not a list. Each step records the step it
+  // came from (`parent_step_id`) and the session records which step it is
+  // standing on (`head_step_id`). Rewinding moves the head back and leaves
+  // the steps beyond it in the table as the other branches; a list would have
+  // had to delete them, and "let me try the other road from step 7" is the
+  // whole reason to keep a history at all.
+  self.exec(
+    (
+      #|CREATE TABLE IF NOT EXISTS sessions (
+      #|  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      #|  name           TEXT NOT NULL,
+      #|  parent_id      INTEGER NOT NULL DEFAULT 0,
+      #|  forked_step_id INTEGER NOT NULL DEFAULT 0,
+      #|  head_step_id   INTEGER NOT NULL DEFAULT 0,
+      #|  start_cursor   TEXT NOT NULL DEFAULT 'M',
+      #|  mode           TEXT NOT NULL DEFAULT 'structured',
+      #|  created_at     TEXT NOT NULL DEFAULT '',
+      #|  updated_at     TEXT NOT NULL DEFAULT ''
+      #|)
+    ),
+  )
+  self.exec(
+    (
+      #|CREATE TABLE IF NOT EXISTS session_steps (
+      #|  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      #|  session_id       INTEGER NOT NULL,
+      #|  parent_step_id   INTEGER NOT NULL DEFAULT 0,
+      #|  domain           TEXT NOT NULL,
+      #|  domain_title     TEXT NOT NULL,
+      #|  slot             TEXT NOT NULL,
+      #|  slot_designation TEXT NOT NULL,
+      #|  outcome          TEXT NOT NULL,
+      #|  detail           TEXT NOT NULL,
+      #|  position_before  TEXT NOT NULL,
+      #|  position_after   TEXT NOT NULL,
+      #|  cursor_after     TEXT NOT NULL,
+      #|  group_state      TEXT NOT NULL,
+      #|  mode             TEXT NOT NULL,
+      #|  source           TEXT NOT NULL DEFAULT 'drive',
+      #|  drive            TEXT NOT NULL DEFAULT '',
+      #|  undecided        INTEGER NOT NULL DEFAULT 0,
+      #|  available        TEXT NOT NULL DEFAULT '',
+      #|  blocked          TEXT NOT NULL DEFAULT '',
+      #|  created_at       TEXT NOT NULL DEFAULT ''
+      #|)
+    ),
+  )
+  self.exec(
+    "CREATE INDEX IF NOT EXISTS session_steps_session ON session_steps (session_id)",
+  )
 }
 
 ///|
@@ -278,4 +330,357 @@ pub fn Database::delete_entry(self : Database, id : Int64) -> Bool raise {
   ignore(stmt.step())
   stmt.finalize()
   self.connection.changes() > 0L
+}
+
+///|
+const SESSION_COLUMNS : String = "id, name, parent_id, forked_step_id, head_step_id, start_cursor, mode, created_at, updated_at"
+
+///|
+fn read_session(stmt : @sqlite3.Statement) -> Session raise {
+  {
+    id: stmt.column(index=0),
+    name: stmt.column(index=1),
+    parent_id: stmt.column(index=2),
+    forked_step_id: stmt.column(index=3),
+    head_step_id: stmt.column(index=4),
+    start_cursor: stmt.column(index=5),
+    mode: stmt.column(index=6),
+    created_at: stmt.column(index=7),
+    updated_at: stmt.column(index=8),
+  }
+}
+
+///|
+/// Every session, most recently touched first.
+///
+/// `updated_at` is the sort key rather than `created_at` because the session
+/// a user wants is the one they were just working in, and `id` breaks the tie
+/// between two sessions touched in the same second -- SQLite stamps
+/// `updated_at` to the second, so two steps in quick succession can share one.
+pub fn Database::all_sessions(self : Database) -> Array[Session] raise {
+  let stmt = self.connection.prepare(
+    "SELECT " +
+    SESSION_COLUMNS +
+    " FROM sessions ORDER BY updated_at DESC, id DESC",
+  )
+  let sessions = []
+  while stmt.step() {
+    sessions.push(read_session(stmt))
+  }
+  stmt.finalize()
+  sessions
+}
+
+///|
+pub fn Database::session_by_id(self : Database, id : Int64) -> Session? raise {
+  let stmt = self.connection.prepare(
+    "SELECT " + SESSION_COLUMNS + " FROM sessions WHERE id = ?",
+  )
+  stmt.reset(clear_bindings=true)
+  stmt.bind(index=1, id)
+  let found = if stmt.step() { Some(read_session(stmt)) } else { None }
+  stmt.finalize()
+  found
+}
+
+///|
+/// Store a new session and return it as stored.
+///
+/// `created_at` and `updated_at` are stamped by SQLite's own `strftime`
+/// rather than by the application clock, for the reason the entries table
+/// uses: an id that a clock assigned would have to be trusted, and a clock
+/// can jump backwards between two inserts.
+pub fn Database::insert_session(
+  self : Database,
+  name : String,
+  parent_id : Int64,
+  forked_step_id : Int64,
+  start_cursor : String,
+  mode : String,
+) -> Session raise {
+  let insert = self.connection.prepare(
+    (
+      #|INSERT INTO sessions
+      #|  (name, parent_id, forked_step_id, head_step_id, start_cursor, mode, created_at, updated_at)
+      #|VALUES (?, ?, ?, 0, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+    ),
+  )
+  insert.reset(clear_bindings=true)
+  insert.bind(index=1, name)
+  insert.bind(index=2, parent_id)
+  insert.bind(index=3, forked_step_id)
+  insert.bind(index=4, start_cursor)
+  insert.bind(index=5, mode)
+  ignore(insert.step())
+  insert.finalize()
+  let id_stmt = self.connection.prepare("SELECT last_insert_rowid()")
+  id_stmt.reset(clear_bindings=true)
+  let id : Int64 = if id_stmt.step() { id_stmt.column(index=0) } else { 0L }
+  id_stmt.finalize()
+  let stamp_stmt = self.connection.prepare(
+    "SELECT strftime('%Y-%m-%dT%H:%M:%SZ', 'now')",
+  )
+  stamp_stmt.reset(clear_bindings=true)
+  let stamp = if stamp_stmt.step() { stamp_stmt.column(index=0) } else { "" }
+  stamp_stmt.finalize()
+  {
+    id,
+    name,
+    parent_id,
+    forked_step_id,
+    head_step_id: 0L,
+    start_cursor,
+    mode,
+    created_at: stamp,
+    updated_at: stamp,
+  }
+}
+
+///|
+/// Rename a session. Returns whether a row was actually renamed, so the API
+/// can answer 404 for an id that was never there.
+pub fn Database::rename_session(
+  self : Database,
+  id : Int64,
+  name : String,
+) -> Bool raise {
+  let stmt = self.connection.prepare(
+    "UPDATE sessions SET name = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
+  )
+  stmt.reset(clear_bindings=true)
+  stmt.bind(index=1, name)
+  stmt.bind(index=2, id)
+  ignore(stmt.step())
+  stmt.finalize()
+  self.connection.changes() > 0L
+}
+
+///|
+/// Move a session's head. The head is the step the session is standing on.
+pub fn Database::set_session_head(
+  self : Database,
+  id : Int64,
+  head : Int64,
+) -> Unit raise {
+  let stmt = self.connection.prepare(
+    "UPDATE sessions SET head_step_id = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
+  )
+  stmt.reset(clear_bindings=true)
+  stmt.bind(index=1, head)
+  stmt.bind(index=2, id)
+  ignore(stmt.step())
+  stmt.finalize()
+}
+
+///|
+/// Record where a session starts and which mode it runs in.
+///
+/// Set when the session is reset: the start is the point the session began
+/// from, and a reset changes it, because after a reset the session is a new
+/// walk from a new place rather than a continuation of the old one.
+pub fn Database::set_session_start(
+  self : Database,
+  id : Int64,
+  cursor : String,
+  mode : String,
+) -> Unit raise {
+  let stmt = self.connection.prepare(
+    "UPDATE sessions SET start_cursor = ?, mode = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
+  )
+  stmt.reset(clear_bindings=true)
+  stmt.bind(index=1, cursor)
+  stmt.bind(index=2, mode)
+  stmt.bind(index=3, id)
+  ignore(stmt.step())
+  stmt.finalize()
+}
+
+///|
+/// Record which mode a session runs in.
+///
+/// Separate from `set_session_start` because changing the mode does not
+/// change where the session starts, and a reset does both. Folding them into
+/// one function would mean a mode change also moved the session's start.
+pub fn Database::set_session_mode(
+  self : Database,
+  id : Int64,
+  mode : String,
+) -> Unit raise {
+  let stmt = self.connection.prepare(
+    "UPDATE sessions SET mode = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
+  )
+  stmt.reset(clear_bindings=true)
+  stmt.bind(index=1, mode)
+  stmt.bind(index=2, id)
+  ignore(stmt.step())
+  stmt.finalize()
+}
+
+///|
+/// Record that a session was just worked in.
+pub fn Database::touch_session(self : Database, id : Int64) -> Unit raise {
+  let stmt = self.connection.prepare(
+    "UPDATE sessions SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
+  )
+  stmt.reset(clear_bindings=true)
+  stmt.bind(index=1, id)
+  ignore(stmt.step())
+  stmt.finalize()
+}
+
+///|
+/// Forget a session and every step in it.
+///
+/// The steps go first: a step without its session would be a row nothing can
+/// reach, and the table would grow with each reset.
+pub fn Database::delete_session(self : Database, id : Int64) -> Bool raise {
+  let steps = self.connection.prepare(
+    "DELETE FROM session_steps WHERE session_id = ?",
+  )
+  steps.reset(clear_bindings=true)
+  steps.bind(index=1, id)
+  ignore(steps.step())
+  steps.finalize()
+  let stmt = self.connection.prepare("DELETE FROM sessions WHERE id = ?")
+  stmt.reset(clear_bindings=true)
+  stmt.bind(index=1, id)
+  ignore(stmt.step())
+  stmt.finalize()
+  self.connection.changes() > 0L
+}
+
+///|
+const STEP_COLUMNS : String = "id, session_id, parent_step_id, domain, domain_title, slot, slot_designation, outcome, detail, position_before, position_after, cursor_after, group_state, mode, source, drive, undecided, available, blocked, created_at"
+
+///|
+fn read_step(stmt : @sqlite3.Statement) -> SessionStep raise {
+  {
+    id: stmt.column(index=0),
+    session_id: stmt.column(index=1),
+    parent_step_id: stmt.column(index=2),
+    domain: stmt.column(index=3),
+    domain_title: stmt.column(index=4),
+    slot: stmt.column(index=5),
+    slot_designation: stmt.column(index=6),
+    outcome: stmt.column(index=7),
+    detail: stmt.column(index=8),
+    position_before: stmt.column(index=9),
+    position_after: stmt.column(index=10),
+    cursor_after: stmt.column(index=11),
+    group_state: stmt.column(index=12),
+    mode: stmt.column(index=13),
+    source: stmt.column(index=14),
+    drive: stmt.column(index=15),
+    undecided: (stmt.column(index=16) : Int64) != 0L,
+    available: stmt.column(index=17),
+    blocked: stmt.column(index=18),
+    created_at: stmt.column(index=19),
+  }
+}
+
+///|
+/// Store one step and return it as stored.
+pub fn Database::insert_step(
+  self : Database,
+  draft : StepDraft,
+) -> SessionStep raise {
+  let insert = self.connection.prepare(
+    (
+      #|INSERT INTO session_steps
+      #|  (session_id, parent_step_id, domain, domain_title, slot, slot_designation, outcome, detail,
+      #|   position_before, position_after, cursor_after, group_state, mode, source, drive, undecided,
+      #|   available, blocked, created_at)
+      #|VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+    ),
+  )
+  insert.reset(clear_bindings=true)
+  insert.bind(index=1, draft.session_id)
+  insert.bind(index=2, draft.parent_step_id)
+  insert.bind(index=3, draft.domain)
+  insert.bind(index=4, draft.domain_title)
+  insert.bind(index=5, draft.slot)
+  insert.bind(index=6, draft.slot_designation)
+  insert.bind(index=7, draft.outcome)
+  insert.bind(index=8, draft.detail)
+  insert.bind(index=9, draft.position_before)
+  insert.bind(index=10, draft.position_after)
+  insert.bind(index=11, draft.cursor_after)
+  insert.bind(index=12, draft.group_state)
+  insert.bind(index=13, draft.mode)
+  insert.bind(index=14, draft.source)
+  insert.bind(index=15, draft.drive)
+  insert.bind(index=16, if draft.undecided { 1L } else { 0L })
+  insert.bind(index=17, draft.available)
+  insert.bind(index=18, draft.blocked)
+  ignore(insert.step())
+  insert.finalize()
+  let id_stmt = self.connection.prepare("SELECT last_insert_rowid()")
+  id_stmt.reset(clear_bindings=true)
+  let id : Int64 = if id_stmt.step() { id_stmt.column(index=0) } else { 0L }
+  id_stmt.finalize()
+  let stamp_stmt = self.connection.prepare(
+    "SELECT strftime('%Y-%m-%dT%H:%M:%SZ', 'now')",
+  )
+  stamp_stmt.reset(clear_bindings=true)
+  let stamp = if stamp_stmt.step() { stamp_stmt.column(index=0) } else { "" }
+  stamp_stmt.finalize()
+  {
+    id,
+    session_id: draft.session_id,
+    parent_step_id: draft.parent_step_id,
+    domain: draft.domain,
+    domain_title: draft.domain_title,
+    slot: draft.slot,
+    slot_designation: draft.slot_designation,
+    outcome: draft.outcome,
+    detail: draft.detail,
+    position_before: draft.position_before,
+    position_after: draft.position_after,
+    cursor_after: draft.cursor_after,
+    group_state: draft.group_state,
+    mode: draft.mode,
+    source: draft.source,
+    drive: draft.drive,
+    undecided: draft.undecided,
+    available: draft.available,
+    blocked: draft.blocked,
+    created_at: stamp,
+  }
+}
+
+///|
+/// Every step of a session, oldest rowid first.
+///
+/// The order is the insertion order, not the tree order: the tree is walked
+/// by the callers that need a path, and the row order is enough to make the
+/// branches come out in the order they were tried.
+pub fn Database::steps_of_session(
+  self : Database,
+  session_id : Int64,
+) -> Array[SessionStep] raise {
+  let stmt = self.connection.prepare(
+    "SELECT " +
+    STEP_COLUMNS +
+    " FROM session_steps WHERE session_id = ? ORDER BY id ASC",
+  )
+  stmt.reset(clear_bindings=true)
+  stmt.bind(index=1, session_id)
+  let steps = []
+  while stmt.step() {
+    steps.push(read_step(stmt))
+  }
+  stmt.finalize()
+  steps
+}
+
+///|
+pub fn Database::step_by_id(self : Database, id : Int64) -> SessionStep? raise {
+  let stmt = self.connection.prepare(
+    "SELECT " + STEP_COLUMNS + " FROM session_steps WHERE id = ?",
+  )
+  stmt.reset(clear_bindings=true)
+  stmt.bind(index=1, id)
+  let found = if stmt.step() { Some(read_step(stmt)) } else { None }
+  stmt.finalize()
+  found
 }

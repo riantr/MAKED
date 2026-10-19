@@ -219,6 +219,17 @@ pub fn drive_slot(state : @sm.SubjectState) -> @sm.Slot? {
     file = 'backend/loop.mbt'
     old  = 'slot.en_designation().to_lower() == needle'
     new  = 'slot.en_gloss().to_lower() == needle'
+  },
+  # The per-domain map must be copied on every step. MoonBit's Map is
+  # mutable and is not copy-on-write, so sharing it means the state a step
+  # came from changes under the step's feet: the position a session records
+  # as "where I was" reads as "where I ended up". Invisible while the old
+  # state is thrown away, and wrong the moment somebody keeps it.
+  @{
+    name = 'the domain states are shared instead of copied'
+    file = 'backend/loop.mbt'
+    old  = 'let domain_states = copy_domain_states(self.domain_states)'
+    new  = 'let domain_states = self.domain_states'
   }
 )
 
