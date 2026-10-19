@@ -455,6 +455,14 @@ try {
   Assert-Status "a step is a 200" 200 $step
   $afterStep = $step.Body | ConvertFrom-Json
   Assert-True "and the history grew" ((Field $afterStep "history_length") -ge 1)
+  # The step's answer carries the session state as well as the loop status,
+  # so that the panel's step count and its summary of the run are the ones
+  # this step produced. They used to be the ones from start-up, and the count
+  # stopped moving after the first click.
+  Assert-HasField "and the session state comes with it" $afterStep "session_state"
+  $stepState = Field $afterStep "session_state"
+  Assert-HasField "and the path in it" $stepState "path"
+  Assert-HasField "and the summary in it" $stepState "summary"
 
   $named = Post-Json "/api/loop/step/act"
   Assert-Status "a step by a named slot is a 200" 200 $named
@@ -498,6 +506,13 @@ try {
   Assert-FieldNotEmpty "each step says why it was possible" $firstStep "why"
   Assert-HasField "each step records the slot" $firstStep "slot"
   Assert-HasField "each step records the position it started from" $firstStep "position_before"
+  # The sentence is the step in a reader's words: what moved, through which
+  # slot, and where the cursor went next. A step that carried only the
+  # labels would be the machine talking to itself.
+  Assert-FieldNotEmpty "each step carries the sentence that explains it" $firstStep "narration"
+  Assert-Contains "and the sentence says where it moved from" (Field $firstStep "narration") (Field $firstStep "position_before")
+  Assert-Contains "and where it moved to" (Field $firstStep "narration") (Field $firstStep "position_after")
+  Assert-FieldNotEmpty "the session state carries a summary of the run" $timeline "summary"
 
   $replay = Post-Json "/api/sessions/$sessionId/replay" @{ step = (Field $firstStep "id") }
   Assert-Status "going back to a step is a 200" 200 $replay

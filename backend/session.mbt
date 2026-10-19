@@ -303,6 +303,11 @@ pub fn SessionStep::to_json(self : SessionStep, index : Int32) -> Json {
     // a second copy of that rule in the browser would be a second thing to
     // keep in step with this one.
     "why": why_line(self),
+    // What the step did, in a sentence: the position it left, the position
+    // it reached, the slot it went through, and where the cursor went next.
+    // The label and the detail above are the same fact in the machine's
+    // vocabulary; this is the same fact in a reader's.
+    "narration": step_sentence(facts_of(self)),
     "available": string_array_json(split_slots(self.available)),
     "blocked": string_array_json(split_slots(self.blocked)),
     "created_at": self.created_at,
@@ -770,6 +775,7 @@ pub fn session_state_json(db : Database) -> Json raise {
         "session": Json::empty_object(),
         "path": empty_json_array(),
         "other_steps": empty_json_array(),
+        "summary": "",
       }
     Some(session) => {
       let all = db.steps_of_session(session.id)
@@ -781,8 +787,58 @@ pub fn session_state_json(db : Database) -> Json raise {
         "session": session.to_json(),
         "path": path_json(path),
         "other_steps": others_json(all, others),
+        // What the last few steps add up to. The timeline says what each step
+        // did; this says what the run of them did, which is the question a
+        // person has after the fifth click.
+        "summary": summary_of(path),
       }
     }
+  }
+}
+
+///|
+/// What the last steps of a path add up to.
+///
+/// The last five, because five is enough to see a shape and few enough that
+/// the sentence stays about something a reader can hold in their head. The
+/// group state is the one the last step left behind, which is the one the
+/// loop is in now.
+pub fn summary_of(path : Array[SessionStep]) -> String {
+  let start = if path.length() > 5 { path.length() - 5 } else { 0 }
+  let recent : Array[SessionStep] = []
+  let mut i = start
+  while i < path.length() {
+    recent.push(path[i])
+    i += 1
+  }
+  let facts : Array[StepFacts] = recent.map(fn(step) { facts_of(step) })
+  let group = match recent.last() {
+    Some(step) => step.group_state
+    None => ""
+  }
+  phase_summary(facts, group)
+}
+
+///|
+/// The live loop status with the session state folded in.
+///
+/// The loop panel needs both halves: what the machine is doing now, and the
+/// history the steps are being recorded into. They used to arrive on two
+/// requests, and the second was only made at start-up -- so the panel showed
+/// a step count that stopped moving after the first step, and a summary of a
+/// run that was one step out of date. One payload keeps them in step.
+pub fn loop_payload(db : Database) -> Json raise {
+  let status = get_loop_state().to_json()
+  match status {
+    Object(fields) => {
+      let merged = Map([], capacity=16)
+      for (name, value) in fields {
+        merged[name] = value
+      }
+      merged["session_state"] = session_state_json(db)
+      Json::object(merged)
+    }
+    _ => status
   }
 }
 
@@ -881,6 +937,19 @@ pub fn sessions_payload(db : Database) -> Json raise {
 }
 
 ///|
+/// The designation of a slot, from the name it is stored under.
+///
+/// The slot list is stored under the URL-safe names ("occasion", "act"), so
+/// that a step can be addressed by it. A reader knows the slots by their
+/// designations ("Situation", "Action"), which are the words on the buttons.
+fn slot_designation_of(english_name : String) -> String {
+  match slot_from_english(english_name) {
+    Some(slot) => slot.en_designation()
+    None => english_name
+  }
+}
+
+///|
 /// One sentence saying why the step was possible, or why it was not.
 ///
 /// Built from the snapshot the step carries, so it describes the moment the
@@ -896,7 +965,10 @@ pub fn why_line(step : SessionStep) -> String {
     parts.push("the table offered several and declined to choose")
   }
   if step.drive != "" {
-    parts.push("its own drive slot was " + step.drive)
+    // The drive slot is stored under its URL-safe name ("occasion"), which is
+    // the code's name for it. The reader knows it as "Situation", and a line
+    // that said "occasion" would be a line about the implementation.
+    parts.push("its own drive slot was " + slot_designation_of(step.drive))
   } else {
     parts.push("it had no drive slot at all")
   }

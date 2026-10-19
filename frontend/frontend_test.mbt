@@ -494,6 +494,7 @@ fn bare_model() -> @frontend.Model {
     active_session: @frontend.empty_session(),
     session_path: [],
     session_others: [],
+    session_summary: "",
     session_error: "",
     session_notice: "",
     session_name_draft: "",
@@ -946,6 +947,7 @@ fn session_payload() -> Json {
         "group_state": "Converging",
         "source": "drive",
         "why": "1 of the 8 slots had an outgoing edge here",
+        "narration": "The model formulator moved from Standing to Freedom through Action. Action was the slot the table drives with here, and the cursor advanced to the data turbine.",
         "available": [["act"]],
         "blocked": [["hold"], ["unveil"]],
         "created_at": "2026-10-19T18:27:45Z",
@@ -967,12 +969,70 @@ fn session_payload() -> Json {
         "group_state": "Converging",
         "source": "explicit",
         "why": "no slot had an outgoing edge here",
+        "narration": "Nothing could move the data turbine at Encounter through Holding: that slot has no road out of there. The cursor stayed on the data turbine.",
         "available": [],
         "blocked": [["hold"], ["unveil"]],
         "created_at": "2026-10-19T18:28:00Z",
       },
     ],
+    "summary": "The last step was in the model formulator. It moved a position. The group is Converging.",
   }
+}
+
+///|
+test "a step decodes the sentence the backend wrote for it" {
+  // The sentence says what the step did, in a reader's words. It is written
+  // by the server for the same reason the "why" is: a second copy of that
+  // rule in the client would be a second thing to keep in step with the
+  // first, and the two would eventually disagree.
+  let state = @frontend.decode_session_state(session_payload())
+  let step = state.path[0]
+  assert_true(step.narration.contains("moved from Standing to Freedom"))
+  assert_true(step.narration.contains("the data turbine"))
+  // The step off the path carries its own sentence: it is a step that was
+  // really taken, and a reader of the branches should be able to read it.
+  assert_true(state.other_steps[0].narration.contains("Nothing could move"))
+}
+
+///|
+test "the session state decodes the summary of the run" {
+  let state = @frontend.decode_session_state(session_payload())
+  assert_true(
+    state.summary.contains("The last step was in the model formulator."),
+  )
+  assert_true(state.summary.contains("The group is Converging."))
+}
+
+///|
+test "a state without a summary decodes to an empty one" {
+  // A missing field is not a reason to fail: the panel leaves the line out
+  // rather than printing something it does not know.
+  let empty = @frontend.decode_session_state(Json::empty_object())
+  assert_eq(empty.summary, "")
+}
+
+///|
+test "a step response carries the session state, and the model takes it" {
+  // A step response is the loop status with the session state folded in.
+  // Without it the panel's step count stopped moving after the first click,
+  // because the count it showed was the one from start-up.
+  let response : Json = {
+    "current_domain": "D",
+    "history_length": 3,
+    "session_state": session_payload(),
+  }
+  let state = @frontend.session_state_of(response)
+  match state {
+    Some(value) => {
+      assert_eq(value.path.length(), 1)
+      assert_true(value.summary.contains("The last step was in the model"))
+    }
+    None => fail("the step response should carry the session state")
+  }
+  // A response without one leaves the model alone: a missing field must not
+  // be able to erase the sessions a person has.
+  let bare : Json = { "current_domain": "D" }
+  assert_true(@frontend.session_state_of(bare) is None)
 }
 
 ///|

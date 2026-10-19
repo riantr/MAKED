@@ -463,7 +463,11 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     let before = get_loop_state()
     let after = step_loop()
     record_step(db, before, after, "drive")
-    Response::json(after.to_json())
+    // The session state travels with the loop status, so that the panel's
+    // step count and its summary of the run are the ones the step just
+    // produced. Without it they were the ones from start-up, and the count
+    // stopped moving after the first click.
+    Response::json(loop_payload(db))
   })
   app.post("/api/loop/step/:slot", req => {
     match req.param("slot") {
@@ -477,7 +481,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
             let before = get_loop_state()
             let after = step_loop_with_slot(slot)
             record_step(db, before, after, "explicit")
-            Response::json(after.to_json())
+            Response::json(loop_payload(db))
           }
           None => {
             let body : Json = { "error": "unknown_slot", "slot": slot_name }
@@ -494,7 +498,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   app.post("/api/loop/reset", _req => {
     let state = reset_to(Model)
     reset_session_start(db, state)
-    Response::json(state.to_json())
+    Response::json(loop_payload(db))
   })
   // POST /api/loop/reset/:domain → reset to start from the specified domain
   app.post("/api/loop/reset/:domain", req => {
@@ -508,7 +512,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
           Some(domain) => {
             let state = reset_to(domain)
             reset_session_start(db, state)
-            Response::json(state.to_json())
+            Response::json(loop_payload(db))
           }
           None => {
             let body : Json = {
@@ -552,13 +556,13 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
         }
         match parsed {
           Some(mode) => {
-            let state = set_loop_mode(mode)
+            ignore(set_loop_mode(mode))
             // The mode belongs to the session as well as to the live state:
             // a session replayed tomorrow has to come back in the mode it
             // was explored in.
             let session_id = ensure_session(db)
             db.set_session_mode(session_id, mode_name(mode))
-            Response::json(state.to_json())
+            Response::json(loop_payload(db))
           }
           None => {
             let body : Json = { "error": "unknown_mode", "mode": raw_mode }

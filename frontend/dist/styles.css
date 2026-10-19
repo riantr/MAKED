@@ -301,6 +301,34 @@ body {
     font-size: 13px;
     color: #888;
 }
+/* What just happened, and what the run adds up to. The two blocks under the
+   position: one sentence for the last step, one for the last few. They are
+   the difference between a panel that shows a position and a panel that
+   shows a machine thinking. */
+.maked-loop-narration,
+.maked-loop-summary {
+    border-left: 3px solid #d8dbe8;
+    padding: 2px 0 2px 12px;
+    margin-bottom: 12px;
+}
+.maked-loop-summary {
+    border-left-color: #c9d8c9;
+}
+.maked-loop-narration-label,
+.maked-loop-summary-label {
+    margin: 0;
+    font-size: 11px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: #9aa0b5;
+}
+.maked-loop-narration-text,
+.maked-loop-summary-text {
+    margin: 3px 0 0;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #333;
+}
 .maked-loop-buttons {
     display: flex;
     gap: 8px;
@@ -810,6 +838,27 @@ body {
     font-size: 12px;
     font-style: italic;
     line-height: 1.55;
+}
+/* The step in a reader's words. The labels in the head are the machine's
+   vocabulary; this is the same step in the reader's. */
+.maked-ss-step-narration {
+    margin: 6px 0 0;
+    color: #222;
+    font-size: 14px;
+    line-height: 1.6;
+}
+/* What the last few steps add up to, above the timeline. */
+.maked-ss-summary {
+    margin: 0 0 20px;
+    padding: 12px 14px;
+    background: #f7f8fb;
+    border-radius: 6px;
+}
+.maked-ss-summary-text {
+    margin: 4px 0 0;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #333;
 }
 .maked-ss-step-actions {
     display: flex;

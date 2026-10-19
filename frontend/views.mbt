@@ -152,6 +152,19 @@ pub fn error_view(reason : String) -> @html.Html {
 }
 
 ///|
+/// The sentence that says what the last step did, if there was one.
+///
+/// The labels say where the machine is; this says how it got there. It comes
+/// from the server with the rest of the step, because the sentence needs the
+/// transition table to say anything true.
+fn last_narration(path : Array[SessionStep]) -> String {
+  match path.last() {
+    Some(step) => step.narration
+    None => ""
+  }
+}
+
+///|
 /// The loop panel on the index page: current position, drive slot, step/reset
 /// buttons, and the history of past transitions.
 pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
@@ -255,6 +268,28 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
         @html.p(class="maked-loop-why\{situation_class}", situation),
         @html.div(class="maked-loop-slot-grid", slot_buttons),
       ])
+      // What just happened, and what the run of steps adds up to. The labels
+      // above say where the machine is; these two say how it got there and
+      // what the last few clicks were for. Without them the panel is a
+      // position that changes, which is the least legible way to show a
+      // machine that is thinking.
+      let narration = last_narration(model.session_path)
+      let narration_block = if narration == "" {
+        @html.nothing
+      } else {
+        @html.div(class="maked-loop-narration", [
+          @html.p(class="maked-loop-narration-label", "What just happened"),
+          @html.p(class="maked-loop-narration-text", narration),
+        ])
+      }
+      let summary_block = if model.session_summary == "" {
+        @html.nothing
+      } else {
+        @html.div(class="maked-loop-summary", [
+          @html.p(class="maked-loop-summary-label", "The run so far"),
+          @html.p(class="maked-loop-summary-text", model.session_summary),
+        ])
+      }
       let current = @html.div(class="maked-loop-current", [
         @html.span(class="maked-loop-domain", status.current_domain),
         @html.span(class="maked-loop-sep", "·"),
@@ -301,6 +336,8 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
       @html.section(class="maked-loop", [
         @html.h2(class="maked-loop-title", "Loop"),
         current,
+        narration_block,
+        summary_block,
         session_line,
         buttons,
         slot_selector,
@@ -555,10 +592,10 @@ pub fn sessions_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
           @html.span(class="maked-ss-step-outcome", step.outcome),
           @html.span(class="maked-ss-step-source", step.source),
         ]),
-        @html.p(
-          class="maked-ss-step-position",
-          step.position_before + " → " + step.position_after,
-        ),
+        // The sentence first: what the step did, in words a reader can
+        // follow. The labels above are the machine's vocabulary, for the
+        // person who knows it; this is the same step in theirs.
+        @html.p(class="maked-ss-step-narration", step.narration),
         @html.p(class="maked-ss-step-detail", step.detail),
         @html.p(class="maked-ss-step-why", step.why),
         @html.div(class="maked-ss-step-actions", [
@@ -646,6 +683,18 @@ pub fn sessions_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
       @html.ul(class="maked-ss-items", list_items)
     },
   ])
+  // What the last few steps add up to, above the timeline that lists them
+  // one by one. The timeline answers "what did this step do"; this answers
+  // "what have these steps done between them", which is the question the
+  // timeline alone leaves a reader to work out.
+  let summary = if model.session_summary == "" {
+    @html.nothing
+  } else {
+    @html.div(class="maked-ss-summary", [
+      @html.h3(class="maked-ss-subtitle", "The run so far"),
+      @html.p(class="maked-ss-summary-text", model.session_summary),
+    ])
+  }
   @html.section(class="maked-sessions", [
     @html.h2(class="maked-ss-title", "Sessions"),
     @html.p(
@@ -655,6 +704,7 @@ pub fn sessions_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     compose,
     status,
     head,
+    summary,
     @html.div(class="maked-ss-timeline-section", [
       @html.h3(class="maked-ss-subtitle", "Timeline"),
       timeline,

@@ -96,6 +96,9 @@ pub(all) struct Model {
   /// The steps that are recorded but not on the current path: the roads that
   /// were walked and then walked back from.
   session_others : Array[SessionStep]
+  /// What the last few steps add up to, in one sentence, written by the
+  /// server. Empty when there is nothing to summarise.
+  session_summary : String
   /// What the sessions panel says after the last action.
   session_error : String
   session_notice : String
@@ -139,6 +142,7 @@ fn initial() -> Model {
     active_session: empty_session(),
     session_path: [],
     session_others: [],
+    session_summary: "",
     session_error: "",
     session_notice: "",
     session_name_draft: "",
@@ -246,7 +250,11 @@ pub fn update(
     LoopStepped(Ok(json)) =>
       (
         {
-          ..model,
+          // The session state comes with the step, so the panel's step count
+          // and its summary of the run are the ones this step produced. They
+          // used to be the ones from start-up, and the count stopped moving
+          // after the first click.
+          ..apply_session_state_if_present(model, session_state_of(json)),
           loop_status: Some(decode_loop_status(json)),
           loop_error: "",
         },
@@ -256,7 +264,7 @@ pub fn update(
     LoopReset(Ok(json)) =>
       (
         {
-          ..model,
+          ..apply_session_state_if_present(model, session_state_of(json)),
           loop_status: Some(decode_loop_status(json)),
           loop_error: "",
         },
@@ -787,6 +795,7 @@ fn apply_session_state(model : Model, state : SessionState) -> Model {
     active_session: state.session,
     session_path: state.path,
     session_others: state.other_steps,
+    session_summary: state.summary,
     // The live status travels with a session action, because the action
     // changed the live state. A response without one -- the bootstrap --
     // leaves the panel as it was rather than blanking it.
@@ -797,6 +806,22 @@ fn apply_session_state(model : Model, state : SessionState) -> Model {
     // The list has changed, so an armed delete is no longer pointing at
     // anything the user can see.
     session_delete_pending: 0,
+  }
+}
+
+///|
+/// Fold a session state into the model, when the response carried one.
+///
+/// A step response is the loop status with the session state folded in. A
+/// response without one leaves the model exactly as it was: the sessions a
+/// person has are not something a missing field should be able to erase.
+fn apply_session_state_if_present(
+  model : Model,
+  state : SessionState?,
+) -> Model {
+  match state {
+    Some(value) => apply_session_state(model, value)
+    None => model
   }
 }
 

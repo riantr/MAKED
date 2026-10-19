@@ -59,6 +59,10 @@ pub(all) struct SessionStep {
   source : String
   /// Why the step was possible, in one sentence, written by the backend.
   why : String
+  /// What the step did, in a sentence, written by the backend: the position
+  /// it left, the position it reached, the slot it went through, and where
+  /// the cursor went next.
+  narration : String
   /// The slots that had an outgoing edge there.
   available : Array[String]
   /// The slots that had none.
@@ -74,6 +78,13 @@ pub(all) struct SessionState {
   session : Session
   path : Array[SessionStep]
   other_steps : Array[SessionStep]
+  /// What the last few steps add up to, in one sentence.
+  ///
+  /// Written by the backend, like the "why" line: the sentence needs the
+  /// transition table and the recorded steps to say anything true, and a
+  /// browser that had its own copy of that rule would be a second thing to
+  /// keep in step with the first.
+  summary : String
   /// The live loop status, when the response carried one.
   ///
   /// A session action changes the live state -- a rewind puts it back, a fork
@@ -138,6 +149,7 @@ fn session_step_from_json(json : Json) -> SessionStep {
     group_state: get_string(json, "group_state", ""),
     source: get_string(json, "source", ""),
     why: get_string(json, "why", ""),
+    narration: get_string(json, "narration", ""),
     available: string_list(json, "available"),
     blocked: string_list(json, "blocked"),
   }
@@ -159,6 +171,7 @@ pub fn decode_session_state(json : Json) -> SessionState {
     },
     path: decode_steps(json, "path"),
     other_steps: decode_steps(json, "other_steps"),
+    summary: get_string(json, "summary", ""),
     loop_status: match field(json, "loop") {
       Some(obj) => Some(decode_loop_status(obj))
       None => None
@@ -178,6 +191,20 @@ pub fn decode_bootstrap_session_state(json : Json) -> SessionState {
   match field(json, "session_state") {
     Some(obj) => decode_session_state(obj)
     None => empty_session_state()
+  }
+}
+
+///|
+/// The session state a response carried, if it carried one.
+///
+/// A step response is the loop status with the session state folded in
+/// under `session_state`, the same key the bootstrap uses. A response
+/// without one leaves the model alone: a missing field must not be able to
+/// erase the session list.
+pub fn session_state_of(json : Json) -> SessionState? {
+  match field(json, "session_state") {
+    Some(obj) => Some(decode_session_state(obj))
+    None => None
   }
 }
 
@@ -209,6 +236,7 @@ pub fn empty_session_state() -> SessionState {
     session: empty_session(),
     path: [],
     other_steps: [],
+    summary: "",
     loop_status: None,
   }
 }

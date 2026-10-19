@@ -169,6 +169,23 @@ $mutations = @(
     file = 'backend/session.mbt'
     old  = '      merged[key] = session.to_json()'
     new  = '      merged[key] = Json::empty_object()'
+  },
+  # A step that was chosen by hand and a step the table drove are different
+  # claims. A sentence that says the table chose it, when the reader chose
+  # it, is the machine taking credit for a decision it did not make.
+  @{
+    name = 'a hand-chosen slot is reported as a table-driven one'
+    file = 'backend/narration.mbt'
+    old  = '    "explicit" => facts.slot + " was the slot you chose"'
+    new  = '    "explicit" => facts.slot + " was the slot the table drives with here"'
+  },
+  # The summary is a summary of the last few steps. Summarising the whole
+  # history instead would answer a different question, and one nobody asked.
+  @{
+    name = 'the summary covers every step instead of the last five'
+    file = 'backend/session.mbt'
+    old  = '  let start = if path.length() > 5 { path.length() - 5 } else { 0 }'
+    new  = '  let start = 0'
   }
 )
 

@@ -8,7 +8,7 @@ MAKED is a five-domain recursive cognitive architecture: Model → Data → Expe
 
 Technical implementation: [rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.16.5) single-page frontend + a Flask-style micro-framework backend on [moonback](https://mooncakes.io), with SQLite storage. The state machine is [riantr/pyroduct](https://mooncakes.io/docs/riantr/pyroduct@0.1.32)@0.1.32, which also supplies the English rendering (`en_label` / `en_gloss` / `en_designation`) that every user-visible string here comes from.
 
-What a person can do with it: put their own model, dataset or recorded failure into the [workspace](#workspace); run an exploration as a named [session](#sessions) whose every step is recorded with the reason it was possible, which can be replayed, forked, and exported as Markdown or JSON; and read the loop itself — which positions the transition table offers, and which it refuses.
+What a person can do with it: put their own model, dataset or recorded failure into the [workspace](#workspace); run an exploration as a named [session](#sessions) whose every step is recorded with the reason it was possible, which can be replayed, forked, and exported as Markdown or JSON; read the loop itself — which positions the transition table offers, and which it refuses — and read it in sentences: [what each step did, and what the last five steps mean together](#the-loop-says-what-it-did).
 
 ## Core Concepts
 
@@ -298,6 +298,7 @@ backend/          micro-framework, storage layer, API routes, state loop engine
   api.mbt           JSON API routes
   loop.mbt          five-domain ring loop engine (subject + group state machines)
   session.mbt       named explorations: the step tree, replay, forking, export
+  narration.mbt     the sentences: what a step did, and what a run of steps means
   research.mbt      arxiv research paper fetching and trigger mapping
   causal.mbt        DoubleML causal inference
   maked_app.mbt     assembly, static files, SPA fallback
@@ -344,7 +345,7 @@ image carries `pwsh`.
 Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be run separately:
 
 ```
-.\tools\mutate-backend.ps1     # 15 mutations, 0 survived, 1 expected-equivalent
+.\tools\mutate-backend.ps1     # 17 mutations, 0 survived, 1 expected-equivalent
 .\tools\mutate-frontend.ps1    # 15 mutations, 0 survived
 .\tools\mutate-loop.ps1        # 16 mutations, 0 survived, 1 expected-equivalent
 ```
@@ -360,8 +361,8 @@ the signal we want.
 | js-check | `moon check --target js` | frontend type safety |
 | fmt | `moon fmt --check` | code formatting |
 | tree | `moon tree` | dependency audit |
-| unit-native | `moon test --target native` | 185 backend tests (includes the BDD suite below) |
-| unit-js | `moon test --target js` | 56 frontend tests |
+| unit-native | `moon test --target native` | 198 backend tests (includes the BDD suite below) |
+| unit-js | `moon test --target js` | 60 frontend tests |
 | coverage | `moon test --enable-coverage` | coverage |
 | bench | `moon bench` | benchmarks |
 | prove | `moon prove` | formal verification (Why3) |
@@ -395,7 +396,7 @@ The cause was not root-caused — the same build works when the init issues a GE
 ## The Integration Tests Are The Net For That Class Of Bug
 
 ```powershell
-.\tools\integration-test.ps1              # builds the server, then runs 88 checks
+.\tools\integration-test.ps1              # builds the server, then runs 95 checks
 .\tools\integration-test.ps1 -SkipBuild   # reuse the binary that is already built
 ```
 
@@ -479,6 +480,50 @@ Two things came out of that, and both are in the script now:
 The lesson is the one this whole file is about: a test that has only ever
 run on one machine does not know what it does not know. The suite passed on
 Windows, and the runner was the first place it was asked the question.
+
+## The Loop Says What It Did
+
+A person looking at the loop used to see labels rotating: `M · Action · Moved`,
+then `D · Co-being · Moved`, then `E · Holding · Undecided`. The labels are
+true and they are the machine's own vocabulary, and they tell a reader nothing
+about what the machine is doing. "Self-evolution" read as a state machine
+enjoying itself.
+
+So the server now writes the sentences. Three of them, and they answer three
+questions a person actually has:
+
+| Question | Answer | Where it comes from |
+|---|---|---|
+| Why did it move? | "The model formulator moved from Standing to Freedom through Action. Action was the slot the table drives with here, and the cursor advanced to the data turbine." | `narration`, on the step |
+| What did this step change? | the same sentence: the position before, the position after, the slot, and where the cursor went | `narration`, on the step |
+| What do the last five steps mean together? | "The last 5 steps visited the model formulator once, the data turbine once, the experience absorber once, the attack generator once and the knowledge distiller once. Four of them moved a position. The group is Common Tongue." | `summary`, on the session state |
+
+**The sentences are written on the server.** The machine's words still come
+from pyroduct — the position labels, the slot designations, the domain
+titles — but the sentences that tie them together are MAKED's, and they live
+in one place: `backend/narration.mbt`. A second copy in the browser would be a
+second thing to keep in step with the first, and the one in the browser would
+be the one that drifts. The same reason the "why" line is a sentence written
+by the server.
+
+**The slot's provenance is part of the sentence.** "The table drives with
+here" and "you chose this" are different claims, and the outcome alone does
+not tell them apart. A sentence that said the table chose a slot the reader
+picked would be the machine taking credit for a decision it did not make.
+
+**A summary is a summary.** Five steps, not the whole history: past five the
+sentence stops being about something a reader can hold in their head. The
+number is in the sentence itself — "The last 5 steps" — so it is a fact about
+the summary rather than a private choice inside it.
+
+### A Step's Answer Carries The Session State
+
+`POST /api/loop/step` answers with the loop status *and* the session state,
+folded in under `session_state`. The panel needs both halves: what the
+machine is doing now, and the history the steps are being recorded into.
+They used to arrive on two requests, and the second was only made at
+start-up — so the panel's step count stopped moving after the first click,
+and its summary described a run one step out of date.
 
 ## Deep Links Need A `<base>` Tag
 
