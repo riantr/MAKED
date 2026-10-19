@@ -395,7 +395,7 @@ The cause was not root-caused — the same build works when the init issues a GE
 ## The Integration Tests Are The Net For That Class Of Bug
 
 ```powershell
-.\tools\integration-test.ps1              # builds the server, then runs 85 checks
+.\tools\integration-test.ps1              # builds the server, then runs 88 checks
 .\tools\integration-test.ps1 -SkipBuild   # reuse the binary that is already built
 ```
 
@@ -451,6 +451,34 @@ regression they guard against *is* a source change:
   opposite of a violation, and a plain substring search cannot tell the two
   apart — it reads the comment as the crime.
 - the start-up issues exactly one request.
+
+### The First CI Run Of This Suite Failed, And It Was The Test
+
+The first time this suite ran on the runner, seven checks went red: every
+error response came back with the right status code and an **empty body**.
+The server was answering perfectly well.
+
+The cause was in the test. Windows PowerShell throws a `WebException` whose
+response is an `HttpWebResponse`, and the body of that is a stream.
+PowerShell 7 throws an `HttpResponseException` whose response is an
+`HttpResponseMessage`, whose body is in `Content` and which has no stream at
+all. A reader that knew only the first shape read every error on PowerShell 7
+as an empty body — and the suite then reported a server that was sending
+them correctly all along.
+
+Two things came out of that, and both are in the script now:
+
+- the reader understands both shapes, and the request asks for a 4xx not to
+  throw where the PowerShell in use can do that, so the body is where a body
+  always is;
+- **the reader is checked before anything relies on it.** Three mocks — one
+  per exception shape, and one for a response with no body at all — are read
+  first, so a reader that cannot read an error says so plainly instead of
+  turning seven refusals into seven empty ones.
+
+The lesson is the one this whole file is about: a test that has only ever
+run on one machine does not know what it does not know. The suite passed on
+Windows, and the runner was the first place it was asked the question.
 
 ## Deep Links Need A `<base>` Tag
 

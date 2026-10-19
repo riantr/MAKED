@@ -122,8 +122,88 @@ function Remove-Comments {
   return ($kept -join "`n")
 }
 
+# --- the two shapes of a failed request --------------------------------------
+#
+# Mocks of the two exception shapes, so that the reader can be held to both
+# on whichever PowerShell the script happens to be running under. Without
+# this, a reader that only knew one shape looked fine on the machine it was
+# written on and read every error as an empty body on the other one.
+function New-MockErrorRecord {
+  param($Response)
+  $exception = New-Object psobject
+  $exception | Add-Member -MemberType NoteProperty -Name 'Response' -Value $Response
+  $record = New-Object psobject
+  $record | Add-Member -MemberType NoteProperty -Name 'Exception' -Value $exception
+  $record | Add-Member -MemberType NoteProperty -Name 'ErrorDetails' -Value $null
+  return $record
+}
+
+# PowerShell 7: the response is an HttpResponseMessage, the body is in
+# Content, and there is no stream to read it from.
+function New-MockMessageResponse {
+  param([string]$Text)
+  $content = New-Object psobject
+  $content | Add-Member -MemberType NoteProperty -Name 'Text' -Value $Text
+  $content | Add-Member -MemberType ScriptMethod -Name 'ReadAsStringAsync' -Value {
+    Write-Output -NoEnumerate ([pscustomobject]@{ Result = $this.Text })
+  }
+  $response = New-Object psobject
+  $response | Add-Member -MemberType NoteProperty -Name 'Content' -Value $content
+  return $response
+}
+
+# Windows PowerShell: the response is an HttpWebResponse, and the body is a
+# stream.
+function New-MockWebResponse {
+  param([string]$Text)
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes($Text)
+  $stream = New-Object System.IO.MemoryStream(, $bytes)
+  $response = New-Object psobject
+  $response | Add-Member -MemberType NoteProperty -Name 'Stream' -Value $stream
+  $response | Add-Member -MemberType ScriptMethod -Name 'GetResponseStream' -Value {
+    return $this.Stream
+  }
+  return $response
+}
+
 # --- HTTP -------------------------------------------------------------------
 $base = "http://127.0.0.1:$Port"
+
+# --- the body of a response that carries a status code ----------------------
+#
+# A 4xx is the case this suite cares about most -- a refusal that arrives
+# without its reason is the failure in a different costume -- and the two
+# PowerShells do not agree on where the body of a failed request lives.
+#
+# Windows PowerShell throws a WebException whose Response is an
+# HttpWebResponse, and its body is a stream. PowerShell 7 throws an
+# HttpResponseException whose Response is an HttpResponseMessage, whose body
+# is in Content and which has no stream at all. A reader that knows only the
+# first shape reads every error on PowerShell 7 as an empty body -- which is
+# exactly what happened: the CI runner reported seven empty error bodies
+# while the server was sending them correctly all along.
+function Read-ErrorBody {
+  param($ErrorRecord)
+  $response = $ErrorRecord.Exception.Response
+  if ($null -ne $response) {
+    $content = $response.PSObject.Properties['Content']
+    if ($null -ne $content -and $null -ne $content.Value) {
+      try { return [string]$content.Value.ReadAsStringAsync().Result } catch { }
+    }
+    try {
+      $reader = New-Object System.IO.StreamReader($response.GetResponseStream())
+      $text = $reader.ReadToEnd()
+      $reader.Close()
+      return $text
+    } catch { }
+  }
+  # Some versions put the body in the error record's own detail.
+  if ($null -ne $ErrorRecord.ErrorDetails -and
+      $null -ne $ErrorRecord.ErrorDetails.Message) {
+    return [string]$ErrorRecord.ErrorDetails.Message
+  }
+  return ""
+}
 
 function Invoke-Api {
   param(
@@ -147,21 +227,25 @@ function Invoke-Api {
     $params["Body"] = $Body
     $params["ContentType"] = "application/json"
   }
+  # Where the parameter exists, a 4xx is asked not to throw: then the body is
+  # where a body always is, in the response itself, and none of this depends
+  # on which of the two exception shapes the PowerShell in use produces. The
+  # parameter is looked up rather than assumed, because it is not in every
+  # version of PowerShell 6.
+  if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey('SkipHttpErrorCheck')) {
+    $params["SkipHttpErrorCheck"] = $true
+  }
   try {
     $response = Invoke-WebRequest @params
     return @{ Status = [int]$response.StatusCode; Body = $response.Content }
   } catch {
     $ex = $_.Exception
     if ($null -ne $ex.Response) {
-      $text = ""
-      try {
-        $reader = New-Object System.IO.StreamReader($ex.Response.GetResponseStream())
-        $text = $reader.ReadToEnd()
-        $reader.Close()
-      } catch {
-        $text = ""
+      return @{
+        Status = [int]$ex.Response.StatusCode
+        Body = Read-ErrorBody $_
+        Error = ""
       }
-      return @{ Status = [int]$ex.Response.StatusCode; Body = $text; Error = "" }
     }
     return @{ Status = 0; Body = ""; Error = $ex.Message }
   }
@@ -275,6 +359,23 @@ try {
 
   Write-Host "==> running the integration tests"
   Write-Host ""
+
+  # ── the reader, before it is relied on ───────────────────────────────────
+  Write-Host "-- the reader for a failed request"
+  # This comes first, and it is here rather than at the end because every
+  # refusal below is read through it. A reader that cannot read an error
+  # makes every refusal look like an empty one, and the suite would report
+  # a server that was answering perfectly well.
+  $mockBody = '{"error":"not_found"}'
+  $ps7 = Read-ErrorBody (New-MockErrorRecord (New-MockMessageResponse $mockBody))
+  Assert-True "the reader understands the PowerShell 7 shape" ($ps7 -like '*not_found*') `
+    ("it returned: '{0}'" -f (Limit $ps7))
+  $ps5 = Read-ErrorBody (New-MockErrorRecord (New-MockWebResponse $mockBody))
+  Assert-True "and the Windows PowerShell shape" ($ps5 -like '*not_found*') `
+    ("it returned: '{0}'" -f (Limit $ps5))
+  $missing = Read-ErrorBody (New-MockErrorRecord $null)
+  Assert-True "and it does not invent a body out of nothing" ($missing -eq "") `
+    ("it returned: '{0}'" -f (Limit $missing))
 
   # ── the read paths ───────────────────────────────────────────────────────
   Write-Host "-- GET /api/status"
