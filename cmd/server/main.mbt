@@ -47,8 +47,12 @@ async fn main {
   // listening on 127.0.0.1 inside it, and the symptom is a connection reset
   // with nothing in the logs.
   if host != "127.0.0.1" {
-    println("WARNING: MAKED_HOST is \{host}, so MAKED is reachable from other machines.")
-    println("  there is no authentication; do not expose it to a network you do not control")
+    println(
+      "WARNING: MAKED_HOST is \{host}, so MAKED is reachable from other machines.",
+    )
+    println(
+      "  there is no authentication; do not expose it to a network you do not control",
+    )
   }
   let app = @maked.create_app(db_path)
   let routes = app.to_module()
@@ -67,7 +71,7 @@ async fn main {
   // A failed bind is the one startup error a user cannot self-diagnose from the
   // message alone, so replace it with the two facts that actually decide it:
   // which port, and how to find what is holding it.
-  let listener = @moonback.listen(host = host, port = port) catch {
+  let listener = @moonback.listen(host~, port~) catch {
     _ => {
       println("WARNING: MAKED cannot bind port \{port}.")
       println("")

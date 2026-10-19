@@ -27,6 +27,15 @@ Write-Host '==> type-checking the backend'
 & $moon check --target native
 if ($LASTEXITCODE -ne 0) { throw "native check failed ($LASTEXITCODE)" }
 
+# Formatting is a gate here because the release workflow has one, and a gate
+# that only exists on the runner is a gate that surprises you at the worst
+# moment. `moon fmt --check` is cheap and it catches the thing it caught
+# here: a call written in a form the formatter does not accept, which
+# compiles and passes every test and still fails the release.
+Write-Host '==> checking the formatting'
+& $moon fmt --check
+if ($LASTEXITCODE -ne 0) { throw "formatting check failed ($LASTEXITCODE)" }
+
 # The storage layer carries three SQLite behaviours that fail silently rather
 # than loudly, so the tests are run on every build rather than only on demand.
 Write-Host '==> testing the backend'
