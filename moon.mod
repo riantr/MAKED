@@ -11,7 +11,7 @@
 
 name = "riantr/MAKED"
 
-version = "0.1.4"
+version = "0.1.5"
 
 license = "Apache-2.0"
 
@@ -51,5 +51,5 @@ import {
   "moonbitlang/moonback@0.8.9",
   "moonbitlang/x@0.5.5",
   "riantr/pyroduct@0.1.32",
-  "riantr/moonbit_doubleML@0.163.8",
+  "riantr/moonbit_doubleML@0.163.9",
 }

@@ -2,11 +2,11 @@
 
 **A recursively self-evolving modelling framework** — designed around an adversarial knowledge loop.
 
-Current release: **v0.1.4** — published as [`riantr/MAKED`](https://mooncakes.io) on mooncakes.io.
+Current release: **v0.1.5** — published as [`riantr/MAKED`](https://mooncakes.io) on mooncakes.io.
 
 MAKED is a five-domain recursive cognitive architecture: Model → Data → Experience → Attack → Knowledge forms a closed ring, each domain being the adversarial overcoming of the one before it. The system drives state transitions through its own cycle — from arxiv research papers, to causal inference, to the pyroduct state machine — forming a self-driving closed loop of knowledge evolution.
 
-Technical implementation: [rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.16.5) single-page frontend + a Flask-style micro-framework backend on [moonback](https://mooncakes.io), with SQLite storage. The state machine is [riantr/pyroduct](https://mooncakes.io/docs/riantr/pyroduct@0.1.31)@0.1.31, which also supplies the English rendering (`en_label` / `en_gloss` / `en_designation`) that every user-visible string here comes from.
+Technical implementation: [rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.16.5) single-page frontend + a Flask-style micro-framework backend on [moonback](https://mooncakes.io), with SQLite storage. The state machine is [riantr/pyroduct](https://mooncakes.io/docs/riantr/pyroduct@0.1.32)@0.1.32, which also supplies the English rendering (`en_label` / `en_gloss` / `en_designation`) that every user-visible string here comes from.
 
 ## Core Concepts
 
@@ -69,7 +69,7 @@ Then open <http://127.0.0.1:8080/>. The image holds the server and the browser
 files it serves; the database is created and seeded on first run, and lives in
 a named volume so your records survive the container being replaced.
 
-**From the next release**, the image is also published, so the clone is not
+**From v0.1.5**, the image is also published, so the clone is not
 needed either:
 
 ```bash
@@ -83,7 +83,7 @@ pulls only with a GitHub token that can read it.
 
 ### Or take a prebuilt binary
 
-**From the next release**, every tag also carries a ready-to-run build for
+**From v0.1.5**, every tag also carries a ready-to-run build for
 three platforms, with the browser files beside the executable:
 
 | Platform | Asset |
