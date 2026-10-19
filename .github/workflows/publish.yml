@@ -393,6 +393,12 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+          # Only the three archives, by name. Without the pattern this
+          # downloads every artifact in the run, including the container
+          # build's cache blob, which is large and occasionally fails to
+          # download after five retries -- failing the step that was only
+          # ever meant to pick up three files.
+          pattern: maked-*
 
       - name: Upload to the release
         run: |
