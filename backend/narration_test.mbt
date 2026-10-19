@@ -219,6 +219,31 @@ async test "the summary of a session covers the last five steps and no more" {
 }
 
 ///|
+async test "the export carries the sentences and the summary too" {
+  let db = open_session_db("export_narration")
+  let session = fresh_session(db, "Taken away")
+  ignore(take_steps(db, 3))
+  let steps = db.steps_of_session(session.id)
+  let markdown = @backend.export_markdown(db, reload(db, session.id))
+  // The sentence is in the document, not only on the screen: the document is
+  // the thing the user takes away, and it should say what happened in the
+  // same words the page did.
+  let sentence = @backend.step_sentence(@backend.facts_of(steps[0]))
+  assert_true(markdown.contains(sentence))
+  // And the account of the run is at the top of it.
+  assert_true(markdown.contains("## The run so far"))
+  // The JSON export carries the summary as well, so a consumer does not
+  // have to work it out from the path.
+  let json = @backend.export_json(db, reload(db, session.id))
+  match json_field(json, "summary") {
+    Some(Json::String(summary)) => assert_true(summary != "")
+    _ => fail("the json export should carry the summary")
+  }
+  db.close()
+  drop_db(session_db_path("export_narration"))
+}
+
+///|
 async test "the step record carries the sentence and the state carries the summary" {
   let db = open_session_db("narration")
   let session = fresh_session(db, "Told in sentences")

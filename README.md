@@ -195,8 +195,8 @@ move had nowhere to put any of it, and restarting the server threw it away.
 | `POST /api/sessions/:id/branch` | fork a new session at `{step}`, named `{name}`; 201 |
 | `POST /api/sessions/:id/rename` | rename it from `{name}` |
 | `DELETE /api/sessions/:id` | forget it and its steps |
-| `GET /api/sessions/:id/export?format=md` | the session as Markdown, as a download |
-| `GET /api/sessions/:id/export?format=json` | the session as JSON (`maked.session.v1`) |
+| `GET /api/sessions/:id/export?format=md` | the session as Markdown, as a download, with the sentences and "The run so far" |
+| `GET /api/sessions/:id/export?format=json` | the session as JSON (`maked.session.v1`), with the `summary` |
 
 Every step taken through the loop is recorded in the active session, with the
 domain, the slot, the outcome, the positions before and after, and **why the
@@ -345,7 +345,7 @@ image carries `pwsh`.
 Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be run separately:
 
 ```
-.\tools\mutate-backend.ps1     # 17 mutations, 0 survived, 1 expected-equivalent
+.\tools\mutate-backend.ps1     # 19 mutations, 0 survived, 1 expected-equivalent
 .\tools\mutate-frontend.ps1    # 15 mutations, 0 survived
 .\tools\mutate-loop.ps1        # 16 mutations, 0 survived, 1 expected-equivalent
 ```
@@ -361,7 +361,7 @@ the signal we want.
 | js-check | `moon check --target js` | frontend type safety |
 | fmt | `moon fmt --check` | code formatting |
 | tree | `moon tree` | dependency audit |
-| unit-native | `moon test --target native` | 198 backend tests (includes the BDD suite below) |
+| unit-native | `moon test --target native` | 199 backend tests (includes the BDD suite below) |
 | unit-js | `moon test --target js` | 60 frontend tests |
 | coverage | `moon test --enable-coverage` | coverage |
 | bench | `moon bench` | benchmarks |
@@ -396,7 +396,7 @@ The cause was not root-caused — the same build works when the init issues a GE
 ## The Integration Tests Are The Net For That Class Of Bug
 
 ```powershell
-.\tools\integration-test.ps1              # builds the server, then runs 95 checks
+.\tools\integration-test.ps1              # builds the server, then runs 99 checks
 .\tools\integration-test.ps1 -SkipBuild   # reuse the binary that is already built
 ```
 
@@ -515,6 +515,16 @@ picked would be the machine taking credit for a decision it did not make.
 sentence stops being about something a reader can hold in their head. The
 number is in the sentence itself — "The last 5 steps" — so it is a fact about
 the summary rather than a private choice inside it.
+
+**The document you take away says it too.** The sentences are not only on the
+screen: the Markdown export puts the sentence under each step's heading and
+opens with "The run so far", and the JSON export carries the summary as a
+`summary` field. An export that dropped them would be the list of labels
+again — the exact thing the sentences exist to replace — and the export is
+the artefact most likely to be read later, on its own, by someone who was not
+there. So the export is held to the same wording as the page: the integration
+test compares the exported document against the sentence the API served for
+that step, rather than against a phrase the test wrote itself.
 
 ### A Step's Answer Carries The Session State
 

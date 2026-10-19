@@ -543,9 +543,20 @@ try {
   Assert-Status "the markdown export is a 200" 200 $markdown
   Assert-Contains "and it names the session" $markdown.Body "MAKED session: Renamed"
   Assert-Contains "and it has a timeline" $markdown.Body "## Timeline"
+  # The document the user takes away says the same thing the page said. A
+  # export that dropped the sentences would be a list of labels again, which
+  # is the thing P1.5 was for. The sentence compared here is the one the API
+  # served for that step, so this checks the document against the server's own
+  # wording rather than against a phrase the test invented.
+  Assert-Contains "and it says what each step did" $markdown.Body (Field $firstStep "narration")
+  Assert-Contains "and it opens with the run so far" $markdown.Body "## The run so far"
   $exported = Get-Json "/api/sessions/$sessionId/export?format=json"
   Assert-Field "the json export says what it is" $exported "format" "maked.session.v1"
   Assert-HasField "and carries the path" $exported "path"
+  # And the summary is there for a consumer that does not want to work it out
+  # from the path. It must be a sentence, not an empty string.
+  Assert-HasField "and carries the summary" $exported "summary"
+  Assert-True "and the summary is not empty" (-not [string]::IsNullOrEmpty([string]$exported.summary))
 
   $badFormat = Invoke-Api -Method GET -Path "/api/sessions/$sessionId/export?format=xml"
   Assert-Status "an export in an unknown format is a 400" 400 $badFormat

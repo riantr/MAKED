@@ -1008,6 +1008,12 @@ pub fn export_markdown(db : Database, session : Session) -> String raise {
       session.forked_step_id.to_string() +
       "\n"
   }
+  // What the last few steps add up to. A document that opens with a
+  // timeline and no account of it is a list; this is the account.
+  let summary = summary_of(path)
+  if summary != "" {
+    out = out + "\n## The run so far\n\n" + summary + "\n"
+  }
   out = out + "\n## Timeline\n"
   let mut index = 0
   for step in path {
@@ -1022,6 +1028,10 @@ pub fn export_markdown(db : Database, session : Session) -> String raise {
       " · " +
       step.outcome +
       "\n\n"
+    // The sentence first, for the same reason the timeline on screen leads
+    // with it: a document that a person reads later should say what
+    // happened, not only list the labels.
+    out = out + step_sentence(facts_of(step)) + "\n\n"
     out = out +
       "- **Position:** " +
       step.position_before +
@@ -1084,9 +1094,15 @@ pub fn export_json(db : Database, session : Session) -> Json raise {
   for step in others {
     others_json.push(step.to_json(depth_of(all, step)))
   }
+  // The account of the run, kept in a name of its own so that the document
+  // and the live state say the same thing by the same route.
+  let run_summary = summary_of(path)
   {
     "format": "maked.session.v1",
     "session": session.to_json(),
+    // The summary of the run, so that a consumer does not have to work it
+    // out from the path itself.
+    "summary": run_summary,
     "path": [..path_json],
     "other_steps": [..others_json],
   }

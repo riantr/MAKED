@@ -186,6 +186,23 @@ $mutations = @(
     file = 'backend/session.mbt'
     old  = '  let start = if path.length() > 5 { path.length() - 5 } else { 0 }'
     new  = '  let start = 0'
+  },
+  # The document the user takes away is not a list of labels. If the export
+  # dropped the sentence that says what each step did, the export would be
+  # exactly the unreadable thing the sentences were added to stop.
+  @{
+    name = 'the exported document drops the sentence for each step'
+    file = 'backend/session.mbt'
+    old  = '    out = out + step_sentence(facts_of(step)) + "\n\n"'
+    new  = '    out = out + "\n\n"'
+  },
+  # The json export carries the summary so that a consumer does not have to
+  # work it out from the path. An empty string answers nothing.
+  @{
+    name = 'the json export carries an empty summary'
+    file = 'backend/session.mbt'
+    old  = '    "summary": run_summary,'
+    new  = '    "summary": "",'
   }
 )
 
