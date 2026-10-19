@@ -53,6 +53,49 @@ The key difference from a traditional data pipeline: the **Attack** domain. The 
 
 ## Quick Start
 
+### Run it in a container
+
+The first barrier in this project is not the code, it is the installation: a
+MoonBit toolchain, a C toolchain, and a build step. If you only want to *look*
+at MAKED, you should have to install none of that.
+
+```bash
+docker compose up --build
+```
+
+Then open <http://127.0.0.1:8080/>. The image holds the server and the browser
+files it serves; the database is created and seeded on first run, and lives in
+a named volume so your records survive the container being replaced.
+
+**From the next release**, the image is also published, so the clone is not
+needed either:
+
+```bash
+docker run --rm -p 8080:8080 -v maked-data:/data ghcr.io/riantr/maked:latest
+```
+
+A package on ghcr.io is private until someone says otherwise, and only the
+owner can say it: **Settings → Package settings → Change visibility →
+Public**, once, for `riantr/maked`. Until that is done, the published image
+pulls only with a GitHub token that can read it.
+
+### Or take a prebuilt binary
+
+**From the next release**, every tag also carries a ready-to-run build for
+three platforms, with the browser files beside the executable:
+
+| Platform | Asset |
+|---|---|
+| Linux x86-64 | `maked-<version>-linux-x86_64.tar.gz` |
+| macOS (Apple Silicon) | `maked-<version>-macos-arm64.tar.gz` |
+| Windows x64 | `maked-<version>-windows-x64.zip` |
+
+Unpack it, run the executable in that directory, and open
+<http://127.0.0.1:8080/>. `RUN.txt` inside the archive says the same thing.
+Downloads: <https://github.com/riantr/MAKED/releases>
+
+### Or build it from source
+
 ```bash
 .\build.ps1
 moon run --release --target native cmd/server
@@ -61,6 +104,12 @@ moon run --release --target native cmd/server
 Open <http://127.0.0.1:8080/>.
 
 `build.ps1` builds the browser bundle, stages it to the backend's serving location, type-checks the backend, runs all tests, and builds the server. The backend serves both the JSON API and the frontend static files, so there is no second web server and no CORS configuration.
+
+The container image and the prebuilt binaries are produced by the same release
+run that publishes the package: `.github/workflows/publish.yml` builds all
+three platforms and the image, and attaches the archives to the GitHub
+release. The image is rebuilt and smoke-tested on every push by `ci.yml`, so a
+broken image is caught before it is ever tagged.
 
 ### Environment Variables
 
@@ -186,6 +235,10 @@ frontend/         rabbita single-page application
   page.mbt          typed accessors for the backend JSON
 cmd/server/       native entry point
 cmd/web/          js entry point (browser bundle)
+Dockerfile        container image: build stage, then a runtime stage with
+                  no toolchain in it
+docker-compose.yml  the container with a volume for the records
+packaging/RUN.txt what a user reads after unpacking a prebuilt binary
 tools/            CI and test tooling
 ci.sh             CI pipeline (15 gates)
 ```

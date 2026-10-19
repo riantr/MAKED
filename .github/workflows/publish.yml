@@ -29,6 +29,9 @@ on:
 
 permissions:
   contents: write
+  # The container image is pushed to ghcr.io, which is a package registry and
+  # needs its own permission.
+  packages: write
 
 concurrency:
   group: publish-maked-moonbit-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
@@ -37,6 +40,9 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
     env:
       FORCE_COLOR: 1
       TYPOS_VERSION: v1.19.0
@@ -184,3 +190,196 @@ jobs:
             --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}
+
+  # ---------------------------------------------------------------------
+  # Prebuilt binaries, one per platform.
+  #
+  # The barrier this removes: the MoonBit toolchain, a C toolchain, and a
+  # build step. Someone who only wants to *look at* MAKED should have to
+  # install none of it.
+  #
+  # The archive holds the executable AND the browser files it serves. The
+  # binary on its own would answer the API and show no site: the server
+  # reads frontend/dist from disk, and says so in a warning when it is
+  # missing. An archive with only the executable is a trap.
+  #
+  # This job runs in parallel with the package publish rather than after
+  # it, so the release is not twice as long. It therefore resolves the
+  # version itself instead of taking it from the publish job's outputs.
+  # ---------------------------------------------------------------------
+  binaries:
+    name: Binary (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One platform failing must not cancel the other two: a release with
+      # two of three binaries is more useful than no release.
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x86_64
+            shell: bash
+            archive: tar.gz
+          # macos-14 is the arm64 runner, and it has to be: the toolchain
+          # installer recognises "Darwin arm64" and "Linux x86_64" only, so
+          # an Intel macOS runner fails with "Unsupported platform".
+          - os: macos-14
+            target: macos-arm64
+            shell: bash
+            archive: tar.gz
+          - os: windows-latest
+            target: windows-x64
+            shell: pwsh
+            archive: zip
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="$GITHUB_REF_NAME"
+          fi
+          case "$tag" in
+            v*) version="${tag#v}" ;;
+            *)
+              echo "Release tag must use the v* format, got: $tag" >&2
+              exit 1
+              ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install MoonBit (unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Install MoonBit (windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          # The installer writes to the user PATH and says "restart your
+          # terminal"; GITHUB_PATH is the runner's way of doing that.
+          iex (Invoke-WebRequest -Uri https://cli.moonbitlang.com/install/powershell.ps1 -UseBasicParsing).Content
+          "$HOME\.moon\bin" >> $env:GITHUB_PATH
+
+      - name: Install dependencies
+        shell: ${{ matrix.shell }}
+        run: |
+          moon version --all
+          # `moon update` refreshes the registry index and the lockfile but
+          # does not download the packages; `moon install` populates
+          # `.mooncakes/`. Without the second command the build fails with
+          # ".mooncakes/riantr/pyroduct/src is missing".
+          moon update
+          moon install
+
+      - name: Build
+        shell: ${{ matrix.shell }}
+        run: |
+          moon build --release --target js cmd/web
+          moon build --release --target native cmd/server
+
+      - name: Package (unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          version="${{ steps.ver.outputs.version }}"
+          mkdir -p stage/maked/frontend/dist
+          cp _build/native/release/build/cmd/server/server stage/maked/server
+          cp frontend/dist/index.html frontend/dist/styles.css stage/maked/frontend/dist/
+          cp _build/js/release/build/cmd/web/web.js stage/maked/frontend/dist/main.js
+          cp packaging/RUN.txt stage/maked/RUN.txt
+          chmod +x stage/maked/server
+          tar -czf "maked-${version}-${{ matrix.target }}.tar.gz" -C stage maked
+
+      - name: Package (windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $version = "${{ steps.ver.outputs.version }}"
+          New-Item -ItemType Directory -Force -Path stage\maked\frontend\dist | Out-Null
+          Copy-Item _build\native\release\build\cmd\server\server.exe stage\maked\server.exe
+          Copy-Item frontend\dist\index.html, frontend\dist\styles.css stage\maked\frontend\dist\
+          Copy-Item _build\js\release\build\cmd\web\web.js stage\maked\frontend\dist\main.js
+          Copy-Item packaging\RUN.txt stage\maked\RUN.txt
+          Compress-Archive -Path stage\maked -DestinationPath "maked-${version}-${{ matrix.target }}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maked-${{ steps.ver.outputs.version }}-${{ matrix.target }}
+          path: maked-${{ steps.ver.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------
+  # The binaries go on the release itself, so there is one place to look.
+  # ---------------------------------------------------------------------
+  release-assets:
+    name: Attach binaries
+    runs-on: ubuntu-latest
+    needs: [publish, binaries]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Upload to the release
+        run: |
+          tag="${{ needs.publish.outputs.tag }}"
+          shopt -s nullglob
+          for archive in artifacts/*/*; do
+            echo "attaching $archive"
+            gh release upload "$tag" "$archive" --clobber
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # ---------------------------------------------------------------------
+  # The container image.
+  #
+  # The image name is written out rather than derived from
+  # github.repository, because a registry path has to be lower case and the
+  # repository is not.
+  # ---------------------------------------------------------------------
+  docker:
+    name: Container image
+    runs-on: ubuntu-latest
+    needs: publish
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/riantr/maked:${{ needs.publish.outputs.version }}
+            ghcr.io/riantr/maked:latest
+          labels: |
+            org.opencontainers.image.title=MAKED
+            org.opencontainers.image.description=MAKED on MoonBit: a five-domain loop you can put your own work into
+            org.opencontainers.image.version=${{ needs.publish.outputs.version }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=Apache-2.0
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -1,0 +1,27 @@
+MAKED
+=====
+
+This archive holds a prebuilt MAKED: one executable and the browser files it
+serves. Nothing else is needed -- no MoonBit toolchain, no compiler, no
+package manager.
+
+Run it from this directory:
+
+    ./server              (Windows: server.exe)
+
+Then open <http://127.0.0.1:8080/>.
+
+The database is created next to the executable on first run, seeded with the
+site's own pages. Your own records live in the same file, so keep a copy of
+it if you want to keep them.
+
+Useful settings, all optional:
+
+    MAKED_PORT       the port to listen on          (default 8080)
+    MAKED_DB         where the database lives        (default maked.db)
+    MAKED_DIST       where the browser files live    (default frontend/dist)
+
+There is no authentication. Anyone who can reach the port can read and delete
+every record, so do not expose it to a network you do not control.
+
+The source is at <https://github.com/riantr/MAKED>.

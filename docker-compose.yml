@@ -1,0 +1,24 @@
+# MAKED in a container, with the records kept in a named volume.
+#
+#   docker compose up --build
+#   open http://127.0.0.1:8080/
+#
+# The volume is the point: without it, every `docker compose down` takes the
+# user's records with it.
+
+services:
+  maked:
+    build: .
+    image: maked:local
+    ports:
+      - "8080:8080"
+    environment:
+      MAKED_PORT: "8080"
+      MAKED_DB: /data/maked.db
+      MAKED_DIST: /opt/maked/frontend/dist
+    volumes:
+      - maked-data:/data
+    restart: unless-stopped
+
+volumes:
+  maked-data:
