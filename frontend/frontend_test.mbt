@@ -399,6 +399,66 @@ test "find_open_slot distinguishes the slots the table offers from those it does
 }
 
 ///|
+/// The way out of a position the table declined to decide.
+///
+/// The slot the table declined at carries the candidates it would have
+/// chosen between. The panel turns them into buttons, and the reader picks
+/// one. Without this the run is stuck: the slot is there, it says
+/// "Undecided", and every click through it lands nowhere.
+test "the undecided slot is found, with the candidates it offers" {
+  let json : Json = {
+    "current_domain": "M",
+    "undecided": true,
+    "open_slots": [
+      {
+        "name": "act",
+        "designation": "Action",
+        "outcome": "Moved",
+        "targets": [["Freedom"]],
+      },
+      {
+        "name": "occasion",
+        "designation": "Situation",
+        "outcome": "Undecided",
+        "targets": [["Urgency"], ["Alienation"]],
+      },
+    ],
+  }
+  let status = @frontend.decode_loop_status(json)
+  match @frontend.find_undecided_slot(status) {
+    Some(open) => {
+      assert_eq(open.name, "occasion")
+      assert_eq(open.designation, "Situation")
+      assert_eq(open.outcome, "Undecided")
+      assert_eq(open.targets.length(), 2)
+      assert_eq(open.targets[0], "Urgency")
+      assert_eq(open.targets[1], "Alienation")
+    }
+    None => assert_true(false)
+  }
+}
+
+///|
+/// A position the table did decide about has no way out to offer, and the
+/// panel must not show one.
+test "a decided position offers no way out" {
+  let json : Json = {
+    "current_domain": "M",
+    "undecided": false,
+    "open_slots": [
+      {
+        "name": "act",
+        "designation": "Action",
+        "outcome": "Moved",
+        "targets": [["Freedom"]],
+      },
+    ],
+  }
+  let status = @frontend.decode_loop_status(json)
+  assert_true(absent(@frontend.find_undecided_slot(status)))
+}
+
+///|
 test "decode_slots reads the backend's slot list instead of a hard-coded one" {
   let json : Json = {
     "slots": [
@@ -1282,4 +1342,126 @@ test "the bootstrap's nested session state is found and decoded" {
   let empty = @frontend.decode_bootstrap_session_state(Json::empty_object())
   assert_eq(empty.sessions.length(), 0)
   assert_eq(empty.path.length(), 0)
+}
+
+///|
+/// An emitter that keeps the messages the view hands it.
+///
+/// The view builds a button by calling the emitter with the message that
+/// button carries, so what comes out of here is exactly what a click would
+/// send. It is the only way to check a button from a test: the browser
+/// cannot be driven from here, and a button that renders the right words and
+/// sends the wrong thing is the failure worth catching.
+fn capturing_emit(seen : Array[@frontend.Msg]) -> @cmd.Emit[@frontend.Msg] {
+  @cmd.Emit(fn(msg) {
+    seen.push(msg)
+    @cmd.none
+  })
+}
+
+///|
+/// The loop status at a position the table declined to decide.
+///
+/// Two candidates, offered through the slot whose edge the table left open.
+fn undecided_status() -> Json {
+  {
+    "current_domain": "M",
+    "current_title": "Model formulator",
+    "current_position": "Freedom",
+    "current_position_label": "Freedom",
+    "current_gloss": "The model formulator is free.",
+    "next_domain": "D",
+    "drive_slot": "Situation",
+    "drive_slot_name": "occasion",
+    "blocked": false,
+    "undecided": true,
+    "open_slots": [
+      {
+        "name": "occasion",
+        "designation": "Situation",
+        "outcome": "Undecided",
+        "targets": [["Urgency"], ["Alienation"]],
+      },
+    ],
+    "history_length": 6,
+  }
+}
+
+///|
+/// The way out is only a way out if the click carries the candidate.
+///
+/// The button is drawn from the table's own candidates, and the click has to
+/// carry the one the reader picked. A button that renders the right words
+/// and sends an empty target is a dead button with a confident look.
+test "the way out sends the candidate the table offered" {
+  let seen : Array[@frontend.Msg] = []
+  let status = @frontend.decode_loop_status(undecided_status())
+  let model = { ..bare_model(), loop_status: Some(status), }
+  let _ = @frontend.loop_view(capturing_emit(seen), model)
+  let choices : Array[(String, String)] = []
+  for msg in seen {
+    match msg {
+      @frontend.Msg::TargetStepClicked(slot, target) =>
+        choices.push((slot, target))
+      _ => ()
+    }
+  }
+  assert_eq(choices.length(), 2)
+  assert_eq(choices[0].0, "occasion")
+  assert_eq(choices[0].1, "Urgency")
+  assert_eq(choices[1].0, "occasion")
+  assert_eq(choices[1].1, "Alienation")
+}
+
+///|
+/// The click has to become a request to the step endpoint.
+///
+/// The command the update returns is the request itself, and the endpoint it
+/// will be sent to can be read back out of it. The endpoint is the one thing
+/// the server sees first: a request to the wrong path is a request the
+/// server answers with "not found" and no reason.
+test "the choice reaches the server as a request to the step endpoint" {
+  let (_, cmd) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::TargetStepClicked("occasion", "Urgency"),
+    silent_emit(),
+  )
+  let request = cmd.to_repr().to_string()
+  assert_true(request.contains("/api/loop/step/occasion"))
+}
+
+///|
+/// The request has to name the successor the reader picked.
+///
+/// The server reads the successor out of one field, and refuses a request
+/// that does not carry it -- naming the ones it does accept, so the reader
+/// can see what went wrong. A body that leaves the field out is therefore a
+/// dead button with a 400 behind it, and the field is the whole message.
+test "the request names the successor the reader picked" {
+  let (path, body) = @frontend.target_step_request("occasion", "Urgency")
+  assert_eq(path, "/api/loop/step/occasion")
+  assert_eq(@frontend.get_string(body, "target", ""), "Urgency")
+}
+
+///|
+/// A candidate list that holds more than one name still offers the destination.
+///
+/// The backend sends one name per list, because a bare `Array[String]` does
+/// not spread into `Json`. A list that ever holds a pair holds the position
+/// the run came from first, and offering that as a way out of it would send
+/// the reader back where they already were.
+test "a candidate list that holds a pair still offers the destination" {
+  let json : Json = {
+    "open_slots": [
+      {
+        "name": "occasion",
+        "designation": "Situation",
+        "outcome": "Undecided",
+        "targets": [["Freedom", "Urgency"]],
+      },
+    ],
+  }
+  let status = @frontend.decode_loop_status(json)
+  assert_eq(status.open_slots[0].targets.length(), 1)
+  assert_eq(status.open_slots[0].targets[0], "Urgency")
 }

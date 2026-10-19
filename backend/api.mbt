@@ -478,10 +478,39 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
         }
         match parsed {
           Some(slot) => {
+            // A "target" in the body means the reader chose one of the
+            // successors the table offered and declined to pick. It is the
+            // way out of a position the machine cannot decide for itself.
+            let payload = req.json().unwrap_or(Json::empty_object())
+            let target = json_string(payload, "target")
             let before = get_loop_state()
-            let after = step_loop_with_slot(slot)
-            record_step(db, before, after, "explicit")
-            Response::json(loop_payload(db))
+            if target == "" {
+              let after = step_loop_with_slot(slot)
+              record_step(db, before, after, "explicit")
+              Response::json(loop_payload(db))
+            } else {
+              let position = before.domain_state(before.current).position
+              let candidates = open_candidates(position, slot)
+              match candidate_named(candidates, target) {
+                Some(_) => {
+                  let after = step_loop_with_target(slot, target)
+                  record_step(db, before, after, "explicit")
+                  Response::json(loop_payload(db))
+                }
+                None => {
+                  // Not a silent failure. The answer names the targets the
+                  // table really offers, so a reader who asked for the wrong
+                  // one can see the right one instead of watching the page
+                  // do nothing.
+                  let body : Json = {
+                    "error": "unknown_target",
+                    "target": target,
+                    "targets": string_array_json(candidate_names(candidates)),
+                  }
+                  Response::json(body, status=400)
+                }
+              }
+            }
           }
           None => {
             let body : Json = { "error": "unknown_slot", "slot": slot_name }

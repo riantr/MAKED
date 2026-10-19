@@ -164,6 +164,32 @@ $mutations = @(
     file = 'frontend/app.mbt'
     old  = '      if model.session_delete_pending == id {'
     new  = '      if true {'
+  },
+  # The way out of a position the table declined to decide is a button per
+  # candidate. A button that carries no candidate is a dead button with the
+  # right words on it.
+  @{
+    name = 'the way out sends no candidate'
+    file = 'frontend/views.mbt'
+    old  = '                on_click=emit(TargetStepClicked(open.name, target)),'
+    new  = '                on_click=emit(TargetStepClicked(open.name, "")),'
+  },
+  # The server reads the successor out of one field of the request. A request
+  # that leaves it out is refused with a 400, so the button stops working while
+  # still looking like it works.
+  @{
+    name = 'the request drops the chosen successor'
+    file = 'frontend/app.mbt'
+    old  = '  ("/api/loop/step/" + slot, { "target": target })'
+    new  = '  ("/api/loop/step/" + slot, { "target": "" })'
+  },
+  # The candidates are the table's own. A client that decodes none of them
+  # draws a way out with no way in it.
+  @{
+    name = 'the candidates are never decoded'
+    file = 'frontend/loop_state.mbt'
+    old  = '            String(s) => last = Some(s)'
+    new  = '            String(s) => last = None'
   }
 )
 

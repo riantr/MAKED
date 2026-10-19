@@ -465,7 +465,20 @@ pub fn DomainState::new(domain : Domain) -> DomainState {
 ///|
 /// Step this domain's state machine with the given slot.
 pub fn DomainState::step(self : DomainState, slot : @sm.Slot) -> DomainState {
-  let outcome = @sm.step(self.position, slot)
+  self.step_by_outcome(slot, @sm.step(self.position, slot))
+}
+
+///|
+/// Step this domain's state machine with an outcome that is already known.
+///
+/// The outcome is a parameter rather than something derived here, so that a
+/// step decided by a named trigger and a step decided by the slot's own
+/// outcome travel the same road: one event, one position, one history.
+pub fn DomainState::step_by_outcome(
+  self : DomainState,
+  slot : @sm.Slot,
+  outcome : @sm.Outcome,
+) -> DomainState {
   let event = event_from_outcome(self.domain, slot, self.position, outcome)
   let history = self.history
   history.push(event)
@@ -652,7 +665,54 @@ pub fn LoopState::step_domain_with(
   blocked : Bool,
 ) -> LoopState {
   let domain_state = self.domain_states[domain]
-  let new_domain_state = domain_state.step(slot)
+  self.step_domain_by_outcome(
+    domain,
+    slot,
+    @sm.step(domain_state.position, slot),
+    blocked,
+  )
+}
+
+///|
+/// Step the given domain with a trigger the reader named.
+///
+/// The same step, decided by a trigger rather than by the slot's own outcome:
+/// this is how a person answers a question the transition table left open.
+/// The table has already said which successors are reachable from here; this
+/// picks one of them, so the machine is obeying a choice rather than making
+/// one.
+pub fn LoopState::step_domain_with_trigger(
+  self : LoopState,
+  domain : Domain,
+  slot : @sm.Slot,
+  trigger : @sm.Trigger,
+) -> LoopState {
+  let domain_state = self.domain_states[domain]
+  self.step_domain_by_outcome(
+    domain,
+    slot,
+    @sm.step_by_trigger(domain_state.position, trigger),
+    false,
+  )
+}
+
+///|
+/// Record a step whose outcome is already known, and move the cursor.
+///
+/// The outcome is passed in rather than asked for a second time. It used to
+/// be derived twice -- once for the event and once to judge whether the
+/// cursor should advance -- and a table that could answer differently
+/// mid-call would have made the recorded reason and the recorded outcome
+/// disagree.
+fn LoopState::step_domain_by_outcome(
+  self : LoopState,
+  domain : Domain,
+  slot : @sm.Slot,
+  outcome : @sm.Outcome,
+  blocked : Bool,
+) -> LoopState {
+  let domain_state = self.domain_states[domain]
+  let new_domain_state = domain_state.step_by_outcome(slot, outcome)
   let history = self.history
   let mode = self.mode
   match new_domain_state.history.last() {
@@ -667,7 +727,7 @@ pub fn LoopState::step_domain_with(
       // StepEffect rather than by the outcome label string: Blocked was the
       // only case checked before, so Undecided -- the table declining to
       // choose -- still advanced the cursor.
-      let effect = StepEffect::of(@sm.step(domain_state.position, slot))
+      let effect = StepEffect::of(outcome)
       // `blocked` -- that the derived drive had no edge -- is a second,
       // independent reason not to advance: the cursor may be asked to advance
       // for a step that landed nowhere even when the table did have edges.
@@ -701,6 +761,76 @@ pub fn LoopState::step_with_slot(
   slot : @sm.Slot,
 ) -> LoopState {
   self.step_domain_with(self.current, slot, false)
+}
+
+///|
+/// The table's own candidates for a slot at a position, when it declines to
+/// choose between them.
+///
+/// The `Open` outcome carries them: the successors the table could have
+/// taken, and the triggers that would take them. This is the way out of a
+/// position the machine cannot decide for itself. The machine may not invent
+/// a choice the table declined to make -- that would be a lie about what the
+/// model says -- but a reader may make one, and this is the list they make it
+/// from.
+pub fn open_candidates(
+  state : @sm.SubjectState,
+  slot : @sm.Slot,
+) -> Array[(@sm.Trigger, @sm.SubjectState)] {
+  match @sm.step(state, slot) {
+    @sm.Open(candidates) => candidates
+    _ => []
+  }
+}
+
+///|
+/// The candidate whose target is the one named, if the table offers it.
+///
+/// The name is matched without regard to case, the way the slot names are
+/// matched, because the reader asks for what the panel showed them.
+pub fn candidate_named(
+  candidates : Array[(@sm.Trigger, @sm.SubjectState)],
+  target : String,
+) -> (@sm.Trigger, @sm.SubjectState)? {
+  let needle = target.to_lower()
+  for (trigger, next) in candidates {
+    if next.en_label().to_lower() == needle {
+      return Some((trigger, next))
+    }
+  }
+  None
+}
+
+///|
+/// The names of the candidates, for an answer that has to list them.
+pub fn candidate_names(
+  candidates : Array[(@sm.Trigger, @sm.SubjectState)],
+) -> Array[String] {
+  let names : Array[String] = []
+  for (_, next) in candidates {
+    names.push(next.en_label())
+  }
+  names
+}
+
+///|
+/// Step to one of the successors the table offered and declined to choose.
+///
+/// The reader's choice, not the machine's: the table has already said which
+/// positions are reachable from here, and this picks one of them. A target
+/// the table does not offer is refused by the caller rather than guessed at.
+pub fn LoopState::step_with_target(
+  self : LoopState,
+  slot : @sm.Slot,
+  target : String,
+) -> LoopState {
+  let domain = self.current
+  let domain_state = self.domain_states[domain]
+  let candidates = open_candidates(domain_state.position, slot)
+  match candidate_named(candidates, target) {
+    Some((trigger, _)) => self.step_domain_with_trigger(domain, slot, trigger)
+    None => self
+  }
 }
 
 ///|
@@ -777,6 +907,18 @@ pub fn step_loop() -> LoopState {
 /// Step with a caller-chosen slot instead of the domain's default drive.
 pub fn step_loop_with_slot(slot : @sm.Slot) -> LoopState {
   let new_state = g_loop_state[0].step_with_slot(slot)
+  g_loop_state[0] = new_state
+  new_state
+}
+
+///|
+/// Step to a caller-chosen successor, for the API: let the caller choose the
+/// successor as well as the slot.
+///
+/// The way out of a position the transition table declined to decide. The
+/// caller is answering a question the table asked, not inventing an edge.
+pub fn step_loop_with_target(slot : @sm.Slot, target : String) -> LoopState {
+  let new_state = g_loop_state[0].step_with_target(slot, target)
   g_loop_state[0] = new_state
   new_state
 }

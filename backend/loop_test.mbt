@@ -190,6 +190,64 @@ test "neither a blocked nor an undecided step advances the cursor" {
 }
 
 ///|
+/// The way out of a position the table declined to decide.
+///
+/// Freedom x Situation is Undecided: the table offers two successors and
+/// will not pick one. The machine may not make that choice -- that would be
+/// a lie about what the model says -- but a reader may, and the table has
+/// already said which successors are on offer. Without this, the run is
+/// stuck: the same step, over and over, with the page looking fine.
+test "a reader can choose one of the successors the table offered" {
+  let mut state = @backend.LoopState::new()
+  state = state.step() // Model Standing -> Freedom
+  let back = state.focus(@backend.Model)
+  // The table declines to choose here, and says what it would have chosen.
+  let candidates = @backend.open_candidates(@sm.Freedom, @sm.Occasion)
+  assert_true(candidates.length() > 1)
+  // The way out: the reader picks one of them.
+  let target = candidates[0].1
+  let stepped = back.step_with_target(@sm.Occasion, target.en_label())
+  // The subject moved, and the cursor moved with it.
+  assert_eq(stepped.domain_state(@backend.Model).position, target)
+  assert_eq(stepped.current, @backend.Data)
+  // And the step was recorded as a move, not as the undecided one.
+  let event = stepped.history[stepped.history.length() - 1]
+  assert_eq(event.outcome_label, "Moved")
+}
+
+///|
+/// A target the table does not offer is refused, not guessed at.
+///
+/// The position is left alone and no step is recorded: a machine that
+/// invented a successor would be making a claim the transition table does
+/// not support.
+test "a target the table does not offer leaves the position alone" {
+  let mut state = @backend.LoopState::new()
+  state = state.step()
+  let back = state.focus(@backend.Model)
+  let stepped = back.step_with_target(@sm.Occasion, "Nowhere")
+  assert_eq(stepped.domain_state(@backend.Model).position, @sm.Freedom)
+  assert_eq(stepped.current, @backend.Model)
+  // And no step was recorded: the history is the one it already had.
+  assert_eq(stepped.history.length(), back.history.length())
+}
+
+///|
+/// The candidate is found by the name the panel showed, not by an exact
+/// spelling of it: a reader asks for "urgency" and gets Urgency.
+test "a candidate is found without regard to case" {
+  let candidates = @backend.open_candidates(@sm.Freedom, @sm.Occasion)
+  assert_true(candidates.length() > 0)
+  let label = candidates[0].1.en_label()
+  let found = @backend.candidate_named(candidates, label.to_lower())
+  match found {
+    Some((_, next)) => assert_eq(next, candidates[0].1)
+    None => fail("the candidate should be found by its own name")
+  }
+  assert_true(@backend.candidate_named(candidates, "Nowhere") is None)
+}
+
+///|
 /// Read a string field out of a `Json` object, or "" when it is absent or is
 /// not a string. Total on purpose: the assertions below are about one field,
 /// and a wrong shape should fail the assertion rather than raise.

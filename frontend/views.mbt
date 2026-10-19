@@ -260,6 +260,39 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
       } else {
         ""
       }
+      // The way out of a position the table declined to decide.
+      //
+      // The candidates are the table's own: the successors it offered and
+      // would not choose between. Choosing one is the reader answering the
+      // table's question -- the machine is not inventing an edge, it is
+      // obeying one. Without this row the run is stuck: the slot is there,
+      // it says "Undecided", and every click through it lands nowhere.
+      let way_out = match find_undecided_slot(status) {
+        None => @html.nothing
+        Some(open) => {
+          let targets : Array[@html.Html] = []
+          for target in open.targets {
+            targets.push(
+              @html.button(
+                class="maked-loop-target",
+                on_click=emit(TargetStepClicked(open.name, target)),
+                target,
+              ),
+            )
+          }
+          @html.div(class="maked-loop-wayout", [
+            @html.p(
+              class="maked-loop-wayout-label",
+              "The table offered " +
+              open.targets.length().to_string() +
+              " ways out of here through " +
+              open.designation +
+              " and would not choose between them. Pick one:",
+            ),
+            @html.div(class="maked-loop-targets", targets),
+          ])
+        }
+      }
       let slot_selector = @html.div(class="maked-loop-slots", [
         @html.p(
           class="maked-loop-slots-label",
@@ -267,6 +300,7 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
         ),
         @html.p(class="maked-loop-why\{situation_class}", situation),
         @html.div(class="maked-loop-slot-grid", slot_buttons),
+        way_out,
       ])
       // What just happened, and what the run of steps adds up to. The labels
       // above say where the machine is; these two say how it got there and

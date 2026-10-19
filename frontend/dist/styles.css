@@ -314,6 +314,40 @@ body {
 .maked-loop-summary {
     border-left-color: #c9d8c9;
 }
+/* The way out of a position the table declined to decide. The candidates are
+   the table's own successors, so the buttons are the reader choosing among
+   them -- the machine is not offering a way out of its own accord, and the
+   wording says so. */
+.maked-loop-wayout {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border: 1px solid #e3d9b8;
+    border-radius: 4px;
+    background: #fdfaf0;
+}
+.maked-loop-wayout-label {
+    margin: 0 0 8px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #555;
+}
+.maked-loop-targets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.maked-loop-target {
+    padding: 6px 14px;
+    border: 1px solid #b08d3f;
+    border-radius: 4px;
+    background: #fff;
+    color: #6b5316;
+    font-size: 13px;
+    cursor: pointer;
+}
+.maked-loop-target:hover {
+    background: #f7efd8;
+}
 .maked-loop-narration-label,
 .maked-loop-summary-label {
     margin: 0;

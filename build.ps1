@@ -9,6 +9,11 @@
 # into terminating errors -- so a cached build died before the first exit-code
 # check. Every step below asserts $LASTEXITCODE explicitly, which is the check
 # that actually decides whether the build passed.
+#
+# One thing to know on Windows: the linker cannot overwrite `server.exe` while
+# a copy of it is running, and the failure reads as a build error rather than
+# as "you left a server running" (LNK1104, cannot open the file). Stop the
+# server before rebuilding.
 $ErrorActionPreference = 'Continue'
 Set-Location (Split-Path -Parent $PSCommandPath)
 

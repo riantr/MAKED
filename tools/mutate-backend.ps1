@@ -257,6 +257,23 @@ $mutations = @(
     file = 'backend/metrics.mbt'
     old  = '    "The last step"'
     new  = '    "the last step"'
+  },
+  # The way out of a position the table declined to decide. If the reader's
+  # choice is ignored, the run is stuck again -- with a button on the screen
+  # that says it can be unstuck.
+  @{
+    name = "the reader's choice of successor is ignored"
+    file = 'backend/loop.mbt'
+    old  = '    Some((trigger, _)) => self.step_domain_with_trigger(domain, slot, trigger)'
+    new  = '    Some((trigger, _)) => self'
+  },
+  # The candidate is found by the name the panel showed. A lookup that never
+  # matches is a way out that is not there.
+  @{
+    name = 'a candidate is never found by its name'
+    file = 'backend/loop.mbt'
+    old  = '    if next.en_label().to_lower() == needle {'
+    new  = '    if false {'
   }
 )
 

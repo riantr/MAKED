@@ -484,6 +484,35 @@ try {
   Assert-Status "a reset is a 200" 200 $reset
   Assert-Field "and the history is empty again" ($reset.Body | ConvertFrom-Json) "history_length" 0
 
+  # ── the way out of a position the table declined to decide ───────────────
+  # Six steps of the ring bring the cursor back to the model formulator, and
+  # its drive slot there is the one the table will not choose from. The run
+  # is stuck: the same step, over and over. The candidates the table offered
+  # are the way out, and picking one is the reader answering the table's
+  # question rather than the machine inventing an edge.
+  for ($i = 0; $i -lt 6; $i++) {
+    $null = Post-Json "/api/loop/step"
+  }
+  $wedged = Get-Json "/api/loop/status"
+  Assert-True "the ring comes back to a position the table will not decide" ($wedged.undecided -eq $true)
+  $offered = @($wedged.open_slots | Where-Object { $_.outcome -eq "Undecided" })
+  Assert-True "and the table offers candidates there" ($offered.Count -ge 1)
+  $candidates = @($offered[0].targets)
+  Assert-True "and there is more than one of them" ($candidates.Count -ge 2)
+  $slot = $offered[0].name
+  $target = @($candidates[0])[0]
+  $before = "$($wedged.current_domain) $($wedged.current_position)"
+  $chosen = Post-Json "/api/loop/step/$slot" @{ target = $target }
+  Assert-Status "choosing one of the candidates is a 200" 200 $chosen
+  $after = $chosen.Body | ConvertFrom-Json
+  Assert-True "and the subject moved" ("$($after.current_domain) $($after.current_position)" -ne $before)
+  Assert-Field "and the step was recorded as a move" ($after.history[-1]) "outcome" "Moved"
+  # A target the table does not offer is refused, and the refusal names the
+  # ones it does: a reader who asked for the wrong one can see the right one.
+  $wrong = Post-Json "/api/loop/step/$slot" @{ target = "Nowhere" }
+  Assert-Status "a target the table does not offer is a 400" 400 $wrong
+  Assert-Field "and it says so" ($wrong.Body | ConvertFrom-Json) "error" "unknown_target"
+
   # ── the sessions ─────────────────────────────────────────────────────────
   Write-Host ""
   Write-Host "-- the sessions"
@@ -701,6 +730,12 @@ try {
   $bundle = Invoke-Api -Method GET -Path "/main.js"
   Assert-Status "the browser bundle is served" 200 $bundle
   Assert-True "and it is not empty" ($bundle.Body.Length -gt 1000)
+  # The bundle is a build artefact, and a stale one fails silently: the
+  # server would answer every request correctly while the page in front of
+  # the reader had no way out in it. The way out has to be in the bytes that
+  # are actually served, not only in the source they were built from.
+  Assert-Contains "and the way out is in the bundle that is served" $bundle.Body "maked-loop-target"
+  Assert-Contains "and the endpoint its buttons post to is in it too" $bundle.Body "/api/loop/step/"
 } finally {
   Stop-Server
   Start-Sleep -Milliseconds 300

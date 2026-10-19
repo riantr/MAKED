@@ -16,6 +16,9 @@ pub(all) enum Msg {
   LoopReset(Result[Json, Error])
   StepClicked
   SlotStepClicked(String)
+  /// The reader chose one of the successors the table offered and declined
+  /// to pick. The slot's URL slug and the target's name.
+  TargetStepClicked(String, String)
   ResetClicked
   ResearchLoaded(Result[Json, Error])
   ResearchDriven(Result[Json, Error])
@@ -181,6 +184,23 @@ pub fn slug_of(path : String) -> String {
 }
 
 ///|
+/// The request that carries the reader's choice to the server.
+///
+/// The slot says which edge the table offered, the target says which of that
+/// edge's successors the reader wants. The server reads the successor out of
+/// one field and refuses a request that does not carry it, so the shape of
+/// the request is named in one place: a test can check what goes over the
+/// wire without a browser in the loop, and the button and the request cannot
+/// drift apart.
+///
+/// Public for the same reason `update` is public -- the request is the only
+/// thing the server ever sees, and a test that cannot read it can only trust
+/// that the click arrives.
+pub fn target_step_request(slot : String, target : String) -> (String, Json) {
+  ("/api/loop/step/" + slot, { "target": target })
+}
+
+///|
 /// `update` takes the emitter as the first parameter. The signature is fixed by
 /// `@rabbita.cell`, which passes the emitter so the view can issue commands.
 ///
@@ -297,6 +317,18 @@ pub fn update(
           emit.map(fn(result) { LoopStepped(result) }),
         ),
       )
+    // The reader picked one of the successors the table offered and would not
+    // choose between. The slot says which edge the table offered, the target
+    // says which of its successors the reader wants.
+    TargetStepClicked(name, target) => {
+      let (path, body) = target_step_request(name, target)
+      (
+        model,
+        @http.post(path)
+        .with_json(body)
+        .expect_json(emit.map(fn(result) { LoopStepped(result) })),
+      )
+    }
     ResetClicked =>
       (
         model,

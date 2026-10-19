@@ -258,7 +258,7 @@ client-side route, so it survives a cold load and a deep link alike.
 | `GET /api/loop/slots` | the eight drive slots (URL-safe name + English designation + English gloss) |
 | `GET /api/loop/mode` | the current mode (structured/free) |
 | `POST /api/loop/step` | advance one ring step (using the current domain's default drive slot) |
-| `POST /api/loop/step/:slot` | advance one ring step (using a named slot: the URL-safe name or the English designation, case-insensitively) |
+| `POST /api/loop/step/:slot` | advance one ring step (using a named slot: the URL-safe name or the English designation, case-insensitively); with `{"target": "..."}` in the body, take one of the successors the table offered and declined to choose |
 | `POST /api/loop/reset` | reset to the initial state |
 | `POST /api/loop/reset/:domain` | reset with the given domain as the starting point (accepts a letter or the English name) |
 | `POST /api/loop/mode/:mode` | switch mode (structured/free) |
@@ -350,8 +350,8 @@ image carries `pwsh`.
 Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be run separately:
 
 ```
-.\tools\mutate-backend.ps1     # 25 mutations, 0 survived, 1 expected-equivalent
-.\tools\mutate-frontend.ps1    # 15 mutations, 0 survived
+.\tools\mutate-backend.ps1     # 27 mutations, 0 survived, 1 expected-equivalent
+.\tools\mutate-frontend.ps1    # 21 mutations, 0 survived
 .\tools\mutate-loop.ps1        # 16 mutations, 0 survived, 1 expected-equivalent
 ```
 
@@ -366,8 +366,8 @@ the signal we want.
 | js-check | `moon check --target js` | frontend type safety |
 | fmt | `moon fmt --check` | code formatting |
 | tree | `moon tree` | dependency audit |
-| unit-native | `moon test --target native` | 219 backend tests (includes the BDD suite below) |
-| unit-js | `moon test --target js` | 62 frontend tests |
+| unit-native | `moon test --target native` | 222 backend tests (includes the BDD suite below) |
+| unit-js | `moon test --target js` | 68 frontend tests |
 | coverage | `moon test --enable-coverage` | coverage |
 | bench | `moon bench` | benchmarks |
 | prove | `moon prove` | formal verification (Why3) |
@@ -401,7 +401,7 @@ The cause was not root-caused — the same build works when the init issues a GE
 ## The Integration Tests Are The Net For That Class Of Bug
 
 ```powershell
-.\tools\integration-test.ps1              # builds the server, then runs 109 checks
+.\tools\integration-test.ps1              # builds the server, then runs 119 checks
 .\tools\integration-test.ps1 -SkipBuild   # reuse the binary that is already built
 ```
 
@@ -653,7 +653,57 @@ The wedge is a defect in the loop's behaviour, and it is reported here
 rather than hidden: the machine is not allowed to invent a choice the
 transition table declined to make — that would be a worse lie — but a run
 that cannot move should say so, and there should be a way out. The next
-step of this work is that way out.
+section is that way out.
+
+## A Position The Table Will Not Decide Has A Way Out
+
+The `Open` outcome means the transition table offered several successors
+from a position and declined to choose between them. MAKED does not make
+that choice: inventing one would be a claim the model does not support, and
+the whole point of reading the table rather than guessing at it is that the
+reader's trust in it survives.
+
+But "the machine will not choose" is not the same as "there is nothing to
+do", and the difference is the whole experience. When the table declines,
+the successors it offered are on the screen already —
+`Situation · Undecided → Urgency, Alienation` — and the panel turns them
+into buttons:
+
+> The table offered 2 ways out of here through Situation and would not
+> choose between them. Pick one:
+
+Clicking one steps the subject to that successor, by the trigger the table
+itself names for it. The machine is not making the choice; it is obeying
+one. `POST /api/loop/step/:slot` takes the choice in the body:
+
+```json
+{ "target": "Urgency" }
+```
+
+A target the table does not offer is refused with a `400` that names the
+ones it does, rather than a step that quietly lands nowhere:
+
+```json
+{ "error": "unknown_target", "target": "Nowhere", "targets": [["Urgency"], ["Alienation"]] }
+```
+
+This is what the wedge needed. The ring comes back to the model formulator
+after one lap, the model formulator's drive slot there is the one the table
+will not choose from, and before this the run could only repeat itself. Now
+the reader can take the run somewhere — and the measures can say so, because
+the run is moving again.
+
+The button is the whole feature, and a button is the one thing a test cannot
+reach: the browser cannot be driven from a test, so a button that renders the
+right words and sends the wrong thing would look exactly like one that works.
+So the click is checked where it is made. The view hands the message to the
+emitter as it builds the button, and the test keeps that message — which
+proves the button carries the candidate the table offered, not a slot the
+machine has to guess at. The message becomes a request in one named place,
+and the test reads the endpoint back out of it. The bytes that are actually
+served are checked too: a stale bundle is a silent failure, in which the
+server answers every request correctly while the page in front of the reader
+has no way out in it.
 
 ## Deep Links Need A `<base>` Tag
 

@@ -66,20 +66,36 @@ fn get_array(json : Json, key : String) -> Array[Json] {
 }
 
 ///|
-/// `open_slots[].targets` is a list of `[from, to]` pairs in the backend's
-/// shape, but only the destinations are meaningful to a reader, so this keeps
-/// the `to` of each pair.
+/// `open_slots[].targets` is a list of one-element lists, each holding the
+/// name of one candidate successor.
+///
+/// The inner list is not a pair. It is one element because that is the shape
+/// the JSON encoding forces: a bare `Array[String]` does not spread into
+/// `Json`, so the backend wraps every name in a list of its own (see
+/// `targets_json` in `backend/loop.mbt`).
+///
+/// The name is taken from the end of the inner list. For the shape the
+/// backend sends that is the only name in it. For a list that ever holds
+/// more, the last is the destination -- the earlier names are where the run
+/// came from, and offering the position the subject is already in as a way
+/// out of it is worse than offering nothing.
 fn target_labels(json : Json) -> Array[String] {
   let out : Array[String] = []
   for item in get_array(json, "targets") {
     match item {
-      Array(pair) =>
-        for entry in pair {
+      Array(names) => {
+        let mut last : String? = None
+        for entry in names {
           match entry {
-            String(s) => out.push(s)
+            String(s) => last = Some(s)
             _ => ()
           }
         }
+        match last {
+          Some(s) => out.push(s)
+          None => ()
+        }
+      }
       _ => ()
     }
   }
@@ -137,6 +153,22 @@ pub fn decode_slots(json : Json) -> Array[Slot] {
 pub fn find_open_slot(status : LoopStatus, name : String) -> OpenSlot? {
   for slot in status.open_slots {
     if slot.name == name {
+      return Some(slot)
+    }
+  }
+  None
+}
+
+///|
+/// The slot the table declined to choose at, if it declined to choose.
+///
+/// The table's `Open` outcome means it offered several successors and would
+/// not pick between them. The slot that carries those candidates is the way
+/// out of the position: the reader picks one of them, and the machine obeys
+/// a choice instead of making one.
+pub fn find_undecided_slot(status : LoopStatus) -> OpenSlot? {
+  for slot in status.open_slots {
+    if slot.outcome == "Undecided" && slot.targets.length() > 0 {
       return Some(slot)
     }
   }

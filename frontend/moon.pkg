@@ -23,4 +23,10 @@ import {
   "moonbitlang/core/string",
 }
 
+// `debug` is only for the test build: the test reads the request out of the
+// command the update returns, and that request is only readable as a `Repr`.
+import {
+  "moonbitlang/core/debug",
+} for "test"
+
 supported_targets = "js"
