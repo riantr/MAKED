@@ -52,3 +52,20 @@ pub fn Request::accepts_json(self : Request) -> Bool {
     None => false
   }
 }
+
+///|
+/// Read the request body as JSON, or `None` if it is absent or malformed.
+///
+/// Both failures collapse to `None` on purpose: a handler that answered 400
+/// "malformed JSON" for an empty body, and one that answered 400 "malformed
+/// JSON" for `{"domain":`, would be two error paths for one client mistake.
+/// The caller turns `None` into a single 400 that says the body must be JSON.
+///
+/// Reading the body buffers it in memory. That is fine for the small payloads
+/// this API accepts, and the size limits in `entries.mbt` bound what a client
+/// can make the process hold.
+pub async fn Request::json(self : Request) -> Json? {
+  Some(self.0.body.json()) catch {
+    _ => None
+  }
+}

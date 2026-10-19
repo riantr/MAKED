@@ -3,6 +3,24 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      Required, not decorative.
+
+      rabbita resolves a relative request URL against `document.baseURI`,
+      which without this tag is the *document's* URL. At "/" that happens to
+      be the origin and everything works, but on any sub-path the app asked
+      for "/workspace/api/pages", the SPA fallback answered it with
+      index.html, and the JSON parse failed -- so every deep link and every
+      browser refresh on a sub-path showed "Server unavailable".
+
+      Client-side navigation hid this completely: `push_url` changes the URL
+      without reloading, so the document stayed at "/" and the bug was
+      invisible until anything forced a real load of a sub-path.
+
+      This makes the base the origin on every path. The stylesheet and script
+      below are already root-absolute, so they are unaffected.
+    -->
+    <base href="/" />
     <title>MAKED</title>
     <meta
       name="description"

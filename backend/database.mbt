@@ -86,6 +86,22 @@ fn Database::migrate(self : Database) -> Unit raise {
     ),
   )
   self.exec("CREATE INDEX IF NOT EXISTS pages_sort ON pages (sort)")
+  // User-authored workspace entries. A separate table from `pages` on purpose:
+  // a page is site navigation, an entry is a user's record, and a user record
+  // must never be able to put itself into the navigation bar. `id` is assigned
+  // by SQLite, so creation order needs no application clock, and `created_at`
+  // is stamped by SQLite's `strftime` for the same reason.
+  self.exec(
+    (
+      #|CREATE TABLE IF NOT EXISTS entries (
+      #|  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      #|  domain     TEXT NOT NULL,
+      #|  title      TEXT NOT NULL,
+      #|  body       TEXT NOT NULL DEFAULT '',
+      #|  created_at TEXT NOT NULL DEFAULT ''
+      #|)
+    ),
+  )
 }
 
 ///|
@@ -169,4 +185,97 @@ pub fn Database::all_pages(self : Database) -> Array[Page] raise {
   }
   stmt.finalize()
   pages
+}
+
+///|
+const ENTRY_COLUMNS : String = "id, domain, title, body, created_at"
+
+///|
+fn read_entry(stmt : @sqlite3.Statement) -> Entry raise {
+  {
+    id: stmt.column(index=0),
+    domain: stmt.column(index=1),
+    title: stmt.column(index=2),
+    body: stmt.column(index=3),
+    created_at: stmt.column(index=4),
+  }
+}
+
+///|
+/// Every entry, oldest first.
+///
+/// Ordering by `id` rather than `created_at` because the two could disagree:
+/// `id` is assigned by the same transaction that inserts the row, so it cannot
+/// be wrong or duplicated, whereas a clock can jump backwards between two
+/// inserts and reorder the workspace under the user.
+pub fn Database::all_entries(self : Database) -> Array[Entry] raise {
+  let stmt = self.connection.prepare(
+    "SELECT " + ENTRY_COLUMNS + " FROM entries ORDER BY id ASC",
+  )
+  let entries = []
+  while stmt.step() {
+    entries.push(read_entry(stmt))
+  }
+  stmt.finalize()
+  entries
+}
+
+///|
+/// Store one entry and return it as stored, including the id SQLite assigned.
+///
+/// `last_insert_rowid()` is a scalar SQL function, so it is read through the
+/// same prepare/step/column path as any other query. It is read on the *same
+/// connection* immediately after the insert, which is what makes it this
+/// insert's rowid rather than some other session's.
+pub fn Database::insert_entry(
+  self : Database,
+  domain : String,
+  title : String,
+  body : String,
+) -> Entry raise {
+  let insert = self.connection.prepare(
+    (
+      #|INSERT INTO entries (domain, title, body, created_at)
+      #|VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+    ),
+  )
+  // reset(clear_bindings) before use: a statement prepared here has never
+  // stepped, so there is nothing to clear, but this is the shape every write
+  // path in this file has to keep.
+  insert.reset(clear_bindings=true)
+  insert.bind(index=1, domain)
+  insert.bind(index=2, title)
+  insert.bind(index=3, body)
+  ignore(insert.step())
+  insert.finalize()
+  let id_stmt = self.connection.prepare("SELECT last_insert_rowid()")
+  id_stmt.reset(clear_bindings=true)
+  let id : Int64 = if id_stmt.step() { id_stmt.column(index=0) } else { 0L }
+  id_stmt.finalize()
+  let created_stmt = self.connection.prepare(
+    "SELECT strftime('%Y-%m-%dT%H:%M:%SZ', 'now')",
+  )
+  created_stmt.reset(clear_bindings=true)
+  let created_at = if created_stmt.step() {
+    created_stmt.column(index=0)
+  } else {
+    ""
+  }
+  created_stmt.finalize()
+  { id, domain, title, body, created_at, }
+}
+
+///|
+/// Delete one entry by id.
+///
+/// Returns whether a row was actually removed, so the API can answer 404 for an
+/// id that was never there instead of a 200 that lies about having deleted
+/// something.
+pub fn Database::delete_entry(self : Database, id : Int64) -> Bool raise {
+  let stmt = self.connection.prepare("DELETE FROM entries WHERE id = ?")
+  stmt.reset(clear_bindings=true)
+  stmt.bind(index=1, id)
+  ignore(stmt.step())
+  stmt.finalize()
+  self.connection.changes() > 0L
 }

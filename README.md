@@ -81,6 +81,26 @@ Open <http://127.0.0.1:8080/>.
 | `GET /api/pages/:slug` | a single page, or 404 |
 | `GET /api/domains` | the five domains (ring order) |
 
+### Workspace
+
+The user's own records. Until this existed the API was read-only: everything the
+site served was seed content written by the maintainer.
+
+| Route | Returns |
+|---|---|
+| `GET /api/entries` | every workspace record, oldest first, plus the five domain letters |
+| `POST /api/entries` | create one from `{domain, title, body}`; 201 with the stored record, or 400 with a reason |
+| `DELETE /api/entries/:id` | remove one; 200, or 404 if there was no such record |
+
+`domain` must be one of `M`, `D`, `E`, `A`, `K`; `title` must not be blank.
+Both limits are enforced server-side and the refusal names the field and the
+limit, so a rejected record says why rather than failing silently.
+
+**There is no auth.** Anyone who can reach the port can read and delete every
+record. That is acceptable while the server binds localhost and stores one
+person's working set, and it stops being acceptable the moment the server is
+published — see the entry-barrier work, which is what makes that reachable.
+
 ### State Loop
 
 | Route | Returns |
@@ -180,7 +200,7 @@ the signal we want.
 | js-check | `moon check --target js` | frontend type safety |
 | fmt | `moon fmt --check` | code formatting |
 | tree | `moon tree` | dependency audit |
-| unit-native | `moon test --target native` | 153 backend tests (includes the BDD suite below) |
+| unit-native | `moon test --target native` | 171 backend tests (includes the BDD suite below) |
 | unit-js | `moon test --target js` | 21 frontend tests |
 | coverage | `moon test --enable-coverage` | coverage |
 | bench | `moon bench` | benchmarks |
@@ -209,6 +229,21 @@ The fallback excludes `/api/` paths. A final segment containing a dot is treated
 Batching the two with `@cmd.batch` looks equivalent and is not. With the batch, every click-initiated POST still reached the server and still changed state, but **no response ever came back**: Step, Reset and the slot buttons all mutated the backend while the view stayed frozen on stale data, with no error shown anywhere. Chaining the second request restores them.
 
 The cause was not root-caused — the same build works when the init issues a GET and a POST, and fails when it issues two GETs, which points at how two concurrent requests are dispatched rather than at anything in the loop engine. The safe rule to preserve: **issue the two initial fetches one after the other.** Re-batching them is a silent regression that no unit test catches.
+
+## Deep Links Need A `<base>` Tag
+
+`index.html` carries `<base href="/" />`, and it is load-bearing.
+
+rabbita resolves a relative request URL against `document.baseURI`, which
+without that tag is the *document's* URL. At `/` that happens to be the origin
+and everything works, but on `/about` the app asked the server for
+`/about/api/pages`; the SPA fallback answered it with `index.html`, the JSON
+parse failed, and the page said "Server unavailable" with nothing logged.
+
+Client-side navigation hid this completely: `push_url` changes the URL without
+reloading, so the document stayed at `/` and the bug was invisible until
+anything forced a real load of a sub-path — a refresh, a shared link, a cold
+open of `/about`.
 
 ## SQLite Storage Layer
 

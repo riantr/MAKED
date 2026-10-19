@@ -64,6 +64,11 @@ pub fn App::post(self : App, path : String, handler : Handler) -> Unit {
 }
 
 ///|
+pub fn App::delete(self : App, path : String, handler : Handler) -> Unit {
+  self.route(@http.Delete, path, handler)
+}
+
+///|
 /// Middleware wraps every route. Middleware runs in registration order, so the
 /// first one registered is the outermost.
 pub fn App::add_middleware(self : App, middleware : Middleware) -> Unit {

@@ -1,8 +1,17 @@
-///| The MAKED API: page content, navigation, and server status.
+///| The MAKED API: page content, navigation, workspace entries, and status.
 ///
-/// Every route is read-only. The original django CMS deployment had an admin,
-/// Celery and a flat-page editor; this scope is the nine public pages, so
-/// there is no write path and no auth to get wrong.
+/// The page routes are read-only, as they were when the only content was the
+/// nine seeded pages. The workspace routes under `/api/entries` are the first
+/// write path in the project: they are how a user puts their own model, data
+/// or recorded failure into MAKED instead of only reading about the ring.
+///
+/// There is no auth. That is a real limitation rather than an oversight, and
+/// it is stated here because it is the first thing to change before this is
+/// exposed beyond a local process: anyone who can reach the port can read and
+/// delete every entry. It is acceptable while the server binds localhost and
+/// stores one person's working set, and it stops being acceptable the moment
+/// the server is published (see the P0.3 entry-barrier work, which is what
+/// makes that reachable).
 
 ///|
 /// Register the JSON API on `app`.
@@ -41,6 +50,63 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   app.get("/api/domains", _req => {
     let body : Json = { "domains": domains_json() }
     Response::json(body)
+  })
+  // Workspace: the user's own records, grouped by the domain they belong to.
+  //
+  // GET    /api/entries      → every entry, oldest first
+  // POST   /api/entries      → create one; the body is {domain,title,body}
+  // DELETE /api/entries/:id  → remove one
+  app.get("/api/entries", _req => {
+    let entries = db.all_entries().map(fn(e) { e.to_json() })
+    let body : Json = {
+      "entries": entries,
+      "count": entries.length(),
+      // Sent with the list so the client can render the five group headings
+      // without hard-coding the ring a second time.
+      "domains": entry_domains(),
+    }
+    Response::json(body)
+  })
+  app.post("/api/entries", req => {
+    let payload = req.json().unwrap_or(Json::empty_object())
+    match Entry::from_json(payload) {
+      Rejected(reason) => {
+        let body : Json = { "error": "invalid_entry", "reason": reason }
+        Response::json(body, status=400)
+      }
+      Accepted(domain, title, body_text) => {
+        let entry = db.insert_entry(domain, title, body_text)
+        Response::json(entry.created_json(), status=201)
+      }
+    }
+  })
+  app.delete("/api/entries/:id", req => {
+    // -1 means "not a number". Rowids start at 1, so the sentinel cannot
+    // collide with a real id, and it keeps the handler flat: matching on the
+    // Result here does not typecheck, while `catch` is the form the rest of
+    // this file already uses to parse a query parameter.
+    let id = match req.param("id") {
+      Some(raw) => @string.parse_int(raw) catch { _ => -1 }
+      None => -1
+    }
+    if id < 0 {
+      // A missing or non-numeric id can never name a row. Saying so plainly
+      // beats a 404 that implies the entry might exist.
+      let body : Json = {
+        "error": "bad_id",
+        "id": match req.param("id") {
+          Some(raw) => raw
+          None => ""
+        },
+      }
+      Response::json(body, status=400)
+    } else if db.delete_entry(id.to_int64()) {
+      let body : Json = { "deleted": id }
+      Response::json(body)
+    } else {
+      let body : Json = { "error": "not_found", "id": id }
+      Response::json(body, status=404)
+    }
   })
   // Loop endpoints: the pyroduct-driven state cycle.
   // GET  /api/loop/status       → current domain, position, history
