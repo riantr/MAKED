@@ -407,6 +407,14 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     let body : Json = { "slots": slots_json() }
     Response::json(body)
   })
+  // GET /api/model
+  //
+  // The machine itself, as data: the domains, the positions, the slots and
+  // the rule for every pair. It is served so that the model can be read,
+  // edited and handed back -- the loop is going to run off a model file
+  // rather than off a package, and a file nobody can get at is not a file
+  // anybody can edit.
+  app.get("/api/model", _req => Response::json(current_model().to_json()))
   // GET /api/loop/continuations?depth=3
   //
   // What the model itself says could happen next from the current position,

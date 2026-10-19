@@ -264,6 +264,15 @@ client-side route, so it survives a cold load and a deep link alike.
 | `POST /api/loop/mode/:mode` | switch mode (structured/free) |
 | `GET /api/loop/continuations?depth=N` | the model's own "all possible continuations" (`after_open`) |
 
+### The Model
+
+| Route | Returns |
+|---|---|
+| `GET /api/model` | the whole machine as JSON: the domains, the 34 positions, the 8 slots, and the rule for every one of the 272 (position, slot) pairs |
+
+The model is the machine written down, so it can be read, edited and handed
+back. See [The Machine Is Data, Not a Package](#the-machine-is-data-not-a-package).
+
 Besides the original fields, `GET /api/loop/status` also returns `drive_slot_name`, `blocked`, `undecided`,
 `open_slots` (the slots that really have an outgoing edge at the current position, with their outcomes),
 and `at_anchor` / `drivable` for each domain.
@@ -350,7 +359,7 @@ image carries `pwsh`.
 Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be run separately:
 
 ```
-.\tools\mutate-backend.ps1     # 27 mutations, 0 survived, 1 expected-equivalent
+.\tools\mutate-backend.ps1     # 31 mutations, 0 survived, 1 expected-equivalent
 .\tools\mutate-frontend.ps1    # 21 mutations, 0 survived
 .\tools\mutate-loop.ps1        # 16 mutations, 0 survived, 1 expected-equivalent
 ```
@@ -366,7 +375,7 @@ the signal we want.
 | js-check | `moon check --target js` | frontend type safety |
 | fmt | `moon fmt --check` | code formatting |
 | tree | `moon tree` | dependency audit |
-| unit-native | `moon test --target native` | 222 backend tests (includes the BDD suite below) |
+| unit-native | `moon test --target native` | 237 backend tests (includes the BDD suite below) |
 | unit-js | `moon test --target js` | 68 frontend tests |
 | coverage | `moon test --enable-coverage` | coverage |
 | bench | `moon bench` | benchmarks |
@@ -401,7 +410,7 @@ The cause was not root-caused — the same build works when the init issues a GE
 ## The Integration Tests Are The Net For That Class Of Bug
 
 ```powershell
-.\tools\integration-test.ps1              # builds the server, then runs 119 checks
+.\tools\integration-test.ps1              # builds the server, then runs 127 checks
 .\tools\integration-test.ps1 -SkipBuild   # reuse the binary that is already built
 ```
 
@@ -704,6 +713,63 @@ and the test reads the endpoint back out of it. The bytes that are actually
 served are checked too: a stale bundle is a silent failure, in which the
 server answers every request correctly while the page in front of the reader
 has no way out in it.
+
+## The Machine Is Data, Not a Package
+
+The state machine MAKED runs — 34 positions, 8 slots, 53 transitions — lived
+in the `pyroduct` package, and MAKED reached it through that package's own
+types. So MAKED could run exactly one loop: pyroproduct's. To run a
+different one — a product-iteration loop, a clinical path, a writing
+process — somebody would have to fork MAKED.
+
+`backend/model.mbt` makes the machine a value instead of a program. A model
+is the domains, the positions, the slots, and the rule for every
+(position, slot) pair, and it is written down in JSON:
+
+```json
+{
+  "format": "maked.model.v1",
+  "name": "Product iteration",
+  "domains": [
+    { "id": "idea", "letter": "I", "title": "Idea", "role": "the idea", "anchor": "raw" }
+  ],
+  "positions": [
+    { "id": "raw", "label": "Raw idea", "gloss": "Nobody has built it yet.", "domain": "idea" }
+  ],
+  "slots": [
+    { "id": "ask", "designation": "Ask", "gloss": "Talk to a customer." }
+  ],
+  "rules": [
+    { "from": "raw", "slot": "ask", "outcome": { "kind": "moved", "edge": "A customer said no", "to": "talked" } }
+  ],
+  "continuations": []
+}
+```
+
+Nothing in that format assumes pyroproduct's sizes. Three positions is a
+model with three positions, not a model with two missing. The `outcome` is
+one of `moved`, `held`, `same`, `open` or `block`, and `open` is the one
+that declines to choose — it carries the candidates, and the candidate the
+reader picks is the way out of a position the table would not decide.
+
+**The translation is proved, not assumed.** The built-in model is still
+pyroduct's: `Model::pyroduct` asks the package about all 272 combinations
+and writes the answers down in MAKED's own vocabulary. The test then asks
+the package the same 272 questions again and compares the two, pair by
+pair. A translation that is nearly right is the dangerous kind — it would
+be wrong in a place nobody looks, and the wrongness would look like the
+model rather than like a mistake.
+
+**A model can be wrong in a way a reader can act on.** A file that names a
+position it does not define is refused, because a rule about a position
+that is not there is a rule about nowhere, and reading it would mean
+inventing a position to hold it. A file in a format this version does not
+know is refused too, rather than half-read.
+
+This is the first step and not the whole road. The loop still runs off the
+package; what has changed is that the machine is now something MAKED can
+hand out, and `GET /api/model` serves it. The next step is to run the loop
+off the file.
 
 ## Deep Links Need A `<base>` Tag
 

@@ -274,6 +274,41 @@ $mutations = @(
     file = 'backend/loop.mbt'
     old  = '    if next.en_label().to_lower() == needle {'
     new  = '    if false {'
+  },
+  # The model is the machine written down. A translation that sends the
+  # subject somewhere else is a model that says something the table does
+  # not, and the comparison over all 272 combinations is what catches it.
+  @{
+    name = 'the model writes down the wrong destination'
+    file = 'backend/model.mbt'
+    old  = '    @sm.Moved(tr, to) => Moved(tr.en_label(), position_id_of(to))'
+    new  = '    @sm.Moved(tr, to) => Moved(tr.en_label(), position_id_of(state))'
+  },
+  # A pair with no way out is not a way out. A model that counts it as one
+  # would offer a reader a drive slot that goes nowhere.
+  @{
+    name = 'a blocked pair is counted as a way out'
+    file = 'backend/model.mbt'
+    old  = '          Block(_) => ()
+          _ => usable.push(slot.id)'
+    new  = '          Block(_) => usable.push(slot.id)
+          _ => usable.push(slot.id)'
+  },
+  # A model file that names a position it does not define is a rule about
+  # nowhere. Reading it would mean inventing a position to hold it.
+  @{
+    name = 'a model that names what it does not define is accepted'
+    file = 'backend/model.mbt'
+    old  = '  if model.first_broken_rule() is Some(_) {'
+    new  = '  if model.first_broken_rule() is None {'
+  },
+  # The format is how a model says which version wrote it. Without it, a file
+  # from a later version would be read as if it were this one.
+  @{
+    name = 'the model does not say which format it is'
+    file = 'backend/model.mbt'
+    old  = '    "format": MODEL_FORMAT,'
+    new  = '    "format": "maked.model.v0",'
   }
 )
 

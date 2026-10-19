@@ -513,6 +513,37 @@ try {
   Assert-Status "a target the table does not offer is a 400" 400 $wrong
   Assert-Field "and it says so" ($wrong.Body | ConvertFrom-Json) "error" "unknown_target"
 
+  # ── the model ─────────────────────────────────────────────────────────────
+  # The machine itself, as data. It is served so that it can be read, edited
+  # and handed back, which is the whole point of writing it down: a model
+  # nobody can get at is not a model anybody can change.
+  Write-Host ""
+  Write-Host "-- the model"
+  $modelResponse = Invoke-Api -Method GET -Path "/api/model"
+  Assert-Status "the model is served" 200 $modelResponse
+  $model = $modelResponse.Body | ConvertFrom-Json
+  Assert-Field "and it says which format it is" $model "format" "maked.model.v1"
+  Assert-True "and it carries the five domains" (@($model.domains).Count -eq 5)
+  Assert-True "and the thirty-four positions" (@($model.positions).Count -eq 34)
+  Assert-True "and the eight slots" (@($model.slots).Count -eq 8)
+  Assert-True "and a rule for every pair of them" (@($model.rules).Count -eq 272)
+  # A model that names a position it does not define is not a model: it is a
+  # rule about nowhere. The check is that every rule refers to a position
+  # the model defines -- the same rule `Model::from_json` refuses a file
+  # over, checked here on the bytes that are actually served.
+  $positionIds = @($model.positions | ForEach-Object { $_.id })
+  $slotIds = @($model.slots | ForEach-Object { $_.id })
+  $dangling = 0
+  foreach ($rule in $model.rules) {
+    if ($positionIds -notcontains $rule.from) { $dangling++ }
+    if ($slotIds -notcontains $rule.slot) { $dangling++ }
+  }
+  Assert-True "and every rule is about a position and a slot the model defines" ($dangling -eq 0) `
+    ("$dangling rules name something the model does not define")
+  # The ids are what a URL carries, so they have to survive being one.
+  Assert-True "and the position ids are safe to put in a URL" `
+    (@($model.positions | Where-Object { $_.id -match '[^a-z0-9-]' }).Count -eq 0)
+
   # ── the sessions ─────────────────────────────────────────────────────────
   Write-Host ""
   Write-Host "-- the sessions"
