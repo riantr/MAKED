@@ -18,8 +18,12 @@ it if you want to keep them.
 Useful settings, all optional:
 
     MAKED_PORT       the port to listen on          (default 8080)
+    MAKED_HOST       the address to listen on       (default 127.0.0.1)
     MAKED_DB         where the database lives        (default maked.db)
     MAKED_DIST       where the browser files live    (default frontend/dist)
+
+MAKED_HOST is the one to reach for when the server has to be reachable from
+another machine: the default, 127.0.0.1, means this computer only.
 
 There is no authentication. Anyone who can reach the port can read and delete
 every record, so do not expose it to a network you do not control.

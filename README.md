@@ -118,6 +118,7 @@ broken image is caught before it is ever tagged.
 | Variable | Default | Meaning |
 |---|---|---|
 | `MAKED_PORT` | `8080` | listen port |
+| `MAKED_HOST` | `127.0.0.1` | listen address — `0.0.0.0` to be reachable from other machines |
 | `MAKED_DB` | `maked.db` | SQLite file path |
 | `MAKED_DIST` | `frontend/dist` | frontend build output directory |
 

@@ -141,12 +141,31 @@ jobs:
       - name: Start it and ask it something
         run: |
           docker run -d --name maked -p 8080:8080 maked:ci
+          answered=0
           for attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8080/api/status >/dev/null 2>&1; then
+              answered=1
               break
             fi
             sleep 1
           done
+          # A container that starts and then says nothing is the failure mode
+          # this step exists to catch, and the reason it says nothing is in
+          # its own output: the exit code tells you whether the process died
+          # (126 is "exec format error", 127 is "not found") and the logs
+          # tell you why. Without this, the only evidence is a connection
+          # reset, which says nothing about the cause.
+          if [ "$answered" -ne 1 ]; then
+            echo "::group::the container did not answer"
+            docker ps -a --filter name=maked
+            docker inspect --format 'exit={{.State.ExitCode}} oom={{.State.OOMKilled}} error={{.State.Error}}' maked || true
+            echo "::endgroup::"
+            echo "::group::container logs"
+            docker logs maked || true
+            echo "::endgroup::"
+            docker rm -f maked || true
+            exit 1
+          fi
           echo "--- /api/status ---"
           curl -fsS http://127.0.0.1:8080/api/status
           echo

@@ -24,6 +24,7 @@ fn parse_port(text : String) -> UInt16 {
 ///|
 async fn main {
   let port = parse_port(env_or("MAKED_PORT", "8080"))
+  let host = env_or("MAKED_HOST", "127.0.0.1")
   let db_path = env_or("MAKED_DB", "maked.db")
   let dist = env_or("MAKED_DIST", "frontend/dist")
   if !@fs.exists(dist) {
@@ -38,6 +39,16 @@ async fn main {
       "WARNING: MAKED_PORT is set, so MAKED listens on \{port} instead of 8080.",
     )
     println("  unset MAKED_PORT to go back to the default port")
+  }
+  // The host matters as much as the port, and in the opposite direction: the
+  // default is localhost, so a server that is meant to be reached from
+  // outside -- in a container, behind a proxy, on a shared machine -- has to
+  // be told so. A published container port cannot reach a server that is
+  // listening on 127.0.0.1 inside it, and the symptom is a connection reset
+  // with nothing in the logs.
+  if host != "127.0.0.1" {
+    println("WARNING: MAKED_HOST is \{host}, so MAKED is reachable from other machines.")
+    println("  there is no authentication; do not expose it to a network you do not control")
   }
   let app = @maked.create_app(db_path)
   let routes = app.to_module()
@@ -56,7 +67,7 @@ async fn main {
   // A failed bind is the one startup error a user cannot self-diagnose from the
   // message alone, so replace it with the two facts that actually decide it:
   // which port, and how to find what is holding it.
-  let listener = @moonback.listen(port~) catch {
+  let listener = @moonback.listen(host = host, port = port) catch {
     _ => {
       println("WARNING: MAKED cannot bind port \{port}.")
       println("")
@@ -82,7 +93,7 @@ async fn main {
       return
     }
   }
-  println("MAKED listening on http://127.0.0.1:\{port}")
+  println("MAKED listening on http://\{host}:\{port}")
   println("  api:  http://127.0.0.1:\{port}/api/pages")
   println("  data: \{db_path}")
   server.serve(listener)

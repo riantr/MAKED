@@ -82,7 +82,14 @@ COPY --from=build /app/frontend/dist /opt/maked/frontend/dist
 
 # The server takes its port, its database and its static files from the
 # environment, and this is what sets the defaults for the container.
+#
+# MAKED_HOST=0.0.0.0 is not optional. The server binds to 127.0.0.1 by
+# default, which is right on a desktop and useless in a container: a
+# published port cannot reach a server listening on the loopback interface
+# inside the container, and the symptom is a connection reset with nothing
+# in the logs.
 ENV MAKED_PORT=8080 \
+    MAKED_HOST=0.0.0.0 \
     MAKED_DB=/data/maked.db \
     MAKED_DIST=/opt/maked/frontend/dist
 
