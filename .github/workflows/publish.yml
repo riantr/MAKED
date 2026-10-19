@@ -400,7 +400,11 @@ jobs:
           shopt -s nullglob
           for archive in artifacts/*/*; do
             echo "attaching $archive"
-            gh release upload "$tag" "$archive" --clobber
+            # --repo is not optional here. This job downloads artifacts and
+            # never checks out the repository, so `gh` has no git remote to
+            # read and fails with "not a git repository" -- which says
+            # nothing about the upload it was in the middle of.
+            gh release upload "$tag" "$archive" --clobber --repo "${{ github.repository }}"
           done
         env:
           GH_TOKEN: ${{ github.token }}
