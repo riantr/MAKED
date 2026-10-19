@@ -1,6 +1,6 @@
 ///| The sentences that make the loop legible.
 ///
-/// The machine's own words come from pyroduct: the position labels, the slot
+/// The machine's own words come from the model: the position labels, the slot
 /// designations, the domain titles. What was missing is the sentence that
 /// ties them together -- why a step was taken, what it changed, and what a
 /// run of steps adds up to.

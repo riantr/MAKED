@@ -164,12 +164,23 @@ gate_dast() {
 # Gate 12: Mutation tests
 # ---------------------------------------------------------------------------
 gate_mutation() {
-  # Mutation testing is advisory -- an 80%+ kill rate is acceptable.
-  # The script exits 0 as long as it runs; survived mutations are warnings.
-  bash tools/mutation-test.sh 2>&1 || {
+  # Mutation testing is advisory -- an 80%+ kill rate is acceptable. A
+  # surviving mutation is a gap in the tests, and the gate reports it without
+  # failing the run.
+  #
+  # A dead anchor is a different thing. The mutation never applied, so the
+  # guard proved nothing, and a guard that cannot break is not a guard. The
+  # script exits 2 for that, and this gate fails on it.
+  local status=0
+  bash tools/mutation-test.sh 2>&1 || status=$?
+  if [ "$status" -eq 2 ]; then
+    echo "    ERROR: the mutation gate has a dead anchor -- see above"
+    return 1
+  fi
+  if [ "$status" -ne 0 ]; then
     echo "    (mutation gate: some mutations survived, but score >= 80% is acceptable)"
-    return 0
-  }
+  fi
+  return 0
 }
 
 # ---------------------------------------------------------------------------

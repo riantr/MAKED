@@ -48,10 +48,26 @@ pub const METRIC_WINDOW : Int32 = 5
 ///|
 /// How many domains there are.
 ///
-/// The five of the ring: M, D, E, A, K. The same list the run summary counts
-/// in, and for the same reason -- the ring is how this project explains
-/// itself.
-pub const DOMAIN_COUNT : Int32 = 5
+/// The model's: the five of the ring (M, D, E, A, K) in the built-in model,
+/// and whatever a model file says in a model of its own. The same list the
+/// run summary counts in, and for the same reason -- the ring is how this
+/// project explains itself, and a model file brings its own ring with it.
+///
+/// A measure whose denominator is a number somebody typed in is a measure
+/// that is wrong the moment the machine changes shape.
+pub fn domain_count() -> Int32 {
+  current_model().domains.length()
+}
+
+///|
+/// The model's domain letters, in ring order.
+pub fn domain_letters() -> Array[String] {
+  let letters = []
+  for domain in current_model().domains {
+    letters.push(domain.letter)
+  }
+  letters
+}
 
 ///|
 /// One measured number, and the reading that goes with it.
@@ -316,7 +332,7 @@ fn slot_spread_metric(recent : Array[SessionStep]) -> Metric {
   }
   let counts = tally(names)
   let distinct = counts.length()
-  let total = @sm.all_slots().length()
+  let total = current_model().slots.length()
   let (top, top_count) = most_used(counts)
   let w = recent.length()
   let sentence = if top_count > 1 {
@@ -365,13 +381,13 @@ fn domain_spread_metric(recent : Array[SessionStep]) -> Metric {
     " visited " +
     distinct.to_string() +
     " of the " +
-    DOMAIN_COUNT.to_string() +
+    domain_count().to_string() +
     " domains."
   {
     key: "domain_spread",
     label: "Domains visited",
     value: distinct,
-    of: DOMAIN_COUNT,
+    of: domain_count(),
     sentence,
   }
 }
@@ -380,14 +396,14 @@ fn domain_spread_metric(recent : Array[SessionStep]) -> Metric {
 /// Position drift: how many of the positions the run has stood on, and how
 /// many of them each domain has ranged over.
 ///
-/// The denominator is read out of pyroduct rather than written down here:
+/// The denominator is read out of the model rather than written down here:
 /// the size of the state space is the machine's business, and a number
 /// copied into MAKED would be wrong the day the table grew.
 fn position_drift_metric(path : Array[SessionStep]) -> Metric {
-  let total = @sm.all_states().length()
+  let total = current_model().positions.length()
   let all : Array[String] = []
   let per_domain : Array[(String, Int32)] = []
-  for letter in ["M", "D", "E", "A", "K"] {
+  for letter in domain_letters() {
     let positions : Array[String] = []
     for step in path {
       if step.domain == letter {

@@ -537,7 +537,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     }
   })
   app.post("/api/loop/reset", _req => {
-    let state = reset_to(Model)
+    let state = reset_to(starting_domain())
     reset_session_start(db, state)
     Response::json(loop_payload(db))
   })

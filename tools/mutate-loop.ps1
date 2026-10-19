@@ -128,7 +128,11 @@ pub fn Model::drive_slot(self : Model, from : String) -> String? {
   @{
     name = 'to_json reports the anchor instead of the real position'
     file = 'backend/loop.mbt'
-    old  = '  let current_ds = self.domain_states[self.current]
+    # The map is keyed by domain id, so the lookup carries the id with it.
+    # An earlier anchor read `self.domain_states[self.current]`, which stopped
+    # matching when the key became the id -- the mutation then never applied
+    # and the guard was testing air.
+    old  = '  let current_ds = self.domain_states[self.current.id]
   let current_pos = current_ds.position'
     new  = '  let current_pos = self.current.position()'
   },

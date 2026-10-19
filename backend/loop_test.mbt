@@ -58,11 +58,26 @@ test "position_to_domain returns None for non-anchor positions" {
 ///|
 /// Each domain's next() follows the ring.
 test "next() follows M→D→E→A→K→M" {
-  assert_eq(@backend.Model.next(), @backend.Data)
-  assert_eq(@backend.Data.next(), @backend.Experience)
-  assert_eq(@backend.Experience.next(), @backend.Attack)
-  assert_eq(@backend.Attack.next(), @backend.Knowledge)
-  assert_eq(@backend.Knowledge.next(), @backend.Model)
+  assert_eq(
+    @backend.domain_from_id("model").unwrap().next(),
+    @backend.domain_from_id("data").unwrap(),
+  )
+  assert_eq(
+    @backend.domain_from_id("data").unwrap().next(),
+    @backend.domain_from_id("experience").unwrap(),
+  )
+  assert_eq(
+    @backend.domain_from_id("experience").unwrap().next(),
+    @backend.domain_from_id("attack").unwrap(),
+  )
+  assert_eq(
+    @backend.domain_from_id("attack").unwrap().next(),
+    @backend.domain_from_id("knowledge").unwrap(),
+  )
+  assert_eq(
+    @backend.domain_from_id("knowledge").unwrap().next(),
+    @backend.domain_from_id("model").unwrap(),
+  )
 }
 
 ///|
@@ -173,7 +188,7 @@ test "a blocked step leaves the cursor where it was" {
   let state = @backend.LoopState::new()
   // Standing x Co-being is a real gap in the table.
   let blocked = state.step_with_slot("cobeing")
-  assert_eq(blocked.current, @backend.Model)
+  assert_eq(blocked.current, @backend.domain_from_id("model").unwrap())
   assert_eq(blocked.history[0].outcome_label, "No-way")
 }
 
@@ -190,20 +205,26 @@ test "neither a blocked nor an undecided step advances the cursor" {
   let mut state = @backend.LoopState::new()
   // Model Standing -> Freedom by Action; the cursor moves to Data.
   state = state.step()
-  assert_eq(state.current, @backend.Data)
-  assert_eq(state.domain_state(@backend.Model).position, "freedom")
+  assert_eq(state.current, @backend.domain_from_id("data").unwrap())
+  assert_eq(
+    state.domain_state(@backend.domain_from_id("model").unwrap()).position,
+    "freedom",
+  )
   // Come back to Model. From Freedom the only exitable slot is Situation, which
   // is Undecided.
-  let back = state.focus(@backend.Model)
-  assert_eq(back.current, @backend.Model)
+  let back = state.focus(@backend.domain_from_id("model").unwrap())
+  assert_eq(back.current, @backend.domain_from_id("model").unwrap())
   let stepped = back.step()
   assert_eq(
     stepped.history[stepped.history.length() - 1].outcome_label,
     "Undecided",
   )
   // Nothing moved, so the cursor must not have moved either.
-  assert_eq(stepped.current, @backend.Model)
-  assert_eq(stepped.domain_state(@backend.Model).position, "freedom")
+  assert_eq(stepped.current, @backend.domain_from_id("model").unwrap())
+  assert_eq(
+    stepped.domain_state(@backend.domain_from_id("model").unwrap()).position,
+    "freedom",
+  )
 }
 
 ///|
@@ -217,7 +238,7 @@ test "neither a blocked nor an undecided step advances the cursor" {
 test "a reader can choose one of the successors the model offered" {
   let mut state = @backend.LoopState::new()
   state = state.step() // Model Standing -> Freedom
-  let back = state.focus(@backend.Model)
+  let back = state.focus(@backend.domain_from_id("model").unwrap())
   // The model declines to choose here, and says what it would have chosen.
   let candidates = @backend.open_candidates("freedom", "occasion")
   assert_true(candidates.length() > 1)
@@ -225,8 +246,11 @@ test "a reader can choose one of the successors the model offered" {
   let target = candidates[0].to
   let stepped = back.step_with_target("occasion", target)
   // The subject moved, and the cursor moved with it.
-  assert_eq(stepped.domain_state(@backend.Model).position, target)
-  assert_eq(stepped.current, @backend.Data)
+  assert_eq(
+    stepped.domain_state(@backend.domain_from_id("model").unwrap()).position,
+    target,
+  )
+  assert_eq(stepped.current, @backend.domain_from_id("data").unwrap())
   // And the step was recorded as a move, not as the undecided one.
   let event = stepped.history[stepped.history.length() - 1]
   assert_eq(event.outcome_label, "Moved")
@@ -241,10 +265,13 @@ test "a reader can choose one of the successors the model offered" {
 test "a target the model does not offer leaves the position alone" {
   let mut state = @backend.LoopState::new()
   state = state.step()
-  let back = state.focus(@backend.Model)
+  let back = state.focus(@backend.domain_from_id("model").unwrap())
   let stepped = back.step_with_target("occasion", "Nowhere")
-  assert_eq(stepped.domain_state(@backend.Model).position, "freedom")
-  assert_eq(stepped.current, @backend.Model)
+  assert_eq(
+    stepped.domain_state(@backend.domain_from_id("model").unwrap()).position,
+    "freedom",
+  )
+  assert_eq(stepped.current, @backend.domain_from_id("model").unwrap())
   // And no step was recorded: the history is the one it already had.
   assert_eq(stepped.history.length(), back.history.length())
 }
@@ -328,8 +355,10 @@ test "status reports the real position, not the anchor, after a move" {
   let model = @backend.current_model()
   let state = @backend.LoopState::new()
   let stepped = state.step()
-  let ds = stepped.domain_state(@backend.Model)
-  assert_true(ds.position != @backend.Model.position())
+  let ds = stepped.domain_state(@backend.domain_from_id("model").unwrap())
+  assert_true(
+    ds.position != @backend.domain_from_id("model").unwrap().position(),
+  )
   let json = stepped.to_json()
   // Model moved to Freedom; the per-domain view must say so.
   let mut saw_freedom = false
@@ -471,7 +500,7 @@ test "status reports undecided at an Undecided branch" {
   state = state.step() // Model Standing -> Freedom, cursor moves to D
   // Freedom is where Situation is Undecided. Drive Model back to the cursor and
   // step it.
-  let back = state.focus(@backend.Model)
+  let back = state.focus(@backend.domain_from_id("model").unwrap())
   let json = back.to_json()
   // From Freedom the only exitable slot is Situation, which is Undecided. The
   // status must say Undecided rather than present the branch as an ordinary
@@ -525,13 +554,13 @@ test "every open slot carries the kind as well as the label" {
 test "a moved domain is driven from its new position, not its anchor" {
   let mut state = @backend.LoopState::new()
   state = state.step() // Model Standing -> Freedom
-  let moved = state.domain_state(@backend.Model)
+  let moved = state.domain_state(@backend.domain_from_id("model").unwrap())
   assert_eq(moved.position, "freedom")
   // Come back to Model and step again: the slot must be derived from Freedom,
   // where Situation is the only exitable slot.
   let mut back = state
   back = {
-    current: @backend.Model,
+    current: @backend.domain_from_id("model").unwrap(),
     domain_states: back.domain_states,
     group_state: back.group_state,
     history: back.history,
@@ -668,7 +697,7 @@ test "letter, title, role are non-empty for every domain" {
 /// LoopState::new starts at Model with empty history.
 test "LoopState::new starts at Model with empty history" {
   let state = @backend.LoopState::new()
-  assert_eq(state.current, @backend.Model)
+  assert_eq(state.current, @backend.domain_from_id("model").unwrap())
   assert_eq(state.history.length(), 0)
 }
 
@@ -684,13 +713,16 @@ test "step() moves Model off its anchor on the first step" {
   let stepped = state.step()
   assert_eq(stepped.history.length(), 1)
   let event = stepped.history[0]
-  assert_eq(event.domain, @backend.Model)
+  assert_eq(event.domain, @backend.domain_from_id("model").unwrap())
   assert_eq(event.slot, "act")
   assert_eq(event.outcome_label, "Moved")
   assert_eq(event.position_designation, "Standing")
   // The cursor moved on, and Model itself actually went somewhere.
-  assert_eq(stepped.current, @backend.Data)
-  assert_eq(stepped.domain_state(@backend.Model).position, "freedom")
+  assert_eq(stepped.current, @backend.domain_from_id("data").unwrap())
+  assert_eq(
+    stepped.domain_state(@backend.domain_from_id("model").unwrap()).position,
+    "freedom",
+  )
 }
 
 ///|
@@ -700,7 +732,7 @@ test "five steps complete one full ring" {
   for _ in 0..<5 {
     state = state.step()
   }
-  assert_eq(state.current, @backend.Model)
+  assert_eq(state.current, @backend.domain_from_id("model").unwrap())
   assert_eq(state.history.length(), 5)
 }
 
@@ -710,8 +742,11 @@ test "history records the departing domain" {
   let state = @backend.LoopState::new()
   let stepped = state.step()
   // We started at Model and stepped to Data; the history records Model.
-  assert_eq(stepped.history[0].domain, @backend.Model)
-  assert_eq(stepped.current, @backend.Data)
+  assert_eq(
+    stepped.history[0].domain,
+    @backend.domain_from_id("model").unwrap(),
+  )
+  assert_eq(stepped.current, @backend.domain_from_id("data").unwrap())
 }
 
 ///|
@@ -720,7 +755,7 @@ test "step_with_slot stays put on Block outcome" {
   let state = @backend.LoopState::new()
   // Model/Standing with CoBeing returns Block, which has no landing.
   let stepped = state.step_with_slot("cobeing")
-  assert_eq(stepped.current, @backend.Model)
+  assert_eq(stepped.current, @backend.domain_from_id("model").unwrap())
   assert_eq(stepped.history.length(), 1)
   assert_eq(stepped.history[0].outcome_label, "No-way")
 }
@@ -730,9 +765,9 @@ test "step_with_slot stays put on Block outcome" {
 test "step_loop advances the global state" {
   @backend.reset_loop() |> ignore
   let s1 = @backend.step_loop()
-  assert_eq(s1.current, @backend.Data)
+  assert_eq(s1.current, @backend.domain_from_id("data").unwrap())
   let s2 = @backend.get_loop_state()
-  assert_eq(s2.current, @backend.Data)
+  assert_eq(s2.current, @backend.domain_from_id("data").unwrap())
   assert_eq(s2.history.length(), 1)
   @backend.reset_loop() |> ignore
 }
@@ -744,9 +779,12 @@ test "reset_loop returns to initial state" {
   @backend.step_loop() |> ignore
   @backend.step_loop() |> ignore
   let state = @backend.reset_loop()
-  assert_eq(state.current, @backend.Model)
+  assert_eq(state.current, @backend.domain_from_id("model").unwrap())
   assert_eq(state.history.length(), 0)
-  assert_eq(@backend.get_loop_state().current, @backend.Model)
+  assert_eq(
+    @backend.get_loop_state().current,
+    @backend.domain_from_id("model").unwrap(),
+  )
 }
 
 ///|
@@ -843,15 +881,24 @@ test "Block outcome_detail mentions the position" {
   assert_eq(event.outcome_label, "No-way")
   assert_true(event.outcome_detail.contains("Standing"))
   // Nothing moved, so the cursor stays on the domain that could not move.
-  assert_eq(stepped.current, @backend.Model)
-  assert_eq(stepped.domain_state(@backend.Model).position, "standing")
+  assert_eq(stepped.current, @backend.domain_from_id("model").unwrap())
+  assert_eq(
+    stepped.domain_state(@backend.domain_from_id("model").unwrap()).position,
+    "standing",
+  )
 }
 
 ///|
 /// Eq on Domain works correctly.
 test "Domain equality" {
-  assert_eq(@backend.Model, @backend.Model)
-  assert_true(@backend.Model != @backend.Data)
+  assert_eq(
+    @backend.domain_from_id("model").unwrap(),
+    @backend.domain_from_id("model").unwrap(),
+  )
+  assert_true(
+    @backend.domain_from_id("model").unwrap() !=
+    @backend.domain_from_id("data").unwrap(),
+  )
 }
 
 ///|

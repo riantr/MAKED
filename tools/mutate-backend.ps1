@@ -344,6 +344,83 @@ $mutations = @(
   }
   out
 }'
+  },
+  # The ring is the model's, and as long as the model says. A ring that
+  # skipped a domain would put two of the model's lenses next to each other
+  # and leave one of them unvisited, and the reader would never be shown it.
+  @{
+    name = 'the ring skips a domain'
+    file = 'backend/model.mbt'
+    old  = '      if i + 1 < self.domains.length() {
+        return self.domains[i + 1]
+      }'
+    new  = '      if i + 1 < self.domains.length() {
+        return self.domains[0]
+      }'
+  },
+  # A domain starts at its anchor, and the anchor is the model's. Ignoring it
+  # would leave every domain standing nowhere.
+  @{
+    name = 'a domain''s anchor is ignored'
+    file = 'backend/loop.mbt'
+    old  = 'pub fn Domain::position(self : Domain) -> String {
+  self.anchor
+}'
+    new  = 'pub fn Domain::position(self : Domain) -> String {
+  ""
+}'
+  },
+  # A domain that anchors nowhere is a domain that starts nowhere, and the
+  # file is refused rather than half-read.
+  @{
+    name = 'a domain that anchors nowhere is accepted'
+    file = 'backend/model.mbt'
+    old  = '  for domain in self.domains {
+    if self.position(domain.anchor) is None {
+      return Some(domain.anchor)
+    }
+  }'
+    new  = '  for domain in self.domains {
+    if false {
+      return Some(domain.anchor)
+    }
+  }'
+  },
+  # A model that writes no continuations down has them worked out from its
+  # rules. Without the working-out, the "what could happen next" panel of a
+  # hand-written model is empty.
+  @{
+    name = 'the continuations are never worked out'
+    file = 'backend/model.mbt'
+    old  = '  if self.continuations.length() == 0 {
+    return self.derived_continuations(from, depth, None)
+  }'
+    new  = '  if self.continuations.length() == 0 {
+    return []
+  }'
+  },
+  # The format is how a model says which version wrote it. A file from a
+  # later version is refused, not read as if it were this one.
+  @{
+    name = 'a model in another format is read anyway'
+    file = 'backend/model.mbt'
+    old  = '  if format != MODEL_FORMAT {
+    return None
+  }'
+    new  = '  if false {
+    return None
+  }'
+  },
+  # The model that was read is the model that runs. A server that read a
+  # file and then ran the built-in machine anyway would answer every
+  # request confidently and about the wrong loop.
+  @{
+    name = 'the model is read but never installed'
+    file = 'backend/model.mbt'
+    old  = '  g_model[0] = model
+  ignore(reset_loop())'
+    new  = '  g_model[0] = current_model()
+  ignore(reset_loop())'
   }
 )
 

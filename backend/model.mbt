@@ -35,7 +35,16 @@
 
 ///|
 /// One of the lenses the loop is shown through.
-pub(all) struct DomainSpec {
+///
+/// A domain is not a place and not a variant of anything: it is a lens, and
+/// the model says which lenses there are. MAKED's five -- Model, Data,
+/// Experience, Attack, Knowledge -- are the *built-in* model's, written down
+/// in `maked_domains`, and a model file may have two, or seven, or one.
+///
+/// The anchor is the position the domain starts at, and it is a position id
+/// like any other. It used to be derived from a match on a five-variant
+/// enum, which meant only MAKED's five lenses could ever exist.
+pub(all) struct Domain {
   /// The id this domain is referred to by.
   id : String
   /// The single letter the ring is drawn with.
@@ -49,10 +58,59 @@ pub(all) struct DomainSpec {
 } derive(Eq, Debug)
 
 ///|
-pub extend DomainSpec with Eq::{not_equal, equal}
+pub extend Domain with Eq::{not_equal, equal}
 
 ///|
-pub extend DomainSpec with Debug::{to_repr}
+pub extend Domain with Debug::{to_repr}
+
+///|
+/// MAKED's own five domains, as the built-in model's data.
+///
+/// The anchors are position ids in the built-in model: Model stands at
+/// Standing, Data at Encounter, Experience at Honor, Attack at Evil and
+/// Knowledge at Discipline. They are derived from the table rather than
+/// written out, so a rename upstream moves them with it -- and they are
+/// *data* rather than a match on an enum, which is what lets a model file
+/// have a different set of lenses.
+fn maked_domains() -> Array[Domain] {
+  [
+    {
+      id: "model",
+      letter: "M",
+      title: "Model",
+      role: "the model formulator",
+      anchor: position_id_of(@sm.Standing),
+    },
+    {
+      id: "data",
+      letter: "D",
+      title: "Data",
+      role: "the data turbine",
+      anchor: position_id_of(@sm.Encounter),
+    },
+    {
+      id: "experience",
+      letter: "E",
+      title: "Experience",
+      role: "the experience absorber",
+      anchor: position_id_of(@sm.Honor),
+    },
+    {
+      id: "attack",
+      letter: "A",
+      title: "Attack",
+      role: "the attack generator",
+      anchor: position_id_of(@sm.Evil),
+    },
+    {
+      id: "knowledge",
+      letter: "K",
+      title: "Knowledge",
+      role: "the knowledge distiller",
+      anchor: position_id_of(@sm.Discipline),
+    },
+  ]
+}
 
 ///|
 /// A position the subject can stand at.
@@ -176,7 +234,7 @@ pub(all) struct Model {
   /// What the model is called.
   name : String
   /// The domains, in the order they are shown.
-  domains : Array[DomainSpec]
+  domains : Array[Domain]
   /// Every position the subject can stand at.
   positions : Array[PositionSpec]
   /// Every slot that can drive the subject.
@@ -211,6 +269,69 @@ let g_model : Array[Model] = [Model::pyroduct()]
 /// The model MAKED is running.
 pub fn current_model() -> Model {
   g_model[0]
+}
+
+///|
+/// The model file named by `MAKED_MODEL`, if there is one.
+///
+/// The name is the whole of the switch: unset means the built-in model, set
+/// means the machine the operator asked for. An empty value counts as unset,
+/// because an empty environment variable is a mistake rather than a
+/// filename.
+pub fn model_path_from_env() -> String? {
+  match @env.get_env_var("MAKED_MODEL") {
+    Some(path) if path != "" => Some(path)
+    _ => None
+  }
+}
+
+///|
+/// Read a model from a file.
+///
+/// None when the file cannot be read, is not JSON, is not a model this
+/// version understands, or names something it does not define. A model that
+/// cannot be read whole is not read at all: half a machine is worse than the
+/// built-in one, because everything downstream would be confidently wrong
+/// about a machine nobody can see.
+pub async fn read_model_file(path : String) -> Model? {
+  let text = @fs.read_file(path).text() catch {
+    err => {
+      println("error: model file \{path} unreadable: \{err}")
+      return None
+    }
+  }
+  let json = @json.parse(text) catch {
+    err => {
+      println("error: model file \{path} is not JSON: \{err}")
+      return None
+    }
+  }
+  match Model::from_json(json) {
+    Some(model) => Some(model)
+    None => {
+      println(
+        "error: model file \{path} is not a model this version understands.",
+      )
+      println(
+        "  it has to say which format it is (\"{MODEL_FORMAT}\"), and every",
+      )
+      println("  rule has to be about a position and a slot it defines.")
+      None
+    }
+  }
+}
+
+///|
+/// Install a model as the one MAKED runs.
+///
+/// The loop is reset as well, and it has to be: the loop's state holds one
+/// position per domain, and the domains of the model that is being installed
+/// are not the domains the state was built for. A loop carrying the old
+/// model's domains would offer the reader a position the new model does not
+/// have.
+pub fn install_model(model : Model) -> Unit {
+  g_model[0] = model
+  ignore(reset_loop())
 }
 
 ///|
@@ -255,13 +376,7 @@ pub fn slot_id_of(slot : @sm.Slot) -> String {
 ///|
 /// The id of a domain.
 pub fn domain_id_of(domain : Domain) -> String {
-  match domain {
-    Model => "model"
-    Data => "data"
-    Experience => "experience"
-    Attack => "attack"
-    Knowledge => "knowledge"
-  }
+  domain.id
 }
 
 ///|
@@ -364,13 +479,18 @@ pub fn Model::slot_from_name(self : Model, s : String) -> String? {
 /// The successors reachable from a position through one slot.
 ///
 /// The same list as `continuations`, but for a single slot: the slot-by-slot
-/// view is where the alternative routes belong.
+/// view is where the alternative routes belong. A model that does not write
+/// its continuations down is walked instead, with the first step through
+/// this slot and the rest through whatever the model offers.
 pub fn Model::continuations_for(
   self : Model,
   from : String,
   slot : String,
   depth : Int32,
 ) -> Array[(String, Int32)] {
+  if self.continuations.length() == 0 {
+    return self.derived_continuations(from, depth, Some(slot))
+  }
   let out = []
   for continuation in self.continuations {
     if continuation.from == from &&
@@ -385,21 +505,10 @@ pub fn Model::continuations_for(
 ///|
 /// The position a domain starts at.
 pub fn Model::domain_anchor(self : Model, domain : String) -> String {
-  match self.domain(domain) {
+  match self.domain_by_id(domain) {
     Some(spec) => spec.anchor
     None => ""
   }
-}
-
-///|
-/// The domain that starts at a position, if one does.
-pub fn Model::domain_anchored_at(self : Model, position : String) -> String? {
-  for domain in self.domains {
-    if domain.anchor == position {
-      return Some(domain.id)
-    }
-  }
-  None
 }
 
 ///|
@@ -458,21 +567,11 @@ pub fn Model::pyroduct() -> Model {
       gloss: slot.en_gloss(),
     })
   }
-  // The domains are read out of MAKED's own vocabulary rather than written
-  // down here, so that there is one place that says what the five domains
-  // are. The model file will own them once the loop reads its machine from
-  // a model; until then this is the direction of the dependency, and it is
-  // the safe one to move in.
-  let domains : Array[DomainSpec] = []
-  for domain in ring_domains_loop() {
-    domains.push({
-      id: domain_id_of(domain),
-      letter: domain.letter(),
-      title: domain.title(),
-      role: domain.role(),
-      anchor: domain_anchor_of(domain),
-    })
-  }
+  // The domains are MAKED's own, written down as data. They used to be read
+  // out of a five-variant enum, which meant a model file could not have a
+  // different set of lenses -- the file would have described positions and
+  // rules that no domain stood for.
+  let domains = maked_domains()
   let rules : Array[Rule] = []
   for state in @sm.all_states() {
     for slot in @sm.all_slots() {
@@ -603,11 +702,20 @@ pub fn Model::candidates(
 /// A successor reached twice is listed once, at the shorter distance: two
 /// routes to the same position are one future, and the slot-by-slot view is
 /// where the alternative routes belong.
+///
+/// A model that writes its continuations down is taken at its word. A model
+/// that does not -- and a hand-written one usually does not, because the
+/// author writes the rules and the rules already say what can follow what
+/// -- is walked instead, and the walk is the same question asked of the
+/// rules.
 pub fn Model::continuations(
   self : Model,
   from : String,
   depth : Int32,
 ) -> Array[(String, Int32)] {
+  if self.continuations.length() == 0 {
+    return self.derived_continuations(from, depth, None)
+  }
   let seen : Array[(String, Int32)] = []
   let out : Array[(String, Int32)] = []
   for continuation in self.continuations {
@@ -629,6 +737,86 @@ pub fn Model::continuations(
       seen[index] = (continuation.to, continuation.steps)
       out[index] = (continuation.to, continuation.steps)
     }
+  }
+  out
+}
+
+///|
+/// The successors reachable from a position, worked out from the rules.
+///
+/// The walk starts through the slot the position actually offers -- the
+/// first edge is the one a reader would take -- and then follows whatever
+/// the model offers from there, breadth first, up to the depth asked for.
+///
+/// A rule that is a gap ends the walk at that point, and so does a rule
+/// that leaves the subject where it was: neither leads anywhere, and
+/// counting a position the subject cannot get to as a future would be
+/// offering a road that is not there.
+fn Model::derived_continuations(
+  self : Model,
+  from : String,
+  depth : Int32,
+  first_slot : String?,
+) -> Array[(String, Int32)] {
+  let out : Array[(String, Int32)] = []
+  if depth <= 0 {
+    return out
+  }
+  let seen = [from]
+  let mut frontier : Array[(String, Int32)] = []
+  for slot in self.exitable_slots(from) {
+    if first_slot is Some(wanted) && slot != wanted {
+      continue
+    }
+    for to in self.successors_of(from, slot) {
+      if !seen.contains(to) {
+        seen.push(to)
+        frontier.push((to, 1))
+        out.push((to, 1))
+      }
+    }
+  }
+  let mut steps = 1
+  while steps < depth && frontier.length() > 0 {
+    let next : Array[(String, Int32)] = []
+    for (position, distance) in frontier {
+      for slot in self.exitable_slots(position) {
+        for to in self.successors_of(position, slot) {
+          if !seen.contains(to) {
+            seen.push(to)
+            next.push((to, distance + 1))
+            out.push((to, distance + 1))
+          }
+        }
+      }
+    }
+    frontier = next
+    steps += 1
+  }
+  out
+}
+
+///|
+/// The positions one use of a slot can lead to.
+///
+/// A slot that moves, holds or settles the subject leads to one position; a
+/// slot that offers a choice leads to all of them; a slot with no road out
+/// leads nowhere.
+fn Model::successors_of(
+  self : Model,
+  from : String,
+  slot : String,
+) -> Array[String] {
+  let out = []
+  match self.step(from, slot) {
+    Moved(_, to) => out.push(to)
+    Held(_, to) => out.push(to)
+    Same(_, to) => out.push(to)
+    Open(candidates) =>
+      for candidate in candidates {
+        out.push(candidate.to)
+      }
+    Block(_) => ()
   }
   out
 }
@@ -657,10 +845,75 @@ pub fn Model::slot(self : Model, id : String) -> SlotSpec? {
 
 ///|
 /// The domain with this id, if the model has one.
-pub fn Model::domain(self : Model, id : String) -> DomainSpec? {
+pub fn Model::domain_by_id(self : Model, id : String) -> Domain? {
   for domain in self.domains {
     if domain.id == id {
       return Some(domain)
+    }
+  }
+  None
+}
+
+///|
+/// The domain with this letter, if the model has one.
+///
+/// The letter is how the ring is drawn and how a domain is named in a URL.
+/// The match ignores case, because a reader types it.
+pub fn Model::domain_by_letter(self : Model, letter : String) -> Domain? {
+  let needle = letter.to_lower()
+  for domain in self.domains {
+    if domain.letter.to_lower() == needle {
+      return Some(domain)
+    }
+  }
+  None
+}
+
+///|
+/// The domain with this name, if the model has one.
+///
+/// The name may be the domain's id ("knowledge") or its title ("Knowledge"),
+/// and the match ignores case. A model file may give a domain any title it
+/// likes, so the id is the stable name and the title is the one a reader
+/// sees; both are accepted here.
+pub fn Model::domain_by_name(self : Model, name : String) -> Domain? {
+  let needle = name.to_lower()
+  for domain in self.domains {
+    if domain.id.to_lower() == needle || domain.title.to_lower() == needle {
+      return Some(domain)
+    }
+  }
+  None
+}
+
+///|
+/// The next domain in the ring.
+///
+/// The ring is the model's own order: the domains as they are listed, and
+/// back to the first. A model with two domains has a two-step ring, and a
+/// model with one domain has a ring of one -- which is the point of the ring
+/// being the model's rather than a fixed five.
+pub fn Model::next_domain(self : Model, domain : Domain) -> Domain {
+  if self.domains.length() == 0 {
+    return domain
+  }
+  for i in 0..<self.domains.length() {
+    if self.domains[i].id == domain.id {
+      if i + 1 < self.domains.length() {
+        return self.domains[i + 1]
+      }
+      return self.domains[0]
+    }
+  }
+  self.domains[0]
+}
+
+///|
+/// The domain that starts at a position, if one does.
+pub fn Model::domain_anchored_at(self : Model, position : String) -> String? {
+  for domain in self.domains {
+    if domain.anchor == position {
+      return Some(domain.id)
     }
   }
   None
@@ -884,7 +1137,7 @@ pub fn Model::from_json(json : Json) -> Model? {
   if format != MODEL_FORMAT {
     return None
   }
-  let domains : Array[DomainSpec] = []
+  let domains : Array[Domain] = []
   for item in json_array(json, "domains") {
     domains.push({
       id: json_string(item, "id"),
@@ -950,13 +1203,22 @@ pub fn Model::from_json(json : Json) -> Model? {
 }
 
 ///|
-/// The first rule that names something the model does not define.
+/// The first thing the model names that it does not define.
 ///
 /// A rule about a position that is not in the model, or a slot that is not
 /// in the model, or a destination that is not in the model. The first one is
 /// enough: the reader fixes that one, and the next refusal is about the
 /// next.
+///
+/// A domain whose anchor is not a defined position counts too. Such a domain
+/// starts nowhere, and a loop that put a subject there would be putting it
+/// in a position the file does not describe.
 pub fn Model::first_broken_rule(self : Model) -> String? {
+  for domain in self.domains {
+    if self.position(domain.anchor) is None {
+      return Some(domain.anchor)
+    }
+  }
   for rule in self.rules {
     if self.position(rule.from) is None {
       return Some(rule.from)

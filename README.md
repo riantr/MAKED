@@ -123,6 +123,7 @@ broken image is caught before it is ever tagged.
 | `MAKED_HOST` | `127.0.0.1` | listen address — `0.0.0.0` to be reachable from other machines |
 | `MAKED_DB` | `maked.db` | SQLite file path |
 | `MAKED_DIST` | `frontend/dist` | frontend build output directory |
+| `MAKED_MODEL` | *(unset)* | a model file to run instead of the built-in one — see [Your Own Loop](#your-own-loop) |
 
 ## API
 
@@ -366,7 +367,7 @@ image carries `pwsh`.
 Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be run separately:
 
 ```
-.\tools\mutate-backend.ps1     # 34 mutations, 0 survived, 1 expected-equivalent
+.\tools\mutate-backend.ps1     # 39 mutations, 0 survived, 1 expected-equivalent
 .\tools\mutate-frontend.ps1    # 23 mutations, 0 survived
 .\tools\mutate-loop.ps1        # 16 mutations, 0 survived
 ```
@@ -384,13 +385,24 @@ because all 34 positions of the built-in table **do** have outgoing edges. Now
 that a model can be a file somebody else wrote, a model with a genuinely dead
 position is a real thing, and `model_test.mbt` has one — so the guard kills.
 
+The bash gate inside `ci.sh` checks the same thing a different way, and it now
+says so when it cannot. `sed` exits 0 when its pattern matches nothing, so a
+mutation whose anchor has rotted leaves the file unchanged, the suite stays
+green, and the mutation gets reported as *survived* — a claim about the tests
+when the truth is that the mutation never happened. Five of that gate's ten
+anchors had rotted, in the same way, when the domains moved out of `loop.mbt`
+and into the model. It now checks each anchor before it mutates, reports a
+miss as an ERROR with its own exit code, and `ci.sh` fails on it. A surviving
+mutation is still advisory — a gap in the tests is a thing to work on. A gate
+that cannot break is not a gate, and that one fails the build.
+
 | Gate | Tool | What it checks |
 |---|---|---|
 | native-check | `moon check --target native` | backend type safety |
 | js-check | `moon check --target js` | frontend type safety |
 | fmt | `moon fmt --check` | code formatting |
 | tree | `moon tree` | dependency audit |
-| unit-native | `moon test --target native` | 241 backend tests (includes the BDD suite below) |
+| unit-native | `moon test --target native` | 248 backend tests (includes the BDD suite below) |
 | unit-js | `moon test --target js` | 69 frontend tests |
 | coverage | `moon test --enable-coverage` | coverage |
 | bench | `moon bench` | benchmarks |
@@ -425,7 +437,7 @@ The cause was not root-caused — the same build works when the init issues a GE
 ## The Integration Tests Are The Net For That Class Of Bug
 
 ```powershell
-.\tools\integration-test.ps1              # builds the server, then runs 133 checks
+.\tools\integration-test.ps1              # builds the server, then runs 143 checks
 .\tools\integration-test.ps1 -SkipBuild   # reuse the binary that is already built
 ```
 
@@ -528,7 +540,7 @@ questions a person actually has:
 | What do the last five steps mean together? | "The last 5 steps visited the model formulator once, the data turbine once, the experience absorber once, the attack generator once and the knowledge distiller once. Four of them moved a position. The group is Common Tongue." | `summary`, on the session state |
 
 **The sentences are written on the server.** The machine's words still come
-from pyroduct — the position labels, the slot designations, the domain
+from the model 鈥?the position labels, the slot designations, the domain
 titles — but the sentences that tie them together are MAKED's, and they live
 in one place: `backend/narration.mbt`. A second copy in the browser would be a
 second thing to keep in step with the first, and the one in the browser would
@@ -628,7 +640,7 @@ Two things the measures deliberately do **not** do:
   and the size of the state space to say anything true, so the server
   computes them, in `backend/metrics.mbt`, and the client shows what it is
   given. The denominators — eight slots, five domains, thirty-four positions
-  — are read out of pyroduct rather than written down in MAKED, so a table
+  鈥?are read out of the model rather than written down in MAKED, so a table
   that grows makes the numbers grow with it.
 
 The measures ride along with the session state, so they are current on the
@@ -798,11 +810,77 @@ the way out of a position the model declined to decide by the kind. A model
 can be renamed without breaking the panel — and renaming a model is exactly
 what a model file is for.
 
-This is the second step and not the whole road. What is still missing is the
-other half: the domains, the wording and the anchor positions are still
-MAKED's own, so a model file describes a machine but does not yet *become*
-one. `MAKED_MODEL` is the next step — point MAKED at a file, and the domains
-and the copy come from it too.
+This is the third step and not the whole road. The domains, their letters and
+where each one starts are the model's now, and `MAKED_MODEL` runs a file
+instead of the built-in machine. What is still missing is the wording: the
+words an outcome is called, and the sentences the narration builds out of
+them, are still MAKED's own. That is a smaller step than it looks — the
+*kind* of an outcome already travels beside its label, so the words are the
+only thing left to move.
+
+## Your Own Loop
+
+The machine is a file. Point MAKED at one and it runs that machine instead of
+the built-in one:
+
+```powershell
+$env:MAKED_MODEL = 'models/product-iteration.json'
+.\maked.exe
+```
+
+The example that ships with the repository is a **product-iteration loop** —
+three domains (Idea, Making, Shipped), seven positions, four slots and
+twenty-eight rules. It is not pyroproduct's machine with a new hat: it has
+its own positions, its own rules, its own way out of a position the model
+declines to decide, and its own lookahead. MAKED runs it, and the panel, the
+narration and the measures are all about that machine.
+
+A model file is JSON, and it says which format it is:
+
+```json
+{
+  "format": "maked.model.v1",
+  "name": "Product iteration",
+  "domains": [
+    { "id": "idea", "letter": "I", "title": "Idea", "role": "the idea", "anchor": "raw" }
+  ],
+  "positions": [
+    { "id": "raw", "label": "Raw idea", "gloss": "Nobody has built it yet.", "domain": "idea" }
+  ],
+  "slots": [
+    { "id": "ask", "designation": "Ask", "gloss": "Talk to a customer." }
+  ],
+  "rules": [
+    { "from": "raw", "slot": "ask", "outcome": { "kind": "moved", "edge": "A customer said no", "to": "talked" } }
+  ],
+  "continuations": []
+}
+```
+
+Nothing in that format assumes pyroproduct's sizes. Three positions is a
+model with three positions, not a model with two missing. The `outcome` is
+one of `moved`, `held`, `same`, `open` or `block`, and `open` is the one
+that declines to choose — it carries the candidates, and the candidate the
+reader picks is the way out of a position the model would not decide.
+
+**Three things a model file does not have to write down.**
+
+- *Every pair.* A rule is only needed for the pairs that lead somewhere.
+  A pair with no rule is a position with no way out, and MAKED says so
+  rather than offering a slot the file does not describe.
+- *The continuations.* If `continuations` is empty, MAKED works the
+  lookahead out from the rules — the same question, asked of the machine
+  rather than read off a list.
+- *The five of MAKED's own domains.* The domains are the model's: the
+  letters, the titles, the roles and where each one starts.
+
+**A model file that cannot be read whole is refused.** A file that names a
+position it does not define is refused, because a rule about a position
+that is not there is a rule about nowhere, and reading it would mean
+inventing a position to hold it. So is a file whose domain anchors nowhere,
+and a file in a format this version does not know. The server refuses to
+start rather than run a machine nobody can see: a server that answers every
+request confidently and wrongly is the worst thing a server can do.
 
 ## Deep Links Need A `<base>` Tag
 

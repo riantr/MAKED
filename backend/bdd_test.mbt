@@ -21,7 +21,7 @@ test "Scenario: fresh loop starts at Model with Scattered group" {
   // Given a new loop state
   let state = @backend.LoopState::new()
   // Then the current domain is Model
-  assert_eq(state.current, @backend.Model)
+  assert_eq(state.current, @backend.domain_from_id("model").unwrap())
   // And the group state is Scattered
   assert_true(state.group_state is @group.Scattered)
   // And the history is empty
@@ -40,7 +40,7 @@ test "Scenario: step from Model advances to Data" {
   // When I step the loop
   let stepped = state.step()
   // Then the current domain is Data
-  assert_eq(stepped.current, @backend.Data)
+  assert_eq(stepped.current, @backend.domain_from_id("data").unwrap())
   // And the history has one event
   assert_eq(stepped.history.length(), 1)
 }
@@ -59,7 +59,7 @@ test "Scenario: five steps complete one full ring" {
     state = state.step()
   }
   // Then the current domain is Model again
-  assert_eq(state.current, @backend.Model)
+  assert_eq(state.current, @backend.domain_from_id("model").unwrap())
   // And the history has five events
   assert_eq(state.history.length(), 5)
 }
@@ -78,8 +78,8 @@ test "Scenario: domains have independent state machines" {
     state = state.step()
   }
   // Then each domain state has its own history
-  let model_ds = state.domain_state(@backend.Model)
-  let data_ds = state.domain_state(@backend.Data)
+  let model_ds = state.domain_state(@backend.domain_from_id("model").unwrap())
+  let data_ds = state.domain_state(@backend.domain_from_id("data").unwrap())
   // And the histories are independent (Model was stepped, Data was not yet)
   assert_true(model_ds.history.length() >= 1)
   // Data may or may not have history depending on ring position
@@ -136,7 +136,7 @@ test "Scenario: Block outcome keeps domain in place" {
   // When I step with CoBeing (which produces Block at Standing)
   let stepped = state.step_with_slot("cobeing")
   // Then the current domain stays at Model
-  assert_eq(stepped.current, @backend.Model)
+  assert_eq(stepped.current, @backend.domain_from_id("model").unwrap())
   // And the outcome is Block
   assert_eq(stepped.history[0].outcome_label, "No-way")
 }
@@ -156,7 +156,7 @@ test "Scenario: reset returns to initial state" {
   // When I reset the loop
   let state = @backend.reset_loop()
   // Then the current domain is Model
-  assert_eq(state.current, @backend.Model)
+  assert_eq(state.current, @backend.domain_from_id("model").unwrap())
   // And the history is empty
   assert_eq(state.history.length(), 0)
   // And the group state is Scattered
@@ -212,11 +212,26 @@ test "Scenario: domain ring order is MDEAK" {
   // Given the five domains
   // When I follow the next() links
   // Then the order is M, D, E, A, K, M
-  assert_eq(@backend.Model.next(), @backend.Data)
-  assert_eq(@backend.Data.next(), @backend.Experience)
-  assert_eq(@backend.Experience.next(), @backend.Attack)
-  assert_eq(@backend.Attack.next(), @backend.Knowledge)
-  assert_eq(@backend.Knowledge.next(), @backend.Model)
+  assert_eq(
+    @backend.domain_from_id("model").unwrap().next(),
+    @backend.domain_from_id("data").unwrap(),
+  )
+  assert_eq(
+    @backend.domain_from_id("data").unwrap().next(),
+    @backend.domain_from_id("experience").unwrap(),
+  )
+  assert_eq(
+    @backend.domain_from_id("experience").unwrap().next(),
+    @backend.domain_from_id("attack").unwrap(),
+  )
+  assert_eq(
+    @backend.domain_from_id("attack").unwrap().next(),
+    @backend.domain_from_id("knowledge").unwrap(),
+  )
+  assert_eq(
+    @backend.domain_from_id("knowledge").unwrap().next(),
+    @backend.domain_from_id("model").unwrap(),
+  )
 }
 
 ///|

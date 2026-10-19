@@ -23,6 +23,27 @@ fn parse_port(text : String) -> UInt16 {
 
 ///|
 async fn main {
+  // The machine MAKED runs. `MAKED_MODEL` names a model file, and a file
+  // that cannot be read whole is refused rather than half-read: a server
+  // running a machine nobody can see would answer every request
+  // confidently and wrongly, which is the worst thing a server can do.
+  let model_path = @maked.model_path_from_env()
+  let model_name = match model_path {
+    Some(path) =>
+      match @maked.read_model_file(path) {
+        Some(model) => {
+          @maked.install_model(model)
+          model.name
+        }
+        None => {
+          println("")
+          println("MAKED will not start with a model it could not read.")
+          println("  unset MAKED_MODEL to run the built-in model instead")
+          return
+        }
+      }
+    None => @maked.current_model().name
+  }
   let port = parse_port(env_or("MAKED_PORT", "8080"))
   let host = env_or("MAKED_HOST", "127.0.0.1")
   let db_path = env_or("MAKED_DB", "maked.db")
@@ -100,5 +121,6 @@ async fn main {
   println("MAKED listening on http://\{host}:\{port}")
   println("  api:  http://127.0.0.1:\{port}/api/pages")
   println("  data: \{db_path}")
+  println("  machine: \{model_name}")
   server.serve(listener)
 }

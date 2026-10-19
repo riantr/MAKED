@@ -1,14 +1,15 @@
-///| MAKED Loop: five domains as a pyroduct-driven state cycle.
+///| MAKED Loop: the domains as a model-driven state cycle.
 ///
-/// The five MAKED domains (M/D/E/A/K) are anchors on pyroduct's subject state
-/// machine. Each domain carries its own position and its own history, so the
-/// five evolve independently rather than as one ring. Navigation is a
-/// `step(position, slot)` call; the Outcome (Moved / Held / Open / Same /
-/// Block) is recorded in an append-only history so the cycle is observable,
-/// not just navigable.
+/// The domains are the model's. MAKED's built-in model has five -- M/D/E/A/K --
+/// and they are anchors on pyroduct's subject state machine; a model file
+/// may have two, or seven, or one. Each domain carries its own position and
+/// its own history, so the domains evolve independently rather than as one
+/// ring. Navigation is a `step(position, slot)` call; the Outcome (Moved /
+/// Held / Open / Same / Block) is recorded in an append-only history so the
+/// cycle is observable, not just navigable.
 ///
-/// Mapping (each domain names the structural relation the position denotes,
-/// not the domain's content):
+/// The built-in model's mapping (each domain names the structural relation
+/// the position denotes, not the domain's content):
 ///
 ///   M Model      → Standing   the model stands, one foot in past one in future
 ///   D Data       → Encounter  the model meets the other (data as other)
@@ -16,7 +17,7 @@
 ///   A Attack     → Evil       attack as the hard cold thing that shrinks the horizon
 ///   K Knowledge  → Discipline knowledge distilled through enduring and removing reefs
 ///
-/// **The drive slot is read from pyroduct's table, never chosen by meaning.**
+/// **The drive slot is read from the model's table, never chosen by meaning.**
 /// An earlier version hard-coded one slot per domain on the reasoning that the
 /// slot should name the structural relation to the next domain -- Model meets
 /// data, so CoBeing. That reasoning produced five slots, and the table has no
@@ -31,20 +32,11 @@
 /// is no longer mistaken for a claim that the state machine moved.
 
 ///|
-/// The five domains, in ring order.
-pub(all) enum Domain {
-  Model // M
-  Data // D
-  Experience // E
-  Attack // A
-  Knowledge // K
-} derive(Eq, Debug, Hash)
-
-///|
-pub extend Domain with Eq::{not_equal, equal}
-
-///|
-pub extend Domain with Debug::{to_repr}
+/// The five domains, as the ring order M→D→E→A→K→M.
+///
+/// The ring order is still the *presentation* order -- it is the order the
+/// logo draws, and it is how the site narrates itself. It is no longer
+/// mistaken for a claim that the state machine moved.
 
 ///|
 /// What a step did to the subject.
@@ -130,36 +122,21 @@ pub fn LoopMode::gloss(self : LoopMode) -> String {
 }
 
 ///|
+/// The domain's letter, as the ring is drawn with it.
 pub fn Domain::letter(self : Domain) -> String {
-  match self {
-    Model => "M"
-    Data => "D"
-    Experience => "E"
-    Attack => "A"
-    Knowledge => "K"
-  }
+  self.letter
 }
 
 ///|
+/// The domain's name, as a reader sees it.
 pub fn Domain::title(self : Domain) -> String {
-  match self {
-    Model => "Model"
-    Data => "Data"
-    Experience => "Experience"
-    Attack => "Attack"
-    Knowledge => "Knowledge"
-  }
+  self.title
 }
 
 ///|
+/// The domain's role, as a phrase with its article.
 pub fn Domain::role(self : Domain) -> String {
-  match self {
-    Model => "the model formulator"
-    Data => "the data turbine"
-    Experience => "the experience absorber"
-    Attack => "the attack generator"
-    Knowledge => "the knowledge distiller"
-  }
+  self.role
 }
 
 ///|
@@ -240,25 +217,7 @@ pub fn slot_from_english(s : String) -> String? {
 /// The anchor is the model's, not MAKED's: the model says where each domain
 /// begins, and the anchor is a position id like any other.
 pub fn Domain::position(self : Domain) -> String {
-  current_model().domain_anchor(domain_id_of(self))
-}
-
-///|
-/// The position a domain starts at, as the table names it.
-///
-/// This is the built-in model's own reading of the anchors, and it does not
-/// consult the model: the model is *built* from the table, so the table
-/// cannot be asked a question that only the model can answer. A model loaded
-/// from a file carries its own anchors, and `Domain::position` is where they
-/// are read from.
-fn domain_anchor_of(domain : Domain) -> String {
-  match domain {
-    Model => position_id_of(@sm.Standing)
-    Data => position_id_of(@sm.Encounter)
-    Experience => position_id_of(@sm.Honor)
-    Attack => position_id_of(@sm.Evil)
-    Knowledge => position_id_of(@sm.Discipline)
-  }
+  self.anchor
 }
 
 ///|
@@ -274,80 +233,60 @@ pub fn position_to_domain(position : String) -> Domain? {
 ///|
 /// The domain with this id.
 pub fn domain_from_id(s : String) -> Domain? {
-  match s {
-    "model" => Some(Model)
-    "data" => Some(Data)
-    "experience" => Some(Experience)
-    "attack" => Some(Attack)
-    "knowledge" => Some(Knowledge)
-    _ => None
-  }
+  current_model().domain_by_id(s)
 }
 
 ///|
-/// The next domain in the ring (M→D→E→A→K→M).
+/// The next domain in the ring.
+///
+/// The ring is the model's own order, so it is as long as the model says and
+/// no longer: MAKED's built-in model has five, and a model file may have
+/// two, or one, or seven.
 pub fn Domain::next(self : Domain) -> Domain {
-  match self {
-    Model => Data
-    Data => Experience
-    Experience => Attack
-    Attack => Knowledge
-    Knowledge => Model
-  }
+  current_model().next_domain(self)
 }
 
 ///|
-/// Parse a domain from its letter (M, D, E, A, K).
+/// Parse a domain from its letter (M, D, E, A, K -- or whatever the model's
+/// own letters are).
 pub fn domain_from_letter(s : String) -> Domain? {
-  match s {
-    "M" => Some(Model)
-    "D" => Some(Data)
-    "E" => Some(Experience)
-    "A" => Some(Attack)
-    "K" => Some(Knowledge)
-    _ => None
-  }
+  current_model().domain_by_letter(s)
 }
 
 ///|
-/// Parse a domain from its English name (case-insensitive).
+/// Parse a domain from its name (case-insensitive).
+///
+/// The name may be the domain's id or its title, because a reader will type
+/// whichever one they were shown and a model file may give a domain any
+/// title it likes.
 pub fn domain_from_english(s : String) -> Domain? {
-  // Simple lowercase conversion for ASCII
-  let lower = {
-    let result = []
-    for i in 0..<s.length() {
-      let c = s[i]
-      let code = c.to_int()
-      if code >= 65 && code <= 90 {
-        result.push((code + 32).to_uint16())
-      } else {
-        result.push(c)
-      }
-    }
-    let bytes : Array[UInt16] = result
-    bytes
-    .map(fn(b) {
-      match b.to_char() {
-        Some(c) => c.to_string()
-        None => ""
-      }
-    })
-    .join("")
-  }
-  match lower {
-    "model" => Some(Model)
-    "data" => Some(Data)
-    "experience" => Some(Experience)
-    "attack" => Some(Attack)
-    "knowledge" => Some(Knowledge)
-    _ => None
-  }
+  current_model().domain_by_name(s)
 }
 
 ///|
-/// All five domains in ring order.
+/// The domains, in ring order.
+///
+/// The domains are the model's. MAKED's built-in model has five of them --
+/// Model, Data, Experience, Attack, Knowledge -- and a model file may have a
+/// different number entirely, so this list is whatever the model says it is
+/// and the ring is whatever length that is.
 pub fn ring_domains_loop() -> Array[Domain] {
-  [Model, Data, Experience, Attack, Knowledge]
+  current_model().domains
+}
+
+///|
+/// The domain the loop starts on: the model's first.
+///
+/// A model with no domains cannot have a loop, and `Model::from_json`
+/// refuses one, so the empty case here is unreachable -- but it is answered
+/// rather than crashed on, because a crash in the model's own constructor
+/// is a worse place to find out.
+pub fn starting_domain() -> Domain {
+  let domains = current_model().domains
+  if domains.length() == 0 {
+    return { id: "", letter: "", title: "", role: "", anchor: "", }
+  }
+  domains[0]
 }
 
 ///|
@@ -424,7 +363,7 @@ pub fn DomainState::step_by_outcome(
 /// The loop state: current domain + per-domain independent state machines + group state + mode.
 pub(all) struct LoopState {
   current : Domain
-  domain_states : Map[Domain, DomainState]
+  domain_states : Map[String, DomainState]
   group_state : @group.GroupState
   history : Array[LoopEvent]
   mode : LoopMode
@@ -437,10 +376,10 @@ pub extend LoopState with Eq::{not_equal, equal}
 pub fn LoopState::new() -> LoopState {
   let domain_states = Map([], capacity=8)
   for domain in ring_domains_loop() {
-    domain_states[domain] = DomainState::new(domain)
+    domain_states[domain.id] = DomainState::new(domain)
   }
   {
-    current: Model,
+    current: starting_domain(),
     domain_states,
     group_state: @group.Scattered,
     history: [],
@@ -455,7 +394,7 @@ pub fn LoopState::new() -> LoopState {
 pub fn LoopState::new_from(domain : Domain) -> LoopState {
   let domain_states = Map([], capacity=8)
   for d in ring_domains_loop() {
-    domain_states[d] = DomainState::new(d)
+    domain_states[d.id] = DomainState::new(d)
   }
   {
     current: domain,
@@ -471,10 +410,10 @@ pub fn LoopState::new_from(domain : Domain) -> LoopState {
 pub fn LoopState::new_with_mode(mode : LoopMode) -> LoopState {
   let domain_states = Map([], capacity=8)
   for domain in ring_domains_loop() {
-    domain_states[domain] = DomainState::new(domain)
+    domain_states[domain.id] = DomainState::new(domain)
   }
   {
-    current: Model,
+    current: starting_domain(),
     domain_states,
     group_state: @group.Scattered,
     history: [],
@@ -488,19 +427,19 @@ pub fn LoopState::domain_state(
   self : LoopState,
   domain : Domain,
 ) -> DomainState {
-  self.domain_states[domain]
+  self.domain_states[domain.id]
 }
 
 ///|
 /// Compute the group state based on the configuration of all domain states.
 /// The group emerges from how the domains relate to each other.
-fn compute_group_state(
-  domain_states : Map[Domain, DomainState],
+pub fn compute_group_state(
+  domain_states : Map[String, DomainState],
 ) -> @group.GroupState {
   // Count how many domains have moved from their initial positions
   let mut moved_count = 0
   for domain in ring_domains_loop() {
-    let ds = domain_states[domain]
+    let ds = domain_states[domain.id]
     if ds.position != domain.position() {
       moved_count += 1
     }
@@ -536,12 +475,12 @@ fn compute_group_state(
 /// The copy is five entries, so it costs nothing that matters, and it makes
 /// `LoopState` a value: a state can be kept, compared, and replayed.
 fn copy_domain_states(
-  source : Map[Domain, DomainState],
-) -> Map[Domain, DomainState] {
+  source : Map[String, DomainState],
+) -> Map[String, DomainState] {
   let copy = Map([], capacity=8)
   for domain in ring_domains_loop() {
-    match source.get(domain) {
-      Some(state) => copy[domain] = state
+    match source.get(domain.id) {
+      Some(state) => copy[domain.id] = state
       None => ()
     }
   }
@@ -565,7 +504,7 @@ fn copy_domain_states(
 /// names. Neither mode invents an edge.
 pub fn LoopState::step(self : LoopState) -> LoopState {
   let domain = self.current
-  let domain_state = self.domain_states[domain]
+  let domain_state = self.domain_states[domain.id]
   // Derived once: the model is the authority, and asking it twice could in
   // principle answer differently mid-call.
   let chosen = drive_slot(domain_state.position)
@@ -610,7 +549,7 @@ pub fn LoopState::step_domain_with(
   slot : String,
   blocked : Bool,
 ) -> LoopState {
-  let domain_state = self.domain_states[domain]
+  let domain_state = self.domain_states[domain.id]
   self.step_domain_by_outcome(
     domain,
     slot,
@@ -655,7 +594,7 @@ fn LoopState::step_domain_by_outcome(
   transition : Move,
   blocked : Bool,
 ) -> LoopState {
-  let domain_state = self.domain_states[domain]
+  let domain_state = self.domain_states[domain.id]
   let new_domain_state = domain_state.step_by_outcome(slot, transition)
   let history = self.history
   let mode = self.mode
@@ -665,7 +604,7 @@ fn LoopState::step_domain_by_outcome(
       // Copied, not shared: see `copy_domain_states`. The state this step
       // came from has to stay readable as it was.
       let domain_states = copy_domain_states(self.domain_states)
-      domain_states[domain] = new_domain_state
+      domain_states[domain.id] = new_domain_state
       let group_state = compute_group_state(domain_states)
       // Advance only when the subject actually went somewhere. Judged by
       // StepEffect rather than by the outcome label string: Blocked was the
@@ -765,7 +704,7 @@ pub fn LoopState::step_with_target(
   target : String,
 ) -> LoopState {
   let domain = self.current
-  let domain_state = self.domain_states[domain]
+  let domain_state = self.domain_states[domain.id]
   let candidates = open_candidates(domain_state.position, slot)
   match candidate_named(candidates, target) {
     Some(candidate) => self.step_domain_with_candidate(domain, slot, candidate)
@@ -1027,7 +966,7 @@ pub fn slots_json() -> Json {
 /// it is what the table offers here, so a caller never has to guess.
 pub fn LoopState::to_json(self : LoopState) -> Json {
   let model = current_model()
-  let current_ds = self.domain_states[self.current]
+  let current_ds = self.domain_states[self.current.id]
   let current_pos = current_ds.position
   let history_json = []
   for e in self.history {
@@ -1044,7 +983,7 @@ pub fn LoopState::to_json(self : LoopState) -> Json {
   // Build per-domain states
   let domain_states_json = []
   for domain in ring_domains_loop() {
-    let ds = self.domain_states[domain]
+    let ds = self.domain_states[domain.id]
     let item : Json = {
       "domain": domain.letter(),
       "title": domain.title(),

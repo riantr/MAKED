@@ -269,7 +269,7 @@ async test "the domain spread counts the domains the window visited" {
 ///|
 /// The position drift: how much of the state space the run has reached.
 ///
-/// The denominator is read out of pyroduct, so the test reads it from the
+/// The denominator is read out of the model, so the test reads it from the
 /// same place: a number written down in the test would be right only until
 /// the table grew.
 async test "the position drift counts the positions the run has stood on" {

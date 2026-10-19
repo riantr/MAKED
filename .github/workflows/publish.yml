@@ -354,6 +354,11 @@ jobs:
           cp frontend/dist/index.html frontend/dist/styles.css stage/maked/frontend/dist/
           cp _build/js/release/build/cmd/web/web.js stage/maked/frontend/dist/main.js
           cp packaging/RUN.txt stage/maked/RUN.txt
+          # The example model ships with the binary, so that a reader who has
+          # just unpacked it can run a machine of their own without first
+          # finding a file to point at.
+          mkdir -p stage/maked/models
+          cp models/*.json stage/maked/models/
           chmod +x stage/maked/server
           tar -czf "maked-${version}-${{ matrix.target }}.tar.gz" -C stage maked
 
@@ -374,6 +379,11 @@ jobs:
           Copy-Item frontend\dist\index.html, frontend\dist\styles.css stage\maked\frontend\dist\
           Copy-Item _build\js\release\build\cmd\web\web.js stage\maked\frontend\dist\main.js
           Copy-Item packaging\RUN.txt stage\maked\RUN.txt
+          # The example model ships with the binary, so that a reader who has
+          # just unpacked it can run a machine of their own without first
+          # finding a file to point at.
+          New-Item -ItemType Directory -Force -Path stage\maked\models | Out-Null
+          Copy-Item models\*.json stage\maked\models\
           Compress-Archive -Path stage\maked -DestinationPath "maked-${version}-${{ matrix.target }}.zip"
 
       - uses: actions/upload-artifact@v4

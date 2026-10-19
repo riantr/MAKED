@@ -178,12 +178,14 @@ async test "a step is recorded with the slot, the positions and the why" {
   // of two things derived the same way passes however wrong both are.
   assert_eq(
     step.position_before,
-    @backend.current_model().position_label(@backend.Model.position()),
+    @backend.current_model().position_label(
+      @backend.domain_from_id("model").unwrap().position(),
+    ),
   )
   assert_eq(
     step.position_after,
     @backend.current_model().position_label(
-      after.domain_state(@backend.Model).position,
+      after.domain_state(@backend.domain_from_id("model").unwrap()).position,
     ),
   )
   assert_true(step.detail != "")
@@ -496,7 +498,9 @@ async test "a step that could not move is recorded as one" {
   let session = fresh_session(db, "Blocked")
   // Find a slot the model has no edge for at this position. 228 of the 272
   // position-slot combinations are Block, so there is always one to be had.
-  let position = @backend.get_loop_state().domain_state(@backend.Model).position
+  let position = @backend.get_loop_state().domain_state(
+      @backend.domain_from_id("model").unwrap(),
+    ).position
   let open = @backend.exitable_slots(position)
   let mut blocked_slot = None
   for slot in @backend.current_model().slot_ids() {

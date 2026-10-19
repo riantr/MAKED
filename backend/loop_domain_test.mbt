@@ -8,8 +8,8 @@
 ///|
 /// DomainState::new starts at the domain's anchor position.
 test "DomainState::new starts at domain anchor" {
-  let ds = @backend.DomainState::new(@backend.Model)
-  assert_eq(ds.domain, @backend.Model)
+  let ds = @backend.DomainState::new(@backend.domain_from_id("model").unwrap())
+  assert_eq(ds.domain, @backend.domain_from_id("model").unwrap())
   assert_eq(ds.position, "standing")
   assert_eq(ds.history.length(), 0)
 }
@@ -17,32 +17,39 @@ test "DomainState::new starts at domain anchor" {
 ///|
 /// DomainState::new for each domain starts at the correct position.
 test "DomainState::new for all domains" {
-  let m = @backend.DomainState::new(@backend.Model)
+  let m = @backend.DomainState::new(@backend.domain_from_id("model").unwrap())
   assert_eq(m.position, "standing")
-  let d = @backend.DomainState::new(@backend.Data)
+  let d = @backend.DomainState::new(@backend.domain_from_id("data").unwrap())
   assert_eq(d.position, "encounter")
-  let e = @backend.DomainState::new(@backend.Experience)
+  let e = @backend.DomainState::new(
+    @backend.domain_from_id("experience").unwrap(),
+  )
   assert_eq(e.position, "honor")
-  let a = @backend.DomainState::new(@backend.Attack)
+  let a = @backend.DomainState::new(@backend.domain_from_id("attack").unwrap())
   assert_eq(a.position, "evil")
-  let k = @backend.DomainState::new(@backend.Knowledge)
+  let k = @backend.DomainState::new(
+    @backend.domain_from_id("knowledge").unwrap(),
+  )
   assert_eq(k.position, "cultivation")
 }
 
 ///|
 /// DomainState::step appends to history.
 test "DomainState::step appends history event" {
-  let ds = @backend.DomainState::new(@backend.Model)
+  let ds = @backend.DomainState::new(@backend.domain_from_id("model").unwrap())
   let stepped = ds.step("cobeing")
   assert_eq(stepped.history.length(), 1)
-  assert_eq(stepped.history[0].domain, @backend.Model)
+  assert_eq(
+    stepped.history[0].domain,
+    @backend.domain_from_id("model").unwrap(),
+  )
   assert_eq(stepped.history[0].slot, "cobeing")
 }
 
 ///|
 /// DomainState::step with Block outcome stays at same position.
 test "DomainState::step with Block stays put" {
-  let ds = @backend.DomainState::new(@backend.Model)
+  let ds = @backend.DomainState::new(@backend.domain_from_id("model").unwrap())
   let stepped = ds.step("cobeing")
   assert_eq(stepped.position, "standing")
 }
@@ -71,7 +78,7 @@ test "LoopState::new starts with Scattered group state" {
 test "LoopState::step updates domain state" {
   let state = @backend.LoopState::new()
   let stepped = state.step()
-  let model_ds = stepped.domain_state(@backend.Model)
+  let model_ds = stepped.domain_state(@backend.domain_from_id("model").unwrap())
   assert_eq(model_ds.history.length(), 1)
 }
 
@@ -151,8 +158,8 @@ test "LoopState::to_json domain_states have correct shape" {
 ///|
 /// DomainState equality works correctly.
 test "DomainState equality" {
-  let a = @backend.DomainState::new(@backend.Model)
-  let b = @backend.DomainState::new(@backend.Model)
+  let a = @backend.DomainState::new(@backend.domain_from_id("model").unwrap())
+  let b = @backend.DomainState::new(@backend.domain_from_id("model").unwrap())
   // Both start with same domain, position, and empty history
   assert_eq(a.domain, b.domain)
   assert_eq(a.position, b.position)
@@ -210,7 +217,7 @@ test "group state transitions as domains move" {
 test "step_with_slot updates domain state" {
   let state = @backend.LoopState::new()
   let stepped = state.step_with_slot("occasion")
-  let model_ds = stepped.domain_state(@backend.Model)
+  let model_ds = stepped.domain_state(@backend.domain_from_id("model").unwrap())
   assert_eq(model_ds.history.length(), 1)
 }
 
@@ -232,24 +239,36 @@ test "reset_loop resets all domain states" {
 ///|
 /// LoopState::new_from starts at the specified domain.
 test "LoopState::new_from starts at specified domain" {
-  let state_m = @backend.LoopState::new_from(@backend.Model)
-  assert_eq(state_m.current, @backend.Model)
-  let state_d = @backend.LoopState::new_from(@backend.Data)
-  assert_eq(state_d.current, @backend.Data)
-  let state_e = @backend.LoopState::new_from(@backend.Experience)
-  assert_eq(state_e.current, @backend.Experience)
-  let state_a = @backend.LoopState::new_from(@backend.Attack)
-  assert_eq(state_a.current, @backend.Attack)
-  let state_k = @backend.LoopState::new_from(@backend.Knowledge)
-  assert_eq(state_k.current, @backend.Knowledge)
+  let state_m = @backend.LoopState::new_from(
+    @backend.domain_from_id("model").unwrap(),
+  )
+  assert_eq(state_m.current, @backend.domain_from_id("model").unwrap())
+  let state_d = @backend.LoopState::new_from(
+    @backend.domain_from_id("data").unwrap(),
+  )
+  assert_eq(state_d.current, @backend.domain_from_id("data").unwrap())
+  let state_e = @backend.LoopState::new_from(
+    @backend.domain_from_id("experience").unwrap(),
+  )
+  assert_eq(state_e.current, @backend.domain_from_id("experience").unwrap())
+  let state_a = @backend.LoopState::new_from(
+    @backend.domain_from_id("attack").unwrap(),
+  )
+  assert_eq(state_a.current, @backend.domain_from_id("attack").unwrap())
+  let state_k = @backend.LoopState::new_from(
+    @backend.domain_from_id("knowledge").unwrap(),
+  )
+  assert_eq(state_k.current, @backend.domain_from_id("knowledge").unwrap())
 }
 
 ///|
 /// LoopState::new_from initializes all domain states correctly.
 test "LoopState::new_from initializes all domain states" {
-  let state = @backend.LoopState::new_from(@backend.Data)
+  let state = @backend.LoopState::new_from(
+    @backend.domain_from_id("data").unwrap(),
+  )
   // Current is Data
-  assert_eq(state.current, @backend.Data)
+  assert_eq(state.current, @backend.domain_from_id("data").unwrap())
   // But all domains still have their own anchor positions
   for domain in @backend.ring_domains_loop() {
     let ds = state.domain_state(domain)
@@ -266,20 +285,42 @@ test "LoopState::new_from initializes all domain states" {
 test "reset_to resets to specified domain" {
   @backend.reset_loop() |> ignore
   @backend.step_loop() |> ignore
-  let state = @backend.reset_to(@backend.Attack)
-  assert_eq(state.current, @backend.Attack)
+  let state = @backend.reset_to(@backend.domain_from_id("attack").unwrap())
+  assert_eq(state.current, @backend.domain_from_id("attack").unwrap())
   assert_eq(state.history.length(), 0)
   assert_true(state.group_state is @group.Scattered)
 }
 
 ///|
+/// The id of the domain a letter names, if the letter names one.
+///
+/// The domains belong to the model now, so a test names one the way the
+/// model names it. The id is the stable name; the title is the one a reader
+/// sees, and a model file may change it.
+fn domain_id_of_letter(letter : String) -> String? {
+  match @backend.domain_from_letter(letter) {
+    Some(d) => Some(d.id)
+    None => None
+  }
+}
+
+///|
+/// The id of the domain a name names, if the name names one.
+fn domain_id_of_name(name : String) -> String? {
+  match @backend.domain_from_english(name) {
+    Some(d) => Some(d.id)
+    None => None
+  }
+}
+
+///|
 /// domain_from_letter parses all five domain letters.
 test "domain_from_letter parses all five letters" {
-  assert_true(@backend.domain_from_letter("M") is Some(@backend.Model))
-  assert_true(@backend.domain_from_letter("D") is Some(@backend.Data))
-  assert_true(@backend.domain_from_letter("E") is Some(@backend.Experience))
-  assert_true(@backend.domain_from_letter("A") is Some(@backend.Attack))
-  assert_true(@backend.domain_from_letter("K") is Some(@backend.Knowledge))
+  assert_eq(domain_id_of_letter("M"), Some("model"))
+  assert_eq(domain_id_of_letter("D"), Some("data"))
+  assert_eq(domain_id_of_letter("E"), Some("experience"))
+  assert_eq(domain_id_of_letter("A"), Some("attack"))
+  assert_eq(domain_id_of_letter("K"), Some("knowledge"))
 }
 
 ///|
@@ -293,17 +334,13 @@ test "domain_from_letter returns None for invalid input" {
 ///|
 /// domain_from_english parses all five English names (case-insensitive).
 test "domain_from_english parses all five names" {
-  assert_true(@backend.domain_from_english("model") is Some(@backend.Model))
-  assert_true(@backend.domain_from_english("Model") is Some(@backend.Model))
-  assert_true(@backend.domain_from_english("MODEL") is Some(@backend.Model))
-  assert_true(@backend.domain_from_english("data") is Some(@backend.Data))
-  assert_true(
-    @backend.domain_from_english("experience") is Some(@backend.Experience),
-  )
-  assert_true(@backend.domain_from_english("attack") is Some(@backend.Attack))
-  assert_true(
-    @backend.domain_from_english("knowledge") is Some(@backend.Knowledge),
-  )
+  assert_eq(domain_id_of_name("model"), Some("model"))
+  assert_eq(domain_id_of_name("Model"), Some("model"))
+  assert_eq(domain_id_of_name("MODEL"), Some("model"))
+  assert_eq(domain_id_of_name("data"), Some("data"))
+  assert_eq(domain_id_of_name("experience"), Some("experience"))
+  assert_eq(domain_id_of_name("attack"), Some("attack"))
+  assert_eq(domain_id_of_name("knowledge"), Some("knowledge"))
 }
 
 ///|
@@ -419,4 +456,51 @@ test "get_loop_mode returns current mode" {
   @backend.set_loop_mode(@backend.Free) |> ignore
   let mode = @backend.get_loop_mode()
   assert_true(mode is @backend.Free)
+}
+
+///|
+/// The per-domain states, with the first `moved` of them off their anchor.
+///
+/// A domain that has not left its anchor is not part of the group yet; one
+/// that has is. The position is one no domain starts at, so "moved" means
+/// moved rather than "happens to be somewhere else".
+fn states_with_moved(moved : Int32) -> Map[String, @backend.DomainState] {
+  let states = Map([], capacity=8)
+  let mut i = 0
+  for domain in @backend.ring_domains_loop() {
+    let position = if i < moved { "passion" } else { domain.position() }
+    let ds : @backend.DomainState = { domain, position, history: [], }
+    states[domain.id] = ds
+    i += 1
+  }
+  states
+}
+
+///|
+/// The group state counts the domains that have left their anchors.
+///
+/// Nothing else pinned the thresholds: the other tests in this file accepted
+/// any of the four group states, so the line between "converging" and "a
+/// common tongue" could have moved and every one of them would still have
+/// passed. The group layer is a third of what this project is, and it was the
+/// third with nothing to say about it.
+test "the group state counts the domains that have moved" {
+  assert_true(
+    @backend.compute_group_state(states_with_moved(0)) is @group.Scattered,
+  )
+  assert_true(
+    @backend.compute_group_state(states_with_moved(1)) is @group.Converging,
+  )
+  assert_true(
+    @backend.compute_group_state(states_with_moved(2)) is @group.Converging,
+  )
+  assert_true(
+    @backend.compute_group_state(states_with_moved(3)) is @group.CommonTongue,
+  )
+  assert_true(
+    @backend.compute_group_state(states_with_moved(4)) is @group.CommonTongue,
+  )
+  assert_true(
+    @backend.compute_group_state(states_with_moved(5)) is @group.Settled,
+  )
 }

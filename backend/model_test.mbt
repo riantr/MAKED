@@ -484,3 +484,187 @@ test "a pair the model leaves undefined has no way out" {
   assert_eq(model.drive_slot("there"), None)
   assert_eq(model.step("there", "act").kind(), "block")
 }
+
+///|
+/// The ring is the model's, and it is as long as the model says.
+///
+/// MAKED's built-in model has five domains, so its ring has five steps. A
+/// model written by somebody else can have two, and then its ring has two:
+/// the ring is a property of the machine, not of MAKED.
+test "the ring is as long as the model says" {
+  let built_in = @backend.Model::pyroduct()
+  assert_eq(built_in.domains.length(), 5)
+  let toy = @backend.Model::from_json(toy_model()).unwrap()
+  assert_eq(toy.domains.length(), 2)
+  let idea = toy.domain_by_id("idea").unwrap()
+  let ship = toy.domain_by_id("ship").unwrap()
+  // Two domains: one step, and back to the first.
+  assert_eq(toy.next_domain(idea), ship)
+  assert_eq(toy.next_domain(ship), idea)
+}
+
+///|
+/// The domains are found by letter, by id and by title.
+///
+/// The letter is how the ring is drawn and how a domain is named in a URL;
+/// the id is the stable name; the title is the one a reader sees. A model
+/// file may give a domain any title it likes, so all three are accepted.
+test "a domain is found by its letter, its id and its title" {
+  let toy = @backend.Model::from_json(toy_model()).unwrap()
+  assert_eq(toy.domain_by_letter("I").map(fn(d) { d.id }), Some("idea"))
+  assert_eq(toy.domain_by_letter("i").map(fn(d) { d.id }), Some("idea"))
+  assert_eq(toy.domain_by_name("Idea").map(fn(d) { d.id }), Some("idea"))
+  assert_eq(toy.domain_by_name("idea").map(fn(d) { d.id }), Some("idea"))
+  assert_true(toy.domain_by_letter("Z") is None)
+  assert_true(toy.domain_by_name("nowhere") is None)
+}
+
+///|
+/// A domain whose anchor is not a position in the model is refused.
+///
+/// Such a domain starts nowhere, and a loop that put a subject there would
+/// be putting it in a position the file does not describe.
+test "a domain that anchors nowhere is refused" {
+  let json : Json = {
+    "format": "maked.model.v1",
+    "name": "Nowhere",
+    "domains": [
+      {
+        "id": "idea",
+        "letter": "I",
+        "title": "Idea",
+        "role": "the idea",
+        "anchor": "not-a-position",
+      },
+    ],
+    "positions": [
+      { "id": "raw", "label": "Raw idea", "gloss": "", "domain": "idea" },
+    ],
+    "slots": [{ "id": "ask", "designation": "Ask", "gloss": "" }],
+    "rules": [],
+    "continuations": [],
+  }
+  assert_true(@backend.Model::from_json(json) is None)
+}
+
+///|
+/// A model that writes no continuations down has them worked out.
+///
+/// A hand-written model usually does not list its lookahead: the author
+/// writes the rules, and the rules already say what can follow what. So the
+/// model is walked instead -- from the raw idea, "talked" and "built" are
+/// one step away, and neither is listed twice.
+test "a model with no continuations has them worked out from its rules" {
+  let json : Json = {
+    "format": "maked.model.v1",
+    "name": "Worked out",
+    "domains": [],
+    "positions": [
+      { "id": "raw", "label": "Raw idea", "gloss": "", "domain": "" },
+      { "id": "talked", "label": "Talked about", "gloss": "", "domain": "" },
+      { "id": "built", "label": "Built", "gloss": "", "domain": "" },
+    ],
+    "slots": [
+      { "id": "ask", "designation": "Ask", "gloss": "" },
+      { "id": "build", "designation": "Build", "gloss": "" },
+    ],
+    "rules": [
+      {
+        "from": "raw",
+        "slot": "ask",
+        "outcome": {
+          "kind": "moved",
+          "edge": "A customer said no",
+          "to": "talked",
+        },
+      },
+      {
+        "from": "raw",
+        "slot": "build",
+        "outcome": { "kind": "moved", "edge": "It was built", "to": "built" },
+      },
+      {
+        "from": "talked",
+        "slot": "ask",
+        "outcome": {
+          "kind": "moved",
+          "edge": "A customer said yes",
+          "to": "built",
+        },
+      },
+      {
+        "from": "built",
+        "slot": "build",
+        "outcome": { "kind": "held", "edge": "Shipped", "to": "built" },
+      },
+    ],
+    "continuations": [],
+  }
+  let model = @backend.Model::from_json(json).unwrap()
+  let out = model.continuations("raw", 3)
+  // Both successors are one step away, and nothing is listed twice.
+  assert_eq(out.length(), 2)
+  let mut talked = -1
+  let mut built = -1
+  for pair in out {
+    if pair.0 == "talked" {
+      talked = pair.1
+    }
+    if pair.0 == "built" {
+      built = pair.1
+    }
+  }
+  assert_eq(talked, 1)
+  assert_eq(built, 1)
+  // And through one slot: "Ask" first, then whatever the model offers.
+  let through_ask = model.continuations_for("raw", "ask", 3)
+  assert_eq(through_ask.length(), 2)
+  assert_eq(through_ask[0].0, "talked")
+  assert_eq(through_ask[0].1, 1)
+  assert_eq(through_ask[1].0, "built")
+  assert_eq(through_ask[1].1, 2)
+}
+
+///|
+/// A model with two domains drives a two-domain loop.
+///
+/// The domains are the model's now, so a model with two of them has a loop
+/// with two -- not MAKED's five, and not five lenses standing over a
+/// two-position machine. The built-in model is put back afterwards, because
+/// the model MAKED runs is global and the rest of the suite expects the
+/// built-in one.
+test "a model with two domains drives a two-domain loop" {
+  let built_in = @backend.current_model()
+  defer @backend.install_model(built_in)
+  let toy = @backend.Model::from_json(toy_model()).unwrap()
+  @backend.install_model(toy)
+  // Two domains, and the loop starts on the model's first.
+  assert_eq(@backend.ring_domains_loop().length(), 2)
+  let state = @backend.LoopState::new()
+  assert_eq(state.current.id, "idea")
+  // Each domain stands at its own anchor, from the model rather than from a
+  // table of MAKED's own.
+  let idea = @backend.domain_from_id("idea").unwrap()
+  let ship = @backend.domain_from_id("ship").unwrap()
+  assert_eq(state.domain_state(idea).position, "raw")
+  assert_eq(state.domain_state(ship).position, "built")
+  // And the ring is two steps, not five.
+  assert_eq(idea.next().id, "ship")
+  assert_eq(ship.next().id, "idea")
+}
+
+///|
+/// MAKED's built-in machine is five lenses, and they carry these letters.
+///
+/// The letters are not decoration: the ring is drawn with them, a domain is
+/// named by one in a URL, and the session history is counted in them. Nothing
+/// tested them, so a letter could have been renamed and the whole suite would
+/// have stayed green -- while the ring was drawn in a different alphabet than
+/// the one the site narrates.
+test "the built-in machine has the five lenses it says it has" {
+  let model = @backend.current_model()
+  let ids = model.domains.map(fn(d) { d.id })
+  let letters = model.domains.map(fn(d) { d.letter })
+  assert_eq(ids, ["model", "data", "experience", "attack", "knowledge"])
+  assert_eq(letters, ["M", "D", "E", "A", "K"])
+}
