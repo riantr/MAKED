@@ -10,7 +10,7 @@
 test "DomainState::new starts at domain anchor" {
   let ds = @backend.DomainState::new(@backend.Model)
   assert_eq(ds.domain, @backend.Model)
-  assert_eq(ds.position, @sm.Standing)
+  assert_eq(ds.position, "standing")
   assert_eq(ds.history.length(), 0)
 }
 
@@ -18,33 +18,33 @@ test "DomainState::new starts at domain anchor" {
 /// DomainState::new for each domain starts at the correct position.
 test "DomainState::new for all domains" {
   let m = @backend.DomainState::new(@backend.Model)
-  assert_eq(m.position, @sm.Standing)
+  assert_eq(m.position, "standing")
   let d = @backend.DomainState::new(@backend.Data)
-  assert_eq(d.position, @sm.Encounter)
+  assert_eq(d.position, "encounter")
   let e = @backend.DomainState::new(@backend.Experience)
-  assert_eq(e.position, @sm.Honor)
+  assert_eq(e.position, "honor")
   let a = @backend.DomainState::new(@backend.Attack)
-  assert_eq(a.position, @sm.Evil)
+  assert_eq(a.position, "evil")
   let k = @backend.DomainState::new(@backend.Knowledge)
-  assert_eq(k.position, @sm.Discipline)
+  assert_eq(k.position, "cultivation")
 }
 
 ///|
 /// DomainState::step appends to history.
 test "DomainState::step appends history event" {
   let ds = @backend.DomainState::new(@backend.Model)
-  let stepped = ds.step(@sm.CoBeing)
+  let stepped = ds.step("cobeing")
   assert_eq(stepped.history.length(), 1)
   assert_eq(stepped.history[0].domain, @backend.Model)
-  assert_eq(stepped.history[0].slot, @sm.CoBeing)
+  assert_eq(stepped.history[0].slot, "cobeing")
 }
 
 ///|
 /// DomainState::step with Block outcome stays at same position.
 test "DomainState::step with Block stays put" {
   let ds = @backend.DomainState::new(@backend.Model)
-  let stepped = ds.step(@sm.CoBeing)
-  assert_eq(stepped.position, @sm.Standing)
+  let stepped = ds.step("cobeing")
+  assert_eq(stepped.position, "standing")
 }
 
 ///|
@@ -209,7 +209,7 @@ test "group state transitions as domains move" {
 /// step_with_slot updates the specific domain's state.
 test "step_with_slot updates domain state" {
   let state = @backend.LoopState::new()
-  let stepped = state.step_with_slot(@sm.Occasion)
+  let stepped = state.step_with_slot("occasion")
   let model_ds = stepped.domain_state(@backend.Model)
   assert_eq(model_ds.history.length(), 1)
 }
@@ -369,7 +369,7 @@ test "LoopState::to_json includes mode fields" {
 /// step_with_slot preserves mode field.
 test "step_with_slot preserves mode" {
   let state = @backend.LoopState::new_with_mode(@backend.Free)
-  let stepped = state.step_with_slot(@sm.Occasion)
+  let stepped = state.step_with_slot("occasion")
   assert_true(stepped.mode is @backend.Free)
 }
 

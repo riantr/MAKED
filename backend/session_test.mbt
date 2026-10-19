@@ -176,10 +176,15 @@ async test "a step is recorded with the slot, the positions and the why" {
   // record against that -- rather than against the same expression read
   // from the same map -- is what makes the check able to fail: a comparison
   // of two things derived the same way passes however wrong both are.
-  assert_eq(step.position_before, @backend.Model.position().en_label())
+  assert_eq(
+    step.position_before,
+    @backend.current_model().position_label(@backend.Model.position()),
+  )
   assert_eq(
     step.position_after,
-    after.domain_state(@backend.Model).position.en_label(),
+    @backend.current_model().position_label(
+      after.domain_state(@backend.Model).position,
+    ),
   )
   assert_true(step.detail != "")
   assert_true(step.created_at.contains("T"))
@@ -220,7 +225,9 @@ async test "the session survives a restart" {
   let before_positions = []
   for domain in @backend.ring_domains_loop() {
     before_positions.push(
-      @backend.get_loop_state().domain_state(domain).position.en_label(),
+      @backend.current_model().position_label(
+        @backend.get_loop_state().domain_state(domain).position,
+      ),
     )
   }
   db.close()
@@ -235,7 +242,9 @@ async test "the session survives a restart" {
   let after_positions = []
   for domain in @backend.ring_domains_loop() {
     after_positions.push(
-      @backend.get_loop_state().domain_state(domain).position.en_label(),
+      @backend.current_model().position_label(
+        @backend.get_loop_state().domain_state(domain).position,
+      ),
     )
   }
   assert_eq(after_positions, before_positions)
@@ -485,16 +494,13 @@ async test "deleting a session takes its steps with it" {
 async test "a step that could not move is recorded as one" {
   let db = open_session_db("blocked")
   let session = fresh_session(db, "Blocked")
-  // Find a slot the table has no edge for at this position. 228 of the 272
+  // Find a slot the model has no edge for at this position. 228 of the 272
   // position-slot combinations are Block, so there is always one to be had.
   let position = @backend.get_loop_state().domain_state(@backend.Model).position
-  let open = []
-  for slot in @backend.exitable_slots(position) {
-    open.push(@backend.slot_english_name(slot))
-  }
+  let open = @backend.exitable_slots(position)
   let mut blocked_slot = None
-  for slot in @sm.all_slots() {
-    if !open.contains(@backend.slot_english_name(slot)) {
+  for slot in @backend.current_model().slot_ids() {
+    if !open.contains(slot) {
       blocked_slot = Some(slot)
       break
     }

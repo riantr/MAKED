@@ -1,20 +1,32 @@
 ///| Loop engine tests.
 ///
 /// The loop is the newest and most complex backend module. These tests pin
-/// down the properties that would silently break if the pyroduct mapping, the
+/// down the properties that would silently break if the model mapping, the
 /// ring order, or the state mutation were wrong:
 ///
 ///   - Domain ↔ position round-trips
-///   - Ring order is M→D→E→A→K→M (not alphabetical)
+///   - Ring order is M→D→E→A→K (not alphabetical)
 ///   - step() always advances and appends history
 ///   - step_with_slot() stays put when outcome has no landing
 ///   - Module-level state mutates correctly (step, reset)
 ///   - to_json shape matches what the frontend decodes
 ///
-/// All five domain-anchor positions return Block("No-way") for their default
-/// drive slots in the current pyroduct migration table. The tests assert on
-/// this actual outcome rather than an idealised one -- a test that passes
-/// either way is not evidence.
+/// **The loop runs on the model now.** Positions and slots are ids, and every
+/// table lookup goes through `current_model()`. So the question these tests
+/// answer changes shape: not "does the loop agree with pyroproduct" but "does
+/// the loop ask the model, and report what the model says".
+///
+/// The first question still has to be answered *somewhere*, and it is answered
+/// in `model_test.mbt`, where the written-down model is compared with the
+/// package over all 272 combinations. Here, one spot-check remains: that the
+/// model the loop is actually running on still answers the way the table it
+/// was built from answers. A model that had drifted from the table would
+/// otherwise make every test in this file agree with a wrong machine.
+///
+/// Every one of the five domain anchors is movable: the table has an outgoing
+/// edge for each of them, and the drive slot is derived from those edges. The
+/// tests assert on that actual outcome rather than an idealised one -- a test
+/// that passes either way is not evidence.
 
 ///|
 /// Domain letters in ring order.
@@ -39,8 +51,8 @@ test "position and position_to_domain are inverses for domain anchors" {
 ///|
 /// position_to_domain returns None for non-anchor positions.
 test "position_to_domain returns None for non-anchor positions" {
-  // NoPast is position 0, which is not a domain anchor.
-  assert_true(@backend.position_to_domain(@sm.NoPast) is None)
+  // "no-past" is position 0, which is not a domain anchor.
+  assert_true(@backend.position_to_domain("no-past") is None)
 }
 
 ///|
@@ -54,53 +66,55 @@ test "next() follows M→D→E→A→K→M" {
 }
 
 ///|
-/// Every MAKED anchor has a slot the table can actually move it with.
+/// Every MAKED anchor has a slot the model can actually move it with.
 ///
 /// This replaces a test that asserted the old hard-coded mapping slot by slot.
 /// Those five slots were all Block in the migration table, so the loop stepped
 /// forever without any domain ever leaving its starting position. Asserting the
 /// mapping could not have caught that -- the mapping was the bug. What matters
 /// is the property the mapping was supposed to serve: from every anchor, the
-/// table offers at least one slot that produces something other than No-way.
-test "every anchor is movable by the table" {
+/// model offers at least one slot that produces something other than No-way.
+test "every anchor is movable by the model" {
+  let model = @backend.current_model()
   for d in @backend.ring_domains_loop() {
     let pos = d.position()
     assert_true(
       @backend.exitable_slots(pos).length() > 0,
-      msg="\{d.letter()} at \{pos.en_label()} has no exitable slot",
+      msg="\{d.letter()} at \{model.position_label(pos)} has no exitable slot",
     )
     let drive = @backend.drive_slot(pos)
     assert_true(drive is Some(_))
     match drive {
-      Some(slot) => assert_true(@sm.step(pos, slot).en_label() != "No-way")
+      Some(slot) => assert_true(model.step(pos, slot).kind() != "block")
       None => ()
     }
   }
 }
 
 ///|
-/// The derived drive slot is one the table genuinely has an edge for.
+/// The derived drive slot is one the model genuinely has an edge for.
 test "drive_slot is always exitable and prefers a real move" {
-  for pos in @sm.all_states() {
+  let model = @backend.current_model()
+  for pos in model.position_ids() {
     match @backend.drive_slot(pos) {
       None => ()
       Some(slot) => {
         assert_true(
-          @sm.exitable(pos, slot),
-          msg="\{pos.en_label()} chose a slot it has no edge for",
+          model.exitable_slots(pos).contains(slot),
+          msg="\{model.position_label(pos)} chose a slot it has no edge for",
         )
         // If a Moved edge exists anywhere, the derived slot must be one.
         let any_moved = {
           let mut found = false
           for s in @backend.exitable_slots(pos) {
-            if @sm.step(pos, s).en_label() == "Moved" {
+            if model.step(pos, s).kind() == "moved" {
               found = true
             }
           }
           found
         }
         if any_moved {
-          assert_eq(@sm.step(pos, slot).en_label(), "Moved")
+          assert_eq(model.step(pos, slot).kind(), "moved")
         }
       }
     }
@@ -110,7 +124,8 @@ test "drive_slot is always exitable and prefers a real move" {
 ///|
 /// A position with no outgoing edge reports blocked rather than a slot.
 test "a position with no out-edge yields no drive slot" {
-  for pos in @sm.all_states() {
+  let model = @backend.current_model()
+  for pos in model.position_ids() {
     if @backend.exitable_slots(pos).length() == 0 {
       assert_true(@backend.drive_slot(pos) is None)
     }
@@ -118,7 +133,7 @@ test "a position with no out-edge yields no drive slot" {
 }
 
 ///|
-/// `drive_slot` must never invent a slot for a position the table cannot move.
+/// `drive_slot` must never invent a slot for a position the model cannot move.
 ///
 /// The variant that returns some slot anyway survives every other test in this
 /// file, because all five MAKED anchors are movable: the fall-through is only
@@ -126,28 +141,30 @@ test "a position with no out-edge yields no drive slot" {
 ///
 /// Measured over all 34 positions: **there are none.** Every position has at
 /// least one exitable slot; what varies is whether the outcome is Moved (a
-/// move) or Undecided (the table declines to choose). So the `None` branch is
+/// move) or Undecided (the model declines to choose). So the `None` branch is
 /// currently unreachable from any real position -- it is there so that a
-/// future table with a genuine gap reports one instead of inventing a drive.
+/// future model with a genuine gap reports one instead of inventing a drive.
 ///
 /// The test therefore asserts the *invariant* rather than reaching the branch:
-/// whatever `drive_slot` returns must be a slot the table has an edge for.
-test "drive_slot only ever names a slot the table has an edge for" {
+/// whatever `drive_slot` returns must be a slot the model has an edge for.
+test "drive_slot only ever names a slot the model has an edge for" {
+  let model = @backend.current_model()
   let mut movable = 0
-  for pos in @sm.all_states() {
+  for pos in model.position_ids() {
     match @backend.drive_slot(pos) {
       None => ()
       Some(slot) => {
         movable += 1
         assert_true(
-          @sm.exitable(pos, slot),
-          msg="\{pos.en_label()} chose a slot it has no edge for",
+          model.exitable_slots(pos).contains(slot),
+          msg="\{model.position_label(pos)} chose a slot it has no edge for",
         )
       }
     }
   }
-  // All 34 positions are movable, which is why no test reaches the None branch.
-  assert_eq(movable, 34)
+  // Every position the model has, not a number typed in: a model with fewer
+  // positions would otherwise be measured against the wrong denominator.
+  assert_eq(movable, model.positions.length())
 }
 
 ///|
@@ -155,26 +172,26 @@ test "drive_slot only ever names a slot the table has an edge for" {
 test "a blocked step leaves the cursor where it was" {
   let state = @backend.LoopState::new()
   // Standing x Co-being is a real gap in the table.
-  let blocked = state.step_with_slot(@sm.CoBeing)
+  let blocked = state.step_with_slot("cobeing")
   assert_eq(blocked.current, @backend.Model)
   assert_eq(blocked.history[0].outcome_label, "No-way")
 }
 
 ///|
 /// A blocked step must not move the *cursor* -- and neither must an undecided
-/// one, since Undecided means the table declined to pick a successor.
+/// one, since Undecided means the model declined to pick a successor.
 ///
 /// The undecided half is the case that does not go through `blocked` at all:
 /// `drive_slot` returns a real slot, `step` returns Undecided, and the only
 /// thing standing between that and a fake advance is the outcome check in
-/// `step_domain_with`. Asserting only the explicit-slot case would leave that
-/// path uncovered.
+/// `step_domain_by_outcome`. Asserting only the explicit-slot case would leave
+/// that path uncovered.
 test "neither a blocked nor an undecided step advances the cursor" {
   let mut state = @backend.LoopState::new()
   // Model Standing -> Freedom by Action; the cursor moves to Data.
   state = state.step()
   assert_eq(state.current, @backend.Data)
-  assert_eq(state.domain_state(@backend.Model).position, @sm.Freedom)
+  assert_eq(state.domain_state(@backend.Model).position, "freedom")
   // Come back to Model. From Freedom the only exitable slot is Situation, which
   // is Undecided.
   let back = state.focus(@backend.Model)
@@ -186,27 +203,27 @@ test "neither a blocked nor an undecided step advances the cursor" {
   )
   // Nothing moved, so the cursor must not have moved either.
   assert_eq(stepped.current, @backend.Model)
-  assert_eq(stepped.domain_state(@backend.Model).position, @sm.Freedom)
+  assert_eq(stepped.domain_state(@backend.Model).position, "freedom")
 }
 
 ///|
-/// The way out of a position the table declined to decide.
+/// The way out of a position the model declined to decide.
 ///
-/// Freedom x Situation is Undecided: the table offers two successors and
+/// Freedom x Situation is Undecided: the model offers two successors and
 /// will not pick one. The machine may not make that choice -- that would be
-/// a lie about what the model says -- but a reader may, and the table has
+/// a lie about what the model says -- but a reader may, and the model has
 /// already said which successors are on offer. Without this, the run is
 /// stuck: the same step, over and over, with the page looking fine.
-test "a reader can choose one of the successors the table offered" {
+test "a reader can choose one of the successors the model offered" {
   let mut state = @backend.LoopState::new()
   state = state.step() // Model Standing -> Freedom
   let back = state.focus(@backend.Model)
-  // The table declines to choose here, and says what it would have chosen.
-  let candidates = @backend.open_candidates(@sm.Freedom, @sm.Occasion)
+  // The model declines to choose here, and says what it would have chosen.
+  let candidates = @backend.open_candidates("freedom", "occasion")
   assert_true(candidates.length() > 1)
   // The way out: the reader picks one of them.
-  let target = candidates[0].1
-  let stepped = back.step_with_target(@sm.Occasion, target.en_label())
+  let target = candidates[0].to
+  let stepped = back.step_with_target("occasion", target)
   // The subject moved, and the cursor moved with it.
   assert_eq(stepped.domain_state(@backend.Model).position, target)
   assert_eq(stepped.current, @backend.Data)
@@ -216,17 +233,17 @@ test "a reader can choose one of the successors the table offered" {
 }
 
 ///|
-/// A target the table does not offer is refused, not guessed at.
+/// A target the model does not offer is refused, not guessed at.
 ///
 /// The position is left alone and no step is recorded: a machine that
 /// invented a successor would be making a claim the transition table does
 /// not support.
-test "a target the table does not offer leaves the position alone" {
+test "a target the model does not offer leaves the position alone" {
   let mut state = @backend.LoopState::new()
   state = state.step()
   let back = state.focus(@backend.Model)
-  let stepped = back.step_with_target(@sm.Occasion, "Nowhere")
-  assert_eq(stepped.domain_state(@backend.Model).position, @sm.Freedom)
+  let stepped = back.step_with_target("occasion", "Nowhere")
+  assert_eq(stepped.domain_state(@backend.Model).position, "freedom")
   assert_eq(stepped.current, @backend.Model)
   // And no step was recorded: the history is the one it already had.
   assert_eq(stepped.history.length(), back.history.length())
@@ -236,15 +253,41 @@ test "a target the table does not offer leaves the position alone" {
 /// The candidate is found by the name the panel showed, not by an exact
 /// spelling of it: a reader asks for "urgency" and gets Urgency.
 test "a candidate is found without regard to case" {
-  let candidates = @backend.open_candidates(@sm.Freedom, @sm.Occasion)
+  let model = @backend.current_model()
+  let candidates = @backend.open_candidates("freedom", "occasion")
   assert_true(candidates.length() > 0)
-  let label = candidates[0].1.en_label()
+  let label = model.position_label(candidates[0].to)
   let found = @backend.candidate_named(candidates, label.to_lower())
   match found {
-    Some((_, next)) => assert_eq(next, candidates[0].1)
+    Some(candidate) => assert_eq(candidate.to, candidates[0].to)
     None => fail("the candidate should be found by its own name")
   }
   assert_true(@backend.candidate_named(candidates, "Nowhere") is None)
+}
+
+///|
+/// A candidate is found by its id as well as by its label.
+///
+/// The two are not the same string: an id is a slug ("no-past") and a label is
+/// the words a reader sees ("No Past"). A client that read the id out of
+/// `/api/model` and posted it back would be refused by the very endpoint
+/// that handed the id out.
+test "a candidate is found by its id as well as by its label" {
+  let model = @backend.current_model()
+  let candidate : @backend.Candidate = {
+    edge: "some edge",
+    to: "no-past",
+    kind: "moved",
+  }
+  let candidates = [candidate]
+  // By the id.
+  assert_true(@backend.candidate_named(candidates, "no-past") is Some(_))
+  // By the label, however it is spelled.
+  assert_true(@backend.candidate_named(candidates, "No Past") is Some(_))
+  assert_true(@backend.candidate_named(candidates, "no past") is Some(_))
+  // The model is what says what the label is, so the label used here is the
+  // model's own -- not a copy that could drift from it.
+  assert_eq(model.position_label("no-past"), "No Past")
 }
 
 ///|
@@ -282,6 +325,7 @@ fn json_array(json : Json, key : String) -> Array[Json] {
 /// so a domain that had genuinely moved still reported where it started -- the
 /// status contradicting the history in the same response.
 test "status reports the real position, not the anchor, after a move" {
+  let model = @backend.current_model()
   let state = @backend.LoopState::new()
   let stepped = state.step()
   let ds = stepped.domain_state(@backend.Model)
@@ -315,13 +359,13 @@ test "status reports the real position, not the anchor, after a move" {
   // anchor the cursor's letter happens to map to.
   assert_eq(
     json_str(json, "current_position"),
-    stepped.domain_state(stepped.current).position.en_label(),
+    model.position_label(stepped.domain_state(stepped.current).position),
   )
 }
 
 ///|
-/// `drive_slot` in the status is the table's answer, not a hard-coded one.
-test "status drive_slot comes from the table" {
+/// `drive_slot` in the status is the model's answer, not a hard-coded one.
+test "status drive_slot comes from the model" {
   let state = @backend.LoopState::new()
   let json = state.to_json()
   // Standing only leaves via Action -- the old mapping said Co-being.
@@ -358,8 +402,8 @@ test "status carries the whole slot vocabulary, not just the open ones" {
     assert_true(name != "")
     assert_true(json_str(item, "designation") != "")
     assert_true(json_str(item, "gloss") != "")
-    // Every listed name must round-trip back to a real pyroduct slot, so the
-    // frontend can POST it to /api/loop/step/:slot.
+    // Every listed name must round-trip back to a real slot in the model, so
+    // the frontend can POST it to /api/loop/step/:slot.
     match @backend.slot_from_english(name) {
       Some(_) => ()
       None => fail("slots named an unknown slot: \{name}")
@@ -376,8 +420,9 @@ test "status carries the whole slot vocabulary, not just the open ones" {
 }
 
 ///|
-/// `open_slots` is what the table offers here -- not all eight slots.
-test "status open_slots lists only slots the table has edges for" {
+/// `open_slots` is what the model offers here -- not all eight slots.
+test "status open_slots lists only slots the model has edges for" {
+  let model = @backend.current_model()
   let state = @backend.LoopState::new()
   let open = json_array(state.to_json(), "open_slots")
   // Standing has exactly one exitable slot out of eight.
@@ -385,20 +430,42 @@ test "status open_slots lists only slots the table has edges for" {
   assert_eq(json_str(open[0], "name"), "act")
   assert_eq(json_str(open[0], "outcome"), "Moved")
   // And every listed slot must be genuinely exitable, cross-checked against
-  // pyroduct rather than against the function that produced the list.
-  let pos = @sm.Standing
+  // the model rather than against the function that produced the list.
+  let pos = "standing"
   for item in open {
     let slot = match @backend.slot_from_english(json_str(item, "name")) {
       Some(s) => s
       None =>
         fail("open_slots named an unknown slot: \{json_str(item, "name")}")
     }
-    assert_true(@sm.exitable(pos, slot))
+    assert_true(model.exitable_slots(pos).contains(slot))
   }
 }
 
 ///|
-/// `undecided` is reported when the table declines to choose.
+/// The model the loop runs on is still the table it was built from.
+///
+/// The model is proved equal to pyroproduct over all 272 combinations in
+/// `model_test.mbt`. This is the spot-check at the place it matters: the
+/// position the loop actually drives, asked of both machines independently.
+/// Without it, every other test in this file would agree with a model that
+/// had quietly drifted away from the table.
+test "the model the loop runs on still answers like the table" {
+  // Standing offers exactly one slot: Action.
+  assert_eq(@backend.exitable_slots("standing"), ["act"])
+  // Asked of the package directly, without the model in between.
+  assert_true(@sm.exitable(@sm.Standing, @sm.Act))
+  assert_false(@sm.exitable(@sm.Standing, @sm.CoBeing))
+  // And the two agree about where Action leads.
+  let model = @backend.current_model()
+  assert_eq(
+    model.step("standing", "act"),
+    @backend.Move::Moved(@sm.ActInFreedom.en_label(), "freedom"),
+  )
+}
+
+///|
+/// `undecided` is reported when the model declines to choose.
 test "status reports undecided at an Undecided branch" {
   let mut state = @backend.LoopState::new()
   state = state.step() // Model Standing -> Freedom, cursor moves to D
@@ -428,12 +495,38 @@ test "status reports undecided at an Undecided branch" {
 }
 
 ///|
+/// The outcome travels as a label *and* a kind.
+///
+/// The label is what a reader sees; the kind is what a client matches on. A
+/// client that has to recognise the word "Undecided" to know the model
+/// declined to choose is a client that breaks the moment the model is
+/// renamed -- and a rename is exactly what a model file is for.
+test "every open slot carries the kind as well as the label" {
+  let state = @backend.LoopState::new()
+  let open = json_array(state.to_json(), "open_slots")
+  assert_true(open.length() > 0)
+  for item in open {
+    assert_true(json_str(item, "outcome") != "")
+    assert_true(json_str(item, "outcome_kind") != "")
+    // The kind is the machine word, never the label.
+    let kind = json_str(item, "outcome_kind")
+    assert_true(
+      kind == "moved" ||
+      kind == "held" ||
+      kind == "same" ||
+      kind == "open" ||
+      kind == "block",
+    )
+  }
+}
+
+///|
 /// Stepping a domain that already moved keeps driving from where it is.
 test "a moved domain is driven from its new position, not its anchor" {
   let mut state = @backend.LoopState::new()
   state = state.step() // Model Standing -> Freedom
   let moved = state.domain_state(@backend.Model)
-  assert_eq(moved.position, @sm.Freedom)
+  assert_eq(moved.position, "freedom")
   // Come back to Model and step again: the slot must be derived from Freedom,
   // where Situation is the only exitable slot.
   let mut back = state
@@ -447,11 +540,8 @@ test "a moved domain is driven from its new position, not its anchor" {
   let stepped = back.step()
   let event = stepped.history[stepped.history.length() - 1]
   assert_eq(event.position_designation, "Freedom")
-  assert_eq(event.slot, @sm.Occasion)
+  assert_eq(event.slot, "occasion")
 }
-
-///|
-/// `is_undecided` reports a genuine Undecided branch, and only a real one.
 
 ///|
 /// Converge is a move, not a failure.
@@ -459,18 +549,19 @@ test "a moved domain is driven from its new position, not its anchor" {
 /// Encounter x Holding and Discipline x Action both land the subject back on
 /// its own position while still consuming the trigger. Classifying Converge as
 /// "did not move" would park the cursor on those domains forever, even though
-/// the table settled the question. Walk every position and assert the
+/// the model settled the question. Walk every position and assert the
 /// classification of Converge.
 test "a Same outcome counts as a move" {
+  let model = @backend.current_model()
   let mut found_same = 0
-  for pos in @sm.all_states() {
+  for pos in model.position_ids() {
     for slot in @backend.exitable_slots(pos) {
-      match @sm.step(pos, slot) {
-        @sm.Same(_, _, _) => {
+      match model.step(pos, slot) {
+        @backend.Move::Same(_, _) => {
           found_same += 1
           assert_true(
-            @backend.StepEffect::of(@sm.step(pos, slot)).moved(),
-            msg="\{pos.en_label()} x \{slot.en_designation()} is Same but was not counted as a move",
+            @backend.StepEffect::of(model.step(pos, slot)).moved(),
+            msg="\{model.position_label(pos)} x \{model.slot_designation(slot)} is Same but was not counted as a move",
           )
         }
         _ => ()
@@ -482,14 +573,15 @@ test "a Same outcome counts as a move" {
 }
 
 ///|
-/// `is_undecided` is true only where the table declines to choose.
-test "is_undecided is true only where the table declines to choose" {
+/// `is_undecided` is true only where the model declines to choose.
+test "is_undecided is true only where the model declines to choose" {
+  let model = @backend.current_model()
   // Freedom x Situation is Undecided: two successors, machine does not pick.
-  assert_true(@backend.is_undecided(@sm.Freedom))
+  assert_true(@backend.is_undecided("freedom"))
   // Standing x Action is a single Moved.
-  assert_true(!@backend.is_undecided(@sm.Standing))
+  assert_true(!@backend.is_undecided("standing"))
   // A dead position is blocked, not undecided.
-  for pos in @sm.all_states() {
+  for pos in model.position_ids() {
     if @backend.exitable_slots(pos).length() == 0 {
       assert_true(!@backend.is_undecided(pos))
     }
@@ -499,7 +591,7 @@ test "is_undecided is true only where the table declines to choose" {
 ///|
 /// `continuations` returns real successors reachable from the current position.
 test "continuations are reachable successors with a step count" {
-  let out = @backend.continuations(@sm.Standing, 3)
+  let out = @backend.continuations("standing", 3)
   assert_true(out.length() > 0)
   // Every entry must name a position with at least one edge from Standing.
   let reach = @sm.reachable(@sm.Standing, @sm.Freedom)
@@ -508,16 +600,13 @@ test "continuations are reachable successors with a step count" {
   for pair in out {
     assert_true(pair.1 >= 1)
     assert_true(pair.1 <= 3)
-    if pair.0 == @sm.Freedom {
+    if pair.0 == "freedom" {
       saw_freedom = true
     }
   }
   // Action moves Standing -> Freedom in one step, so it must be there.
   assert_true(saw_freedom)
 }
-
-///|
-/// `continuations` dedups: the same position may be reached by several slots.
 
 ///|
 /// A position reachable by two routes is listed once, at its shortest.
@@ -527,23 +616,24 @@ test "continuations are reachable successors with a step count" {
 /// position reached two ways -- and the walk would no longer be a "what could
 /// happen next" answer.
 test "a position reachable twice is listed once at the shortest distance" {
-  for pos in @sm.all_states() {
+  let model = @backend.current_model()
+  for pos in model.position_ids() {
     let out = @backend.continuations(pos, 3)
     for i in 0..<out.length() {
       for j in (i + 1)..<out.length() {
         assert_true(
           out[i].0 != out[j].0,
-          msg="\{pos.en_label()}: \{out[i].0.en_label()} listed twice",
+          msg="\{model.position_label(pos)}: \{model.position_label(out[i].0)} listed twice",
         )
       }
     }
   }
   // Spot-check the case this exists for: from Encounter, Opening is one step
   // via Co-being.
-  let from_encounter = @backend.continuations(@sm.Encounter, 3)
+  let from_encounter = @backend.continuations("encounter", 3)
   let mut found = -1
   for pair in from_encounter {
-    if pair.0 == @sm.Opening {
+    if pair.0 == "opening" {
       found = pair.1
     }
   }
@@ -552,12 +642,13 @@ test "a position reachable twice is listed once at the shortest distance" {
 
 ///|
 test "continuations lists each position once" {
-  let out = @backend.continuations(@sm.Standing, 3)
+  let model = @backend.current_model()
+  let out = @backend.continuations("standing", 3)
   for i in 0..<out.length() {
     for j in (i + 1)..<out.length() {
       assert_true(
         out[i].0 != out[j].0 || out[i].1 != out[j].1,
-        msg="continuations repeats \{out[i].0.en_label()}",
+        msg="continuations repeats \{model.position_label(out[i].0)}",
       )
     }
   }
@@ -584,23 +675,22 @@ test "LoopState::new starts at Model with empty history" {
 ///|
 /// step() records a real transition and advances the cursor.
 ///
-/// Model starts at Standing, which `only_act_exits` lists among the four
-/// positions that only Action leaves. So the step must drive Act, land on
-/// Freedom, and record Moved. This is the test the old loop could not have
-/// passed: with CoBeing it recorded No-way, left Standing untouched, and still
-/// advanced to Data.
+/// Model starts at Standing, which only Action leaves. So the step must drive
+/// Act, land on Freedom, and record Moved. This is the test the old loop could
+/// not have passed: with CoBeing it recorded No-way, left Standing untouched,
+/// and still advanced to Data.
 test "step() moves Model off its anchor on the first step" {
   let state = @backend.LoopState::new()
   let stepped = state.step()
   assert_eq(stepped.history.length(), 1)
   let event = stepped.history[0]
   assert_eq(event.domain, @backend.Model)
-  assert_eq(event.slot, @sm.Act)
+  assert_eq(event.slot, "act")
   assert_eq(event.outcome_label, "Moved")
   assert_eq(event.position_designation, "Standing")
   // The cursor moved on, and Model itself actually went somewhere.
   assert_eq(stepped.current, @backend.Data)
-  assert_eq(stepped.domain_state(@backend.Model).position, @sm.Freedom)
+  assert_eq(stepped.domain_state(@backend.Model).position, "freedom")
 }
 
 ///|
@@ -629,7 +719,7 @@ test "history records the departing domain" {
 test "step_with_slot stays put on Block outcome" {
   let state = @backend.LoopState::new()
   // Model/Standing with CoBeing returns Block, which has no landing.
-  let stepped = state.step_with_slot(@sm.CoBeing)
+  let stepped = state.step_with_slot("cobeing")
   assert_eq(stepped.current, @backend.Model)
   assert_eq(stepped.history.length(), 1)
   assert_eq(stepped.history[0].outcome_label, "No-way")
@@ -748,13 +838,13 @@ test "to_json history_length matches history array length after steps" {
 test "Block outcome_detail mentions the position" {
   let state = @backend.LoopState::new()
   // Standing has no Co-being edge; asking for it must report the gap, not move.
-  let stepped = state.step_with_slot(@sm.CoBeing)
+  let stepped = state.step_with_slot("cobeing")
   let event = stepped.history[0]
   assert_eq(event.outcome_label, "No-way")
   assert_true(event.outcome_detail.contains("Standing"))
   // Nothing moved, so the cursor stays on the domain that could not move.
   assert_eq(stepped.current, @backend.Model)
-  assert_eq(stepped.domain_state(@backend.Model).position, @sm.Standing)
+  assert_eq(stepped.domain_state(@backend.Model).position, "standing")
 }
 
 ///|
@@ -778,27 +868,27 @@ test "LoopState equality" {
 /// slot_from_designation parses all eight slot designations correctly.
 ///
 /// This list is a deliberate tripwire, not a copy of the parser: it pins the
-/// eight words pyroduct currently *displays*, so that a rename upstream fails
+/// eight words pyroproduct currently *displays*, so that a rename upstream fails
 /// here instead of silently changing what MAKED shows its users. The parser
-/// itself reads the table out of pyroduct, so a rename needs no code change --
+/// itself reads the names out of the model, so a rename needs no code change --
 /// only this list, and a look at the user-visible copy.
 ///
-/// pyroduct 0.1.32 moved two of them: "Occasion" to "Situation" and
+/// pyroproduct 0.1.32 moved two of them: "Occasion" to "Situation" and
 /// "Anticipation" to "Antecedent". The code identifiers `Occasion` and
 /// `Antecedent` did not move -- only the English reading did.
 test "slot_from_designation parses all eight slots" {
-  assert_true(@backend.slot_from_designation("Situation") is Some(@sm.Occasion))
+  assert_true(@backend.slot_from_designation("Situation") is Some("occasion"))
   assert_true(
-    @backend.slot_from_designation("Orientation") is Some(@sm.Orientation),
+    @backend.slot_from_designation("Orientation") is Some("orientation"),
   )
   assert_true(
-    @backend.slot_from_designation("Antecedent") is Some(@sm.Antecedent),
+    @backend.slot_from_designation("Antecedent") is Some("antecedent"),
   )
-  assert_true(@backend.slot_from_designation("Action") is Some(@sm.Act))
-  assert_true(@backend.slot_from_designation("Feedback") is Some(@sm.Feedback))
-  assert_true(@backend.slot_from_designation("Holding") is Some(@sm.Hold))
-  assert_true(@backend.slot_from_designation("Co-being") is Some(@sm.CoBeing))
-  assert_true(@backend.slot_from_designation("Unveiling") is Some(@sm.Unveil))
+  assert_true(@backend.slot_from_designation("Action") is Some("act"))
+  assert_true(@backend.slot_from_designation("Feedback") is Some("feedback"))
+  assert_true(@backend.slot_from_designation("Holding") is Some("hold"))
+  assert_true(@backend.slot_from_designation("Co-being") is Some("cobeing"))
+  assert_true(@backend.slot_from_designation("Unveiling") is Some("unveil"))
 }
 
 ///|
@@ -813,24 +903,25 @@ test "slot_from_designation returns None for unknown input" {
 ///|
 /// slot_from_designation ignores case.
 ///
-/// The doc has always claimed this; until pyroduct 0.1.32 it was not true,
+/// The doc has always claimed this; until pyroproduct 0.1.32 it was not true,
 /// because the accepted spellings were a hand-written list rather than a
 /// comparison. It is now real, and it is what lets the old display word
 /// "Occasion" keep working: it differs from the new one only in case.
 test "slot_from_designation ignores case" {
-  assert_true(@backend.slot_from_designation("situation") is Some(@sm.Occasion))
-  assert_true(@backend.slot_from_designation("SITUATION") is Some(@sm.Occasion))
-  assert_true(@backend.slot_from_designation("CO-BEING") is Some(@sm.CoBeing))
-  assert_true(@backend.slot_from_designation("Occasion") is Some(@sm.Occasion))
+  assert_true(@backend.slot_from_designation("situation") is Some("occasion"))
+  assert_true(@backend.slot_from_designation("SITUATION") is Some("occasion"))
+  assert_true(@backend.slot_from_designation("CO-BEING") is Some("cobeing"))
+  assert_true(@backend.slot_from_designation("Occasion") is Some("occasion"))
 }
 
 ///|
-/// slot_from_designation round-trips with Slot::en_designation for all slots.
+/// slot_from_designation round-trips with the model's own designation.
 test "slot_from_designation round-trips with designation" {
-  for slot in @sm.all_slots() {
-    let designation = slot.en_designation()
+  let model = @backend.current_model()
+  for slot in model.slots {
+    let designation = slot.designation
     match @backend.slot_from_designation(designation) {
-      Some(parsed) => assert_eq(parsed, slot)
+      Some(parsed) => assert_eq(parsed, slot.id)
       None => fail("slot_from_designation returned None for \{designation}")
     }
   }
@@ -839,32 +930,30 @@ test "slot_from_designation round-trips with designation" {
 ///|
 /// all_slots_info returns eight entries with non-empty fields.
 ///
-/// The entry is (english_name, designation, gloss). There is no `source` field:
-/// pyroduct's source quote is Chinese source-layer text with no English form,
+/// The entry is (id, designation, gloss). There is no `source` field:
+/// pyroproduct's source quote is Chinese source-layer text with no English form,
 /// and inventing one would break the traceability it exists for.
 test "all_slots_info returns eight entries" {
   let info = @backend.all_slots_info()
   assert_eq(info.length(), 8)
-  for (english, designation, gloss) in info {
-    assert_true(english != "")
+  for (id, designation, gloss) in info {
+    assert_true(id != "")
     assert_true(designation != "")
     assert_true(gloss != "")
   }
 }
 
 ///|
-/// slot_from_english parses all eight English names.
+/// slot_from_english parses all eight slot ids.
 test "slot_from_english parses all eight names" {
-  assert_true(@backend.slot_from_english("occasion") is Some(@sm.Occasion))
-  assert_true(
-    @backend.slot_from_english("orientation") is Some(@sm.Orientation),
-  )
-  assert_true(@backend.slot_from_english("antecedent") is Some(@sm.Antecedent))
-  assert_true(@backend.slot_from_english("act") is Some(@sm.Act))
-  assert_true(@backend.slot_from_english("feedback") is Some(@sm.Feedback))
-  assert_true(@backend.slot_from_english("hold") is Some(@sm.Hold))
-  assert_true(@backend.slot_from_english("cobeing") is Some(@sm.CoBeing))
-  assert_true(@backend.slot_from_english("unveil") is Some(@sm.Unveil))
+  assert_true(@backend.slot_from_english("occasion") is Some("occasion"))
+  assert_true(@backend.slot_from_english("orientation") is Some("orientation"))
+  assert_true(@backend.slot_from_english("antecedent") is Some("antecedent"))
+  assert_true(@backend.slot_from_english("act") is Some("act"))
+  assert_true(@backend.slot_from_english("feedback") is Some("feedback"))
+  assert_true(@backend.slot_from_english("hold") is Some("hold"))
+  assert_true(@backend.slot_from_english("cobeing") is Some("cobeing"))
+  assert_true(@backend.slot_from_english("unveil") is Some("unveil"))
 }
 
 ///|
@@ -875,13 +964,13 @@ test "slot_from_english returns None for unknown" {
 }
 
 ///|
-/// Slot::english_name round-trips with slot_from_english.
-test "english_name round-trips with slot_from_english" {
-  for slot in @sm.all_slots() {
-    let name = @backend.slot_english_name(slot)
-    match @backend.slot_from_english(name) {
-      Some(parsed) => assert_eq(parsed, slot)
-      None => fail("slot_from_english returned None for \{name}")
+/// The slot id round-trips with slot_from_english.
+test "the slot id round-trips with slot_from_english" {
+  let model = @backend.current_model()
+  for slot in model.slots {
+    match @backend.slot_from_english(slot.id) {
+      Some(parsed) => assert_eq(parsed, slot.id)
+      None => fail("slot_from_english returned None for \{slot.id}")
     }
   }
 }

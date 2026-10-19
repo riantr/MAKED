@@ -264,15 +264,16 @@ $mutations = @(
   @{
     name = "the reader's choice of successor is ignored"
     file = 'backend/loop.mbt'
-    old  = '    Some((trigger, _)) => self.step_domain_with_trigger(domain, slot, trigger)'
-    new  = '    Some((trigger, _)) => self'
+    old  = '    Some(candidate) => self.step_domain_with_candidate(domain, slot, candidate)'
+    new  = '    Some(candidate) => self'
   },
   # The candidate is found by the name the panel showed. A lookup that never
   # matches is a way out that is not there.
   @{
     name = 'a candidate is never found by its name'
     file = 'backend/loop.mbt'
-    old  = '    if next.en_label().to_lower() == needle {'
+    old  = '    if candidate.to.to_lower() == needle ||
+      current_model().position_label(candidate.to).to_lower() == needle {'
     new  = '    if false {'
   },
   # The model is the machine written down. A translation that sends the
@@ -309,6 +310,40 @@ $mutations = @(
     file = 'backend/model.mbt'
     old  = '    "format": MODEL_FORMAT,'
     new  = '    "format": "maked.model.v0",'
+  },
+  # A candidate is found by its id as well as by its label. The two are not the
+  # same string, so accepting one and not the other refuses a client that read
+  # the id out of /api/model and posted it back.
+  @{
+    name = 'a candidate can only be named by its label'
+    file = 'backend/loop.mbt'
+    old  = '    if candidate.to.to_lower() == needle ||
+      current_model().position_label(candidate.to).to_lower() == needle {'
+    new  = '    if current_model().position_label(candidate.to).to_lower() == needle {'
+  },
+  # The outcome's word is the model's, and the model may rename it. A loop
+  # that had its own copy of the word would keep saying the old one after the
+  # model was renamed.
+  @{
+    name = 'the model renames the Undecided outcome'
+    file = 'backend/model.mbt'
+    old  = '    Open(_) => "Undecided"'
+    new  = '    Open(_) => "Pending"'
+  },
+  # The loop offers the edges the model has, not every slot in the vocabulary.
+  @{
+    name = 'the loop offers every slot, not the model''s edges'
+    file = 'backend/loop.mbt'
+    old  = 'pub fn exitable_slots(position : String) -> Array[String] {
+  current_model().exitable_slots(position)
+}'
+    new  = 'pub fn exitable_slots(position : String) -> Array[String] {
+  let out = []
+  for slot in current_model().slot_ids() {
+    out.push(slot)
+  }
+  out
+}'
   }
 )
 

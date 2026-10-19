@@ -325,6 +325,7 @@ test "decode_loop_status reads the reasons a step may do nothing" {
         "name": "act",
         "designation": "Action",
         "outcome": "Moved",
+        "outcome_kind": "moved",
         "targets": [["Freedom"]],
       },
     ],
@@ -338,7 +339,8 @@ test "decode_loop_status reads the reasons a step may do nothing" {
   let open = status.open_slots[0]
   assert_eq(open.name, "act")
   assert_eq(open.outcome, "Moved")
-  // `targets` is a list of [from, to] pairs; the reader keeps the destinations.
+  assert_eq(open.outcome_kind, "moved")
+  // `targets` is a list of one-element lists; the reader keeps the destination.
   assert_eq(open.targets.length(), 1)
   assert_eq(open.targets[0], "Freedom")
 }
@@ -375,12 +377,14 @@ test "find_open_slot distinguishes the slots the table offers from those it does
         "name": "cobeing",
         "designation": "Co-being",
         "outcome": "Undecided",
+        "outcome_kind": "open",
         "targets": [],
       },
       {
         "name": "act",
         "designation": "Action",
         "outcome": "Moved",
+        "outcome_kind": "moved",
         "targets": [["Freedom"]],
       },
     ],
@@ -399,9 +403,9 @@ test "find_open_slot distinguishes the slots the table offers from those it does
 }
 
 ///|
-/// The way out of a position the table declined to decide.
+/// The way out of a position the model declined to decide.
 ///
-/// The slot the table declined at carries the candidates it would have
+/// The slot the model declined at carries the candidates it would have
 /// chosen between. The panel turns them into buttons, and the reader picks
 /// one. Without this the run is stuck: the slot is there, it says
 /// "Undecided", and every click through it lands nowhere.
@@ -414,12 +418,14 @@ test "the undecided slot is found, with the candidates it offers" {
         "name": "act",
         "designation": "Action",
         "outcome": "Moved",
+        "outcome_kind": "moved",
         "targets": [["Freedom"]],
       },
       {
         "name": "occasion",
         "designation": "Situation",
         "outcome": "Undecided",
+        "outcome_kind": "open",
         "targets": [["Urgency"], ["Alienation"]],
       },
     ],
@@ -430,12 +436,60 @@ test "the undecided slot is found, with the candidates it offers" {
       assert_eq(open.name, "occasion")
       assert_eq(open.designation, "Situation")
       assert_eq(open.outcome, "Undecided")
+      assert_eq(open.outcome_kind, "open")
       assert_eq(open.targets.length(), 2)
       assert_eq(open.targets[0], "Urgency")
       assert_eq(open.targets[1], "Alienation")
     }
     None => assert_true(false)
   }
+}
+
+///|
+/// The way out is found by the outcome's *kind*, not by the word "Undecided".
+///
+/// The label is the part a model file is meant to be able to change, so a
+/// client that matches on the label stops working the day somebody renames
+/// a model. The kind is the part that means "the model would not choose".
+///
+/// Both directions are checked, because either one alone would pass: a
+/// renamed label must still be found, and a slot that merely happens to be
+/// called "Undecided" must not be mistaken for a way out.
+test "the way out is found by the outcome's kind, not by its label" {
+  // The label says something else entirely, and the kind says "open": it is
+  // still the way out.
+  let renamed : Json = {
+    "open_slots": [
+      {
+        "name": "occasion",
+        "designation": "Situation",
+        "outcome": "The model is thinking",
+        "outcome_kind": "open",
+        "targets": [["Urgency"], ["Alienation"]],
+      },
+    ],
+  }
+  let status = @frontend.decode_loop_status(renamed)
+  match @frontend.find_undecided_slot(status) {
+    Some(open) => assert_eq(open.name, "occasion")
+    None => assert_true(false)
+  }
+  // The label says "Undecided" and the kind says it is an ordinary move: it
+  // is not a way out, and offering it as one would send the reader down a
+  // road the model never offered.
+  let mislabelled : Json = {
+    "open_slots": [
+      {
+        "name": "act",
+        "designation": "Action",
+        "outcome": "Undecided",
+        "outcome_kind": "moved",
+        "targets": [["Freedom"]],
+      },
+    ],
+  }
+  let other = @frontend.decode_loop_status(mislabelled)
+  assert_true(absent(@frontend.find_undecided_slot(other)))
 }
 
 ///|
@@ -1380,6 +1434,7 @@ fn undecided_status() -> Json {
         "name": "occasion",
         "designation": "Situation",
         "outcome": "Undecided",
+        "outcome_kind": "open",
         "targets": [["Urgency"], ["Alienation"]],
       },
     ],
@@ -1457,6 +1512,7 @@ test "a candidate list that holds a pair still offers the destination" {
         "name": "occasion",
         "designation": "Situation",
         "outcome": "Undecided",
+        "outcome_kind": "open",
         "targets": [["Freedom", "Urgency"]],
       },
     ],

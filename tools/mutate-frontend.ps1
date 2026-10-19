@@ -190,6 +190,23 @@ $mutations = @(
     file = 'frontend/loop_state.mbt'
     old  = '            String(s) => last = Some(s)'
     new  = '            String(s) => last = None'
+  },
+  # The way out is found by the outcome's *kind*. A client that matches the
+  # word "Undecided" works until somebody renames the model -- and renaming a
+  # model is exactly what a model file is for.
+  @{
+    name = 'the way out is found by the label again'
+    file = 'frontend/loop_state.mbt'
+    old  = '    if slot.outcome_kind == "open" && slot.targets.length() > 0 {'
+    new  = '    if slot.outcome == "Undecided" && slot.targets.length() > 0 {'
+  },
+  # The kind travels beside the label, so a client never has to recognise a
+  # sentence to know what happened.
+  @{
+    name = 'the outcome kind is never decoded'
+    file = 'frontend/loop_state.mbt'
+    old  = '    outcome_kind: get_string(json, "outcome_kind", ""),'
+    new  = '    outcome_kind: "",'
   }
 )
 

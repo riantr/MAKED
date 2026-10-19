@@ -31,6 +31,13 @@ pub(all) struct StepFacts {
   /// The slot's designation: "Action".
   slot : String
   /// The outcome: "Moved", "Held", "Undecided", "Converge" or "No-way".
+  ///
+  /// This is the *word*, and the word is the model's. When a model file can
+  /// rename its outcomes, the arms of `step_sentence` have to follow the
+  /// model's own words rather than the five written here -- or a renamed
+  /// model would produce a sentence about the wrong kind of step. That is
+  /// the step where the model owns the vocabulary, and it is why this field
+  /// is a word and not a kind.
   outcome : String
   /// Where the domain stood before the step.
   position_before : String

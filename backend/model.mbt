@@ -141,7 +141,7 @@ pub(all) struct Rule {
   /// The slot the rule is about.
   slot : String
   /// What it does.
-  move : Move
+  transition : Move
 } derive(Eq, Debug)
 
 ///|
@@ -315,6 +315,124 @@ pub fn Move::of(state : @sm.SubjectState, outcome : @sm.Outcome) -> Move {
 }
 
 ///|
+/// What the outcome is called, in the words a reader sees.
+///
+/// The five names are the ones the table's own English rendering uses, so a
+/// reader sees one vocabulary rather than two. They are the outcome's *kind*
+/// dressed in words. The kind itself -- "moved", "open" -- is what the
+/// machine matches on, and it is what travels in the JSON beside the label,
+/// so a client never has to recognise a sentence to know what happened.
+pub fn Move::label(self : Move) -> String {
+  match self {
+    Moved(_, _) => "Moved"
+    Held(_, _) => "Held"
+    Same(_, _) => "Converge"
+    Open(_) => "Undecided"
+    Block(_) => "No-way"
+  }
+}
+
+///|
+/// The outcome's kind, in the words the machine matches on.
+pub fn Move::kind(self : Move) -> String {
+  match self {
+    Moved(_, _) => "moved"
+    Held(_, _) => "held"
+    Same(_, _) => "same"
+    Open(_) => "open"
+    Block(_) => "block"
+  }
+}
+
+///|
+/// The slot with this name, if the model has one.
+///
+/// The name may be the slot's id ("occasion") or the name a reader sees
+/// ("Situation"), and the match ignores case: the reader asks for what the
+/// panel showed them, and the panel shows the designation.
+pub fn Model::slot_from_name(self : Model, s : String) -> String? {
+  let needle = s.to_lower()
+  for slot in self.slots {
+    if slot.id.to_lower() == needle || slot.designation.to_lower() == needle {
+      return Some(slot.id)
+    }
+  }
+  None
+}
+
+///|
+/// The successors reachable from a position through one slot.
+///
+/// The same list as `continuations`, but for a single slot: the slot-by-slot
+/// view is where the alternative routes belong.
+pub fn Model::continuations_for(
+  self : Model,
+  from : String,
+  slot : String,
+  depth : Int32,
+) -> Array[(String, Int32)] {
+  let out = []
+  for continuation in self.continuations {
+    if continuation.from == from &&
+      continuation.slot == slot &&
+      continuation.steps <= depth {
+      out.push((continuation.to, continuation.steps))
+    }
+  }
+  out
+}
+
+///|
+/// The position a domain starts at.
+pub fn Model::domain_anchor(self : Model, domain : String) -> String {
+  match self.domain(domain) {
+    Some(spec) => spec.anchor
+    None => ""
+  }
+}
+
+///|
+/// The domain that starts at a position, if one does.
+pub fn Model::domain_anchored_at(self : Model, position : String) -> String? {
+  for domain in self.domains {
+    if domain.anchor == position {
+      return Some(domain.id)
+    }
+  }
+  None
+}
+
+///|
+/// The ids of the model's domains, in the order they are shown.
+pub fn Model::domain_ids(self : Model) -> Array[String] {
+  let ids = []
+  for domain in self.domains {
+    ids.push(domain.id)
+  }
+  ids
+}
+
+///|
+/// The ids of the model's positions.
+pub fn Model::position_ids(self : Model) -> Array[String] {
+  let ids = []
+  for position in self.positions {
+    ids.push(position.id)
+  }
+  ids
+}
+
+///|
+/// The ids of the model's slots.
+pub fn Model::slot_ids(self : Model) -> Array[String] {
+  let ids = []
+  for slot in self.slots {
+    ids.push(slot.id)
+  }
+  ids
+}
+
+///|
 /// The built-in model: pyroproduct's table, written down.
 ///
 /// Every (position, slot) pair is asked of the package and written down,
@@ -352,7 +470,7 @@ pub fn Model::pyroduct() -> Model {
       letter: domain.letter(),
       title: domain.title(),
       role: domain.role(),
-      anchor: position_id_of(domain.position()),
+      anchor: domain_anchor_of(domain),
     })
   }
   let rules : Array[Rule] = []
@@ -361,7 +479,7 @@ pub fn Model::pyroduct() -> Model {
       rules.push({
         from: position_id_of(state),
         slot: slot_id_of(slot),
-        move: Move::of(state, @sm.step(state, slot)),
+        transition: Move::of(state, @sm.step(state, slot)),
       })
     }
   }
@@ -405,7 +523,7 @@ pub fn Model::rule(self : Model, from : String, slot : String) -> Rule? {
 /// can answer.
 pub fn Model::step(self : Model, from : String, slot : String) -> Move {
   match self.rule(from, slot) {
-    Some(rule) => rule.move
+    Some(rule) => rule.transition
     None => Block("the model has no rule for this pair")
   }
 }
@@ -417,7 +535,7 @@ pub fn Model::exitable_slots(self : Model, from : String) -> Array[String] {
   for slot in self.slots {
     match self.rule(from, slot.id) {
       Some(rule) =>
-        match rule.move {
+        match rule.transition {
           Block(_) => ()
           _ => usable.push(slot.id)
         }
@@ -728,7 +846,7 @@ pub fn Model::to_json(self : Model) -> Json {
     rules.push({
       "from": rule.from,
       "slot": rule.slot,
-      "outcome": rule.move.to_json(),
+      "outcome": rule.transition.to_json(),
     })
   }
   let continuations : Array[Json] = []
@@ -795,17 +913,17 @@ pub fn Model::from_json(json : Json) -> Model? {
   }
   let rules : Array[Rule] = []
   for item in json_array(json, "rules") {
-    let move = match
+    let transition = match
       Move::from_json(
         json_field(item, "outcome").unwrap_or(Json::empty_object()),
       ) {
-      Some(move) => move
+      Some(transition) => transition
       None => return None
     }
     rules.push({
       from: json_string(item, "from"),
       slot: json_string(item, "slot"),
-      move,
+      transition,
     })
   }
   let continuations : Array[Continuation] = []
@@ -846,7 +964,7 @@ pub fn Model::first_broken_rule(self : Model) -> String? {
     if self.slot(rule.slot) is None {
       return Some(rule.slot)
     }
-    match rule.move {
+    match rule.transition {
       Moved(_, to) => if self.position(to) is None { return Some(to) }
       Held(_, to) => if self.position(to) is None { return Some(to) }
       Same(_, to) => if self.position(to) is None { return Some(to) }

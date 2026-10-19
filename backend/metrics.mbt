@@ -293,6 +293,12 @@ fn settling_metric(
 /// Held keeps it where it is on purpose, Undecided is the table declining to
 /// choose between successors, and No-way is a gap in the table. None of the
 /// three is movement, and a run made of them has not gone anywhere.
+///
+/// The word compared against is the model's, and when a model file can rename
+/// its outcomes this has to ask the model for the word rather than carry its
+/// own copy. A copy would call a renamed move "something else" and report a
+/// run that moved as a run that did not -- which is the difference between a
+/// measure and a guess.
 fn moved_outcome(outcome : String) -> Bool {
   outcome == "Moved"
 }

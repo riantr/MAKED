@@ -400,13 +400,13 @@ test "the candidates of an open branch are written as objects" {
   let model = @backend.Model::pyroduct()
   let mut checked = 0
   for rule in model.rules {
-    match rule.move {
+    match rule.transition {
       @backend.Move::Open(candidates) => {
         for candidate in candidates {
           assert_true(candidate.edge != "")
           assert_true(candidate.to != "")
         }
-        let json = rule.move.to_json()
+        let json = rule.transition.to_json()
         match json {
           Object(fields) =>
             match fields.get("candidates") {
@@ -446,4 +446,41 @@ test "the model's continuations are read back as they were written" {
   assert_eq(out[0].1, 1)
   assert_eq(out[1].0, "built")
   assert_eq(out[1].1, 2)
+}
+
+///|
+/// A model that leaves a pair undefined reports no way out there.
+///
+/// A model file does not have to write a rule for every (position, slot)
+/// pair -- and where it does not, the honest answer is that there is no road
+/// out of that position, not that some slot would do. Offering one anyway
+/// would be the model claiming an edge it does not have, which is the one
+/// thing the whole format is for not doing.
+test "a pair the model leaves undefined has no way out" {
+  let json : Json = {
+    "format": "maked.model.v1",
+    "name": "Partial",
+    "domains": [],
+    "positions": [
+      { "id": "here", "label": "Here", "gloss": "", "domain": "" },
+      { "id": "there", "label": "There", "gloss": "", "domain": "" },
+    ],
+    "slots": [{ "id": "act", "designation": "Act", "gloss": "" }],
+    "rules": [
+      {
+        "from": "here",
+        "slot": "act",
+        "outcome": { "kind": "moved", "edge": "e", "to": "there" },
+      },
+    ],
+    "continuations": [],
+  }
+  let model = @backend.Model::from_json(json).unwrap()
+  // The pair the model does define has a road out of it.
+  assert_eq(model.exitable_slots("here"), ["act"])
+  // The pair it leaves undefined has none -- and says so rather than
+  // inventing a slot to drive.
+  assert_eq(model.exitable_slots("there"), [])
+  assert_eq(model.drive_slot("there"), None)
+  assert_eq(model.step("there", "act").kind(), "block")
 }

@@ -424,6 +424,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   // next step by meaning: the machine does not choose, and neither does this
   // endpoint -- it returns the candidates and lets a person pick.
   app.get("/api/loop/continuations", req => {
+    let model = current_model()
     let state = get_loop_state()
     let current_pos = state.domain_state(state.current).position
     let depth = match req.query("depth") {
@@ -434,8 +435,8 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     let items = []
     for (next, steps) in continuations(current_pos, bounded) {
       let item : Json = {
-        "position": next.en_label(),
-        "position_label": next.en_label(),
+        "position": model.position_label(next),
+        "position_label": model.position_label(next),
         "steps": steps,
       }
       items.push(item)
@@ -443,20 +444,23 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     let by_slot = []
     for slot in exitable_slots(current_pos) {
       let targets = []
-      for (next, steps) in @sm.after_open(current_pos, slot, bounded) {
-        let target : Json = { "position": next.en_label(), "steps": steps }
+      for (next, steps) in model.continuations_for(current_pos, slot, bounded) {
+        let target : Json = {
+          "position": model.position_label(next),
+          "steps": steps,
+        }
         targets.push(target)
       }
       let entry : Json = {
-        "name": slot_english_name(slot),
-        "designation": slot.en_designation(),
+        "name": slot,
+        "designation": model.slot_designation(slot),
         "targets": [..targets],
       }
       by_slot.push(entry)
     }
     let body : Json = {
-      "from": current_pos.en_label(),
-      "from_label": current_pos.en_label(),
+      "from": model.position_label(current_pos),
+      "from_label": model.position_label(current_pos),
       "depth": bounded,
       "continuations": [..items],
       "by_slot": [..by_slot],
@@ -621,12 +625,15 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     let papers_json = papers.map(fn(p) { p.to_json() })
     let triggers = papers.map(fn(p) {
       let t = paper_to_trigger(p)
-      let s = trigger_to_slot(t)
+      // The trigger vocabulary is still the table's own; the *slot* it names
+      // is read as the model's id, so the rest of the server only ever sees
+      // the model's vocabulary.
+      let slot = slot_id_of(trigger_to_slot(t))
       let item : Json = {
         "paper_id": p.id,
         "trigger": @debug.to_string(t),
-        "slot": s.en_designation(),
-        "slot_english": slot_english_name(s),
+        "slot": current_model().slot_designation(slot),
+        "slot_english": slot,
       }
       item
     })
@@ -642,7 +649,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     let results : Array[Json] = []
     for paper in papers {
       let trigger = paper_to_trigger(paper)
-      let slot = trigger_to_slot(trigger)
+      let slot = slot_id_of(trigger_to_slot(trigger))
       let state_before = get_loop_state()
       let state_after = step_loop_with_slot(slot)
       // A step taken by a paper is a step like any other, and it belongs in
@@ -653,8 +660,8 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
         "paper_id": paper.id,
         "paper_title": paper.title,
         "trigger": @debug.to_string(trigger),
-        "slot": slot.en_designation(),
-        "slot_english": slot_english_name(slot),
+        "slot": current_model().slot_designation(slot),
+        "slot_english": slot,
         "domain_before": state_before.current.letter(),
         "domain_after": state_after.current.letter(),
         "history_length": state_after.history.length(),

@@ -31,10 +31,17 @@ pub(all) struct Slot {
 ///
 /// This is the backend's own answer to "can this move, and where to", taken
 /// from the transition table rather than inferred from a naming convention.
+///
+/// `outcome` is the word a reader sees ("Undecided"); `outcome_kind` is the
+/// word the machine matches on ("open"). Both travel, because a client that
+/// has to recognise the *word* "Undecided" to know the model declined to
+/// choose breaks the moment the model is renamed -- and renaming a model is
+/// exactly what a model file is for.
 pub(all) struct OpenSlot {
   name : String
   designation : String
   outcome : String
+  outcome_kind : String
   targets : Array[String]
 } derive(Eq)
 
@@ -108,6 +115,7 @@ fn open_slot(json : Json) -> OpenSlot {
     name: get_string(json, "name", ""),
     designation: get_string(json, "designation", ""),
     outcome: get_string(json, "outcome", ""),
+    outcome_kind: get_string(json, "outcome_kind", ""),
     targets: target_labels(json),
   }
 }
@@ -160,15 +168,20 @@ pub fn find_open_slot(status : LoopStatus, name : String) -> OpenSlot? {
 }
 
 ///|
-/// The slot the table declined to choose at, if it declined to choose.
+/// The slot the model declined to choose at, if it declined to choose.
 ///
-/// The table's `Open` outcome means it offered several successors and would
+/// The model's `open` outcome means it offered several successors and would
 /// not pick between them. The slot that carries those candidates is the way
 /// out of the position: the reader picks one of them, and the machine obeys
 /// a choice instead of making one.
+///
+/// The match is on the outcome's **kind**, not on the word "Undecided". A
+/// client that recognises a sentence to know what happened is a client that
+/// breaks the first time somebody renames a model -- and the label is
+/// precisely the part a model file is meant to be able to change.
 pub fn find_undecided_slot(status : LoopStatus) -> OpenSlot? {
   for slot in status.open_slots {
-    if slot.outcome == "Undecided" && slot.targets.length() > 0 {
+    if slot.outcome_kind == "open" && slot.targets.length() > 0 {
       return Some(slot)
     }
   }

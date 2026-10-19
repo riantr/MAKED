@@ -76,13 +76,13 @@ pub extend StepEffect with Eq::{not_equal, equal}
 pub extend StepEffect with Debug::{to_repr}
 
 ///|
-pub fn StepEffect::of(outcome : @sm.Outcome) -> StepEffect {
-  match outcome {
-    @sm.Moved(_, _) => Advanced
-    @sm.Held(_, _) => Advanced
-    @sm.Same(_, _, _) => Advanced
-    @sm.Open(_) => Undecided
-    @sm.Block(_) => Blocked
+pub fn StepEffect::of(transition : Move) -> StepEffect {
+  match transition {
+    Moved(_, _) => Advanced
+    Held(_, _) => Advanced
+    Same(_, _) => Advanced
+    Open(_) => Undecided
+    Block(_) => Blocked
   }
 }
 
@@ -163,198 +163,123 @@ pub fn Domain::role(self : Domain) -> String {
 }
 
 ///|
-/// The slots that pyroduct's table says can actually move `state`.
+/// The slots that have an edge out of a position.
 ///
-/// Read from the table rather than assumed. Of the 34 x 8 = 272 combinations,
-/// 228 are Block -- a slot is only usable where the table has a real edge, so
-/// any slot list hard-coded from the *meaning* of a domain will eventually name
-/// a combination the table has no edge for. That is not hypothetical: the
-/// mapping this replaced named five slots, and all five were Block.
-pub fn exitable_slots(state : @sm.SubjectState) -> Array[@sm.Slot] {
-  let usable = []
-  for slot in @sm.all_slots() {
-    if @sm.exitable(state, slot) {
-      usable.push(slot)
-    }
-  }
-  usable
+/// Read from the model rather than assumed. A slot list hard-coded from the
+/// *meaning* of a domain will eventually name a combination the table has no
+/// edge for. That is not hypothetical: the mapping this replaced named five
+/// slots, and all five were Block.
+pub fn exitable_slots(position : String) -> Array[String] {
+  current_model().exitable_slots(position)
 }
 
 ///|
-/// The slot to drive `state` with, chosen from the table rather than by
+/// The slot to drive a position with, chosen from the model rather than by
 /// semantics.
 ///
-/// Preference order, and why:
+/// A slot whose outcome is a move is preferred -- a domain would otherwise
+/// sit on a self-edge while a real move sits one slot later. Failing that,
+/// the first exitable slot in the model's own order, which covers "held" and
+/// "converge": both are legitimate receipts that keep the subject where it
+/// is, so taking one is not inventing anything.
 ///
-///   1. a slot whose outcome is `Moved` -- a domain would otherwise sit on a
-///      `Same` self-edge while a real move sits one slot later;
-///   2. otherwise the first exitable slot in canonical order, which covers
-///      `Held` and `Same` (Converge): both are legitimate receipts that keep
-///      the subject where it is, so taking one is not inventing anything.
-///
-/// Returns None when the position has no outgoing edge at all -- a real gap in
-/// the table. The caller must report that, never paper over it.
-pub fn drive_slot(state : @sm.SubjectState) -> @sm.Slot? {
-  let moving = []
-  let staying = []
-  for slot in exitable_slots(state) {
-    match @sm.step(state, slot) {
-      @sm.Moved(_, _) => moving.push(slot)
-      _ => staying.push(slot)
-    }
-  }
-  if moving.length() > 0 {
-    Some(moving[0])
-  } else if staying.length() > 0 {
-    Some(staying[0])
-  } else {
-    None
-  }
+/// None when the position has no outgoing edge at all -- a real gap in the
+/// model. The caller must report that, never paper over it.
+pub fn drive_slot(position : String) -> String? {
+  current_model().drive_slot(position)
 }
 
 ///|
-/// Whether the table offers several successors from `state` and refuses to
-/// pick between them (`Open` / Undecided). pyroduct's own position is that a
-/// gap and an undecided branch are both legitimate receipts: better to stop
-/// where you are than to invent a next step. The loop takes the same position
-/// -- it surfaces the candidates and waits.
-pub fn is_undecided(state : @sm.SubjectState) -> Bool {
-  let usable = exitable_slots(state)
-  if usable.length() == 0 {
-    return false
-  }
-  for slot in usable {
-    match @sm.step(state, slot) {
-      @sm.Open(_) => return true
-      _ => ()
-    }
-  }
-  false
+/// Whether the model offers several successors from a position and refuses
+/// to pick between them. A gap and an undecided branch are both legitimate
+/// receipts: better to stop where you are than to invent a next step. The
+/// loop takes the same position -- it surfaces the candidates and waits.
+pub fn is_undecided(position : String) -> Bool {
+  current_model().is_undecided(position)
 }
 
 ///|
-/// The successor positions reachable from `state` in at most `depth` steps,
-/// with pyroduct picking no slot for the subject: `after_open` is the model's
-/// own answer to "what could happen next", as opposed to `expand`, which
-/// requires the caller to name the slot sequence in advance.
+/// The successor positions reachable from a position in at most `depth`
+/// steps, with the number of steps that reach each one.
 ///
-/// Returns `Array[(SubjectState, Int)]` exactly as pyroduct does -- state and
-/// the number of steps that reach it.
+/// This is the model's own answer to "what could happen next", as opposed to
+/// `expand`, which requires the caller to name the slot sequence in advance.
 pub fn continuations(
-  state : @sm.SubjectState,
+  position : String,
   depth : Int32,
-) -> Array[(@sm.SubjectState, Int32)] {
-  let usable = exitable_slots(state)
-  // `SubjectState` derives Eq but not Hash, so a Map keyed by it will not
-  // compile, and the element type has to be named for the tuple fields to
-  // resolve. Dedup with a linear scan instead: the candidate list is at most a
-  // few dozen entries, and this runs once per API call, not per step.
-  let seen : Array[(@sm.SubjectState, Int32)] = []
-  let out : Array[(@sm.SubjectState, Int32)] = []
-  for slot in usable {
-    for pair in @sm.after_open(state, slot, depth) {
-      let (next, steps) = pair
-      let mut index = -1
-      let mut at = 0
-      for prev in seen {
-        if prev.0 == next {
-          index = at
-        }
-        at += 1
-      }
-      if index == -1 {
-        seen.push((next, steps))
-        out.push((next, steps))
-      } else if steps < out[index].1 {
-        // Same position by a shorter route. Without this, Opening appears twice
-        // from Encounter -- one step via CoBeing, two via Holding -- which reads
-        // as two distinct futures when it is one position reached two ways. The
-        // slot-by-slot view is where alternative routes belong.
-        seen[index] = (next, steps)
-        out[index] = (next, steps)
-      }
-    }
-  }
-  out
+) -> Array[(String, Int32)] {
+  current_model().continuations(position, depth)
 }
 
 ///|
-/// Parse a slot designation back into a Slot value.
+/// Parse a slot name back into the model's id for it.
 ///
-/// Accepts either the English designation as displayed ("Co-being",
-/// "Situation") or the URL-safe name ("cobeing", "occasion"),
-/// case-insensitively. Returns None if the string does not match any slot.
+/// Accepts either the name as displayed ("Co-being", "Situation") or the
+/// URL-safe id ("cobeing", "occasion"), case-insensitively. Returns None if
+/// the string does not match any slot.
 ///
-/// The designation table is read back out of pyroduct instead of being copied
-/// into MAKED. The copy went stale the moment pyroduct renamed two of the
-/// eight -- 0.1.32 moved "Occasion" to "Situation" and "Anticipation" to
+/// The names are read back out of the model instead of being copied into
+/// MAKED. A copy went stale the moment the table renamed two of the eight --
+/// 0.1.32 moved "Occasion" to "Situation" and "Anticipation" to
 /// "Antecedent" -- and the symptom was a parser that had quietly stopped
-/// accepting two of the words MAKED's own API was advertising. A rename in the
-/// dependency is now a rename here, with nothing to keep in sync.
-pub fn slot_from_designation(s : String) -> @sm.Slot? {
-  let needle = s.to_lower()
-  for slot in @sm.all_slots() {
-    if slot.en_designation().to_lower() == needle ||
-      slot_english_name(slot).to_lower() == needle {
-      return Some(slot)
-    }
-  }
-  None
-}
-
-///|
-/// English name for a slot, for use in URL-safe API paths.
-pub fn slot_english_name(slot : @sm.Slot) -> String {
-  match slot {
-    @sm.Occasion => "occasion"
-    @sm.Orientation => "orientation"
-    @sm.Antecedent => "antecedent"
-    @sm.Act => "act"
-    @sm.Feedback => "feedback"
-    @sm.Hold => "hold"
-    @sm.CoBeing => "cobeing"
-    @sm.Unveil => "unveil"
-  }
+/// accepting two of the words MAKED's own API was advertising. A rename in
+/// the model is now a rename here, with nothing to keep in sync.
+pub fn slot_from_designation(s : String) -> String? {
+  current_model().slot_from_name(s)
 }
 
 ///|
 /// Parse a slot from its English name.
-pub fn slot_from_english(s : String) -> @sm.Slot? {
+pub fn slot_from_english(s : String) -> String? {
+  current_model().slot_from_name(s)
+}
+
+///|
+/// The position a domain starts at.
+///
+/// The anchor is the model's, not MAKED's: the model says where each domain
+/// begins, and the anchor is a position id like any other.
+pub fn Domain::position(self : Domain) -> String {
+  current_model().domain_anchor(domain_id_of(self))
+}
+
+///|
+/// The position a domain starts at, as the table names it.
+///
+/// This is the built-in model's own reading of the anchors, and it does not
+/// consult the model: the model is *built* from the table, so the table
+/// cannot be asked a question that only the model can answer. A model loaded
+/// from a file carries its own anchors, and `Domain::position` is where they
+/// are read from.
+fn domain_anchor_of(domain : Domain) -> String {
+  match domain {
+    Model => position_id_of(@sm.Standing)
+    Data => position_id_of(@sm.Encounter)
+    Experience => position_id_of(@sm.Honor)
+    Attack => position_id_of(@sm.Evil)
+    Knowledge => position_id_of(@sm.Discipline)
+  }
+}
+
+///|
+/// The domain that starts at a position -- the inverse of `position`. None
+/// for the positions that are not domain anchors.
+pub fn position_to_domain(position : String) -> Domain? {
+  match current_model().domain_anchored_at(position) {
+    Some(id) => domain_from_id(id)
+    None => None
+  }
+}
+
+///|
+/// The domain with this id.
+pub fn domain_from_id(s : String) -> Domain? {
   match s {
-    "occasion" => Some(@sm.Occasion)
-    "orientation" => Some(@sm.Orientation)
-    "antecedent" => Some(@sm.Antecedent)
-    "act" => Some(@sm.Act)
-    "feedback" => Some(@sm.Feedback)
-    "hold" => Some(@sm.Hold)
-    "cobeing" => Some(@sm.CoBeing)
-    "unveil" => Some(@sm.Unveil)
-    _ => None
-  }
-}
-
-///|
-/// Domain → pyroduct position.
-pub fn Domain::position(self : Domain) -> @sm.SubjectState {
-  match self {
-    Model => @sm.Standing
-    Data => @sm.Encounter
-    Experience => @sm.Honor
-    Attack => @sm.Evil
-    Knowledge => @sm.Discipline
-  }
-}
-
-///|
-/// pyroduct position → Domain (inverse of `position`; returns None for the 29
-/// positions that are not MAKED domain anchors).
-pub fn position_to_domain(state : @sm.SubjectState) -> Domain? {
-  match state {
-    @sm.Standing => Some(Model)
-    @sm.Encounter => Some(Data)
-    @sm.Honor => Some(Experience)
-    @sm.Evil => Some(Attack)
-    @sm.Discipline => Some(Knowledge)
+    "model" => Some(Model)
+    "data" => Some(Data)
+    "experience" => Some(Experience)
+    "attack" => Some(Attack)
+    "knowledge" => Some(Knowledge)
     _ => None
   }
 }
@@ -429,7 +354,8 @@ pub fn ring_domains_loop() -> Array[Domain] {
 /// One recorded step in the loop history.
 pub(all) struct LoopEvent {
   domain : Domain
-  slot : @sm.Slot
+  /// The slot's id, as the model spells it.
+  slot : String
   outcome_label : String // Moved/Held/Undecided/Converge/No-way
   outcome_detail : String // human-readable detail
   position_designation : String // the state name
@@ -444,10 +370,11 @@ pub extend LoopEvent with Debug::{to_repr}
 
 ///|
 /// Individual state machine for one domain. Each domain has its own position
-/// on the pyroduct state space and its own history of events.
+/// in the model and its own history of events.
 pub(all) struct DomainState {
   domain : Domain
-  position : @sm.SubjectState
+  /// The position id the subject stands at.
+  position : String
   history : Array[LoopEvent]
 } derive(Eq, Debug)
 
@@ -464,28 +391,31 @@ pub fn DomainState::new(domain : Domain) -> DomainState {
 
 ///|
 /// Step this domain's state machine with the given slot.
-pub fn DomainState::step(self : DomainState, slot : @sm.Slot) -> DomainState {
-  self.step_by_outcome(slot, @sm.step(self.position, slot))
+pub fn DomainState::step(self : DomainState, slot : String) -> DomainState {
+  self.step_by_outcome(slot, current_model().step(self.position, slot))
 }
 
 ///|
-/// Step this domain's state machine with an outcome that is already known.
+/// Step this domain's state machine with a move that is already known.
 ///
-/// The outcome is a parameter rather than something derived here, so that a
-/// step decided by a named trigger and a step decided by the slot's own
-/// outcome travel the same road: one event, one position, one history.
+/// The move is a parameter rather than something derived here, so that a step
+/// decided by a candidate the reader picked and a step decided by the slot's
+/// own outcome travel the same road: one event, one position, one history.
 pub fn DomainState::step_by_outcome(
   self : DomainState,
-  slot : @sm.Slot,
-  outcome : @sm.Outcome,
+  slot : String,
+  transition : Move,
 ) -> DomainState {
-  let event = event_from_outcome(self.domain, slot, self.position, outcome)
+  let event = event_from_outcome(self.domain, slot, self.position, transition)
   let history = self.history
   history.push(event)
   // Update position if the step landed somewhere
-  let new_position = match outcome.landing() {
-    Some(landing) => landing
-    None => self.position
+  let new_position = match transition {
+    Moved(_, to) => to
+    Held(_, to) => to
+    Same(_, to) => to
+    Open(_) => self.position
+    Block(_) => self.position
   }
   { domain: self.domain, position: new_position, history, }
 }
@@ -636,7 +566,7 @@ fn copy_domain_states(
 pub fn LoopState::step(self : LoopState) -> LoopState {
   let domain = self.current
   let domain_state = self.domain_states[domain]
-  // Derived once: the table is the authority, and asking it twice could in
+  // Derived once: the model is the authority, and asking it twice could in
   // principle answer differently mid-call.
   let chosen = drive_slot(domain_state.position)
   let blocked = chosen is None
@@ -644,12 +574,28 @@ pub fn LoopState::step(self : LoopState) -> LoopState {
     domain,
     match chosen {
       Some(slot) => slot
-      // No road out of here. Record the gap honestly and stay put,
-      // rather than drive a slot the table does not have.
-      None => @sm.Hold
+      // No road out of here. Record the gap honestly and stay put, rather
+      // than drive a slot the model does not have. The event still has to
+      // name a slot, because the record is per-slot: the first one in the
+      // model's order will do, and it is blocked too -- when nothing has an
+      // edge, nothing has an edge.
+      None => first_slot_id()
     },
     blocked,
   )
+}
+
+///|
+/// The first slot in the model's order, or "" when it has none.
+///
+/// Used only to name a slot in an event that is about a position with no way
+/// out at all.
+fn first_slot_id() -> String {
+  let slots = current_model().slot_ids()
+  if slots.length() == 0 {
+    return ""
+  }
+  slots[0]
 }
 
 ///|
@@ -661,39 +607,37 @@ pub fn LoopState::step(self : LoopState) -> LoopState {
 pub fn LoopState::step_domain_with(
   self : LoopState,
   domain : Domain,
-  slot : @sm.Slot,
+  slot : String,
   blocked : Bool,
 ) -> LoopState {
   let domain_state = self.domain_states[domain]
   self.step_domain_by_outcome(
     domain,
     slot,
-    @sm.step(domain_state.position, slot),
+    current_model().step(domain_state.position, slot),
     blocked,
   )
 }
 
 ///|
-/// Step the given domain with a trigger the reader named.
+/// Step the given domain to one of the successors the model offered.
 ///
-/// The same step, decided by a trigger rather than by the slot's own outcome:
-/// this is how a person answers a question the transition table left open.
-/// The table has already said which successors are reachable from here; this
-/// picks one of them, so the machine is obeying a choice rather than making
-/// one.
-pub fn LoopState::step_domain_with_trigger(
+/// The reader's choice, not the machine's: the model has already said which
+/// positions are reachable from here, and this picks one of them. The
+/// candidate carries what the edge would have done, so obeying it is the
+/// same motion the model would have made.
+pub fn LoopState::step_domain_with_candidate(
   self : LoopState,
   domain : Domain,
-  slot : @sm.Slot,
-  trigger : @sm.Trigger,
+  slot : String,
+  candidate : Candidate,
 ) -> LoopState {
-  let domain_state = self.domain_states[domain]
-  self.step_domain_by_outcome(
-    domain,
-    slot,
-    @sm.step_by_trigger(domain_state.position, trigger),
-    false,
-  )
+  let transition = match candidate.kind {
+    "held" => Held(candidate.edge, candidate.to)
+    "same" => Same([candidate.edge], candidate.to)
+    _ => Moved(candidate.edge, candidate.to)
+  }
+  self.step_domain_by_outcome(domain, slot, transition, false)
 }
 
 ///|
@@ -707,12 +651,12 @@ pub fn LoopState::step_domain_with_trigger(
 fn LoopState::step_domain_by_outcome(
   self : LoopState,
   domain : Domain,
-  slot : @sm.Slot,
-  outcome : @sm.Outcome,
+  slot : String,
+  transition : Move,
   blocked : Bool,
 ) -> LoopState {
   let domain_state = self.domain_states[domain]
-  let new_domain_state = domain_state.step_by_outcome(slot, outcome)
+  let new_domain_state = domain_state.step_by_outcome(slot, transition)
   let history = self.history
   let mode = self.mode
   match new_domain_state.history.last() {
@@ -727,7 +671,7 @@ fn LoopState::step_domain_by_outcome(
       // StepEffect rather than by the outcome label string: Blocked was the
       // only case checked before, so Undecided -- the table declining to
       // choose -- still advanced the cursor.
-      let effect = StepEffect::of(outcome)
+      let effect = StepEffect::of(transition)
       // `blocked` -- that the derived drive had no edge -- is a second,
       // independent reason not to advance: the cursor may be asked to advance
       // for a step that landed nowhere even when the table did have edges.
@@ -756,46 +700,44 @@ fn LoopState::step_domain_by_outcome(
 ///
 /// Preserves the current mode. A slot the table has no edge for records a Block
 /// and leaves the cursor where it was, whatever the mode.
-pub fn LoopState::step_with_slot(
-  self : LoopState,
-  slot : @sm.Slot,
-) -> LoopState {
+pub fn LoopState::step_with_slot(self : LoopState, slot : String) -> LoopState {
   self.step_domain_with(self.current, slot, false)
 }
 
 ///|
-/// The table's own candidates for a slot at a position, when it declines to
+/// The model's own candidates for a slot at a position, when it declines to
 /// choose between them.
 ///
-/// The `Open` outcome carries them: the successors the table could have
-/// taken, and the triggers that would take them. This is the way out of a
-/// position the machine cannot decide for itself. The machine may not invent
-/// a choice the table declined to make -- that would be a lie about what the
-/// model says -- but a reader may make one, and this is the list they make it
-/// from.
-pub fn open_candidates(
-  state : @sm.SubjectState,
-  slot : @sm.Slot,
-) -> Array[(@sm.Trigger, @sm.SubjectState)] {
-  match @sm.step(state, slot) {
-    @sm.Open(candidates) => candidates
-    _ => []
-  }
+/// The open outcome carries them: the successors the model could have taken,
+/// and the edge each one would take. This is the way out of a position the
+/// machine cannot decide for itself. The machine may not invent a choice the
+/// model declined to make -- that would be a lie about what the model says --
+/// but a reader may make one, and this is the list they make it from.
+pub fn open_candidates(position : String, slot : String) -> Array[Candidate] {
+  current_model().candidates(position, slot)
 }
 
 ///|
-/// The candidate whose target is the one named, if the table offers it.
+/// The candidate whose target is the one named, if the model offers it.
 ///
-/// The name is matched without regard to case, the way the slot names are
-/// matched, because the reader asks for what the panel showed them.
+/// Two names are accepted, because a client may hold either: the position's
+/// **id** ("no-past"), which is what a model file and a URL carry, and the
+/// position's **label** ("No Past"), which is what the panel shows a reader.
+/// The two are not the same string -- an id is a slug -- so accepting only one
+/// of them means a client that reads the id is refused by the very endpoint
+/// that hands the id out.
+///
+/// The match ignores case, the way the slot names are matched: the reader asks
+/// for what they were shown.
 pub fn candidate_named(
-  candidates : Array[(@sm.Trigger, @sm.SubjectState)],
+  candidates : Array[Candidate],
   target : String,
-) -> (@sm.Trigger, @sm.SubjectState)? {
+) -> Candidate? {
   let needle = target.to_lower()
-  for (trigger, next) in candidates {
-    if next.en_label().to_lower() == needle {
-      return Some((trigger, next))
+  for candidate in candidates {
+    if candidate.to.to_lower() == needle ||
+      current_model().position_label(candidate.to).to_lower() == needle {
+      return Some(candidate)
     }
   }
   None
@@ -803,32 +745,30 @@ pub fn candidate_named(
 
 ///|
 /// The names of the candidates, for an answer that has to list them.
-pub fn candidate_names(
-  candidates : Array[(@sm.Trigger, @sm.SubjectState)],
-) -> Array[String] {
+pub fn candidate_names(candidates : Array[Candidate]) -> Array[String] {
   let names : Array[String] = []
-  for (_, next) in candidates {
-    names.push(next.en_label())
+  for candidate in candidates {
+    names.push(current_model().position_label(candidate.to))
   }
   names
 }
 
 ///|
-/// Step to one of the successors the table offered and declined to choose.
+/// Step to one of the successors the model offered and declined to choose.
 ///
-/// The reader's choice, not the machine's: the table has already said which
+/// The reader's choice, not the machine's: the model has already said which
 /// positions are reachable from here, and this picks one of them. A target
-/// the table does not offer is refused by the caller rather than guessed at.
+/// the model does not offer is refused by the caller rather than guessed at.
 pub fn LoopState::step_with_target(
   self : LoopState,
-  slot : @sm.Slot,
+  slot : String,
   target : String,
 ) -> LoopState {
   let domain = self.current
   let domain_state = self.domain_states[domain]
   let candidates = open_candidates(domain_state.position, slot)
   match candidate_named(candidates, target) {
-    Some((trigger, _)) => self.step_domain_with_trigger(domain, slot, trigger)
+    Some(candidate) => self.step_domain_with_candidate(domain, slot, candidate)
     None => self
   }
 }
@@ -836,51 +776,47 @@ pub fn LoopState::step_with_target(
 ///|
 fn event_from_outcome(
   domain : Domain,
-  slot : @sm.Slot,
-  position : @sm.SubjectState,
-  outcome : @sm.Outcome,
+  slot : String,
+  position : String,
+  transition : Move,
 ) -> LoopEvent {
-  let detail = outcome_detail(outcome, position, slot)
+  let model = current_model()
+  let detail = outcome_detail(transition, position, slot)
   {
     domain,
     slot,
-    outcome_label: outcome.en_label(),
+    outcome_label: transition.label(),
     outcome_detail: detail,
-    position_designation: position.en_label(),
-    position_label: position.en_label(),
+    position_designation: model.position_label(position),
+    position_label: model.position_label(position),
   }
 }
 
 ///|
 /// A human-readable account of what one step did.
 ///
-/// `Block` carries a message that pyroduct writes in Chinese, so it is rebuilt
-/// here from the slot and position, which is both English and more precise than
-/// reusing the model's own wording.
-fn outcome_detail(
-  outcome : @sm.Outcome,
-  at : @sm.SubjectState,
-  slot : @sm.Slot,
-) -> String {
-  match outcome {
-    @sm.Moved(tr, to) => "\{tr.en_label()} → \{to.en_label()}"
-    @sm.Held(tr, s) => "\{tr.en_label()} → held at \{s.en_label()}"
-    @sm.Open(cands) => {
+/// The words are the model's: the edge's own name, the position's label, the
+/// slot's designation. A blocked step is rebuilt from the position and the
+/// slot rather than reusing the model's reason, because the model's reason
+/// is written in its own language and the reader is reading this one.
+fn outcome_detail(transition : Move, at : String, slot : String) -> String {
+  let model = current_model()
+  match transition {
+    Moved(edge, to) => "\{edge} → \{model.position_label(to)}"
+    Held(edge, to) => "\{edge} → held at \{model.position_label(to)}"
+    Open(candidates) => {
       let parts = []
-      for c in cands {
-        parts.push("\{c.0.en_label()} → \{c.1.en_label()}")
+      for candidate in candidates {
+        parts.push(
+          "\{candidate.edge} → \{model.position_label(candidate.to)}",
+        )
       }
       "Undecided: " + parts.join(" / ")
     }
-    @sm.Same(sl, named, to) => {
-      let names = []
-      for tr in named {
-        names.push(tr.en_label())
-      }
-      "\{sl.en_designation()} converge → \{to.en_label()} (\{names.join(" / ")})"
-    }
-    @sm.Block(_) =>
-      "No road from \{at.en_label()} through \{slot.en_designation()}"
+    Same(edges, to) =>
+      "\{model.slot_designation(slot)} converge → \{model.position_label(to)} (\{edges.join(" / ")})"
+    Block(_) =>
+      "No road from \{model.position_label(at)} through \{model.slot_designation(slot)}"
   }
 }
 
@@ -905,7 +841,7 @@ pub fn step_loop() -> LoopState {
 
 ///|
 /// Step with a caller-chosen slot instead of the domain's default drive.
-pub fn step_loop_with_slot(slot : @sm.Slot) -> LoopState {
+pub fn step_loop_with_slot(slot : String) -> LoopState {
   let new_state = g_loop_state[0].step_with_slot(slot)
   g_loop_state[0] = new_state
   new_state
@@ -917,7 +853,7 @@ pub fn step_loop_with_slot(slot : @sm.Slot) -> LoopState {
 ///
 /// The way out of a position the transition table declined to decide. The
 /// caller is answering a question the table asked, not inventing an edge.
-pub fn step_loop_with_target(slot : @sm.Slot, target : String) -> LoopState {
+pub fn step_loop_with_target(slot : String, target : String) -> LoopState {
   let new_state = g_loop_state[0].step_with_target(slot, target)
   g_loop_state[0] = new_state
   new_state
@@ -1008,35 +944,39 @@ pub fn set_loop_mode(mode : LoopMode) -> LoopState {
 /// name back to the original Chinese text, so there is no English form of it,
 /// and inventing one would break exactly the traceability it is for.
 pub fn all_slots_info() -> Array[(String, String, String)] {
-  let slots = @sm.all_slots()
   let result = []
-  for slot in slots {
-    result.push(
-      (slot_english_name(slot), slot.en_designation(), slot.en_gloss()),
-    )
+  for slot in current_model().slots {
+    result.push((slot.id, slot.designation, slot.gloss))
   }
   result
 }
 
 ///|
 /// JSON shape for an exitable slot at the current position.
-fn open_slot_json(state : @sm.SubjectState, slot : @sm.Slot) -> Json {
-  let outcome = @sm.step(state, slot)
+///
+/// The outcome travels as two things: the label a reader sees, and the kind
+/// the machine matches on. A client that has to recognise the *word*
+/// "Undecided" to know that the table declined to choose is a client that
+/// breaks the moment the model is renamed.
+fn open_slot_json(position : String, slot : String) -> Json {
+  let model = current_model()
+  let transition = model.step(position, slot)
   let targets = []
-  match outcome {
-    @sm.Moved(_, to) => targets.push(to.en_label())
-    @sm.Held(_, to) => targets.push(to.en_label())
-    @sm.Same(_, _, to) => targets.push(to.en_label())
-    @sm.Open(cands) =>
-      for c in cands {
-        targets.push(c.1.en_label())
+  match transition {
+    Moved(_, to) => targets.push(model.position_label(to))
+    Held(_, to) => targets.push(model.position_label(to))
+    Same(_, to) => targets.push(model.position_label(to))
+    Open(candidates) =>
+      for candidate in candidates {
+        targets.push(model.position_label(candidate.to))
       }
-    @sm.Block(_) => ()
+    Block(_) => ()
   }
   let item : Json = {
-    "name": slot_english_name(slot),
-    "designation": slot.en_designation(),
-    "outcome": outcome.en_label(),
+    "name": slot,
+    "designation": model.slot_designation(slot),
+    "outcome": transition.label(),
+    "outcome_kind": transition.kind(),
     "targets": targets_json(targets),
   }
   item
@@ -1086,13 +1026,14 @@ pub fn slots_json() -> Json {
 /// same response. `open_slots` is the replacement for the old hard-coded slot:
 /// it is what the table offers here, so a caller never has to guess.
 pub fn LoopState::to_json(self : LoopState) -> Json {
+  let model = current_model()
   let current_ds = self.domain_states[self.current]
   let current_pos = current_ds.position
   let history_json = []
   for e in self.history {
     let item : Json = {
       "domain": e.domain.letter(),
-      "slot": e.slot.en_designation(),
+      "slot": model.slot_designation(e.slot),
       "outcome": e.outcome_label,
       "detail": e.outcome_detail,
       "position": e.position_designation,
@@ -1107,8 +1048,8 @@ pub fn LoopState::to_json(self : LoopState) -> Json {
     let item : Json = {
       "domain": domain.letter(),
       "title": domain.title(),
-      "position": ds.position.en_label(),
-      "position_label": ds.position.en_label(),
+      "position": model.position_label(ds.position),
+      "position_label": model.position_label(ds.position),
       "history_length": ds.history.length(),
       "drivable": drive_slot(ds.position) is Some(_),
       "at_anchor": ds.position == domain.position(),
@@ -1122,19 +1063,19 @@ pub fn LoopState::to_json(self : LoopState) -> Json {
   {
     "current_domain": self.current.letter(),
     "current_title": self.current.title(),
-    "current_position": current_pos.en_label(),
-    "current_position_label": current_pos.en_label(),
-    "current_gloss": current_pos.en_gloss(),
+    "current_position": model.position_label(current_pos),
+    "current_position_label": model.position_label(current_pos),
+    "current_gloss": model.position_gloss(current_pos),
     "next_domain": self.current.next().letter(),
-    // Empty string when the table offers no road out of here. An empty
+    // Empty string when the model offers no road out of here. An empty
     // drive slot is a true statement; a plausible-looking slot that always
     // reports No-way is not.
     "drive_slot": match drive_slot(current_pos) {
-      Some(slot) => slot.en_designation()
+      Some(slot) => model.slot_designation(slot)
       None => ""
     },
     "drive_slot_name": match drive_slot(current_pos) {
-      Some(slot) => slot_english_name(slot)
+      Some(slot) => slot
       None => ""
     },
     "blocked": exitable_slots(current_pos).length() == 0,

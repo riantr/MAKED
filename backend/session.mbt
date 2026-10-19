@@ -472,33 +472,28 @@ pub fn reset_session_start(db : Database, state : LoopState) -> Unit raise {
 
 ///|
 /// The slots that had an outgoing edge at a position, as a stored list.
-fn available_slots_text(position : @sm.SubjectState) -> String {
-  let names : Array[String] = []
-  for slot in @sm.all_slots() {
-    if @sm.exitable(position, slot) {
-      names.push(slot_english_name(slot))
-    }
-  }
-  names.join(",")
+fn available_slots_text(position : String) -> String {
+  exitable_slots(position).join(",")
 }
 
 ///|
 /// The slots that had none at a position, as a stored list.
-fn blocked_slots_text(position : @sm.SubjectState) -> String {
+fn blocked_slots_text(position : String) -> String {
   let names : Array[String] = []
-  for slot in @sm.all_slots() {
-    if !@sm.exitable(position, slot) {
-      names.push(slot_english_name(slot))
+  let usable = exitable_slots(position)
+  for slot in current_model().slot_ids() {
+    if !usable.contains(slot) {
+      names.push(slot)
     }
   }
   names.join(",")
 }
 
 ///|
-/// The slot the table itself would have driven at a position, or "".
-fn drive_slot_text(position : @sm.SubjectState) -> String {
+/// The slot the model itself would have driven at a position, or "".
+fn drive_slot_text(position : String) -> String {
   match drive_slot(position) {
-    Some(slot) => slot_english_name(slot)
+    Some(slot) => slot
     None => ""
   }
 }
@@ -538,12 +533,12 @@ pub fn record_step(
     parent_step_id,
     domain: domain.letter(),
     domain_title: domain.title(),
-    slot: slot_english_name(event.slot),
-    slot_designation: event.slot.en_designation(),
+    slot: event.slot,
+    slot_designation: current_model().slot_designation(event.slot),
     outcome: event.outcome_label,
     detail: event.outcome_detail,
-    position_before: position_before.en_label(),
-    position_after: position_after.en_label(),
+    position_before: current_model().position_label(position_before),
+    position_after: current_model().position_label(position_after),
     cursor_after: after.current.letter(),
     group_state: after.group_state.en_designation(),
     mode: mode_name(after.mode),
@@ -949,7 +944,7 @@ pub fn sessions_payload(db : Database) -> Json raise {
 /// designations ("Situation", "Action"), which are the words on the buttons.
 fn slot_designation_of(english_name : String) -> String {
   match slot_from_english(english_name) {
-    Some(slot) => slot.en_designation()
+    Some(slot) => current_model().slot_designation(slot)
     None => english_name
   }
 }

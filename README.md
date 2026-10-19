@@ -277,7 +277,14 @@ Besides the original fields, `GET /api/loop/status` also returns `drive_slot_nam
 `open_slots` (the slots that really have an outgoing edge at the current position, with their outcomes),
 and `at_anchor` / `drivable` for each domain.
 
-`/api/loop/continuations` is built on pyroduct's `after_open` — the transition table's own answer to "all
+Each open slot carries its outcome twice: `outcome` is the word a reader sees (`Moved`, `Undecided`,
+`No-way`) and `outcome_kind` is the word the machine matches on (`moved`, `open`, `block`). A client that
+has to recognise the *word* "Undecided" to know the model declined to choose is a client that breaks the
+first time somebody renames a model — and renaming a model is exactly what a model file is for. The slot
+names in `open_slots` are the model's own ids, so the name a button posts is the same name
+`GET /api/model` hands out.
+
+`/api/loop/continuations` is built on the model's own continuations — the transition table's answer to "all
 possible continuations", as distinct from `expand`, which requires the caller to name a slot sequence
 up front. It lists only edges that really exist and **does not choose for the subject**: when the same
 position is reachable by several routes it is listed once at the shortest distance, and the slot-grouped
@@ -359,15 +366,23 @@ image carries `pwsh`.
 Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be run separately:
 
 ```
-.\tools\mutate-backend.ps1     # 31 mutations, 0 survived, 1 expected-equivalent
-.\tools\mutate-frontend.ps1    # 21 mutations, 0 survived
-.\tools\mutate-loop.ps1        # 16 mutations, 0 survived, 1 expected-equivalent
+.\tools\mutate-backend.ps1     # 34 mutations, 0 survived, 1 expected-equivalent
+.\tools\mutate-frontend.ps1    # 23 mutations, 0 survived
+.\tools\mutate-loop.ps1        # 16 mutations, 0 survived
 ```
 
-That one EQUIV in `mutate-loop` is deliberate: measurement shows that all 34 positions **do have outgoing
-edges**, so the `None` branch of `drive_slot` is currently unreachable. It stays in the roster on purpose —
-if the transition table ever gains a genuinely dead position, it will flip to `KILLED`, and that is exactly
-the signal we want.
+The one remaining EQUIV is in `mutate-backend` and is deliberate: `page_by_slug`
+prepares a *fresh* statement on every call, so it has no previous bindings and
+has never stepped, and the reset before the first bind is unobservable. It stays
+in the roster on purpose — the moment that function starts reusing one prepared
+statement, the same mutation becomes a real bug and flips to `KILLED`, which is
+exactly the signal we want.
+
+The loop suite used to have an EQUIV of its own, and it no longer does. It was
+the "drive slot invents a slot when nothing is exitable" guard, unobservable
+because all 34 positions of the built-in table **do** have outgoing edges. Now
+that a model can be a file somebody else wrote, a model with a genuinely dead
+position is a real thing, and `model_test.mbt` has one — so the guard kills.
 
 | Gate | Tool | What it checks |
 |---|---|---|
@@ -375,8 +390,8 @@ the signal we want.
 | js-check | `moon check --target js` | frontend type safety |
 | fmt | `moon fmt --check` | code formatting |
 | tree | `moon tree` | dependency audit |
-| unit-native | `moon test --target native` | 237 backend tests (includes the BDD suite below) |
-| unit-js | `moon test --target js` | 68 frontend tests |
+| unit-native | `moon test --target native` | 241 backend tests (includes the BDD suite below) |
+| unit-js | `moon test --target js` | 69 frontend tests |
 | coverage | `moon test --enable-coverage` | coverage |
 | bench | `moon bench` | benchmarks |
 | prove | `moon prove` | formal verification (Why3) |
@@ -410,7 +425,7 @@ The cause was not root-caused — the same build works when the init issues a GE
 ## The Integration Tests Are The Net For That Class Of Bug
 
 ```powershell
-.\tools\integration-test.ps1              # builds the server, then runs 127 checks
+.\tools\integration-test.ps1              # builds the server, then runs 133 checks
 .\tools\integration-test.ps1 -SkipBuild   # reuse the binary that is already built
 ```
 
@@ -766,10 +781,28 @@ that is not there is a rule about nowhere, and reading it would mean
 inventing a position to hold it. A file in a format this version does not
 know is refused too, rather than half-read.
 
-This is the first step and not the whole road. The loop still runs off the
-package; what has changed is that the machine is now something MAKED can
-hand out, and `GET /api/model` serves it. The next step is to run the loop
-off the file.
+**The loop now runs off the model, not off the package.** A position is an
+id (`standing`, `no-past`) rather than a package variant, a slot is an id
+(`occasion`) rather than a package variant, and every table lookup — which
+slots have an edge here, what happens when one is used, which successors are
+on offer, how far away they are — is a question asked of the model. The
+outcome of a step is the model's own `Move`, not the package's `Outcome`
+re-worded in MAKED's own copy of it. The names a reader sees are the model's
+too: MAKED keeps no list of the eight slot names or the 34 position names to
+fall out of step with.
+
+What that buys is the thing this was for. The word a reader sees and the word
+a client matches on are now two different things, and only the second one is
+load-bearing: an outcome travels as a label *and* a kind, and the panel finds
+the way out of a position the model declined to decide by the kind. A model
+can be renamed without breaking the panel — and renaming a model is exactly
+what a model file is for.
+
+This is the second step and not the whole road. What is still missing is the
+other half: the domains, the wording and the anchor positions are still
+MAKED's own, so a model file describes a machine but does not yet *become*
+one. `MAKED_MODEL` is the next step — point MAKED at a file, and the domains
+and the copy come from it too.
 
 ## Deep Links Need A `<base>` Tag
 

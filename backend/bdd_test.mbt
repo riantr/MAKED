@@ -120,9 +120,9 @@ test "Scenario: step_with_slot uses specified drive" {
   // Given a loop state at Model
   let state = @backend.LoopState::new()
   // When I step with slot Situation
-  let stepped = state.step_with_slot(@sm.Occasion)
+  let stepped = state.step_with_slot("occasion")
   // Then the history records the Situation slot
-  assert_eq(stepped.history[0].slot, @sm.Occasion)
+  assert_eq(stepped.history[0].slot, "occasion")
 }
 
 ///|
@@ -134,7 +134,7 @@ test "Scenario: Block outcome keeps domain in place" {
   // Given a loop state at Model
   let state = @backend.LoopState::new()
   // When I step with CoBeing (which produces Block at Standing)
-  let stepped = state.step_with_slot(@sm.CoBeing)
+  let stepped = state.step_with_slot("cobeing")
   // Then the current domain stays at Model
   assert_eq(stepped.current, @backend.Model)
   // And the outcome is Block
@@ -175,30 +175,30 @@ test "Scenario: slot designation round-trips" {
     // When I parse each designation
     let designation = slot.en_designation()
     let parsed = @backend.slot_from_designation(designation)
-    // Then I get back the original slot
+    // Then I get back the original slot, by the id the model gives it
     match parsed {
-      Some(s) => assert_eq(s, slot)
+      Some(s) => assert_eq(s, @backend.slot_id_of(slot))
       None => fail("slot_from_designation returned None for \{designation}")
     }
   }
 }
 
 ///|
-/// Scenario: Slot English name round-trips through parsing.
-/// Given all eight slot English names
-/// When I parse each name
+/// Scenario: Slot id round-trips through parsing.
+/// Given all eight slot ids
+/// When I parse each id
 /// Then I get back the original slot
-test "Scenario: slot English name round-trips" {
-  // Given all eight slot English names
+test "Scenario: slot id round-trips" {
+  // Given all eight slot ids
   let slots = @sm.all_slots()
   for slot in slots {
-    // When I parse each name
-    let name = @backend.slot_english_name(slot)
-    let parsed = @backend.slot_from_english(name)
+    // When I parse each id
+    let id = @backend.slot_id_of(slot)
+    let parsed = @backend.slot_from_english(id)
     // Then I get back the original slot
     match parsed {
-      Some(s) => assert_eq(s, slot)
-      None => fail("slot_from_english returned None for \{name}")
+      Some(s) => assert_eq(s, id)
+      None => fail("slot_from_english returned None for \{id}")
     }
   }
 }

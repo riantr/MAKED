@@ -501,6 +501,37 @@ try {
   Assert-True "and there is more than one of them" ($candidates.Count -ge 2)
   $slot = $offered[0].name
   $target = @($candidates[0])[0]
+
+  # The outcome travels as a label *and* a kind. The label is what a reader
+  # sees; the kind is what a client matches on, so a client never has to
+  # recognise the word "Undecided" to know the model declined to choose --
+  # which matters the moment somebody renames the model.
+  Assert-Field "and the undecided branch says which kind of edge it is" $offered[0] "outcome_kind" "open"
+  $wedgedKinds = @($wedged.open_slots | ForEach-Object { $_.outcome_kind })
+  Assert-True "and every slot it offers says what kind of edge it is" `
+    (@($wedgedKinds | Where-Object { -not $_ }).Count -eq 0)
+
+  # A candidate can be named by the model's id as well as by the label the
+  # panel shows. The two are different strings -- the id is a slug of the
+  # label -- and the id is what /api/model hands out, so a client that read
+  # it from there has to be able to post it back.
+  $servedModel = (Invoke-Api -Method GET -Path "/api/model").Body | ConvertFrom-Json
+  $targetId = ($servedModel.positions | Where-Object { $_.label -eq $target } | Select-Object -First 1).id
+  Assert-True "and the model gives that candidate an id" ($null -ne $targetId)
+  $byId = Post-Json "/api/loop/step/$slot" @{ target = $targetId }
+  Assert-Status "a candidate named by its id is accepted" 200 $byId
+
+  # Back to the same branch, to check the label on the button is accepted too.
+  # Only one of the two spellings is ever on the button, and both have to work.
+  $null = Post-Json "/api/loop/reset"
+  for ($i = 0; $i -lt 6; $i++) {
+    $null = Post-Json "/api/loop/step"
+  }
+  $wedged = Get-Json "/api/loop/status"
+  $offered = @($wedged.open_slots | Where-Object { $_.outcome -eq "Undecided" })
+  $candidates = @($offered[0].targets)
+  $slot = $offered[0].name
+  $target = @($candidates[0])[0]
   $before = "$($wedged.current_domain) $($wedged.current_position)"
   $chosen = Post-Json "/api/loop/step/$slot" @{ target = $target }
   Assert-Status "choosing one of the candidates is a 200" 200 $chosen
@@ -543,6 +574,22 @@ try {
   # The ids are what a URL carries, so they have to survive being one.
   Assert-True "and the position ids are safe to put in a URL" `
     (@($model.positions | Where-Object { $_.id -match '[^a-z0-9-]' }).Count -eq 0)
+  # The loop runs on this model, so the slots it offers are named by the
+  # model's own ids -- the same names /api/model hands out, and the same names
+  # the step endpoint takes.
+  $liveStatus = Get-Json "/api/loop/status"
+  $liveNames = @($liveStatus.open_slots | ForEach-Object { $_.name })
+  $notModelIds = @($liveNames | Where-Object { $slotIds -notcontains $_ })
+  Assert-True "and the slots the loop offers are named by the model's own ids" `
+    ($notModelIds.Count -eq 0) `
+    ("the loop offered $($notModelIds -join ', '), which the model does not define")
+  # And the position the loop reports is one the model defines, named the way
+  # the model names it.
+  $livePosition = Field $liveStatus "current_position"
+  $liveLabels = @($model.positions | ForEach-Object { $_.label })
+  Assert-True "and the position it reports is one the model defines" `
+    ($liveLabels -contains $livePosition) `
+    ("the loop reported '$livePosition', which the model does not define")
 
   # ── the sessions ─────────────────────────────────────────────────────────
   Write-Host ""

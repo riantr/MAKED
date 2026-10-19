@@ -31,47 +31,53 @@ $mutations = @(
   # The regression this whole exercise exists for. Re-introducing a
   # semantically-chosen slot per domain must turn the suite red -- and it
   # reproduces the exact bug: 5 anchors, 5 slots, all Block.
+  #
+  # The mapping used to live in `loop.mbt`; it lives in `model.mbt` now,
+  # because the model is what the loop asks. The guard follows the code.
   @{
     name = 'drive_slot reverts to a hard-coded semantic mapping'
-    file = 'backend/loop.mbt'
+    file = 'backend/model.mbt'
     old  = @'
-pub fn drive_slot(state : @sm.SubjectState) -> @sm.Slot? {
+pub fn Model::drive_slot(self : Model, from : String) -> String? {
   let moving = []
 '@
     new  = @'
-pub fn drive_slot(state : @sm.SubjectState) -> @sm.Slot? {
-  if state == @sm.Standing {
-    return Some(@sm.CoBeing)
+pub fn Model::drive_slot(self : Model, from : String) -> String? {
+  if from == "standing" {
+    return Some("cobeing")
   }
-  if state == @sm.Encounter {
-    return Some(@sm.Feedback)
+  if from == "encounter" {
+    return Some("feedback")
   }
-  if state == @sm.Honor {
-    return Some(@sm.Unveil)
+  if from == "honor" {
+    return Some("unveil")
   }
-  if state == @sm.Evil {
-    return Some(@sm.Hold)
+  if from == "evil" {
+    return Some("hold")
   }
-  if state == @sm.Discipline {
-    return Some(@sm.Orientation)
+  if from == "cultivation" {
+    return Some("orientation")
   }
   let moving = []
 '@
   },
-  # exitable_slots is the authority for what is drivable at all.
+  # exitable_slots is the authority for what is drivable at all. A model file
+  # does not have to write a rule for every (position, slot) pair, and where
+  # it does not, the model must report no way out rather than offer a slot it
+  # has no rule for. The built-in model defines all 272 pairs, so this is
+  # only observable in a model that does not -- which is exactly the point.
   @{
     name = 'exitable_slots claims every slot works everywhere'
-    file = 'backend/loop.mbt'
-    old  = '    if @sm.exitable(state, slot) {
-      usable.push(slot)
+    file = 'backend/model.mbt'
+    old  = '      None => ()
     }'
-    new  = '    let _ = state
-    usable.push(slot)'
+    new  = '      None => usable.push(slot.id)
+    }'
   },
   # Preferring a real move over a self-edge.
   @{
     name = 'drive_slot ignores Moved and takes the first slot'
-    file = 'backend/loop.mbt'
+    file = 'backend/model.mbt'
     old  = @'
   if moving.length() > 0 {
     Some(moving[0])
@@ -82,7 +88,6 @@ pub fn drive_slot(state : @sm.SubjectState) -> @sm.Slot? {
   }
 '@
     new  = @'
-  let _ = moving
   if staying.length() > 0 {
     Some(staying[0])
   } else if moving.length() > 0 {
@@ -92,33 +97,32 @@ pub fn drive_slot(state : @sm.SubjectState) -> @sm.Slot? {
   }
 '@
   },
-  # A position with no edge must stay a gap. Currently unreachable -- all 34
-  # positions have at least one exitable slot -- so this is expected to
-  # survive, and it is kept listed for the same reason as the backend's
-  # expected-equivalent entries: if the table ever gains a genuine dead
-  # position, this flips to KILLED.
+  # A position with no edge must stay a gap. The built-in model has none --
+  # all 34 positions have at least one exitable slot -- but a model file
+  # written by somebody else can, and `model_test.mbt` has one. So this is a
+  # real guard now rather than an expected-equivalent: it is killed by the
+  # model that has a genuinely dead position.
   @{
     name = 'drive_slot invents a slot when nothing is exitable'
-    file = 'backend/loop.mbt'
+    file = 'backend/model.mbt'
     old  = @'
+  if moving.length() > 0 {
+    Some(moving[0])
+  } else if staying.length() > 0 {
+    Some(staying[0])
   } else {
     None
   }
-}
-
-///|
-/// Whether the table offers several successors
 '@
     new  = @'
+  if moving.length() > 0 {
+    Some(moving[0])
+  } else if staying.length() > 0 {
+    Some(staying[0])
   } else {
-    Some(@sm.Act)
+    Some("act")
   }
-}
-
-///|
-/// Whether the table offers several successors
 '@
-    equivalent = $true
   },
   # The status must report the real position, not the static anchor.
   @{
@@ -147,7 +151,7 @@ pub fn drive_slot(state : @sm.SubjectState) -> @sm.Slot? {
     file = 'backend/loop.mbt'
     old  = @'
     "drive_slot": match drive_slot(current_pos) {
-      Some(slot) => slot.en_designation()
+      Some(slot) => model.slot_designation(slot)
       None => ""
     },
 '@
@@ -163,7 +167,7 @@ pub fn drive_slot(state : @sm.SubjectState) -> @sm.Slot? {
     old  = '  for slot in exitable_slots(current_pos) {
     open_slots_json.push(open_slot_json(current_pos, slot))
   }'
-    new  = '  for slot in @sm.all_slots() {
+    new  = '  for slot in current_model().slot_ids() {
     open_slots_json.push(open_slot_json(current_pos, slot))
   }'
   },
@@ -179,46 +183,46 @@ pub fn drive_slot(state : @sm.SubjectState) -> @sm.Slot? {
   @{
     name = 'StepEffect treats an undecided branch as a move'
     file = 'backend/loop.mbt'
-    old  = '    @sm.Open(_) => Undecided'
-    new  = '    @sm.Open(_) => Advanced'
+    old  = '    Open(_) => Undecided'
+    new  = '    Open(_) => Advanced'
   },
   @{
     name = 'StepEffect treats a Block as a move'
     file = 'backend/loop.mbt'
-    old  = '    @sm.Block(_) => Blocked'
-    new  = '    @sm.Block(_) => Advanced'
+    old  = '    Block(_) => Blocked'
+    new  = '    Block(_) => Advanced'
   },
   @{
     name = 'StepEffect treats Same as no move'
     file = 'backend/loop.mbt'
-    old  = '    @sm.Same(_, _, _) => Advanced'
-    new  = '    @sm.Same(_, _, _) => Undecided'
+    old  = '    Same(_, _) => Advanced'
+    new  = '    Same(_, _) => Undecided'
   },
   # is_undecided is what lets the loop refuse to choose for the subject.
   # A position reachable by two routes is one position, not two futures.
   @{
     name = 'continuations keeps a shorter route alongside the longer one'
-    file = 'backend/loop.mbt'
-    old  = '      } else if steps < out[index].1 {'
-    new  = '      } else if false {'
+    file = 'backend/model.mbt'
+    old  = '    } else if continuation.steps < out[index].1 {'
+    new  = '    } else if false {'
   },
   @{
     name = 'is_undecided never reports an undecided branch'
-    file = 'backend/loop.mbt'
-    old  = '      @sm.Open(_) => return true'
-    new  = '      @sm.Open(_) => return false'
+    file = 'backend/model.mbt'
+    old  = '      Open(_) => return true'
+    new  = '      Open(_) => return false'
   },
-  # slot_from_designation must consult pyroduct's designation column. It used
+  # slot_from_designation must consult the model's designation column. It used
   # to carry a hand-written copy of that table, and the copy went stale when
   # pyroduct renamed two of the eight -- the parser went on accepting the
   # old words and rejecting the new ones, which is the whole bug. Reading the
-  # table out of pyroduct is what makes that class of failure impossible, so
-  # the guard is that the lookup still goes through en_designation.
+  # table out of the model is what makes that class of failure impossible, so
+  # the guard is that the lookup still goes through the designation.
   @{
     name = 'slot_from_designation consults the gloss instead of the designation'
-    file = 'backend/loop.mbt'
-    old  = 'slot.en_designation().to_lower() == needle'
-    new  = 'slot.en_gloss().to_lower() == needle'
+    file = 'backend/model.mbt'
+    old  = 'slot.designation.to_lower() == needle'
+    new  = 'slot.gloss.to_lower() == needle'
   },
   # The per-domain map must be copied on every step. MoonBit's Map is
   # mutable and is not copy-on-write, so sharing it means the state a step
