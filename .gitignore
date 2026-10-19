@@ -1,6 +1,12 @@
 # MoonBit build output
 /_build/
 
+# Generated public interfaces. `moon info` writes these into every package
+# root, and they carry their own warning: "DON'T EDIT IT". They are output,
+# not source, so a change to any public signature would otherwise show up as
+# an unrelated diff in every commit that happened to run a build.
+*.generated.mbti
+
 # Vendored dependencies. `moon add` re-fetches these from mooncakes.io; they
 # are a cache, not source, and the lockfile in .mooncakes/ pins the versions.
 /.mooncakes/

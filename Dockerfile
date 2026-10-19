@@ -38,18 +38,26 @@ ENV PATH="/root/.moon/bin:${PATH}"
 WORKDIR /app
 COPY . .
 
-# `moon update` refreshes the registry index and the lockfile but does not
-# download the packages; `moon install` is what populates `.mooncakes/`.
-# Without the second command the build fails with
-# ".mooncakes/riantr/pyroduct/src is missing".
-RUN moon update && moon install
+# `moon update` refreshes the registry index and the lockfile. The packages
+# themselves are downloaded by the build below: since 0.1.20261016 the
+# toolchain resolves the dependency tree during `moon build` itself, and the
+# old `moon install` (without a source) is now a hard error -- "the following
+# required arguments were not provided: <SOURCE>".
+RUN moon update
 
 # The browser bundle and the server. The bundle is copied to where the server
 # looks for it, because `moon build --target js` names the output file itself
 # and the server expects `frontend/dist/main.js`.
+#
+# Both outputs are found with `find` rather than written as a fixed path. The
+# path inside `_build/` is moon's business, not ours, and it is not the same
+# on every platform: a hard-coded path is a build that breaks when moon moves
+# a directory, and it breaks on the platform nobody tested.
 RUN moon build --release --target js cmd/web \
- && cp _build/js/release/build/cmd/web/web.js frontend/dist/main.js \
- && moon build --release --target native cmd/server
+ && cp "$(find _build/js -type f -name 'web.js' | head -1)" frontend/dist/main.js \
+ && moon build --release --target native cmd/server \
+ && mkdir -p /out \
+ && cp "$(find _build/native -type f -name 'server' ! -name '*.c' | head -1)" /out/maked
 
 # -------------------------------------------------------------- runtime ----
 FROM debian:bookworm-slim AS runtime
@@ -63,7 +71,7 @@ RUN apt-get update \
  && mkdir -p /data \
  && chown maked:maked /data
 
-COPY --from=build /app/_build/native/release/build/cmd/server/server /usr/local/bin/maked
+COPY --from=build /out/maked /usr/local/bin/maked
 COPY --from=build /app/frontend/dist /opt/maked/frontend/dist
 
 # The server takes its port, its database and its static files from the

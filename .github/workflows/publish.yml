@@ -23,7 +23,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing release tag, for example v0.1.5"
+        description: "Existing release tag, for example v0.1.6"
         required: true
         type: string
 
@@ -160,11 +160,26 @@ jobs:
       # "username" keys -- NOT a bare token string. The step below writes
       # $SECRET straight to that path, so a bare token produces a file that
       # does not parse and moon publish fails with an opaque auth error.
+      # Idempotent on purpose, for the same reason the release step below is.
+      # A version that is already on the registry cannot be published again --
+      # `moon publish` exits 255 for "version already exists" -- but the
+      # assets (the binaries, the container image) still have to be built and
+      # attached. So the publish is skipped when the version is already there,
+      # and the rest of the run carries on.
+      #
+      # The check is `moon view <module>@<version>`: it succeeds for a
+      # published version and fails with a 404 for one that is not.
       - name: Publish to Mooncakes
         run: |
           if [ -z "$SECRET" ]; then
             echo "::error::MOONCAKES_RIANTR_TOKEN is not set on this repository; moon publish cannot authenticate. If it IS set, check its SHAPE: it must be the JSON body of ~/.moon/credentials.json, not a bare token."
             exit 1
+          fi
+          version="${{ steps.release.outputs.version }}"
+          if moon view "riantr/MAKED@${version}" >/dev/null 2>&1; then
+            echo "riantr/MAKED@${version} is already on the registry; skipping the publish"
+            echo "the assets for this release are still built and attached by the jobs below"
+            exit 0
           fi
           mkdir -p "$HOME/.moon"
           printf '%s' "$SECRET" > "$HOME/.moon/credentials.json"
@@ -268,7 +283,17 @@ jobs:
         run: |
           # The installer writes to the user PATH and says "restart your
           # terminal"; GITHUB_PATH is the runner's way of doing that.
-          iex (Invoke-WebRequest -Uri https://cli.moonbitlang.com/install/powershell.ps1 -UseBasicParsing).Content
+          #
+          # The response is a byte array, not a string: the installer is
+          # served as application/octet-stream, and `iex` on a byte array
+          # fails with "Cannot convert 'System.Byte[]' to the type
+          # 'System.String' required by parameter 'Command'". Decoding it
+          # first is the whole fix.
+          $script = (Invoke-WebRequest -Uri https://cli.moonbitlang.com/install/powershell.ps1 -UseBasicParsing).Content
+          if ($script -is [byte[]]) {
+            $script = [System.Text.Encoding]::UTF8.GetString($script)
+          }
+          iex $script
           "$HOME\.moon\bin" >> $env:GITHUB_PATH
 
       - name: Install dependencies
@@ -288,6 +313,13 @@ jobs:
         run: |
           moon build --release --target js cmd/web
           moon build --release --target native cmd/server
+          # Where the build actually put things. The packaging step finds the
+          # executable with `find` rather than a fixed path, so this is not
+          # needed to make it work -- it is here so the layout is visible in
+          # the log when a packaging step fails, instead of guessed at.
+          echo "::group::build output"
+          find _build -maxdepth 6 -type f \( -name 'server' -o -name 'server.exe' -o -name 'web.js' \) | head -20
+          echo "::endgroup::"
 
       - name: Package (unix)
         if: matrix.os != 'windows-latest'
@@ -295,7 +327,17 @@ jobs:
         run: |
           version="${{ steps.ver.outputs.version }}"
           mkdir -p stage/maked/frontend/dist
-          cp _build/native/release/build/cmd/server/server stage/maked/server
+          # The executable is found, not assumed. Its path inside `_build/` is
+          # moon's business, and a fixed path is what made the first release
+          # attempt fail on the platform nobody could test locally.
+          server_bin="$(find _build/native -type f -name 'server' ! -name '*.c' | head -1)"
+          if [ -z "$server_bin" ]; then
+            echo "::error::no native server executable found under _build/native"
+            find _build -maxdepth 6 -type f -name 'server*' | head -20
+            exit 1
+          fi
+          echo "server executable: $server_bin"
+          cp "$server_bin" stage/maked/server
           cp frontend/dist/index.html frontend/dist/styles.css stage/maked/frontend/dist/
           cp _build/js/release/build/cmd/web/web.js stage/maked/frontend/dist/main.js
           cp packaging/RUN.txt stage/maked/RUN.txt
@@ -308,7 +350,14 @@ jobs:
         run: |
           $version = "${{ steps.ver.outputs.version }}"
           New-Item -ItemType Directory -Force -Path stage\maked\frontend\dist | Out-Null
-          Copy-Item _build\native\release\build\cmd\server\server.exe stage\maked\server.exe
+          $server = Get-ChildItem -Path _build\native -Recurse -File -Filter server.exe | Select-Object -First 1
+          if (-not $server) {
+            Write-Error "no native server executable found under _build/native"
+            Get-ChildItem -Path _build -Recurse -File -Filter 'server*' | Select-Object -First 20
+            exit 1
+          }
+          Write-Host "server executable: $($server.FullName)"
+          Copy-Item $server.FullName stage\maked\server.exe
           Copy-Item frontend\dist\index.html, frontend\dist\styles.css stage\maked\frontend\dist\
           Copy-Item _build\js\release\build\cmd\web\web.js stage\maked\frontend\dist\main.js
           Copy-Item packaging\RUN.txt stage\maked\RUN.txt
