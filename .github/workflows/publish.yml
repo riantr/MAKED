@@ -93,16 +93,20 @@ jobs:
       - name: Update dependencies
         run: |
           moon update
-          # `moon update` refreshes the registry index and rewrites the
-          # lockfile, but it does NOT download packages: on a fresh checkout
-          # `.mooncakes/` is still absent when it finishes. `moon install` is
-          # what actually populates it, and the staging step below has nothing
-          # to copy into until it has run.
+          # `moon update` refreshes the registry index and the lockfile, but
+          # it does not download the packages.
           #
-          # Verified on a runner, not predicted: without this line a later step
-          # that needs the dependency tree fails, because `moon update` alone
-          # leaves `.mooncakes/` absent on a fresh checkout.
-          moon install
+          # Until 0.1.20261016 the download was a separate `moon install`.
+          # That form is now a hard error -- "the following required
+          # arguments were not provided: <SOURCE>" -- because installing
+          # without a source means installing a binary globally, which is a
+          # different command. The toolchain now resolves the dependency
+          # tree itself during `moon check`, `moon build` and `moon test`.
+          #
+          # Verified on a fresh clone with no `.mooncakes/` at all: each of
+          # those three populates it and succeeds. So there is nothing left
+          # to do here but refresh the index.
+          moon update
 
       - name: Check package
         run: |
@@ -274,12 +278,10 @@ jobs:
         shell: ${{ matrix.shell }}
         run: |
           moon version --all
-          # `moon update` refreshes the registry index and the lockfile but
-          # does not download the packages; `moon install` populates
-          # `.mooncakes/`. Without the second command the build fails with
-          # ".mooncakes/riantr/pyroduct/src is missing".
+          # The toolchain resolves the dependency tree itself during
+          # `moon build`; `moon install` without a source is a hard error
+          # since 0.1.20261016. `moon update` only refreshes the index.
           moon update
-          moon install
 
       - name: Build
         shell: ${{ matrix.shell }}

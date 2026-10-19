@@ -24,14 +24,20 @@ jobs:
         run: |
           moon version --all
           moon update
-          # `moon update` refreshes the registry index and rewrites the
-          # lockfile, but it does NOT download packages: on a fresh checkout
-          # `.mooncakes/` is still absent when it finishes. `moon install` is
-          # what actually populates it, and the staging step below has nothing
-          # to copy into until it has run. Verified on a runner: without this
-          # line the staging step exits 1 with
-          # ".mooncakes/riantr/pyroduct/src is missing".
-          moon install
+          # `moon update` refreshes the registry index and the lockfile, but
+          # it does not download the packages.
+          #
+          # Until 0.1.20261016 the download was a separate `moon install`.
+          # That form is now a hard error -- "the following required
+          # arguments were not provided: <SOURCE>" -- because installing
+          # without a source means installing a binary globally, which is a
+          # different command. The toolchain now resolves the dependency
+          # tree itself during `moon check`, `moon build` and `moon test`.
+          #
+          # Verified on a fresh clone with no `.mooncakes/` at all: each of
+          # those three populates it and succeeds. So there is nothing left
+          # to do here but refresh the index.
+          moon update
 
       - name: Run tests (native)
         run: moon test --target native
@@ -56,14 +62,20 @@ jobs:
         run: |
           moon version --all
           moon update
-          # `moon update` refreshes the registry index and rewrites the
-          # lockfile, but it does NOT download packages: on a fresh checkout
-          # `.mooncakes/` is still absent when it finishes. `moon install` is
-          # what actually populates it, and the staging step below has nothing
-          # to copy into until it has run. Verified on a runner: without this
-          # line the staging step exits 1 with
-          # ".mooncakes/riantr/pyroduct/src is missing".
-          moon install
+          # `moon update` refreshes the registry index and the lockfile, but
+          # it does not download the packages.
+          #
+          # Until 0.1.20261016 the download was a separate `moon install`.
+          # That form is now a hard error -- "the following required
+          # arguments were not provided: <SOURCE>" -- because installing
+          # without a source means installing a binary globally, which is a
+          # different command. The toolchain now resolves the dependency
+          # tree itself during `moon check`, `moon build` and `moon test`.
+          #
+          # Verified on a fresh clone with no `.mooncakes/` at all: each of
+          # those three populates it and succeeds. So there is nothing left
+          # to do here but refresh the index.
+          moon update
 
       - name: Build backend (native)
         run: moon build --target native cmd/server
@@ -85,14 +97,20 @@ jobs:
         run: |
           moon version --all
           moon update
-          # `moon update` refreshes the registry index and rewrites the
-          # lockfile, but it does NOT download packages: on a fresh checkout
-          # `.mooncakes/` is still absent when it finishes. `moon install` is
-          # what actually populates it, and the staging step below has nothing
-          # to copy into until it has run. Verified on a runner: without this
-          # line the staging step exits 1 with
-          # ".mooncakes/riantr/pyroduct/src is missing".
-          moon install
+          # `moon update` refreshes the registry index and the lockfile, but
+          # it does not download the packages.
+          #
+          # Until 0.1.20261016 the download was a separate `moon install`.
+          # That form is now a hard error -- "the following required
+          # arguments were not provided: <SOURCE>" -- because installing
+          # without a source means installing a binary globally, which is a
+          # different command. The toolchain now resolves the dependency
+          # tree itself during `moon check`, `moon build` and `moon test`.
+          #
+          # Verified on a fresh clone with no `.mooncakes/` at all: each of
+          # those three populates it and succeeds. So there is nothing left
+          # to do here but refresh the index.
+          moon update
 
       - name: Build frontend (js)
         run: moon build --target js cmd/web
