@@ -22,12 +22,18 @@ FROM debian:bookworm-slim AS build
 # `gcc` and `make` are not optional. The sqlite3 dependency is the SQLite
 # amalgamation (a 9 MB C file) that the native build compiles and links in,
 # so there is no system sqlite to install and no shared library to ship.
+#
+# `libc6-dev` is not optional either, and its absence is quiet: without it the
+# build dies with "stdint.h: No such file or directory", because gcc ships the
+# compiler while the headers for the C standard library live in a separate
+# package. `--no-install-recommends` is what keeps it out.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ca-certificates \
       curl \
       gcc \
       git \
+      libc6-dev \
       make \
  && rm -rf /var/lib/apt/lists/*
 
@@ -57,7 +63,7 @@ RUN moon build --release --target js cmd/web \
  && cp "$(find _build/js -type f -name 'web.js' | head -1)" frontend/dist/main.js \
  && moon build --release --target native cmd/server \
  && mkdir -p /out \
- && cp "$(find _build/native -type f -name 'server' ! -name '*.c' | head -1)" /out/maked
+ && cp "$(find _build/native -type f \( -name 'server' -o -name 'server.exe' \) | head -1)" /out/maked
 
 # -------------------------------------------------------------- runtime ----
 FROM debian:bookworm-slim AS runtime

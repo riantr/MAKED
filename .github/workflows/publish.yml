@@ -23,7 +23,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing release tag, for example v0.1.6"
+        description: "Existing release tag, for example v0.1.7"
         required: true
         type: string
 
@@ -313,10 +313,19 @@ jobs:
         run: |
           moon build --release --target js cmd/web
           moon build --release --target native cmd/server
-          # Where the build actually put things. The packaging step finds the
-          # executable with `find` rather than a fixed path, so this is not
-          # needed to make it work -- it is here so the layout is visible in
-          # the log when a packaging step fails, instead of guessed at.
+
+      # Where the build actually put things. The packaging step finds the
+      # executable with `find` rather than a fixed path, so this is not needed
+      # to make it work -- it is here so the layout is visible in the log when
+      # a packaging step fails, instead of guessed at.
+      #
+      # Unix only: on the Windows runner `find` is a PowerShell alias for
+      # Select-String, and running this there fails the build step for a
+      # reason that has nothing to do with the build.
+      - name: Show the build output
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
           echo "::group::build output"
           find _build -maxdepth 6 -type f \( -name 'server' -o -name 'server.exe' -o -name 'web.js' \) | head -20
           echo "::endgroup::"
@@ -330,7 +339,11 @@ jobs:
           # The executable is found, not assumed. Its path inside `_build/` is
           # moon's business, and a fixed path is what made the first release
           # attempt fail on the platform nobody could test locally.
-          server_bin="$(find _build/native -type f -name 'server' ! -name '*.c' | head -1)"
+          #
+          # It is `server.exe` on Linux too: the native backend names its
+          # executables with the Windows extension whatever the host is, so
+          # both spellings are accepted here.
+          server_bin="$(find _build/native -type f \( -name 'server' -o -name 'server.exe' \) | head -1)"
           if [ -z "$server_bin" ]; then
             echo "::error::no native server executable found under _build/native"
             find _build -maxdepth 6 -type f -name 'server*' | head -20

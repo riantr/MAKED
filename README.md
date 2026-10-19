@@ -2,7 +2,7 @@
 
 **A recursively self-evolving modelling framework** — designed around an adversarial knowledge loop.
 
-Current release: **v0.1.6** — published as [`riantr/MAKED`](https://mooncakes.io) on mooncakes.io.
+Current release: **v0.1.7** — published as [`riantr/MAKED`](https://mooncakes.io) on mooncakes.io.
 
 MAKED is a five-domain recursive cognitive architecture: Model → Data → Experience → Attack → Knowledge forms a closed ring, each domain being the adversarial overcoming of the one before it. The system drives state transitions through its own cycle — from arxiv research papers, to causal inference, to the pyroduct state machine — forming a self-driving closed loop of knowledge evolution.
 
@@ -69,7 +69,7 @@ Then open <http://127.0.0.1:8080/>. The image holds the server and the browser
 files it serves; the database is created and seeded on first run, and lives in
 a named volume so your records survive the container being replaced.
 
-**From v0.1.6**, the image is also published, so the clone is not
+**From v0.1.7**, the image is also published, so the clone is not
 needed either:
 
 ```bash
@@ -83,7 +83,7 @@ pulls only with a GitHub token that can read it.
 
 ### Or take a prebuilt binary
 
-**From v0.1.6**, every tag also carries a ready-to-run build for
+**From v0.1.7**, every tag also carries a ready-to-run build for
 three platforms, with the browser files beside the executable:
 
 | Platform | Asset |
