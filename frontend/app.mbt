@@ -24,6 +24,14 @@ pub(all) enum Msg {
   DriveLoopClicked
   EstimateCausalClicked
   UrlChanged(@url.Url)
+  // The workspace: the user's own records.
+  EntryCreated(Result[Json, Error])
+  EntryDeleted(Result[Json, Error])
+  DraftDomainClicked(String)
+  DraftTitleChanged(String)
+  DraftBodyChanged(String)
+  DraftSubmitClicked
+  EntryDeleteClicked(Int32)
 }
 
 ///|
@@ -50,6 +58,20 @@ pub(all) struct Model {
   research_error : String
   causal_result : Json?
   causal_error : String
+  /// The user's own records, fetched with the pages so that the workspace
+  /// needs no second request of its own. See the note in `app`.
+  entries : Array[Entry]
+  /// The five ring letters, as the backend names them.
+  entry_domains : Array[String]
+  /// The entry being written: which domain it belongs to, and its text.
+  draft_domain : String
+  draft_title : String
+  draft_body : String
+  /// What the workspace says after the last action. One of the two is always
+  /// empty, and between them they cover every outcome: a save either lands,
+  /// is refused with a reason, or fails to reach the server.
+  workspace_error : String
+  workspace_notice : String
 } derive(Eq)
 
 ///|
@@ -67,6 +89,13 @@ fn initial() -> Model {
     research_error: "",
     causal_result: None,
     causal_error: "",
+    entries: [],
+    entry_domains: default_entry_domains(),
+    draft_domain: "",
+    draft_title: "",
+    draft_body: "",
+    workspace_error: "",
+    workspace_notice: "",
   }
 }
 
@@ -94,23 +123,30 @@ pub fn slug_of(path : String) -> String {
 ///|
 /// `update` takes the emitter as the first parameter. The signature is fixed by
 /// `@rabbita.cell`, which passes the emitter so the view can issue commands.
-fn update(model : Model, msg : Msg, emit : @cmd.Emit[Msg]) -> (Model, @cmd.Cmd) {
+///
+/// Public because `frontend_test.mbt` drives it directly: the workspace arms
+/// are the ones that decide whether a record is saved, and a test that calls
+/// `update` is the only way to prove that a click reaches the right arm
+/// without a browser in the loop.
+pub fn update(
+  model : Model,
+  msg : Msg,
+  emit : @cmd.Emit[Msg],
+) -> (Model, @cmd.Cmd) {
   match msg {
     Loaded(Ok(json)) =>
       (
+        // The spread form is used rather than a hand-written list of every
+        // field: a list like that is a place for a new field to be forgotten,
+        // and forgetting one here is silent -- the panel simply stops
+        // updating, with nothing in the console to say why.
         {
+          ..model,
           pages: decode_pages(json),
-          current: model.current,
+          entries: decode_entries(json),
+          entry_domains: decode_entry_domains(json),
           loaded: true,
           error: "",
-          loop_status: model.loop_status,
-          loop_error: model.loop_error,
-          slots: model.slots,
-          research_papers: model.research_papers,
-          research_triggers: model.research_triggers,
-          research_error: model.research_error,
-          causal_result: model.causal_result,
-          causal_error: model.causal_error,
         },
         // Requests are issued one after another, never with @cmd.batch.
         // Batching two GETs in `init` made every later click-initiated POST
@@ -127,6 +163,10 @@ fn update(model : Model, msg : Msg, emit : @cmd.Emit[Msg]) -> (Model, @cmd.Cmd) 
         // the server, but the reply never reached `update`, so the panel sat on
         // "Loading loop status..." with no error anywhere. Do not split these
         // into more sequential requests to "tidy up" the flow.
+        //
+        // The workspace entries ride along in the first response for the same
+        // reason. Fetching them with a request of their own would have been a
+        // third hop, and the third hop is where this chain used to die.
         @http.get("/api/loop/status").expect_json(
           emit.map(fn(result) { LoopLoaded(result) }),
         ),
@@ -255,6 +295,143 @@ fn update(model : Model, msg : Msg, emit : @cmd.Emit[Msg]) -> (Model, @cmd.Cmd) 
         ),
       )
     UrlChanged(url) => ({ ..model, current: slug_of(url.path), }, @cmd.none)
+    // The workspace.
+    //
+    // Every branch of this group says what happened. A click that produces no
+    // visible change anywhere is the failure this project exists to remove,
+    // so there is no branch here that returns without a word: a save either
+    // lands, is refused with a reason, or fails to reach the server, and each
+    // of those three says so in the panel.
+    DraftDomainClicked(letter) =>
+      (
+        {
+          ..model,
+          draft_domain: letter,
+          workspace_error: "",
+          workspace_notice: "",
+        },
+        @cmd.none,
+      )
+    DraftTitleChanged(text) => ({ ..model, draft_title: text, }, @cmd.none)
+    DraftBodyChanged(text) => ({ ..model, draft_body: text, }, @cmd.none)
+    DraftSubmitClicked => {
+      // The same rules the server applies, checked here so that the common
+      // mistakes produce a sentence straight away instead of a round trip
+      // that comes back as a refusal.
+      let problem = draft_problem(
+        model.entry_domains,
+        model.draft_domain,
+        model.draft_title,
+      )
+      if problem != "" {
+        (
+          { ..model, workspace_error: problem, workspace_notice: "", },
+          @cmd.none,
+        )
+      } else {
+        let payload : Json = {
+          "domain": model.draft_domain,
+          "title": model.draft_title,
+          "body": model.draft_body,
+        }
+        (
+          { ..model, workspace_error: "", workspace_notice: "Saving…", },
+          @http.post("/api/entries")
+          .with_json(payload)
+          .expect_json(emit.map(fn(result) { EntryCreated(result) })),
+        )
+      }
+    }
+    EntryCreated(Ok(json)) =>
+      match decode_created_entry(json) {
+        Some(entry) =>
+          (
+            {
+              ..model,
+              entries: [entry, ..model.entries],
+              draft_title: "",
+              draft_body: "",
+              workspace_error: "",
+              workspace_notice: "Saved “\{entry.title}” to the \{entry.domain} domain.",
+            },
+            @cmd.none,
+          )
+        None => {
+          // The server answered, and what it answered was a refusal rather
+          // than an entry. The status code never reaches the client, so the
+          // body is the only place the reason can come from.
+          let reason = decode_error_reason(json)
+          (
+            {
+              ..model,
+              workspace_notice: "",
+              workspace_error: if reason == "" {
+                "the server refused the entry"
+              } else {
+                reason
+              },
+            },
+            @cmd.none,
+          )
+        }
+      }
+    EntryCreated(Err(_)) =>
+      (
+        {
+          ..model,
+          workspace_notice: "",
+          workspace_error: "could not reach the server",
+        },
+        @cmd.none,
+      )
+    EntryDeleteClicked(id) =>
+      (
+        { ..model, workspace_error: "", workspace_notice: "Deleting…", },
+        @http.delete("/api/entries/\{id}").expect_json(
+          emit.map(fn(result) { EntryDeleted(result) }),
+        ),
+      )
+    EntryDeleted(Ok(json)) => {
+      // The server answers `{"deleted": id}` when it removed the row, and an
+      // error object when it did not. A missing `deleted` is the failure case,
+      // not a delete of record -1.
+      let deleted = get_int(json, "deleted", -1)
+      if deleted < 0 {
+        let reason = decode_error_reason(json)
+        (
+          {
+            ..model,
+            workspace_notice: "",
+            workspace_error: if reason == "" {
+              "the server refused the delete"
+            } else {
+              reason
+            },
+          },
+          @cmd.none,
+        )
+      } else {
+        let remaining = model.entries.filter(fn(entry) { entry.id != deleted })
+        (
+          {
+            ..model,
+            entries: remaining,
+            workspace_error: "",
+            workspace_notice: "Removed one record.",
+          },
+          @cmd.none,
+        )
+      }
+    }
+    EntryDeleted(Err(_)) =>
+      (
+        {
+          ..model,
+          workspace_notice: "",
+          workspace_error: "could not reach the server",
+        },
+        @cmd.none,
+      )
   }
 }
 
@@ -292,6 +469,19 @@ fn view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
       causal_panel,
       domain_cards(nav_pages),
     ])
+  } else if model.current == "workspace" && model.loaded {
+    // The workspace is a client-side route rather than a seeded page: what it
+    // shows is the user's own records, not a row in the `pages` table. The
+    // backend serves the same `index.html` for it, so a cold load of
+    // /workspace lands here too.
+    //
+    // It is rendered only once the data has arrived. Rendering it before that
+    // would put the form on the screen with placeholder values, and the first
+    // update would then have to *patch* those controls rather than insert
+    // them -- and a patched control is a different thing from an inserted one.
+    workspace_view(emit, model)
+  } else if model.current == "workspace" {
+    loading_view()
   } else {
     content
   }
@@ -325,7 +515,12 @@ pub fn app() -> @rabbita.App {
       init=fn(emit) {
         (
           initial(),
-          @http.get("/api/pages").expect_json(
+          // `/api/bootstrap` rather than `/api/pages`: the pages and the
+          // workspace entries arrive together, so the workspace costs no
+          // request of its own. One request out, one answer in, then the loop
+          // status -- the chain stays two hops, which is the shape this
+          // client is known to survive.
+          @http.get("/api/bootstrap").expect_json(
             emit.map(fn(result) { Loaded(result) }),
           ),
         )

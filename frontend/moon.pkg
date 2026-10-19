@@ -6,9 +6,10 @@
 // `Json` is a builtin and needs no import, and `assert_eq`/`assert_true` come
 // from the prelude, so neither `moonbitlang/core/json` nor
 // `moonbitlang/core/test` is listed: importing either is an `unused_package`
-// warning. `string` is used by `frontend_test.mbt` alone, so it goes in the
-// `for "test"` block -- in the main block it is likewise unused. `double` is
-// not listed at all: `sqrt`/`abs` resolve as `Double` methods without it.
+// warning. `string` is listed in the main block because `entries.mbt` parses a
+// record id with it; a `for "test"` block is not needed on top of that, since
+// the main imports are available to the test build too. `double` is not
+// listed at all: `sqrt`/`abs` resolve as `Double` methods without it.
 import {
   "moonbit-community/rabbita",
   "moonbit-community/rabbita/cmd",
@@ -19,10 +20,7 @@ import {
   "moonbit-community/rabbita/svg",
   "moonbit-community/rabbita/url",
   "moonbitlang/core/math",
+  "moonbitlang/core/string",
 }
 
 supported_targets = "js"
-
-import {
-  "moonbitlang/core/string",
-} for "test"

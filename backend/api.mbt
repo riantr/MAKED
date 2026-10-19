@@ -31,6 +31,33 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     let body : Json = { "pages": pages }
     Response::json(body)
   })
+  // GET /api/bootstrap → everything the single-page app needs to start.
+  //
+  // The pages and the workspace entries come back together, in one request,
+  // because a second request at start-up is the shape that used to lose
+  // responses: two GETs in flight at once meant the client sometimes never
+  // saw either answer, and the screen sat on "Loading..." with nothing in the
+  // console to say why. The app therefore asks for this, waits for the
+  // answer, and only then asks for the loop status -- a chain of one at a
+  // time rather than a pair.
+  //
+  // The entries are included even though only the workspace route shows them.
+  // Keeping the start-up to a single request is worth carrying a list the
+  // index page does not display; a user's own working set is small, and the
+  // alternative is a third hop, which is where this chain died before.
+  //
+  // The response is not cacheable. It carries the user's own records, and a
+  // cached copy would be a stale list of what the server holds.
+  app.get("/api/bootstrap", _req => {
+    let pages = db.all_pages().map(fn(p) { p.to_json() })
+    let entries = db.all_entries().map(fn(e) { e.to_json() })
+    let body : Json = {
+      "pages": pages,
+      "entries": entries,
+      "entry_domains": entry_domains(),
+    }
+    Response::json(body).with_header("Cache-Control", "no-store")
+  })
   app.get("/api/pages/:slug", req => {
     match req.param("slug") {
       Some(slug) =>
@@ -65,7 +92,9 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       // without hard-coding the ring a second time.
       "domains": entry_domains(),
     }
-    Response::json(body)
+    // The list changes when a record is written or removed, so a cached copy
+    // would be a lie about what the server holds.
+    Response::json(body).with_header("Cache-Control", "no-store")
   })
   app.post("/api/entries", req => {
     let payload = req.json().unwrap_or(Json::empty_object())

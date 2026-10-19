@@ -38,19 +38,37 @@ pub fn header(current : String, pages : Array[Page]) -> @html.Html {
           ),
         ]),
       ]),
-      @html.nav(class="maked-nav", [
-        @html.ul(
-          pages.map(fn(page) {
-            let active = if page.slug == current { " active" } else { "" }
-            let target = "/" + page.slug
-            @html.li(class=active, on_click=@nav.push_url(target), [
-              @html.a(href=target, page.title),
-            ])
-          }),
-        ),
-      ]),
+      @html.nav(class="maked-nav", [@html.ul(nav_items(current, pages))]),
     ]),
   ])
+}
+
+///|
+/// The navigation list: the seeded pages, then the workspace.
+///
+/// The workspace is a client-side route rather than a seeded page -- what it
+/// shows is the user's own records, not a row in the `pages` table -- so it
+/// is appended here instead of coming out of the pages list. It goes last
+/// because it is the one destination that holds the user's own work rather
+/// than the project's own words.
+fn nav_items(current : String, pages : Array[Page]) -> Array[@html.Html] {
+  let items : Array[@html.Html] = []
+  for page in pages {
+    let active = if page.slug == current { " active" } else { "" }
+    let target = "/" + page.slug
+    items.push(
+      @html.li(class=active, on_click=@nav.push_url(target), [
+        @html.a(href=target, page.title),
+      ]),
+    )
+  }
+  let workspace_active = if current == "workspace" { " active" } else { "" }
+  items.push(
+    @html.li(class=workspace_active, on_click=@nav.push_url("/workspace"), [
+      @html.a(href="/workspace", "Workspace"),
+    ]),
+  )
+  items
 }
 
 ///|
@@ -397,5 +415,114 @@ pub fn causal_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     button,
     result_view,
     error,
+  ])
+}
+
+///|
+/// The workspace: the user's own records.
+///
+/// This is the first screen in MAKED that holds something the user wrote, so
+/// it is built around three rules:
+///
+///   - Nothing happens silently. Every outcome -- saved, refused, unreachable
+///     -- says so in words, in the same place, every time.
+///   - The domain is chosen by pressing it, not by picking from a dropdown.
+///     The five letters are the whole vocabulary, and a row of five buttons
+///     says that at a glance where a collapsed dropdown hides it.
+///   - The records already saved sit next to the form that made them, so the
+///     result of a save is visible where the save happened.
+pub fn workspace_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
+  let domain_buttons : Array[@html.Html] = []
+  for letter in model.entry_domains {
+    let active = if letter == model.draft_domain {
+      " maked-ws-domain--active"
+    } else {
+      ""
+    }
+    domain_buttons.push(
+      @html.button(
+        class="maked-ws-domain\{active}",
+        on_click=emit(DraftDomainClicked(letter)),
+        letter,
+      ),
+    )
+  }
+  let target = if model.draft_domain == "" {
+    "a domain"
+  } else {
+    "the " + model.draft_domain + " domain"
+  }
+  let form = @html.div(class="maked-ws-form", [
+    @html.p(class="maked-ws-question", "Which domain does this belong to?"),
+    @html.div(class="maked-ws-domains", domain_buttons),
+    @html.label(class="maked-ws-label", for_="maked-ws-title", "Title"),
+    @html.input(
+      id="maked-ws-title",
+      class="maked-ws-input",
+      placeholder="The model, the dataset, the failure",
+      value=model.draft_title,
+      maxlength=200,
+      on_input=emit.map(fn(text) { DraftTitleChanged(text) }),
+    ),
+    @html.label(class="maked-ws-label", for_="maked-ws-body", "What happened"),
+    @html.textarea(
+      id="maked-ws-body",
+      class="maked-ws-textarea",
+      rows=5,
+      placeholder="What you tried, what came out, and what you think it means.",
+      value=model.draft_body,
+      on_input=emit.map(fn(text) { DraftBodyChanged(text) }),
+      @html.nothing,
+    ),
+    @html.button(
+      class="maked-ws-save",
+      on_click=emit(DraftSubmitClicked),
+      "Save to \{target}",
+    ),
+  ])
+  let status = if model.workspace_error != "" {
+    @html.p(class="maked-ws-error", model.workspace_error)
+  } else if model.workspace_notice != "" {
+    @html.p(class="maked-ws-notice", model.workspace_notice)
+  } else {
+    @html.nothing
+  }
+  let entry_items : Array[@html.Html] = []
+  for entry in model.entries {
+    entry_items.push(
+      @html.li(class="maked-ws-entry", [
+        @html.span(class="maked-ws-entry-domain", entry.domain),
+        @html.span(class="maked-ws-entry-title", entry.title),
+        @html.p(class="maked-ws-entry-body", entry.body),
+        @html.span(class="maked-ws-entry-time", entry.created_at),
+        @html.button(
+          class="maked-ws-entry-delete",
+          on_click=emit(EntryDeleteClicked(entry.id)),
+          "Delete",
+        ),
+      ]),
+    )
+  }
+  let entries_list = if model.entries.length() == 0 {
+    @html.p(
+      class="maked-ws-empty",
+      "Nothing here yet. The first record is usually the thing you most want to forget about.",
+    )
+  } else {
+    @html.ul(class="maked-ws-entries", entry_items)
+  }
+  @html.section(class="maked-workspace", [
+    @html.h2(class="maked-ws-heading", "Workspace"),
+    @html.p(
+      class="maked-ws-lede",
+      "Everything else here is the project's own words. This part is yours: put a model, a dataset, or a failure you want to understand into the domain it belongs to, and it stays on this machine.",
+    ),
+    @html.div(class="maked-ws-columns", [
+      @html.div(class="maked-ws-compose", [form, status]),
+      @html.div(class="maked-ws-list", [
+        @html.h3(class="maked-ws-list-title", "Your records"),
+        entries_list,
+      ]),
+    ]),
   ])
 }

@@ -19,3 +19,11 @@
 /_s.log
 /_s.err
 /_s.out
+/_stdout.txt
+/_stderr.txt
+
+# Ad-hoc diagnostic dumps written by a local server run. These are scratch
+# evidence, never source: a run that writes them must not be able to commit
+# them by accident.
+/_dbg/
+/_reqlog/

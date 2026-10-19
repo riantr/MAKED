@@ -101,6 +101,29 @@ record. That is acceptable while the server binds localhost and stores one
 person's working set, and it stops being acceptable the moment the server is
 published — see the entry-barrier work, which is what makes that reachable.
 
+#### The workspace screen
+
+`/workspace` is the route where those records are written and read. It is a
+client-side route, so it survives a cold load and a deep link alike.
+
+- The domain is chosen by **pressing its letter**, not by picking from a
+  dropdown. The five letters are the whole vocabulary, and a row of five
+  buttons says at a glance which one is in effect.
+- The form refuses locally what the server would refuse anyway — no domain, or
+  a blank title — and says which one it was, without a round trip.
+- Every outcome is stated in words in the same place: saved, refused, or the
+  server unreachable. A button that does nothing is the failure this project
+  exists to remove, so the screen never stays quiet about one.
+- The records already saved sit next to the form that made them, each with its
+  own delete button.
+
+The list arrives with the pages in one `/api/bootstrap` request. Two requests at
+start-up is the shape that used to lose responses: two GETs in flight at once
+meant the client sometimes never saw either answer, and the screen sat on
+"Loading…" with nothing in the console to say why. The chain is one request at
+a time, and `/api/bootstrap` and `/api/entries` are sent as `no-store` — a
+cached copy of the list would be a stale claim about what the server holds.
+
 ### State Loop
 
 | Route | Returns |
@@ -157,6 +180,7 @@ backend/          micro-framework, storage layer, API routes, state loop engine
 frontend/         rabbita single-page application
   app.mbt           state machine and router
   views.mbt         header, domain cards, page rendering
+  entries.mbt       workspace records and the draft that becomes one
   logo.mbt          five-ring mark (SVG)
   loop_state.mbt    loop state visualisation
   page.mbt          typed accessors for the backend JSON
@@ -201,7 +225,7 @@ the signal we want.
 | fmt | `moon fmt --check` | code formatting |
 | tree | `moon tree` | dependency audit |
 | unit-native | `moon test --target native` | 171 backend tests (includes the BDD suite below) |
-| unit-js | `moon test --target js` | 21 frontend tests |
+| unit-js | `moon test --target js` | 42 frontend tests |
 | coverage | `moon test --enable-coverage` | coverage |
 | bench | `moon bench` | benchmarks |
 | prove | `moon prove` | formal verification (Why3) |

@@ -483,7 +483,44 @@ fn bare_model() -> @frontend.Model {
     research_error: "",
     causal_result: None,
     causal_error: "",
+    entries: [],
+    entry_domains: ["M", "D", "E", "A", "K"],
+    draft_domain: "",
+    draft_title: "",
+    draft_body: "",
+    workspace_error: "",
+    workspace_notice: "",
   }
+}
+
+///|
+test "Model Eq distinguishes the workspace fields" {
+  // rabbita drops an update whose new model compares equal to the old one
+  // (see the note on the Some/None test below). A workspace field that
+  // compared equal would be a field the screen silently refuses to show.
+  let m = bare_model()
+  assert_true(!Eq::equal(m, { ..m, draft_title: "a model", }))
+  assert_true(!Eq::equal(m, { ..m, draft_body: "what happened", }))
+  assert_true(!Eq::equal(m, { ..m, draft_domain: "M", }))
+  assert_true(!Eq::equal(m, { ..m, workspace_error: "refused", }))
+  assert_true(!Eq::equal(m, { ..m, workspace_notice: "saved", }))
+  assert_true(!Eq::equal(m, { ..m, entry_domains: ["M"], }))
+}
+
+///|
+test "Model Eq distinguishes one entry from none" {
+  // The entry list is the other half of the workspace: if adding a record
+  // compared equal to an empty list, the save would land on the server and
+  // never reach the screen.
+  let m = bare_model()
+  let entry : @frontend.Entry = {
+    id: 1,
+    domain: "M",
+    title: "a model",
+    body: "",
+    created_at: "2026-10-19 00:00:00",
+  }
+  assert_true(!Eq::equal(m, { ..m, entries: [entry], }))
 }
 
 ///|
@@ -538,4 +575,310 @@ test "Model Eq distinguishes two different loop statuses" {
   }
   assert_true(!Eq::equal(ma, mb))
   assert_true(Eq::equal(ma, ma))
+}
+
+///|
+test "decode_entries reads the list the backend sends" {
+  // The id is a string here because the backend holds it as an `Int64` and
+  // MoonBit encodes an `Int64` as a string. Decoding this as a number would
+  // give every record the id 0, and every Delete button would then ask the
+  // server to remove record 0.
+  let json : Json = {
+    "entries": [
+      {
+        "id": "1",
+        "domain": "M",
+        "title": "a model",
+        "body": "what it does",
+        "created_at": "2026-10-19 09:00:00",
+      },
+      {
+        "id": "2",
+        "domain": "K",
+        "title": "a dataset",
+        "body": "",
+        "created_at": "2026-10-19 09:01:00",
+      },
+    ],
+  }
+  let entries = @frontend.decode_entries(json)
+  assert_eq(entries.length(), 2)
+  assert_eq(entries[0].id, 1)
+  assert_eq(entries[0].domain, "M")
+  assert_eq(entries[0].title, "a model")
+  assert_eq(entries[0].body, "what it does")
+  assert_eq(entries[1].id, 2)
+  assert_eq(entries[1].domain, "K")
+  assert_eq(entries[1].body, "")
+}
+
+///|
+test "decode_entries accepts a numeric id as well" {
+  // The rest of the JSON in this project uses plain numbers, so both
+  // spellings have to decode to the same id.
+  let json : Json = {
+    "entries": [{ "id": 7, "domain": "M", "title": "a model", "body": "" }],
+  }
+  assert_eq(@frontend.decode_entries(json)[0].id, 7)
+}
+
+///|
+test "decode_entries on a payload with no entries is empty, not a crash" {
+  // A malformed row must not take the whole workspace down: one bad record
+  // should cost that record, not the screen.
+  let json : Json = { "entries": [] }
+  assert_eq(@frontend.decode_entries(json).length(), 0)
+  assert_eq(@frontend.decode_entries({ "pages": [] }).length(), 0)
+}
+
+///|
+test "decode_created_entry finds the entry the server stored" {
+  let json : Json = {
+    "entry": {
+      "id": "7",
+      "domain": "E",
+      "title": "a failure",
+      "body": "it did not work",
+      "created_at": "2026-10-19 09:02:00",
+    },
+  }
+  match @frontend.decode_created_entry(json) {
+    Some(entry) => {
+      assert_eq(entry.id, 7)
+      assert_eq(entry.domain, "E")
+      assert_eq(entry.title, "a failure")
+    }
+    None => assert_true(false)
+  }
+}
+
+///|
+test "decode_created_entry on a refusal is None, not a fake entry" {
+  // The refusal body has no "entry" key. Decoding it as an entry would put an
+  // empty record on the screen and hide the reason.
+  let json : Json = {
+    "error": "invalid_entry",
+    "reason": "title must not be empty",
+  }
+  match @frontend.decode_created_entry(json) {
+    Some(_) => assert_true(false)
+    None => assert_true(true)
+  }
+}
+
+///|
+test "decode_error_reason prefers the reason over the error code" {
+  // The status code never reaches the client, so the body is the only place a
+  // reason can come from. A refusal that showed "invalid_entry" instead of
+  // the sentence would be no better than a silent one.
+  let json : Json = {
+    "error": "invalid_entry",
+    "reason": "title must not be empty",
+  }
+  assert_eq(@frontend.decode_error_reason(json), "title must not be empty")
+  assert_eq(
+    @frontend.decode_error_reason({ "error": "not_found" }),
+    "not_found",
+  )
+  assert_eq(@frontend.decode_error_reason({}), "")
+}
+
+///|
+test "decode_entry_domains takes the ring from the server" {
+  let json : Json = { "entry_domains": ["M", "D", "E", "A", "K"] }
+  let letters = @frontend.decode_entry_domains(json)
+  assert_eq(letters.length(), 5)
+  assert_eq(letters[0], "M")
+  assert_eq(letters[4], "K")
+}
+
+///|
+test "decode_entry_domains falls back to the five ring letters" {
+  // The server is the source of the vocabulary, but a payload that arrives
+  // without it must not leave the workspace with no domains to choose from.
+  let letters = @frontend.decode_entry_domains({})
+  assert_eq(letters.length(), 5)
+  assert_eq(letters[0], "M")
+  assert_eq(@frontend.decode_entry_domains({ "entry_domains": [] }).length(), 5)
+}
+
+///|
+test "draft_problem names the thing that is missing" {
+  let domains = ["M", "D", "E", "A", "K"]
+  assert_eq(
+    @frontend.draft_problem(domains, "", "a title"),
+    "choose a domain first",
+  )
+  assert_eq(
+    @frontend.draft_problem(domains, "Z", "a title"),
+    "the domain must be one of M, D, E, A, K",
+  )
+  assert_eq(@frontend.draft_problem(domains, "M", ""), "give the entry a title")
+  assert_eq(
+    @frontend.draft_problem(domains, "M", "   "),
+    "give the entry a title",
+  )
+  assert_eq(@frontend.draft_problem(domains, "M", "a title"), "")
+}
+
+///|
+/// An emitter that drops every message.
+///
+/// `Emit` is a tuple struct with a public field, so a test can build one. The
+/// tests below only care about the model the update returns, so what happens
+/// to the message afterwards does not matter.
+fn silent_emit() -> @cmd.Emit[@frontend.Msg] {
+  @cmd.Emit(fn(_msg) { @cmd.none })
+}
+
+///|
+/// A stand-in for a failed request.
+///
+/// `Error` is the builtin error type and every suberror is a value of it, so
+/// a suberror is how a test produces the `Err` half of a `Result`.
+priv suberror TestError {
+  TestError(String)
+}
+
+///|
+test "update on a domain click records the chosen domain" {
+  // The workspace has five buttons and they all funnel into one message. If
+  // this arm does not run, the save has no domain to send and the server
+  // refuses it -- with no error shown, because the refusal is a silent
+  // nothing from the button's point of view.
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::DraftDomainClicked("M"),
+    silent_emit(),
+  )
+  assert_eq(model.draft_domain, "M")
+}
+
+///|
+test "update on a title change records the typed text" {
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::DraftTitleChanged("the model I actually use"),
+    silent_emit(),
+  )
+  assert_eq(model.draft_title, "the model I actually use")
+}
+
+///|
+test "update on a body change records the typed text" {
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::DraftBodyChanged("linear fit on 200 rows"),
+    silent_emit(),
+  )
+  assert_eq(model.draft_body, "linear fit on 200 rows")
+}
+
+///|
+test "update on a save with no domain says so instead of saving nothing" {
+  // The whole point of the workspace: a save that cannot happen must say
+  // why. A silent no-op here is the failure this project exists to remove.
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::DraftSubmitClicked,
+    silent_emit(),
+  )
+  assert_eq(model.workspace_error, "choose a domain first")
+  assert_eq(model.workspace_notice, "")
+}
+
+///|
+test "update on a save with no title says so instead of saving nothing" {
+  let (model, _) = @frontend.update(
+    { ..bare_model(), draft_domain: "M", },
+    @frontend.Msg::DraftSubmitClicked,
+    silent_emit(),
+  )
+  assert_eq(model.workspace_error, "give the entry a title")
+}
+
+///|
+test "update on a valid save says it is saving" {
+  // A valid draft reaches the request. The notice is what the panel shows
+  // while the request is in flight, and it is replaced by the confirmation
+  // when the answer comes back.
+  let (model, _) = @frontend.update(
+    { ..bare_model(), draft_domain: "M", draft_title: "a model", },
+    @frontend.Msg::DraftSubmitClicked,
+    silent_emit(),
+  )
+  assert_eq(model.workspace_error, "")
+  assert_eq(model.workspace_notice, "Saving…")
+}
+
+///|
+test "update on a created entry puts it at the top and clears the draft" {
+  let json : Json = {
+    "entry": {
+      "id": "7",
+      "domain": "M",
+      "title": "a model",
+      "body": "what it does",
+      "created_at": "2026-10-19 09:02:00",
+    },
+  }
+  let (model, _) = @frontend.update(
+    { ..bare_model(), draft_domain: "M", draft_title: "a model", },
+    @frontend.Msg::EntryCreated(Ok(json)),
+    silent_emit(),
+  )
+  assert_eq(model.entries.length(), 1)
+  assert_eq(model.entries[0].id, 7)
+  assert_eq(model.entries[0].title, "a model")
+  assert_eq(model.draft_title, "")
+  assert_eq(model.draft_body, "")
+  assert_eq(model.workspace_error, "")
+  assert_true(model.workspace_notice.contains("a model"))
+}
+
+///|
+test "update on a refused entry shows the reason the server gave" {
+  // The status code never reaches the client, so the body is the only place a
+  // reason can come from. If this arm shows "invalid_entry" instead of the
+  // sentence, the user is left with a code rather than an explanation.
+  let json : Json = {
+    "error": "invalid_entry",
+    "reason": "title must not be empty",
+  }
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::EntryCreated(Ok(json)),
+    silent_emit(),
+  )
+  assert_eq(model.workspace_error, "title must not be empty")
+  assert_eq(model.entries.length(), 0)
+}
+
+///|
+test "update on an unreachable server says so" {
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::EntryCreated(Err(TestError("network down"))),
+    silent_emit(),
+  )
+  assert_eq(model.workspace_error, "could not reach the server")
+  assert_eq(model.workspace_notice, "")
+}
+
+///|
+test "update on a deleted entry removes it from the list" {
+  let entry : @frontend.Entry = {
+    id: 7,
+    domain: "M",
+    title: "a model",
+    body: "",
+    created_at: "2026-10-19 09:02:00",
+  }
+  let (model, _) = @frontend.update(
+    { ..bare_model(), entries: [entry], },
+    @frontend.Msg::EntryDeleted(Ok({ "deleted": 7 })),
+    silent_emit(),
+  )
+  assert_eq(model.entries.length(), 0)
+  assert_eq(model.workspace_error, "")
 }

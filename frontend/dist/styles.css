@@ -417,6 +417,194 @@ body {
     font-size: 14px;
 }
 
+/* --- workspace ------------------------------------------------------------ */
+/*
+ * The workspace is the first screen that holds something the user wrote, so
+ * it is styled as a work surface rather than as a reading surface: a compose
+ * column on the left, the records on the right, and the two side by side so a
+ * save and its result are visible in one glance.
+ */
+.maked-workspace {
+    margin: 32px auto;
+    max-width: 900px;
+    padding: 24px;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background: #fafafa;
+}
+.maked-ws-heading {
+    margin: 0 0 8px;
+    font-size: 13px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #999;
+}
+.maked-ws-lede {
+    margin: 0 0 24px;
+    color: #666;
+    line-height: 1.6;
+}
+.maked-ws-columns {
+    display: grid;
+    grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr);
+    gap: 32px;
+    align-items: start;
+}
+@media (max-width: 720px) {
+    .maked-ws-columns { grid-template-columns: 1fr; }
+}
+.maked-ws-form { display: flex; flex-direction: column; }
+.maked-ws-question {
+    margin: 0 0 8px;
+    font-size: 14px;
+    color: #444;
+}
+.maked-ws-domains {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+.maked-ws-domain {
+    width: 44px;
+    padding: 10px 0;
+    border: 1px solid #2c3e9e;
+    border-radius: 4px;
+    background: #fff;
+    color: #2c3e9e;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.maked-ws-domain:hover { background: #eef0fa; }
+/* The chosen domain is filled rather than merely outlined: the letter is the
+ * only thing in the form that is a choice, and it has to be readable at a
+ * glance which one is in effect. */
+.maked-ws-domain--active {
+    background: #2c3e9e;
+    color: #fff;
+}
+.maked-ws-label {
+    margin-bottom: 4px;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #999;
+}
+.maked-ws-input,
+.maked-ws-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    margin-bottom: 16px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fff;
+    font: inherit;
+    font-size: 14px;
+    color: #333;
+}
+.maked-ws-textarea { resize: vertical; }
+.maked-ws-save {
+    align-self: flex-start;
+    padding: 9px 18px;
+    border: 1px solid #2c3e9e;
+    border-radius: 4px;
+    background: #2c3e9e;
+    color: #fff;
+    font-size: 14px;
+    cursor: pointer;
+}
+.maked-ws-save:hover { background: #23336f; }
+.maked-ws-notice {
+    margin: 16px 0 0;
+    padding: 8px 10px;
+    border-left: 3px solid #2ecc71;
+    background: #f2fbf6;
+    color: #1d6b40;
+    font-size: 14px;
+}
+/* The refusal and the unreachable-server cases are the two the project
+ * exists to stop being silent about, so the error is louder than the notice
+ * and says which of the two happened. */
+.maked-ws-error {
+    margin: 16px 0 0;
+    padding: 8px 10px;
+    border-left: 3px solid #e74c3c;
+    background: #fdf3f2;
+    color: #7d2a1f;
+    font-size: 14px;
+}
+.maked-ws-list-title {
+    margin: 0 0 12px;
+    font-size: 13px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #999;
+}
+.maked-ws-empty {
+    margin: 0;
+    color: #888;
+    font-size: 14px;
+    font-style: italic;
+}
+.maked-ws-entries {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.maked-ws-entry {
+    display: grid;
+    grid-template-columns: 28px 1fr auto;
+    grid-template-areas:
+        "domain title delete"
+        "domain body delete"
+        "domain time delete";
+    column-gap: 10px;
+    align-items: start;
+    padding: 12px 0;
+    border-bottom: 1px solid #e8e8e8;
+}
+.maked-ws-entry:last-child { border-bottom: none; }
+.maked-ws-entry-domain {
+    grid-area: domain;
+    font-weight: 600;
+    color: #2c3e9e;
+}
+.maked-ws-entry-title {
+    grid-area: title;
+    font-weight: 600;
+    color: #333;
+}
+.maked-ws-entry-body {
+    grid-area: body;
+    margin: 4px 0 0;
+    color: #555;
+    font-size: 13px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+}
+.maked-ws-entry-time {
+    grid-area: time;
+    margin-top: 6px;
+    color: #aaa;
+    font-size: 12px;
+}
+.maked-ws-entry-delete {
+    grid-area: delete;
+    align-self: start;
+    padding: 4px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fff;
+    color: #999;
+    font-size: 12px;
+    cursor: pointer;
+}
+.maked-ws-entry-delete:hover {
+    border-color: #e74c3c;
+    color: #e74c3c;
+}
+
 /* --- footer -------------------------------------------------------------- */
 .maked-footer {
     border-top: 1px solid #e0e0e0;
