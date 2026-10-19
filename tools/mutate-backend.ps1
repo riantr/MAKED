@@ -203,6 +203,60 @@ $mutations = @(
     file = 'backend/session.mbt'
     old  = '    "summary": run_summary,'
     new  = '    "summary": "",'
+  },
+  # The comparison is the whole point of the measures: it is what says
+  # whether a longer run is a better one. Counting the first window twice
+  # makes every run look like it was finding less, which is a claim the
+  # reader would act on.
+  @{
+    name = 'the comparison measures the first window twice'
+    file = 'backend/metrics.mbt'
+    old  = '  let last = count_fresh(fresh, n - window, n)'
+    new  = '  let last = count_fresh(fresh, 0, window)'
+  },
+  # New ground is new ground: a step that reached a position the run had
+  # already been on added nothing to the map. Counting every step as new
+  # would make a run that is going round in circles look like an explorer.
+  @{
+    name = 'every step counts as new ground'
+    file = 'backend/metrics.mbt'
+    old  = '    let fresh = !contains_string(occupied, step.position_after)'
+    new  = '    let fresh = true'
+  },
+  # The measures are taken over the window, so that two runs can be
+  # compared. Counting the whole run instead would report the same number
+  # for a run that was still finding ground and one that had stopped.
+  @{
+    name = 'the new ground measure covers the whole run instead of the window'
+    file = 'backend/metrics.mbt'
+    old  = '  let count = count_fresh(fresh, start, fresh.length())'
+    new  = '  let count = count_fresh(fresh, 0, fresh.length())'
+  },
+  # The measures travel with the export, so a reader of the document can
+  # see whether the run was getting anywhere.
+  @{
+    name = 'the export drops the measures'
+    file = 'backend/session.mbt'
+    old  = '    "metrics": run_metrics.to_json(),'
+    new  = '    "metrics": Json::empty_object(),'
+  },
+  # A run that did not move at all is stuck; a run that moved into a position
+  # it already knew is settling. Calling a stuck run "settling" tells a
+  # reader to wait for a convergence that is never coming.
+  @{
+    name = 'a stuck run is reported as settling'
+    file = 'backend/metrics.mbt'
+    old  = '    if !moved_outcome(recent[i - start].outcome) {'
+    new  = '    if false {'
+  },
+  # The sentences are read by people. A phrase that begins in the middle of
+  # the alphabet reads as a typo, and a reader who sees one stops trusting
+  # the rest.
+  @{
+    name = 'a sentence starts in the middle of the alphabet'
+    file = 'backend/metrics.mbt'
+    old  = '    "The last step"'
+    new  = '    "the last step"'
   }
 )
 

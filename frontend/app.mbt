@@ -99,6 +99,13 @@ pub(all) struct Model {
   /// What the last few steps add up to, in one sentence, written by the
   /// server. Empty when there is nothing to summarise.
   session_summary : String
+  /// What the run is worth: whether it is still finding ground, how far it
+  /// has ranged, and whether it is doing better than it was at the start.
+  ///
+  /// Written by the server, like the summary. The measures need the whole
+  /// path and the size of the state space, and a client with its own copy
+  /// would be measuring something else.
+  session_metrics : MetricReport
   /// What the sessions panel says after the last action.
   session_error : String
   session_notice : String
@@ -143,6 +150,7 @@ fn initial() -> Model {
     session_path: [],
     session_others: [],
     session_summary: "",
+    session_metrics: empty_metric_report(),
     session_error: "",
     session_notice: "",
     session_name_draft: "",
@@ -796,6 +804,7 @@ fn apply_session_state(model : Model, state : SessionState) -> Model {
     session_path: state.path,
     session_others: state.other_steps,
     session_summary: state.summary,
+    session_metrics: state.metrics,
     // The live status travels with a session action, because the action
     // changed the live state. A response without one -- the bootstrap --
     // leaves the panel as it was rather than blanking it.

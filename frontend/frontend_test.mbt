@@ -495,6 +495,7 @@ fn bare_model() -> @frontend.Model {
     session_path: [],
     session_others: [],
     session_summary: "",
+    session_metrics: @frontend.empty_metric_report(),
     session_error: "",
     session_notice: "",
     session_name_draft: "",
@@ -976,6 +977,27 @@ fn session_payload() -> Json {
       },
     ],
     "summary": "The last step was in the model formulator. It moved a position. The group is Converging.",
+    "metrics": {
+      "window": 5,
+      "window_steps": 2,
+      "metrics": [
+        {
+          "key": "new_ground",
+          "label": "New ground",
+          "value": 2,
+          "of": 2,
+          "sentence": "2 of the last 2 steps reached a position the run had not been on before.",
+        },
+        {
+          "key": "settling",
+          "label": "Settling",
+          "value": 0,
+          "of": 0,
+          "sentence": "The last step reached a position the run had not been on before, so the run is still finding new ground.",
+        },
+      ],
+      "comparison": "The run has 2 steps, so its beginning and its end cannot be compared yet: the comparison needs 10.",
+    },
   }
 }
 
@@ -1009,6 +1031,37 @@ test "a state without a summary decodes to an empty one" {
   // rather than printing something it does not know.
   let empty = @frontend.decode_session_state(Json::empty_object())
   assert_eq(empty.summary, "")
+}
+
+///|
+test "the session state decodes the measures of the run" {
+  // The number and the reading arrive together, and the client shows both
+  // without deriving either. A client that worked out its own idea of "new
+  // ground" would be measuring something slightly different from the one
+  // the server is reporting.
+  let state = @frontend.decode_session_state(session_payload())
+  assert_eq(state.metrics.metrics.length(), 2)
+  assert_eq(state.metrics.window, 5)
+  assert_eq(state.metrics.window_steps, 2)
+  let ground = state.metrics.metrics[0]
+  assert_eq(ground.key, "new_ground")
+  assert_eq(ground.label, "New ground")
+  assert_eq(ground.value, 2)
+  assert_eq(ground.of, 2)
+  assert_true(
+    ground.sentence.contains("reached a position the run had not been on"),
+  )
+  // And the comparison between the run's beginning and its end.
+  assert_true(state.metrics.comparison.contains("cannot be compared yet"))
+}
+
+///|
+test "a state without measures decodes to an empty report" {
+  // The measures are an addition to the session state, and an addition that
+  // is missing must not be able to break the state that was there.
+  let empty = @frontend.decode_session_state(Json::empty_object())
+  assert_eq(empty.metrics.metrics.length(), 0)
+  assert_eq(empty.metrics.comparison, "")
 }
 
 ///|

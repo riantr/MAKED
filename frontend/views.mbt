@@ -290,6 +290,10 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
           @html.p(class="maked-loop-summary-text", model.session_summary),
         ])
       }
+      // And what the run is worth: whether it is still finding ground, how
+      // far it has ranged, and whether it is doing better than it was at the
+      // start. The step counter cannot answer any of those.
+      let metrics_block_html = metrics_block(model.session_metrics)
       let current = @html.div(class="maked-loop-current", [
         @html.span(class="maked-loop-domain", status.current_domain),
         @html.span(class="maked-loop-sep", "·"),
@@ -338,6 +342,7 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
         current,
         narration_block,
         summary_block,
+        metrics_block_html,
         session_line,
         buttons,
         slot_selector,
@@ -346,6 +351,48 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
       ])
     }
   }
+}
+
+///|
+/// The measures: what the run is worth.
+///
+/// A number and a reading, side by side. The number alone would be a
+/// scoreboard with no units; the reading alone would be a mood. Neither is
+/// combined into a single score: one number out of four measures would hide
+/// which of them fell, and a number nobody can argue with is not a measure.
+///
+/// The comparison underneath is the part that answers the question a person
+/// has after twenty clicks -- is this run better than the five steps they
+/// took at the start? -- and it is written by the server, where the path is.
+fn metrics_block(report : MetricReport) -> @html.Html {
+  if report.metrics.length() == 0 {
+    return @html.nothing
+  }
+  let items : Array[@html.Html] = []
+  for metric in report.metrics {
+    let reading = if metric.of > 0 {
+      metric.value.to_string() + " of " + metric.of.to_string()
+    } else {
+      metric.value.to_string()
+    }
+    items.push(
+      @html.li(class="maked-metric", [
+        @html.span(class="maked-metric-label", metric.label),
+        @html.span(class="maked-metric-value", reading),
+        @html.span(class="maked-metric-sentence", metric.sentence),
+      ]),
+    )
+  }
+  let comparison = if report.comparison == "" {
+    @html.nothing
+  } else {
+    @html.p(class="maked-metric-comparison", report.comparison)
+  }
+  @html.div(class="maked-metrics", [
+    @html.p(class="maked-metrics-title", "How the run is doing"),
+    @html.ul(class="maked-metric-list", items),
+    comparison,
+  ])
 }
 
 ///|
@@ -705,6 +752,7 @@ pub fn sessions_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     status,
     head,
     summary,
+    metrics_block(model.session_metrics),
     @html.div(class="maked-ss-timeline-section", [
       @html.h3(class="maked-ss-subtitle", "Timeline"),
       timeline,

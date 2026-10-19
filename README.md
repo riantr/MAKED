@@ -8,7 +8,7 @@ MAKED is a five-domain recursive cognitive architecture: Model → Data → Expe
 
 Technical implementation: [rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.16.5) single-page frontend + a Flask-style micro-framework backend on [moonback](https://mooncakes.io), with SQLite storage. The state machine is [riantr/pyroduct](https://mooncakes.io/docs/riantr/pyroduct@0.1.32)@0.1.32, which also supplies the English rendering (`en_label` / `en_gloss` / `en_designation`) that every user-visible string here comes from.
 
-What a person can do with it: put their own model, dataset or recorded failure into the [workspace](#workspace); run an exploration as a named [session](#sessions) whose every step is recorded with the reason it was possible, which can be replayed, forked, and exported as Markdown or JSON; read the loop itself — which positions the transition table offers, and which it refuses — and read it in sentences: [what each step did, and what the last five steps mean together](#the-loop-says-what-it-did).
+What a person can do with it: put their own model, dataset or recorded failure into the [workspace](#workspace); run an exploration as a named [session](#sessions) whose every step is recorded with the reason it was possible, which can be replayed, forked, and exported as Markdown or JSON; read the loop itself — which positions the transition table offers, and which it refuses — and read it in sentences: [what each step did, and what the last five steps mean together](#the-loop-says-what-it-did); and read the run's worth as numbers: [whether it is still finding ground, and whether it is doing better than it was at the start](#the-run-is-measured-so-it-can-be-wrong).
 
 ## Core Concepts
 
@@ -246,6 +246,9 @@ client-side route, so it survives a cold load and a deep link alike.
   the click that deletes it.
 - The "why" line is written by the server. A second copy of that rule in the
   browser would be a second thing to keep in step with the first.
+- The [measures](#the-run-is-measured-so-it-can-be-wrong) are on the panel and
+  in the export: whether the run is still finding ground, how far it has
+  ranged, and whether its last five steps found less than its first five did.
 
 ### State Loop
 
@@ -299,6 +302,8 @@ backend/          micro-framework, storage layer, API routes, state loop engine
   loop.mbt          five-domain ring loop engine (subject + group state machines)
   session.mbt       named explorations: the step tree, replay, forking, export
   narration.mbt     the sentences: what a step did, and what a run of steps means
+  metrics.mbt       the measures: new ground, settling, spread, drift, and the
+                    comparison of the run's beginning with its end
   research.mbt      arxiv research paper fetching and trigger mapping
   causal.mbt        DoubleML causal inference
   maked_app.mbt     assembly, static files, SPA fallback
@@ -345,7 +350,7 @@ image carries `pwsh`.
 Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be run separately:
 
 ```
-.\tools\mutate-backend.ps1     # 19 mutations, 0 survived, 1 expected-equivalent
+.\tools\mutate-backend.ps1     # 25 mutations, 0 survived, 1 expected-equivalent
 .\tools\mutate-frontend.ps1    # 15 mutations, 0 survived
 .\tools\mutate-loop.ps1        # 16 mutations, 0 survived, 1 expected-equivalent
 ```
@@ -361,8 +366,8 @@ the signal we want.
 | js-check | `moon check --target js` | frontend type safety |
 | fmt | `moon fmt --check` | code formatting |
 | tree | `moon tree` | dependency audit |
-| unit-native | `moon test --target native` | 199 backend tests (includes the BDD suite below) |
-| unit-js | `moon test --target js` | 60 frontend tests |
+| unit-native | `moon test --target native` | 219 backend tests (includes the BDD suite below) |
+| unit-js | `moon test --target js` | 62 frontend tests |
 | coverage | `moon test --enable-coverage` | coverage |
 | bench | `moon bench` | benchmarks |
 | prove | `moon prove` | formal verification (Why3) |
@@ -396,7 +401,7 @@ The cause was not root-caused — the same build works when the init issues a GE
 ## The Integration Tests Are The Net For That Class Of Bug
 
 ```powershell
-.\tools\integration-test.ps1              # builds the server, then runs 99 checks
+.\tools\integration-test.ps1              # builds the server, then runs 109 checks
 .\tools\integration-test.ps1 -SkipBuild   # reuse the binary that is already built
 ```
 
@@ -527,13 +532,128 @@ test compares the exported document against the sentence the API served for
 that step, rather than against a phrase the test wrote itself.
 
 ### A Step's Answer Carries The Session State
-
 `POST /api/loop/step` answers with the loop status *and* the session state,
 folded in under `session_state`. The panel needs both halves: what the
 machine is doing now, and the history the steps are being recorded into.
 They used to arrive on two requests, and the second was only made at
 start-up — so the panel's step count stopped moving after the first click,
 and its summary described a run one step out of date.
+
+## The Run Is Measured, So It Can Be Wrong
+
+A framework that cannot be measured cannot be falsified, and the question
+this answers is the one a person has after twenty clicks: **is this run
+better than the five steps I took before it?**
+
+Before, the only answer was the step count, and the step count always says
+yes. A run that has repeated the same ten positions for fifteen steps has a
+bigger number than the five steps that found ten new ones, and looks like
+progress on anything you can count.
+
+So the loop is measured, and the measures are written next to the reading
+they support.
+
+| Measure | What it counts | The question it answers |
+|---|---|---|
+| **New ground** | steps in the window that reached a position the run had not been on before | is it still finding anything? |
+| **Settling** | steps at the end of the window that reached nothing new | is it settling, or stuck? |
+| **Slots used** | distinct drive slots in the window, out of the eight | is it walking one line through the table? |
+| **Domains visited** | distinct domains in the window, out of the five | is the whole ring being used? |
+| **Positions covered** | positions the run has stood on, out of the thirty-four | how much of the space has it reached? |
+
+Each one is a number *and* a sentence, and the sentence is the part that
+matters: "The last 5 steps reached no position the run had not been on
+before: they added nothing to the map." is a claim that can be wrong, and a
+reader who disagrees with it can look at the path and say so.
+
+**Settling and stuck are not the same thing, and the measure says which one
+it is looking at.** A run whose steps moved into positions it already knew
+has *arrived* — that is the goal, and it reads "the run is settling rather
+than exploring". A run whose steps did not move at all has *stopped*, and it
+reads "the last 5 steps did not move the subject at all: the run is stuck,
+not settling". The recorded outcome tells the two apart: "Moved" is the only
+outcome that puts the subject somewhere else, and a reader told "settling"
+about a run that cannot move would sit there waiting for a convergence that
+is never coming.
+
+**The measures are taken over a window of the last five steps, not over the
+whole run.** This is the decision the whole design rests on. A number that
+grows with the length of the run answers "how much did I do" rather than "how
+good was it" — the length is the reader's own doing, so a measure that rose
+because the run was longer would make every run look like an improvement. Five
+is also the window the run summary already uses: one rule for "the last few
+steps" in the whole product.
+
+**And so the run is compared with itself.** The last five steps are measured
+against the first five:
+
+> The last 5 steps reached 0 new positions; the first 5 reached 5. The run is
+> finding less new ground than it did at the start.
+
+That sentence is the answer to "is twenty steps better than five". Often it
+is "no", and saying so is the point: a run that has stopped finding ground
+is a run whose remaining steps cost time and give nothing back.
+
+Two things the measures deliberately do **not** do:
+
+- **They are not combined into one score.** A single number out of five
+  measures would hide which of them fell, and a number nobody can argue with
+  is the thing this section exists to avoid. They are reported separately, and
+  a reader can see which one is bad.
+- **They are not derived in the browser.** The measures need the whole path
+  and the size of the state space to say anything true, so the server
+  computes them, in `backend/metrics.mbt`, and the client shows what it is
+  given. The denominators — eight slots, five domains, thirty-four positions
+  — are read out of pyroduct rather than written down in MAKED, so a table
+  that grows makes the numbers grow with it.
+
+The measures ride along with the session state, so they are current on the
+loop panel after every step, and they are in the export: a reader with the
+document and not the page has something to judge the run by.
+
+### The First Real Run Said The Machine Was Stuck
+
+The measures were written against hand-built paths, and the first run they
+were pointed at was a real one: twelve clicks of the Step button on a fresh
+server. The path says the ring went M → D → E → A → K, moved on every step,
+and then — from step six on — did nothing at all:
+
+```
+1. M Action    Moved      Standing -> Freedom     (cursor: D)
+2. D Co-being  Moved      Encounter -> Opening    (cursor: E)
+3. E Holding   Moved      Honor -> Habit          (cursor: A)
+4. A Unveiling Moved      Evil -> Shame           (cursor: K)
+5. K Feedback  Moved      Cultivation -> Tranquility (cursor: M)
+6. M Situation Undecided  Freedom -> Freedom      (cursor: M)
+7. M Situation Undecided  Freedom -> Freedom      (cursor: M)
+... and so on, for ever
+```
+
+The cursor comes back to the model formulator, the model formulator's drive
+slot at that position is the one the table declines to choose from, and the
+subject does not move — so the cursor does not advance, and the next step is
+the same step. Stepping by hand does not help: at that position seven of the
+eight slots have no edge at all, and the eighth is the undecided one.
+
+Before the measures, that run looked like a run of twelve steps. It was
+twelve steps of a machine that had stopped. The step counter cannot see the
+difference between "exploring" and "going round in circles", which is the
+whole reason the measures exist — and the first thing they did was say so:
+
+> The last 5 steps reached no position the run had not been on before: they
+> added nothing to the map.
+>
+> The last 5 steps did not move the subject at all: the run is stuck, not
+> settling.
+>
+> The last 5 steps reached 0 new positions; the first 5 reached 5. The run is
+> finding less new ground than it did at the start.
+
+The wedge is a defect in the loop's behaviour, and it is reported here
+rather than hidden: the machine is not allowed to invent a choice the
+transition table declined to make — that would be a worse lie — but a run
+that cannot move should say so, and there should be a way out. The next
+step of this work is that way out.
 
 ## Deep Links Need A `<base>` Tag
 

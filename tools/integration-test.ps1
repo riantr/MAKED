@@ -513,6 +513,19 @@ try {
   Assert-Contains "and the sentence says where it moved from" (Field $firstStep "narration") (Field $firstStep "position_before")
   Assert-Contains "and where it moved to" (Field $firstStep "narration") (Field $firstStep "position_after")
   Assert-FieldNotEmpty "the session state carries a summary of the run" $timeline "summary"
+  # And the measures: whether the run is still finding ground, how far it has
+  # ranged, and whether it is doing better than it was at the start. A step
+  # counter cannot answer any of those, and a run that has stopped finding
+  # ground looks exactly like a productive one on a step count.
+  $measures = Field $timeline "metrics"
+  Assert-HasField "the session state carries the measures" $measures "metrics"
+  $measureList = @(Field $measures "metrics")
+  Assert-True "and there are measures to read" ($measureList.Count -eq 5)
+  $ground = @($measureList | Where-Object { $_.key -eq "new_ground" })[0]
+  Assert-FieldNotEmpty "the new ground measure has a reading" $ground "sentence"
+  Assert-True "and the reading is about new ground" ([string]$ground.sentence).Contains("had not been on before")
+  Assert-HasField "the drift measure says what it is out of" @($measureList | Where-Object { $_.key -eq "position_drift" })[0] "of"
+  Assert-HasField "the measures carry the comparison" $measures "comparison"
 
   $replay = Post-Json "/api/sessions/$sessionId/replay" @{ step = (Field $firstStep "id") }
   Assert-Status "going back to a step is a 200" 200 $replay
@@ -550,6 +563,11 @@ try {
   # wording rather than against a phrase the test invented.
   Assert-Contains "and it says what each step did" $markdown.Body (Field $firstStep "narration")
   Assert-Contains "and it opens with the run so far" $markdown.Body "## The run so far"
+  # The document says what the run is worth, not only what it did: the
+  # measures and the comparison are in it, because a reader who has the
+  # document and not the page has nothing else to judge the run by.
+  Assert-Contains "and it says how the run is doing" $markdown.Body "## How the run is doing"
+  Assert-Contains "and it carries the comparison" $markdown.Body "cannot be compared yet"
   $exported = Get-Json "/api/sessions/$sessionId/export?format=json"
   Assert-Field "the json export says what it is" $exported "format" "maked.session.v1"
   Assert-HasField "and carries the path" $exported "path"
@@ -557,6 +575,11 @@ try {
   # from the path. It must be a sentence, not an empty string.
   Assert-HasField "and carries the summary" $exported "summary"
   Assert-True "and the summary is not empty" (-not [string]::IsNullOrEmpty([string]$exported.summary))
+  # The measures travel with it too: a consumer that has the export and not
+  # the page has nothing else to judge the run by.
+  $exportedMeasures = Field $exported "metrics"
+  Assert-HasField "and carries the measures" $exportedMeasures "metrics"
+  Assert-True "and the measures are there to read" (@(Field $exportedMeasures "metrics")).Count -eq 5
 
   $badFormat = Invoke-Api -Method GET -Path "/api/sessions/$sessionId/export?format=xml"
   Assert-Status "an export in an unknown format is a 400" 400 $badFormat

@@ -860,6 +860,82 @@ body {
     line-height: 1.6;
     color: #333;
 }
+/* The measures: what the run is worth.
+   A number and a reading, side by side. The number is set apart so that the
+   eye can find it without reading the sentence -- the point of a measure is
+   that it can be checked, and a reader who has to parse prose to find the
+   number will not check it. */
+.maked-metrics {
+    margin: 0 0 18px;
+    padding: 12px 14px;
+    background: #f7f8fb;
+    border-radius: 6px;
+}
+.maked-metrics-title {
+    margin: 0;
+    font-size: 11px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: #9aa0b5;
+}
+.maked-metric-list {
+    margin: 8px 0 0;
+    padding: 0;
+    list-style: none;
+}
+.maked-metric {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 4px 0;
+    border-bottom: 1px solid #eceef4;
+}
+.maked-metric:last-child {
+    border-bottom: none;
+}
+.maked-metric-label {
+    min-width: 132px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #333;
+}
+.maked-metric-value {
+    min-width: 74px;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: #2c3e9e;
+}
+.maked-metric-sentence {
+    flex: 1 1 320px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: #555;
+}
+/* The comparison between the run's beginning and its end. It is the answer
+   to "is this run better than the five steps I took at the start?", so it is
+   set apart from the measures above it. */
+.maked-metric-comparison {
+    margin: 10px 0 0;
+    padding-top: 8px;
+    border-top: 1px solid #dfe2ec;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #222;
+}
+/* Inside the loop panel the measures take the same treatment as the
+   sentences above them -- a left rule rather than a filled box -- so the
+   panel reads as one column of prose with a table in it, rather than as
+   three unrelated cards. */
+.maked-loop .maked-metrics {
+    background: transparent;
+    border-radius: 0;
+    border-left: 3px solid #d8dbe8;
+    padding: 2px 0 2px 12px;
+}
+.maked-loop .maked-metric {
+    border-bottom-color: #e6e8ef;
+}
 .maked-ss-step-actions {
     display: flex;
     gap: 8px;

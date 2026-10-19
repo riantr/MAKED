@@ -70,6 +70,47 @@ pub(all) struct SessionStep {
 } derive(Eq)
 
 ///|
+/// One measured number, and the reading that goes with it.
+///
+/// The number and the sentence arrive together from the server. The client
+/// shows both and derives neither: a client that worked out its own idea of
+/// "new ground" would be measuring a slightly different thing from the one
+/// the server is reporting, and the two would disagree on the screen.
+pub(all) struct Metric {
+  /// The name it is filed under: "new_ground".
+  key : String
+  /// The name a reader sees: "New ground".
+  label : String
+  /// The number itself.
+  value : Int32
+  /// What the number is out of, or 0 when the measure has no denominator.
+  of : Int32
+  /// The reading, in one sentence.
+  sentence : String
+} derive(Eq)
+
+///|
+/// The report: the measures, and the comparison of the run's beginning with
+/// its end.
+pub(all) struct MetricReport {
+  /// The window the measures are taken over.
+  window : Int32
+  /// How many steps the window actually holds.
+  window_steps : Int32
+  /// The measures themselves.
+  metrics : Array[Metric]
+  /// The comparison between the first window and the last one.
+  comparison : String
+} derive(Eq)
+
+///|
+/// The report as it stands when there is nothing to report: no measures, and
+/// no comparison.
+pub fn empty_metric_report() -> MetricReport {
+  { window: 0, window_steps: 0, metrics: [], comparison: "", }
+}
+
+///|
 /// The whole session state: the list, the active one, its path, and the
 /// branches that are not on the path.
 pub(all) struct SessionState {
@@ -85,6 +126,13 @@ pub(all) struct SessionState {
   /// browser that had its own copy of that rule would be a second thing to
   /// keep in step with the first.
   summary : String
+  /// What the run is worth: whether it is still finding ground, how far it
+  /// has ranged, and whether it is doing better than it was at the start.
+  ///
+  /// Also written by the backend. The measures need the whole path and the
+  /// size of the state space to say anything true, and a client that had its
+  /// own copy would be measuring something else.
+  metrics : MetricReport
   /// The live loop status, when the response carried one.
   ///
   /// A session action changes the live state -- a rewind puts it back, a fork
@@ -156,6 +204,41 @@ fn session_step_from_json(json : Json) -> SessionStep {
 }
 
 ///|
+/// One measure, as the server reports it.
+fn metric_from_json(json : Json) -> Metric {
+  {
+    key: get_string(json, "key", ""),
+    label: get_string(json, "label", ""),
+    value: get_int(json, "value", 0),
+    of: get_int(json, "of", 0),
+    sentence: get_string(json, "sentence", ""),
+  }
+}
+
+///|
+/// The report, as the server reports it.
+///
+/// A response without a report decodes to an empty one rather than failing:
+/// the measures are an addition to the session state, and an addition that
+/// is missing must not be able to break the state that was there.
+pub fn decode_metric_report(json : Json) -> MetricReport {
+  match field(json, "metrics") {
+    Some(obj) =>
+      match field(obj, "metrics") {
+        Some(Array(items)) =>
+          {
+            window: get_int(obj, "window", 0),
+            window_steps: get_int(obj, "window_steps", 0),
+            metrics: items.map(fn(item) { metric_from_json(item) }),
+            comparison: get_string(obj, "comparison", ""),
+          }
+        _ => empty_metric_report()
+      }
+    None => empty_metric_report()
+  }
+}
+
+///|
 /// Decode the session state.
 ///
 /// The same shape is used for the bootstrap and for every session action, so
@@ -172,6 +255,7 @@ pub fn decode_session_state(json : Json) -> SessionState {
     path: decode_steps(json, "path"),
     other_steps: decode_steps(json, "other_steps"),
     summary: get_string(json, "summary", ""),
+    metrics: decode_metric_report(json),
     loop_status: match field(json, "loop") {
       Some(obj) => Some(decode_loop_status(obj))
       None => None
@@ -237,6 +321,7 @@ pub fn empty_session_state() -> SessionState {
     path: [],
     other_steps: [],
     summary: "",
+    metrics: empty_metric_report(),
     loop_status: None,
   }
 }

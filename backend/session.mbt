@@ -776,6 +776,7 @@ pub fn session_state_json(db : Database) -> Json raise {
         "path": empty_json_array(),
         "other_steps": empty_json_array(),
         "summary": "",
+        "metrics": Json::empty_object(),
       }
     Some(session) => {
       let all = db.steps_of_session(session.id)
@@ -791,6 +792,10 @@ pub fn session_state_json(db : Database) -> Json raise {
         // did; this says what the run of them did, which is the question a
         // person has after the fifth click.
         "summary": summary_of(path),
+        // And whether the run is still finding ground, or going round in
+        // circles. The summary says what happened; these say what it is
+        // worth, which is the question after the twentieth click.
+        "metrics": measure(path).to_json(),
       }
     }
   }
@@ -1014,6 +1019,28 @@ pub fn export_markdown(db : Database, session : Session) -> String raise {
   if summary != "" {
     out = out + "\n## The run so far\n\n" + summary + "\n"
   }
+  // And whether the run is worth continuing: the measures, and the
+  // comparison of its beginning with its end. A document that lists the
+  // steps without saying whether the run was getting anywhere is the
+  // timeline again, and the timeline is the part nobody wants.
+  let metrics = measure(path)
+  if metrics.metrics.length() > 0 {
+    out = out + "\n## How the run is doing\n\n"
+    for metric in metrics.metrics {
+      out = out +
+        "- **" +
+        metric.label +
+        ":** " +
+        metric.value.to_string() +
+        (if metric.of > 0 { " of " + metric.of.to_string() } else { "" }) +
+        " — " +
+        metric.sentence +
+        "\n"
+    }
+    if metrics.comparison != "" {
+      out = out + "\n" + metrics.comparison + "\n"
+    }
+  }
   out = out + "\n## Timeline\n"
   let mut index = 0
   for step in path {
@@ -1097,12 +1124,16 @@ pub fn export_json(db : Database, session : Session) -> Json raise {
   // The account of the run, kept in a name of its own so that the document
   // and the live state say the same thing by the same route.
   let run_summary = summary_of(path)
+  let run_metrics = measure(path)
   {
     "format": "maked.session.v1",
     "session": session.to_json(),
     // The summary of the run, so that a consumer does not have to work it
     // out from the path itself.
     "summary": run_summary,
+    // And the measures: whether the run is still finding ground, how far it
+    // has ranged, and whether it is doing better than it was at the start.
+    "metrics": run_metrics.to_json(),
     "path": [..path_json],
     "other_steps": [..others_json],
   }
