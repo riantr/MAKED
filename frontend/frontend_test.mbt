@@ -273,8 +273,8 @@ test "decode_loop_status reads history events" {
       {
         "domain": "M",
         "slot": "Co-being",
-        "outcome": "No Edge",
-        "detail": "No outgoing edge for Co-being at Standing",
+        "outcome": "No-way",
+        "detail": "No road from Standing through Co-being",
         "position": "Standing",
         "position_label": "Standing",
       },
@@ -286,7 +286,7 @@ test "decode_loop_status reads history events" {
   let event = status.history[0]
   assert_eq(event.domain, "M")
   assert_eq(event.slot, "Co-being")
-  assert_eq(event.outcome, "No Edge")
+  assert_eq(event.outcome, "No-way")
   assert_eq(event.position, "Standing")
 }
 
@@ -404,7 +404,7 @@ test "decode_slots reads the backend's slot list instead of a hard-coded one" {
     "slots": [
       {
         "name": "occasion",
-        "designation": "Occasion",
+        "designation": "Situation",
         "gloss": "a giving not initiated",
       },
       {
@@ -417,7 +417,7 @@ test "decode_slots reads the backend's slot list instead of a hard-coded one" {
   let slots = @frontend.decode_slots(json)
   assert_eq(slots.length(), 2)
   assert_eq(slots[0].name, "occasion")
-  assert_eq(slots[0].designation, "Occasion")
+  assert_eq(slots[0].designation, "Situation")
   assert_eq(slots[1].name, "unveil")
   // The slug is what POST /api/loop/step/:slot takes, so it must survive.
   assert_eq(slots[1].name, "unveil")

@@ -23,11 +23,13 @@ KILLED=0
 SURVIVED=0
 TOTAL=0
 
-# backend/loop.mbt keys slot_from_designation by the English designation. This
-# used to be a Chinese string that had to be spelled as UTF-8 byte escapes to
-# keep this script ASCII; the vocabulary is English now, so the escapes are gone.
-# The mutation below anchors on the constructor instead of the key, which also
-# keeps sed away from the `|` alternation metacharacter in the match arms.
+# backend/loop.mbt used to key slot_from_designation on a hand-written copy of
+# pyroduct's designation table. It no longer copies it: the parser reads the
+# designations back out of pyroduct, so the only thing left to break is the
+# lookup itself. The mutation below makes the parser compare against the gloss
+# instead of the designation, which is the shape of the bug it used to have --
+# the table was consulted, but not the right column of it. The anchor keeps
+# sed away from the `|` alternation metacharacter in the match arms.
 
 mutate_and_test() {
   local desc="$1"
@@ -105,10 +107,10 @@ mutate_and_test \
 # ---------------------------------------------------------------------------
 echo "  Mutation: Slot designation parsing"
 mutate_and_test \
-  "slot_from_designation Occasion changed to return Orientation" \
+  "slot_from_designation consults the gloss instead of the designation" \
   "backend/loop.mbt" \
-  "Some(@sm.Occasion)" \
-  "Some(@sm.Orientation)"
+  "slot.en_designation().to_lower() == needle" \
+  "slot.en_gloss().to_lower() == needle"
 
 # ---------------------------------------------------------------------------
 # Mutation 5: Change paper_to_trigger priority

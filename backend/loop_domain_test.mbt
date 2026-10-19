@@ -383,7 +383,7 @@ test "free mode stays on Block" {
   // Check if the outcome was Block by looking at the last event
   match stepped.history.last() {
     Some(event) =>
-      if event.outcome_label == "No Edge" {
+      if event.outcome_label == "No-way" {
         // Should stay on same domain
         assert_eq(stepped.current, initial_domain)
       }

@@ -65,7 +65,7 @@ pub(all) enum StepEffect {
   Advanced
   /// Undecided: the table offers several successors and picks none.
   Undecided
-  /// No Edge: no edge at all.
+  /// No-way: the table offers no road out of this position.
   Blocked
 } derive(Eq, Debug)
 
@@ -281,21 +281,25 @@ pub fn continuations(
 ///|
 /// Parse a slot designation back into a Slot value.
 ///
-/// Accepts either the English designation as displayed ("Co-being") or the
-/// URL-safe name ("cobeing"), case-insensitively. Returns None if the string
-/// does not match any slot.
+/// Accepts either the English designation as displayed ("Co-being",
+/// "Situation") or the URL-safe name ("cobeing", "occasion"),
+/// case-insensitively. Returns None if the string does not match any slot.
+///
+/// The designation table is read back out of pyroduct instead of being copied
+/// into MAKED. The copy went stale the moment pyroduct renamed two of the
+/// eight -- 0.1.32 moved "Occasion" to "Situation" and "Anticipation" to
+/// "Antecedent" -- and the symptom was a parser that had quietly stopped
+/// accepting two of the words MAKED's own API was advertising. A rename in the
+/// dependency is now a rename here, with nothing to keep in sync.
 pub fn slot_from_designation(s : String) -> @sm.Slot? {
-  match s {
-    "Occasion" | "occasion" => Some(@sm.Occasion)
-    "Orientation" | "orientation" => Some(@sm.Orientation)
-    "Anticipation" | "antecedent" => Some(@sm.Antecedent)
-    "Action" | "act" => Some(@sm.Act)
-    "Feedback" | "feedback" => Some(@sm.Feedback)
-    "Holding" | "hold" => Some(@sm.Hold)
-    "Co-being" | "cobeing" => Some(@sm.CoBeing)
-    "Unveiling" | "unveil" => Some(@sm.Unveil)
-    _ => None
+  let needle = s.to_lower()
+  for slot in @sm.all_slots() {
+    if slot.en_designation().to_lower() == needle ||
+      slot_english_name(slot).to_lower() == needle {
+      return Some(slot)
+    }
   }
+  None
 }
 
 ///|
@@ -426,7 +430,7 @@ pub fn ring_domains_loop() -> Array[Domain] {
 pub(all) struct LoopEvent {
   domain : Domain
   slot : @sm.Slot
-  outcome_label : String // Moved/Held/Undecided/Converge/No Edge
+  outcome_label : String // Moved/Held/Undecided/Converge/No-way
   outcome_detail : String // human-readable detail
   position_designation : String // the state name
   position_label : String // the state name (English collapses the two source layers)
@@ -600,7 +604,7 @@ pub fn LoopState::step(self : LoopState) -> LoopState {
     domain,
     match chosen {
       Some(slot) => slot
-      // No outgoing edge from here. Record the gap honestly and stay put,
+      // No road out of here. Record the gap honestly and stay put,
       // rather than drive a slot the table does not have.
       None => @sm.Hold
     },
@@ -717,7 +721,7 @@ fn outcome_detail(
       "\{sl.en_designation()} converge → \{to.en_label()} (\{names.join(" / ")})"
     }
     @sm.Block(_) =>
-      "No outgoing edge for \{slot.en_designation()} at \{at.en_label()}"
+      "No road from \{at.en_label()} through \{slot.en_designation()}"
   }
 }
 
@@ -930,9 +934,9 @@ pub fn LoopState::to_json(self : LoopState) -> Json {
     "current_position_label": current_pos.en_label(),
     "current_gloss": current_pos.en_gloss(),
     "next_domain": self.current.next().letter(),
-    // Empty string when the table has no outgoing edge from here. An empty
+    // Empty string when the table offers no road out of here. An empty
     // drive slot is a true statement; a plausible-looking slot that always
-    // reports No Edge is not.
+    // reports No-way is not.
     "drive_slot": match drive_slot(current_pos) {
       Some(slot) => slot.en_designation()
       None => ""

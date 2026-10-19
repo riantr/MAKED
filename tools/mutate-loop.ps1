@@ -207,6 +207,18 @@ pub fn drive_slot(state : @sm.SubjectState) -> @sm.Slot? {
     file = 'backend/loop.mbt'
     old  = '      @sm.Open(_) => return true'
     new  = '      @sm.Open(_) => return false'
+  },
+  # slot_from_designation must consult pyroduct's designation column. It used
+  # to carry a hand-written copy of that table, and the copy went stale when
+  # pyroduct renamed two of the eight -- the parser went on accepting the
+  # old words and rejecting the new ones, which is the whole bug. Reading the
+  # table out of pyroduct is what makes that class of failure impossible, so
+  # the guard is that the lookup still goes through en_designation.
+  @{
+    name = 'slot_from_designation consults the gloss instead of the designation'
+    file = 'backend/loop.mbt'
+    old  = 'slot.en_designation().to_lower() == needle'
+    new  = 'slot.en_gloss().to_lower() == needle'
   }
 )
 

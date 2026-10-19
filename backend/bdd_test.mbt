@@ -114,14 +114,14 @@ test "Scenario: group state emerges from domain activity" {
 ///|
 /// Scenario: Step with slot uses the specified drive.
 /// Given a loop state at Model
-/// When I step with slot Occasion
-/// Then the history records the Occasion slot
+/// When I step with slot Situation
+/// Then the history records the Situation slot
 test "Scenario: step_with_slot uses specified drive" {
   // Given a loop state at Model
   let state = @backend.LoopState::new()
-  // When I step with slot Occasion
+  // When I step with slot Situation
   let stepped = state.step_with_slot(@sm.Occasion)
-  // Then the history records the Occasion slot
+  // Then the history records the Situation slot
   assert_eq(stepped.history[0].slot, @sm.Occasion)
 }
 
@@ -138,7 +138,7 @@ test "Scenario: Block outcome keeps domain in place" {
   // Then the current domain stays at Model
   assert_eq(stepped.current, @backend.Model)
   // And the outcome is Block
-  assert_eq(stepped.history[0].outcome_label, "No Edge")
+  assert_eq(stepped.history[0].outcome_label, "No-way")
 }
 
 ///|

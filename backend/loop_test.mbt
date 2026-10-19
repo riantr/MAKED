@@ -11,7 +11,7 @@
 ///   - Module-level state mutates correctly (step, reset)
 ///   - to_json shape matches what the frontend decodes
 ///
-/// All five domain-anchor positions return Block("No Edge") for their default
+/// All five domain-anchor positions return Block("No-way") for their default
 /// drive slots in the current pyroduct migration table. The tests assert on
 /// this actual outcome rather than an idealised one -- a test that passes
 /// either way is not evidence.
@@ -61,7 +61,7 @@ test "next() follows M→D→E→A→K→M" {
 /// forever without any domain ever leaving its starting position. Asserting the
 /// mapping could not have caught that -- the mapping was the bug. What matters
 /// is the property the mapping was supposed to serve: from every anchor, the
-/// table offers at least one slot that produces something other than No Edge.
+/// table offers at least one slot that produces something other than No-way.
 test "every anchor is movable by the table" {
   for d in @backend.ring_domains_loop() {
     let pos = d.position()
@@ -72,7 +72,7 @@ test "every anchor is movable by the table" {
     let drive = @backend.drive_slot(pos)
     assert_true(drive is Some(_))
     match drive {
-      Some(slot) => assert_true(@sm.step(pos, slot).en_label() != "No Edge")
+      Some(slot) => assert_true(@sm.step(pos, slot).en_label() != "No-way")
       None => ()
     }
   }
@@ -157,7 +157,7 @@ test "a blocked step leaves the cursor where it was" {
   // Standing x Co-being is a real gap in the table.
   let blocked = state.step_with_slot(@sm.CoBeing)
   assert_eq(blocked.current, @backend.Model)
-  assert_eq(blocked.history[0].outcome_label, "No Edge")
+  assert_eq(blocked.history[0].outcome_label, "No-way")
 }
 
 ///|
@@ -175,7 +175,7 @@ test "neither a blocked nor an undecided step advances the cursor" {
   state = state.step()
   assert_eq(state.current, @backend.Data)
   assert_eq(state.domain_state(@backend.Model).position, @sm.Freedom)
-  // Come back to Model. From Freedom the only exitable slot is Occasion, which
+  // Come back to Model. From Freedom the only exitable slot is Situation, which
   // is Undecided.
   let back = state.focus(@backend.Model)
   assert_eq(back.current, @backend.Model)
@@ -344,15 +344,15 @@ test "status open_slots lists only slots the table has edges for" {
 test "status reports undecided at an Undecided branch" {
   let mut state = @backend.LoopState::new()
   state = state.step() // Model Standing -> Freedom, cursor moves to D
-  // Freedom is where Occasion is Undecided. Drive Model back to the cursor and
+  // Freedom is where Situation is Undecided. Drive Model back to the cursor and
   // step it.
   let back = state.focus(@backend.Model)
   let json = back.to_json()
-  // From Freedom the only exitable slot is Occasion, which is Undecided. The
+  // From Freedom the only exitable slot is Situation, which is Undecided. The
   // status must say Undecided rather than present the branch as an ordinary
   // drive.
   assert_eq(json_str(json, "current_position"), "Freedom")
-  assert_eq(json_str(json, "drive_slot"), "Occasion")
+  assert_eq(json_str(json, "drive_slot"), "Situation")
   let open = json_array(json, "open_slots")
   assert_eq(open.length(), 1)
   assert_eq(json_str(open[0], "outcome"), "Undecided")
@@ -377,7 +377,7 @@ test "a moved domain is driven from its new position, not its anchor" {
   let moved = state.domain_state(@backend.Model)
   assert_eq(moved.position, @sm.Freedom)
   // Come back to Model and step again: the slot must be derived from Freedom,
-  // where Occasion is the only exitable slot.
+  // where Situation is the only exitable slot.
   let mut back = state
   back = {
     current: @backend.Model,
@@ -426,7 +426,7 @@ test "a Same outcome counts as a move" {
 ///|
 /// `is_undecided` is true only where the table declines to choose.
 test "is_undecided is true only where the table declines to choose" {
-  // Freedom x Occasion is Undecided: two successors, machine does not pick.
+  // Freedom x Situation is Undecided: two successors, machine does not pick.
   assert_true(@backend.is_undecided(@sm.Freedom))
   // Standing x Action is a single Moved.
   assert_true(!@backend.is_undecided(@sm.Standing))
@@ -529,7 +529,7 @@ test "LoopState::new starts at Model with empty history" {
 /// Model starts at Standing, which `only_act_exits` lists among the four
 /// positions that only Action leaves. So the step must drive Act, land on
 /// Freedom, and record Moved. This is the test the old loop could not have
-/// passed: with CoBeing it recorded No Edge, left Standing untouched, and still
+/// passed: with CoBeing it recorded No-way, left Standing untouched, and still
 /// advanced to Data.
 test "step() moves Model off its anchor on the first step" {
   let state = @backend.LoopState::new()
@@ -574,7 +574,7 @@ test "step_with_slot stays put on Block outcome" {
   let stepped = state.step_with_slot(@sm.CoBeing)
   assert_eq(stepped.current, @backend.Model)
   assert_eq(stepped.history.length(), 1)
-  assert_eq(stepped.history[0].outcome_label, "No Edge")
+  assert_eq(stepped.history[0].outcome_label, "No-way")
 }
 
 ///|
@@ -692,7 +692,7 @@ test "Block outcome_detail mentions the position" {
   // Standing has no Co-being edge; asking for it must report the gap, not move.
   let stepped = state.step_with_slot(@sm.CoBeing)
   let event = stepped.history[0]
-  assert_eq(event.outcome_label, "No Edge")
+  assert_eq(event.outcome_label, "No-way")
   assert_true(event.outcome_detail.contains("Standing"))
   // Nothing moved, so the cursor stays on the domain that could not move.
   assert_eq(stepped.current, @backend.Model)
@@ -718,13 +718,23 @@ test "LoopState equality" {
 
 ///|
 /// slot_from_designation parses all eight slot designations correctly.
+///
+/// This list is a deliberate tripwire, not a copy of the parser: it pins the
+/// eight words pyroduct currently *displays*, so that a rename upstream fails
+/// here instead of silently changing what MAKED shows its users. The parser
+/// itself reads the table out of pyroduct, so a rename needs no code change --
+/// only this list, and a look at the user-visible copy.
+///
+/// pyroduct 0.1.32 moved two of them: "Occasion" to "Situation" and
+/// "Anticipation" to "Antecedent". The code identifiers `Occasion` and
+/// `Antecedent` did not move -- only the English reading did.
 test "slot_from_designation parses all eight slots" {
-  assert_true(@backend.slot_from_designation("Occasion") is Some(@sm.Occasion))
+  assert_true(@backend.slot_from_designation("Situation") is Some(@sm.Occasion))
   assert_true(
     @backend.slot_from_designation("Orientation") is Some(@sm.Orientation),
   )
   assert_true(
-    @backend.slot_from_designation("Anticipation") is Some(@sm.Antecedent),
+    @backend.slot_from_designation("Antecedent") is Some(@sm.Antecedent),
   )
   assert_true(@backend.slot_from_designation("Action") is Some(@sm.Act))
   assert_true(@backend.slot_from_designation("Feedback") is Some(@sm.Feedback))
@@ -738,7 +748,22 @@ test "slot_from_designation parses all eight slots" {
 test "slot_from_designation returns None for unknown input" {
   assert_true(@backend.slot_from_designation("") is None)
   assert_true(@backend.slot_from_designation("unknown") is None)
-  assert_true(@backend.slot_from_designation("CoBeing") is None)
+  assert_true(@backend.slot_from_designation("Co Being") is None)
+  assert_true(@backend.slot_from_designation("Situations") is None)
+}
+
+///|
+/// slot_from_designation ignores case.
+///
+/// The doc has always claimed this; until pyroduct 0.1.32 it was not true,
+/// because the accepted spellings were a hand-written list rather than a
+/// comparison. It is now real, and it is what lets the old display word
+/// "Occasion" keep working: it differs from the new one only in case.
+test "slot_from_designation ignores case" {
+  assert_true(@backend.slot_from_designation("situation") is Some(@sm.Occasion))
+  assert_true(@backend.slot_from_designation("SITUATION") is Some(@sm.Occasion))
+  assert_true(@backend.slot_from_designation("CO-BEING") is Some(@sm.CoBeing))
+  assert_true(@backend.slot_from_designation("Occasion") is Some(@sm.Occasion))
 }
 
 ///|

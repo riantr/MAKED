@@ -38,12 +38,14 @@ This rule was forced by measurement. Earlier, each domain hard-coded one "semant
 
 The behaviour now:
 
-| Situation | Behaviour |
+| Case | Behaviour |
 |---|---|
 | The table has a `Moved` outgoing edge | Take it; `drive_slot` reports the concrete slot |
 | Only `Held` / `Same` outgoing edges | Record them faithfully; the position does not move and the cursor does not advance |
 | Only `Open` outgoing edges | `undecided: true`, listing the candidates, **does not choose for the subject** |
 | No outgoing edge at all | `blocked: true`, `drive_slot` is the empty string |
+
+The eight slot names are **pyroduct's**, not MAKED's: `Situation`, `Orientation`, `Antecedent`, `Action`, `Feedback`, `Holding`, `Co-being`, `Unveiling`. MAKED displays them verbatim and its own parser reads them back out of the dependency, so a rename upstream reaches the page instead of being papered over with a second copy. The words differ from the code identifiers on purpose — the code identifier is `Occasion` while the reading is `Situation`, because *occasion* is a particular ceremony and 处境 is the situation one finds oneself in.
 
 The ring order M → D → E → A → K → M is kept as the **presentation order** — it is the order the logo draws and the way the site narrates itself; but it is no longer treated as evidence that the state machine moved.
 
@@ -178,10 +180,10 @@ cached copy of the list would be a stale claim about what the server holds.
 | Route | Returns |
 |---|---|
 | `GET /api/loop/status` | current domain, position, history, domain states, group state, mode |
-| `GET /api/loop/slots` | the eight drive slots (two-character designation + English + gloss) |
+| `GET /api/loop/slots` | the eight drive slots (URL-safe name + English designation + English gloss) |
 | `GET /api/loop/mode` | the current mode (structured/free) |
 | `POST /api/loop/step` | advance one ring step (using the current domain's default drive slot) |
-| `POST /api/loop/step/:slot` | advance one ring step (using a named slot, English or two-character designation) |
+| `POST /api/loop/step/:slot` | advance one ring step (using a named slot: the URL-safe name or the English designation, case-insensitively) |
 | `POST /api/loop/reset` | reset to the initial state |
 | `POST /api/loop/reset/:domain` | reset with the given domain as the starting point (accepts a letter or the English name) |
 | `POST /api/loop/mode/:mode` | switch mode (structured/free) |
