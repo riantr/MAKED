@@ -2,7 +2,7 @@
 # Component tests for MAKED.
 #
 # Component tests verify multi-module interactions: the loop engine + domain
-# states + group state working together, the research pipeline (paper fetch ->
+# states + group state working together, the research pipeline (corpus fetch ->
 # trigger mapping -> loop stepping), and the causal inference pipeline.
 #
 # Unlike unit tests (which test individual modules in isolation) and integration
@@ -50,15 +50,15 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Component: Research pipeline (paper -> trigger -> slot -> loop step)
+# Component: Research pipeline (document -> the mapping table -> slot -> loop step)
 # ---------------------------------------------------------------------------
 echo "  Component: Research Pipeline"
 
-# Verify that research_test.mbt passes (paper -> the mapping table -> slot)
+# Verify that the backend tests pass (document -> the mapping table -> slot)
 if moon test --target native backend 2>/dev/null; then
-  assert_component "research pipeline (paper -> the mapping table -> slot) passes" "PASS"
+  assert_component "research pipeline (document -> the mapping table -> slot) passes" "PASS"
 else
-  assert_component "research pipeline (paper -> trigger -> slot) passes" "FAIL: tests failed"
+  assert_component "research pipeline (document -> the mapping table -> slot) passes" "FAIL: tests failed"
 fi
 
 # ---------------------------------------------------------------------------

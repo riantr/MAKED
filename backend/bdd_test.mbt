@@ -241,7 +241,7 @@ test "Scenario: domain ring order is MDEAK" {
 /// Then the highest-priority keyword wins
 test "Scenario: the mapping table's order is the priority" {
   // Given a paper with SOTA and novel keywords
-  let paper : @backend.Paper = {
+  let paper : @backend.Document = {
     id: "1",
     title: "Novel SOTA SNN",
     summary: "We propose and outperform",
@@ -251,7 +251,7 @@ test "Scenario: the mapping table's order is the priority" {
     link: "",
   }
   // When I read it through the built-in table
-  let (slot, _) = @backend.paper_to_slot(
+  let (slot, _) = @backend.document_to_slot(
     @backend.ResearchConfig::builtin(),
     paper,
   )

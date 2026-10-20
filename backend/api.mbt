@@ -619,25 +619,28 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       }
     }
   })
-  // Research endpoints: arxiv-driven SNN research cycle.
+  // Research endpoints: the corpus, the documents it holds, and the loop
+  // driven by them.
   //
-  // GET  /api/research/papers  → fetch recent SNN papers from arxiv
-  // POST /api/research/drive   → fetch papers and drive the Loop with them
-  // GET  /api/research/config  → the mapping table the reader may edit
-  // PUT  /api/research/config  → replace the table, and write it back
-  app.get("/api/research/papers", _req => {
-    let papers = fetch_snn_papers(10) catch { _ => [] }
-    let papers_json = papers.map(fn(p) { p.to_json() })
+  // GET  /api/research/documents → the documents the corpus holds
+  // POST /api/research/drive     → drive the Loop with those documents
+  // GET  /api/research/config    → the mapping table the reader may edit
+  // PUT  /api/research/config    → replace the table, and write it back
+  // GET  /api/research/corpus    → the corpus the reader may replace
+  // PUT  /api/research/corpus    → replace the corpus, and write it back
+  app.get("/api/research/documents", _req => {
+    let corpus = current_corpus()
+    let documents = fetch_corpus(corpus) catch { _ => [] }
     let model = current_model()
     let config = current_research()
-    let triggers = papers.map(fn(p) {
+    let triggers = documents.map(fn(d) {
       // The table says which slot a document drives and what the rule is
       // called. It is the reader's table, so the slot is read as the
       // model's id and the rest of the server only ever sees the model's
       // vocabulary.
-      let (slot, label) = paper_to_slot(config, p)
+      let (slot, label) = document_to_slot(config, d)
       let item : Json = {
-        "paper_id": p.id,
+        "document_id": d.id,
         "rule": label,
         "slot": model.slot_designation(slot),
         "slot_english": slot,
@@ -645,20 +648,31 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       item
     })
     let body : Json = {
-      "papers": [..papers_json],
+      "documents": [..documents.map(fn(d) { d.to_json() })],
       "triggers": [..triggers],
-      "count": papers.length(),
+      "count": documents.length(),
+      "corpus": corpus_json(corpus),
+      // An empty corpus is said out loud. A panel that shows nothing and
+      // says nothing is a panel the reader cannot tell apart from a broken
+      // one, and "the corpus held nothing" and "the fetch failed" are
+      // different facts that look identical when neither is said.
+      "notice": if documents.length() == 0 {
+        "The corpus (" + corpus.describe() + ") held no documents."
+      } else {
+        ""
+      },
     }
     Response::json(body)
   })
   app.post("/api/research/drive", _req => {
-    let papers = fetch_snn_papers(5) catch { _ => [] }
+    let corpus = current_corpus()
+    let documents = fetch_corpus(corpus) catch { _ => [] }
     let model = current_model()
     let config = current_research()
     let results : Array[Json] = []
     let mut driven = 0
-    for paper in papers {
-      let (slot, label) = paper_to_slot(config, paper)
+    for document in documents {
+      let (slot, label) = document_to_slot(config, document)
       // A table may name a slot the running model does not have -- the
       // built-in table is the built-in model's, and a model file has slots
       // of its own. Such a document is not driven, and it is said so: a
@@ -666,8 +680,8 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       // this project exists to remove.
       if slot == "" || model.slot_from_name(slot) is None {
         let skipped : Json = {
-          "paper_id": paper.id,
-          "paper_title": paper.title,
+          "document_id": document.id,
+          "document_title": document.title,
           "rule": label,
           "slot_english": slot,
           "driven": false,
@@ -682,13 +696,13 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       }
       let state_before = get_loop_state()
       let state_after = step_loop_with_slot(slot)
-      // A step taken by a paper is a step like any other, and it belongs in
-      // the timeline: "the model moved because of this paper" is exactly the
-      // kind of thing a session is for.
+      // A step taken by a document is a step like any other, and it belongs
+      // in the timeline: "the model moved because of this document" is
+      // exactly the kind of thing a session is for.
       record_step(db, state_before, state_after, "research")
       let result : Json = {
-        "paper_id": paper.id,
-        "paper_title": paper.title,
+        "document_id": document.id,
+        "document_title": document.title,
         "rule": label,
         "slot": model.slot_designation(slot),
         "slot_english": slot,
@@ -704,8 +718,9 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     let body : Json = {
       "results": [..results],
       "final_state": final_state.to_json(),
-      "papers_processed": papers.length(),
-      "papers_driven": driven,
+      "documents_processed": documents.length(),
+      "documents_driven": driven,
+      "corpus": corpus_json(corpus),
     }
     Response::json(body)
   })
@@ -766,18 +781,90 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       }
     }
   })
-  // Causal inference endpoint: estimate the causal effect of paper "novelty"
-  // on a synthetic impact score using Double/Debiased Machine Learning.
-  // GET /api/research/causal → fetch papers and run causal analysis
-  app.get("/api/research/causal", _req => {
-    let papers = fetch_snn_papers(20) catch { _ => [] }
-    let causal_result = estimate_causal_effect(papers)
+  // The corpus, as data a reader can replace.
+  //
+  // GET /api/research/corpus → the corpus, the file it came from, and
+  // whether it can be written back at all.
+  app.get("/api/research/corpus", _req => {
+    let corpus = current_corpus()
     let body : Json = {
-      "causal": causal_result.to_json(),
-      "papers_analyzed": papers.length(),
+      "corpus": corpus.to_json(),
+      "path": corpus.path,
+      // The built-in corpus has nowhere to be written, and saying so is
+      // better than accepting an edit and losing it.
+      "writable": corpus.path != "",
+      "description": corpus.describe(),
     }
     Response::json(body)
   })
+  // PUT /api/research/corpus → replace the corpus.
+  //
+  // The body is the corpus itself, in the same shape GET hands back, so a
+  // client can read it, change it and put it back without knowing anything
+  // about the format. A corpus that names a source it cannot read is
+  // refused, with the reason, and the corpus that was running keeps
+  // running: a corpus that reads nothing is a panel that shows nothing.
+  app.put("/api/research/corpus", req => {
+    let payload = req.json().unwrap_or(Json::empty_object())
+    match CorpusConfig::from_json(current_corpus().path, payload) {
+      Accepted(corpus) => {
+        let saved = write_corpus_file(corpus) catch { _ => false }
+        install_corpus(corpus)
+        let body : Json = {
+          "corpus": corpus.to_json(),
+          "path": corpus.path,
+          "saved": saved,
+          "description": corpus.describe(),
+          "notice": if saved {
+            "The corpus is running, and it was written back to " +
+            corpus.path +
+            "."
+          } else if corpus.path == "" {
+            "The corpus is running. The built-in corpus is not written anywhere, so it lasts until the server stops."
+          } else {
+            "The corpus is running, but it could not be written back to " +
+            corpus.path +
+            "."
+          },
+        }
+        Response::json(body)
+      }
+      Rejected(reason) => {
+        let body : Json = { "error": "invalid_corpus", "reason": reason }
+        Response::json(body, status=400)
+      }
+    }
+  })
+  // Causal inference endpoint: estimate the causal effect of a document's
+  // "novelty" on a synthetic impact score using Double/Debiased Machine
+  // Learning.
+  // GET /api/research/causal → read the corpus and run causal analysis
+  app.get("/api/research/causal", _req => {
+    let corpus = current_corpus()
+    let documents = fetch_corpus(corpus) catch { _ => [] }
+    let causal_result = estimate_causal_effect(documents)
+    let body : Json = {
+      "causal": causal_result.to_json(),
+      "documents_analyzed": documents.length(),
+    }
+    Response::json(body)
+  })
+}
+
+///|
+/// The corpus as the panel sees it: what kind it is, where it reads from,
+/// and the file it was configured in.
+///
+/// The description is written out in words rather than left to the client
+/// to assemble, so that the panel says the same thing whether the corpus
+/// came from a file or was built in.
+fn corpus_json(corpus : CorpusConfig) -> Json {
+  {
+    "kind": corpus_kind_text(corpus.kind),
+    "source": corpus.describe(),
+    "path": corpus.path,
+    "max_results": corpus.max_results,
+  }
 }
 
 ///|

@@ -592,9 +592,11 @@ fn bare_model() -> @frontend.Model {
     loop_status: None,
     loop_error: "",
     slots: [],
-    research_papers: [],
+    research_documents: [],
     research_triggers: [],
     research_error: "",
+    research_corpus: None,
+    research_notice: "",
     research_config: None,
     research_config_path: "",
     research_config_text: "",
@@ -1698,4 +1700,123 @@ test "the mapping table panel sends the fetch click" {
     }
   }
   assert_eq(fetches, 1)
+}
+
+///|
+/// A corpus, shaped like the one the server sends.
+fn corpus_payload() -> Json {
+  {
+    "documents": [
+      {
+        "id": "notes/launch.md",
+        "title": "What we learned",
+        "summary": "We fail at scale.",
+        "authors": [],
+        "categories": [],
+        "published": "",
+        "link": "",
+      },
+    ],
+    "triggers": [
+      {
+        "document_id": "notes/launch.md",
+        "rule": "A reported failure",
+        "slot": "Feedback",
+      },
+    ],
+    "count": 1,
+    "corpus": {
+      "kind": "local",
+      "source": "local: ./notes",
+      "path": "corpus.yaml",
+      "max_results": 20,
+    },
+    "notice": "",
+  }
+}
+
+///|
+/// The documents the server sent are the documents the panel holds.
+///
+/// The corpus is the reader's own documents now, and a document that is
+/// called something else in the panel than in the answer is a document the
+/// reader cannot match up with what they put in.
+test "the documents the server sent are the documents the panel holds" {
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::ResearchLoaded(Ok(corpus_payload())),
+    silent_emit(),
+  )
+  assert_eq(model.research_documents.length(), 1)
+  assert_eq(model.research_triggers.length(), 1)
+  let title = @frontend.get_string(model.research_documents[0], "title", "")
+  assert_eq(title, "What we learned")
+}
+
+///|
+/// The panel says which corpus it is reading.
+///
+/// An empty panel means one thing for arxiv and another for a folder of
+/// the reader's own notes, so the reader has to be able to see which one
+/// they are looking at.
+test "the panel says which corpus it is reading" {
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::ResearchLoaded(Ok(corpus_payload())),
+    silent_emit(),
+  )
+  match model.research_corpus {
+    Some(corpus) =>
+      assert_true(
+        @frontend.get_string(corpus, "source", "").contains("./notes"),
+      )
+    None => fail("the corpus was not kept")
+  }
+}
+
+///|
+/// An empty corpus says so, rather than showing nothing.
+test "an empty corpus says so rather than showing nothing" {
+  let json : Json = {
+    "documents": [],
+    "triggers": [],
+    "count": 0,
+    "corpus": { "kind": "local", "source": "local: ./notes" },
+    "notice": "The corpus (local: ./notes) held no documents.",
+  }
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::ResearchLoaded(Ok(json)),
+    silent_emit(),
+  )
+  assert_true(model.research_notice.contains("held no documents"))
+  assert_eq(model.research_documents.length(), 0)
+}
+
+///|
+/// The read button asks the server for the documents.
+test "the read button asks the server for the documents" {
+  let (_, cmd) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::ReadCorpusClicked,
+    silent_emit(),
+  )
+  let request = cmd.to_repr().to_string()
+  assert_true(request.contains("/api/research/documents"))
+  assert_true(request.contains("Get"))
+}
+
+///|
+/// The corpus panel's button sends the read click.
+test "the corpus panel sends the read click" {
+  let seen : Array[@frontend.Msg] = []
+  let _ = @frontend.research_view(capturing_emit(seen), bare_model())
+  let mut reads = 0
+  for msg in seen {
+    match msg {
+      @frontend.Msg::ReadCorpusClicked => reads += 1
+      _ => ()
+    }
+  }
+  assert_eq(reads, 1)
 }

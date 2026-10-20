@@ -7,7 +7,7 @@
 ///|
 /// estimate_causal_effect returns zero result for fewer than 10 papers.
 test "estimate_causal_effect returns zero for small input" {
-  let papers : Array[@backend.Paper] = []
+  let papers : Array[@backend.Document] = []
   for i in 0..<5 {
     papers.push({
       id: "paper_\{i}",
@@ -30,7 +30,7 @@ test "estimate_causal_effect returns zero for small input" {
 ///|
 /// estimate_causal_effect handles exactly 10 papers.
 test "estimate_causal_effect runs with exactly 10 papers" {
-  let papers : Array[@backend.Paper] = []
+  let papers : Array[@backend.Document] = []
   for i in 0..<10 {
     let title = if i % 2 == 0 {
       "Novel method \{i}"
@@ -57,7 +57,7 @@ test "estimate_causal_effect runs with exactly 10 papers" {
 ///|
 /// estimate_causal_effect handles 20 papers with mixed novelty.
 test "estimate_causal_effect with mixed novelty papers" {
-  let papers : Array[@backend.Paper] = []
+  let papers : Array[@backend.Document] = []
   for i in 0..<20 {
     let title = if i < 10 {
       "Novel approach to SNN \{i}"

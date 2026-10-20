@@ -48,8 +48,16 @@ function Get-Anchors($text) {
   $file = $null
   for ($i = 0; $i -lt $lines.Count; $i++) {
     $line = $lines[$i].TrimEnd("`r")
+    # `name` and `file` are quoted with single quotes almost everywhere, but a
+    # name that contains an apostrophe cannot be: PowerShell would end the
+    # string. Those are written with double quotes instead -- and the checker
+    # only read the single-quoted form, so those mutations were reported with
+    # a blank label. The anchor was still checked; what was lost was the
+    # ability to say WHICH one was dead.
     if ($line -match "^\s*name\s*=\s*'(.*)'\s*$") { $name = $Matches[1] }
+    if ($line -match '^\s*name\s*=\s*"(.*)"\s*$') { $name = $Matches[1] }
     if ($line -match "^\s*file\s*=\s*'(.*)'\s*$") { $file = $Matches[1] }
+    if ($line -match '^\s*file\s*=\s*"(.*)"\s*$') { $file = $Matches[1] }
     if ($line -match "^\s*old\s*=\s*@'") {
       $buf = @()
       $i++
@@ -77,6 +85,32 @@ function Get-Anchors($text) {
             break
           }
           $buf += $l
+          $i++
+        }
+      }
+      $anchors += ,@($name, $file, ($buf -join "`n"))
+      $name = $null
+    }
+    # The fourth form: a double-quoted anchor, used when the anchor itself
+    # contains a quote. The quotes inside it are escaped as a backtick and a
+    # quote. This form was not read at all, which meant an anchor written
+    # this way was never checked -- and an anchor that is never checked is
+    # an anchor that rots without anybody being told.
+    if ($line -match '^\s*old\s*=\s*"(.*)$') {
+      $buf = @()
+      $rest = $Matches[1]
+      if ($rest -match '^(.*)"\s*$') {
+        $buf += (($Matches[1]) -replace '`"', '"')
+      } else {
+        $buf += ($rest -replace '`"', '"')
+        $i++
+        while ($i -lt $lines.Count) {
+          $l = $lines[$i].TrimEnd("`r")
+          if ($l -match '^(.*)"\s*$') {
+            $buf += (($Matches[1]) -replace '`"', '"')
+            break
+          }
+          $buf += ($l -replace '`"', '"')
           $i++
         }
       }

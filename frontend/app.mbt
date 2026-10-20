@@ -29,7 +29,9 @@ pub(all) enum Msg {
   ResearchConfigTextChanged(String)
   ResearchConfigSaveClicked
   CausalLoaded(Result[Json, Error])
-  FetchPapersClicked
+  /// Read the corpus: whatever the server is configured to read, whether
+  /// that is arxiv, a feed or the reader's own folder.
+  ReadCorpusClicked
   DriveLoopClicked
   EstimateCausalClicked
   UrlChanged(@url.Url)
@@ -77,9 +79,18 @@ pub(all) struct Model {
   /// The eight drive slots, fetched once and held. This replaces two
   /// hard-coded copies of the vocabulary that used to live in this package.
   slots : Array[Slot]
-  research_papers : Array[Json]
+  /// The documents the corpus holds, and the rule each one matched.
+  research_documents : Array[Json]
   research_triggers : Array[Json]
   research_error : String
+  /// The corpus the server is reading: its kind, where it reads from, and
+  /// the file it was configured in. The reader has to be able to see which
+  /// corpus they are looking at, because "no documents" means something
+  /// quite different for each one.
+  research_corpus : Json?
+  /// What the server said about the corpus it read, when it had something
+  /// to say -- most often that the corpus held nothing.
+  research_notice : String
   /// The mapping table the server is running: the rules, and the text the
   /// reader is editing them in. The table is data, and this is where the
   /// reader gets at it.
@@ -157,9 +168,11 @@ fn initial() -> Model {
     loop_status: None,
     loop_error: "",
     slots: [],
-    research_papers: [],
+    research_documents: [],
     research_triggers: [],
     research_error: "",
+    research_corpus: None,
+    research_notice: "",
     research_config: None,
     research_config_path: "",
     research_config_text: "",
@@ -366,8 +379,10 @@ pub fn update(
       (
         {
           ..model,
-          research_papers: decode_research_papers(json),
+          research_documents: decode_research_documents(json),
           research_triggers: decode_research_triggers(json),
+          research_corpus: decode_research_corpus(json),
+          research_notice: get_string(json, "notice", ""),
           research_error: "",
         },
         @cmd.none,
@@ -380,7 +395,7 @@ pub fn update(
           ..model,
           loop_status: Some(decode_loop_status(json)),
           loop_error: "",
-          research_papers: [],
+          research_documents: [],
           research_triggers: [],
           research_error: "",
         },
@@ -491,10 +506,10 @@ pub fn update(
         .expect_json(emit.map(fn(result) { ResearchConfigSaved(result) })),
       )
     }
-    FetchPapersClicked =>
+    ReadCorpusClicked =>
       (
         model,
-        @http.get("/api/research/papers").expect_json(
+        @http.get("/api/research/documents").expect_json(
           emit.map(fn(result) { ResearchLoaded(result) }),
         ),
       )
@@ -1099,10 +1114,23 @@ pub fn app() -> @rabbita.App {
 }
 
 ///|
-fn decode_research_papers(json : Json) -> Array[Json] {
-  match field(json, "papers") {
+fn decode_research_documents(json : Json) -> Array[Json] {
+  match field(json, "documents") {
     Some(Array(items)) => items
     _ => []
+  }
+}
+
+///|
+/// The corpus out of the server's answer.
+///
+/// The panel shows which corpus it is looking at, because the same empty
+/// panel means "arxiv had nothing new" for one reader and "your folder has
+/// no notes in it" for another.
+fn decode_research_corpus(json : Json) -> Json? {
+  match field(json, "corpus") {
+    Some(obj) => Some(obj)
+    _ => None
   }
 }
 

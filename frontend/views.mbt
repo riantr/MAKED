@@ -430,32 +430,52 @@ fn metrics_block(report : MetricReport) -> @html.Html {
 }
 
 ///|
-/// Research panel: fetch arxiv papers and drive the Loop.
+/// Research panel: read the corpus, and drive the Loop with what it holds.
+///
+/// The panel says which corpus it is reading before it says anything about
+/// the documents, because the documents are the corpus's and not the
+/// server's: an empty panel means one thing for arxiv and another for a
+/// folder of the reader's own notes.
 pub fn research_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
   let buttons = @html.div(class="maked-research-buttons", [
     @html.button(
       class="maked-btn maked-btn-primary",
-      on_click=emit(FetchPapersClicked),
-      "Fetch SNN Papers",
+      on_click=emit(ReadCorpusClicked),
+      "Read the corpus",
     ),
     @html.button(
       class="maked-btn maked-btn-accent",
       on_click=emit(DriveLoopClicked),
-      "Drive Loop with Papers",
+      "Drive the loop with them",
     ),
   ])
-  let papers_list = if model.research_papers.length() == 0 {
+  let corpus_line = match model.research_corpus {
+    None =>
+      @html.p(
+        class="maked-research-corpus",
+        "The corpus has not been read yet.",
+      )
+    Some(corpus) => {
+      let source = get_string(corpus, "source", "unknown")
+      @html.p(class="maked-research-corpus", "Reading: " + source)
+    }
+  }
+  let documents_list = if model.research_documents.length() == 0 {
     @html.p(
       class="maked-research-empty",
-      "No papers loaded. Click 'Fetch SNN Papers' to begin.",
+      "No documents yet. Click 'Read the corpus' to begin.",
     )
   } else {
     let items : Array[@html.Html] = []
-    for paper in model.research_papers {
-      let title = get_string(paper, "title", "Untitled")
-      let authors_array = get_string(paper, "authors", "")
-      let summary = get_string(paper, "summary", "")
-      let link = get_string(paper, "link", "#")
+    for document in model.research_documents {
+      let title = get_string(document, "title", "Untitled")
+      let authors_array = get_string(document, "authors", "")
+      let summary = get_string(document, "summary", "")
+      // A local document has no address to link to, and a link to nowhere
+      // is worse than no link: the reader clicks it and the page reloads
+      // for no reason.
+      let raw_link = get_string(document, "link", "")
+      let link = if raw_link == "" { "#" } else { raw_link }
       items.push(
         @html.li(class="maked-research-paper", [
           @html.a(href=link, class="maked-paper-title", [@html.text(title)]),
@@ -471,12 +491,12 @@ pub fn research_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
   } else {
     let items : Array[@html.Html] = []
     for trigger in model.research_triggers {
-      let paper_id = get_string(trigger, "paper_id", "")
+      let document_id = get_string(trigger, "document_id", "")
       let rule_name = get_string(trigger, "rule", "")
       let slot = get_string(trigger, "slot", "")
       items.push(
         @html.li(class="maked-research-trigger", [
-          @html.span(class="maked-trigger-paper", paper_id),
+          @html.span(class="maked-trigger-paper", document_id),
           @html.span(class="maked-trigger-name", rule_name),
           @html.span(class="maked-trigger-slot", slot),
         ]),
@@ -487,15 +507,22 @@ pub fn research_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
       @html.ul(class="maked-triggers-list", items),
     ])
   }
+  let notice = if model.research_notice == "" {
+    @html.nothing
+  } else {
+    @html.p(class="maked-research-notice", model.research_notice)
+  }
   let error = if model.research_error == "" {
     @html.nothing
   } else {
     @html.p(class="maked-research-error", model.research_error)
   }
   @html.section(class="maked-research", [
-    @html.h2(class="maked-research-title", "Arxiv-Driven SNN Research"),
+    @html.h2(class="maked-research-title", "The Corpus"),
+    corpus_line,
     buttons,
-    papers_list,
+    documents_list,
+    notice,
     triggers_list,
     research_config_view(emit, model),
     error,

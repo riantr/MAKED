@@ -6,7 +6,7 @@
 
 ///|
 /// A paper with the given words in it.
-fn paper_with(title : String, summary : String) -> @backend.Paper {
+fn paper_with(title : String, summary : String) -> @backend.Document {
   {
     id: "1",
     title,
@@ -20,8 +20,8 @@ fn paper_with(title : String, summary : String) -> @backend.Paper {
 
 ///|
 /// The slot the built-in table gives a paper, and the rule that said so.
-fn built_in_slot(paper : @backend.Paper) -> (String, String) {
-  @backend.paper_to_slot(@backend.ResearchConfig::builtin(), paper)
+fn built_in_slot(paper : @backend.Document) -> (String, String) {
+  @backend.document_to_slot(@backend.ResearchConfig::builtin(), paper)
 }
 
 ///|
@@ -111,7 +111,7 @@ test "a table of the reader's own decides for itself" {
     fallback_label: "Anything else",
     path: "",
   }
-  let (slot, label) = @backend.paper_to_slot(
+  let (slot, label) = @backend.document_to_slot(
     config,
     paper_with("A reproduction study", "We reproduce every result"),
   )
@@ -135,7 +135,7 @@ test "a table falls back to what it says" {
     fallback_label: "Anything else",
     path: "",
   }
-  let (slot, _) = @backend.paper_to_slot(
+  let (slot, _) = @backend.document_to_slot(
     config,
     paper_with("A new method", "We propose"),
   )
@@ -145,7 +145,7 @@ test "a table falls back to what it says" {
 ///|
 /// Paper::to_json produces the expected shape.
 test "Paper::to_json contains all fields" {
-  let paper : @backend.Paper = {
+  let paper : @backend.Document = {
     id: "test-id",
     title: "Test Title",
     summary: "Test Summary",
@@ -172,7 +172,7 @@ test "Paper::to_json contains all fields" {
 ///|
 /// Paper::to_json preserves string content.
 test "Paper::to_json preserves title and id" {
-  let paper : @backend.Paper = {
+  let paper : @backend.Document = {
     id: "my-id",
     title: "My Title",
     summary: "s",
@@ -200,7 +200,7 @@ test "Paper::to_json preserves title and id" {
 ///|
 /// Paper equality works correctly.
 test "Paper equality" {
-  let p1 : @backend.Paper = {
+  let p1 : @backend.Document = {
     id: "1",
     title: "T",
     summary: "S",
@@ -209,7 +209,7 @@ test "Paper equality" {
     published: "2024-01-01",
     link: "",
   }
-  let p2 : @backend.Paper = {
+  let p2 : @backend.Document = {
     id: "1",
     title: "T",
     summary: "S",
@@ -218,7 +218,7 @@ test "Paper equality" {
     published: "2024-01-01",
     link: "",
   }
-  let p3 : @backend.Paper = {
+  let p3 : @backend.Document = {
     id: "2",
     title: "T",
     summary: "S",

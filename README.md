@@ -53,7 +53,7 @@ The ring order M → D → E → A → K → M is kept as the **presentation ord
 
 ### The Adversarial Knowledge Loop
 
-The key difference from a traditional data pipeline: the **Attack** domain. The model is not "fed" by data, it is "forged" by attack. Research papers are read through a **mapping table** — a list of rules, each one a set of words and the slot those words drive — and DoubleML causal inference estimates the causal effect of a paper's "novelty" on its "influence". The table is data, and it is the reader's to change: see [The Table That Says What A Document Means](#the-table-that-says-what-a-document-means).
+The key difference from a traditional data pipeline: the **Attack** domain. The model is not "fed" by data, it is "forged" by attack. Documents are read through a **mapping table** — a list of rules, each one a set of words and the slot those words drive — and DoubleML causal inference estimates the causal effect of a document's "novelty" on its "influence". Both the table and the corpus — where the documents come from: arxiv, a feed, or your own folder — are data, and they are the reader's to change: see [The Table That Says What A Document Means](#the-table-that-says-what-a-document-means) and [The Corpus Is Yours](#the-corpus-is-yours).
 
 ## Quick Start
 
@@ -125,6 +125,7 @@ broken image is caught before it is ever tagged.
 | `MAKED_DIST` | `frontend/dist` | frontend build output directory |
 | `MAKED_MODEL` | *(unset)* | a model file to run instead of the built-in one — see [Your Own Loop](#your-own-loop) |
 | `MAKED_RESEARCH` | *(unset)* | a mapping table that says what a document means — see [The Table That Says What A Document Means](#the-table-that-says-what-a-document-means) |
+| `MAKED_CORPUS` | *(unset)* | a corpus file: where the documents come from — see [The Corpus Is Yours](#the-corpus-is-yours) |
 
 ## API
 
@@ -303,11 +304,13 @@ Structured mode is the default. Free mode allows exploring transition paths thro
 
 | Route | Returns |
 |---|---|
-| `GET /api/research/papers` | arxiv SNN papers + the rule each one matched |
-| `POST /api/research/drive` | fetch papers and drive the loop |
+| `GET /api/research/documents` | the documents the corpus holds + the rule each one matched + which corpus it is |
+| `POST /api/research/drive` | read the corpus and drive the loop with it |
 | `GET /api/research/causal` | DoubleML causal inference results |
 | `GET /api/research/config` | the mapping table, the file it came from, and whether it can be written back |
 | `PUT /api/research/config` | replace the table; a table naming a slot the model does not have is refused, with the reason |
+| `GET /api/research/corpus` | the corpus, the file it came from, and whether it can be written back |
+| `PUT /api/research/corpus` | replace the corpus; a corpus naming a source it cannot read is refused, with the reason |
 
 ## Project Structure
 
@@ -324,8 +327,10 @@ backend/          micro-framework, storage layer, API routes, state loop engine
   narration.mbt     the sentences: what a step did, and what a run of steps means
   metrics.mbt       the measures: new ground, settling, spread, drift, and the
                     comparison of the run's beginning with its end
-  research.mbt      arxiv research paper fetching, and the reading of one
+  research.mbt      what a document means: the slot it drives, asked of the table
   research_config.mbt  the mapping table: what a document means, as data
+  corpus.mbt        the corpus: where the documents come from, as data
+  corpus_sources.mbt  the readers: arxiv, a feed, and the reader's own files
   datafile.mbt      reading a file written in JSON or in YAML, either way
   causal.mbt        DoubleML causal inference
   maked_app.mbt     assembly, static files, SPA fallback
@@ -340,7 +345,7 @@ frontend/         rabbita single-page application
 cmd/server/       native entry point
 cmd/web/          js entry point (browser bundle)
 models/           the example machine, in both syntaxes
-research/         the example mapping table
+research/         the example mapping table, and the example corpus
 Dockerfile        container image: build stage, then a runtime stage with
                   no toolchain in it
 docker-compose.yml  the container with a volume for the records
@@ -374,7 +379,7 @@ image carries `pwsh`.
 Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be run separately:
 
 ```
-.\tools\mutate-backend.ps1     # 47 mutations, 0 survived, 1 expected-equivalent
+.\tools\mutate-backend.ps1     # 60 mutations, 0 survived, 1 expected-equivalent
 .\tools\mutate-frontend.ps1    # 23 mutations, 0 survived
 .\tools\mutate-loop.ps1        # 16 mutations, 0 survived
 ```
@@ -382,7 +387,7 @@ Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be 
 And the one that finds the rot before the suites do:
 
 ```
-.\tools\check-mutation-anchors.ps1   # 81 anchors, 0 dead
+.\tools\check-mutation-anchors.ps1   # 99 anchors, 0 dead
 ```
 
 Every mutation in those three suites is a text replacement, and a text
@@ -425,8 +430,8 @@ that cannot break is not a gate, and that one fails the build.
 | js-check | `moon check --target js` | frontend type safety |
 | fmt | `moon fmt --check` | code formatting |
 | tree | `moon tree` | dependency audit |
-| unit-native | `moon test --target native` | 278 backend tests (includes the BDD suite below) |
-| unit-js | `moon test --target js` | 78 frontend tests |
+| unit-native | `moon test --target native` | 308 backend tests (includes the BDD suite below) |
+| unit-js | `moon test --target js` | 83 frontend tests |
 | coverage | `moon test --enable-coverage` | coverage |
 | bench | `moon bench` | benchmarks |
 | prove | `moon prove` | formal verification (Why3) |
@@ -460,7 +465,7 @@ The cause was not root-caused — the same build works when the init issues a GE
 ## The Integration Tests Are The Net For That Class Of Bug
 
 ```powershell
-.\tools\integration-test.ps1              # builds the server, then runs 172 checks
+.\tools\integration-test.ps1              # builds the server, then runs 187 checks
 .\tools\integration-test.ps1 -SkipBuild   # reuse the binary that is already built
 ```
 
@@ -1066,6 +1071,74 @@ driven through the wrong slot is a step in the timeline that nobody can
 explain afterwards. So `MAKED_RESEARCH` naming a file MAKED cannot read is a
 server that refuses to start, not a server that quietly runs the built-in
 table instead.
+
+## The Corpus Is Yours
+
+The table says what a document *means*. The corpus says where the documents
+*come from*.
+
+It used to be one thing: recent SNN papers from arxiv, with the query written
+into the program. The arxiv reader was also broken in a way nothing showed:
+it asked arxiv for a URL the HTTP client refused to build, the answer was an
+empty list, and the panel showed an empty list as if the reader had read
+nothing at all. A corpus written as code is a corpus a reader cannot change,
+and a corpus that fails silently is worse than no corpus at all.
+
+Now the corpus is a file:
+
+```yaml
+format: maked.corpus.v1
+source:
+  kind: local        # arxiv | rss | local
+  path: ./notes      # a folder, or a single file
+  max_results: 20
+```
+
+Three kinds, and why there are three:
+
+- **arxiv** asks a question of a public index and gets back a list of
+  abstracts. It is the corpus this project was built on.
+- **rss** reads a feed the reader already subscribes to, which is the corpus
+  most people actually have. Atom feeds are read too — a feed is a feed.
+- **local** reads the reader's own files. This is the corpus that makes the
+  loop theirs.
+
+**A local corpus is a folder, and the kind of a file says how to read it:**
+
+| File | Read as |
+| --- | --- |
+| `.txt` | text; the title is its first line |
+| `.md`, `.markdown` | markdown; the title is its first heading |
+| `.pdf` | the markdown it holds, through a PDF reader |
+| `.json` | a Zotero CSL-JSON export — an array of items, or an object with `items` |
+
+A file of a kind MAKED does not know is left alone rather than guessed at: a
+folder of notes that happens to sit next to a photo gives the notes. A folder
+is read in path order, so the same folder drives the same steps every time and
+a session replayed tomorrow comes back the way it was.
+
+```powershell
+$env:MAKED_CORPUS = 'research/corpus-local.yaml'
+.\maked.exe
+```
+
+**The corpus can be replaced at runtime, and the file is written back.**
+`GET /api/research/corpus` says which corpus is running; `PUT` replaces it.
+A corpus that names a source it cannot read — an arxiv source with no query,
+a local source with no path — is refused *with the reason*, and the corpus
+that was running keeps running, because a corpus that reads nothing is a
+panel that shows nothing.
+
+**A corpus that cannot be read whole is refused**, for the third time and for
+the same reason: a server that quietly fell back to arxiv would show a panel
+full of papers while the reader's own documents went unread, and that is a lie
+told with a straight face. So `MAKED_CORPUS` naming a file MAKED cannot read
+is a server that refuses to start.
+
+The panel says which corpus it is reading before it says anything about the
+documents, and it says so when the corpus held nothing: "the corpus held no
+documents" and "the fetch failed" are different facts, and an empty panel that
+does not say which one it is looks exactly like a broken button.
 
 ## Deep Links Need A `<base>` Tag
 

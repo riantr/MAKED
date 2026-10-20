@@ -87,6 +87,26 @@ async fn main {
       }
     }
   }
+  // The corpus the documents come from. `MAKED_CORPUS` names a corpus
+  // file, and a file that cannot be read whole is refused for the same
+  // reason the model file is: a server that quietly fell back to arxiv
+  // would show the reader a panel full of papers while their own documents
+  // went unread, and a panel full of the wrong documents is a lie told
+  // with a straight face.
+  let corpus_path = @maked.corpus_path_from_env()
+  match corpus_path {
+    Some(path) =>
+      match @maked.read_corpus_file(path) {
+        Some(config) => @maked.install_corpus(config)
+        None => {
+          println("")
+          println("MAKED will not start with a corpus it could not read.")
+          println("  unset MAKED_CORPUS to run the built-in corpus instead")
+          return
+        }
+      }
+    None => ()
+  }
   let port = parse_port(env_or("MAKED_PORT", "8080"))
   let host = env_or("MAKED_HOST", "127.0.0.1")
   let db_path = env_or("MAKED_DB", "maked.db")
@@ -165,5 +185,6 @@ async fn main {
   println("  api:  http://127.0.0.1:\{port}/api/pages")
   println("  data: \{db_path}")
   println("  machine: \{model_name}")
+  println("  corpus: \{@maked.current_corpus().describe()}")
   server.serve(listener)
 }

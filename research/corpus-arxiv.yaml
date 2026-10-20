@@ -1,0 +1,7 @@
+format: maked.corpus.v1
+source:
+  kind: arxiv
+  query: (all:spiking+AND+all:neural+AND+all:network)+OR+all:SNN+OR+(ti:spiking+AND+ti:network)
+  url: ""
+  path: ""
+  max_results: 20

@@ -1032,10 +1032,128 @@ try {
     }
   }
 
+  # --- a corpus of your own ---------------------------------------------------
+  #
+  # The corpus is the reader's own documents: a folder of notes, a Zotero
+  # export, a PDF. The server is started with MAKED_CORPUS naming a corpus
+  # file that points at such a folder, and the checks are that the documents
+  # the server reads are those notes -- not the arxiv papers it would read
+  # when there is no corpus. A server that quietly falls back to arxiv would
+  # show a full panel of papers while the reader's own documents went
+  # unread, and that is the failure this project exists to remove.
+  function Test-ResearchCorpus {
+    param([int]$CorpusPort)
+    if (-not (Test-Path $exe)) { return }
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    $notesDir = Join-Path $tempDir ("maked_integration_notes_{0}" -f $CorpusPort)
+    New-Item -ItemType Directory -Path $notesDir -Force | Out-Null
+    $notePath = Join-Path $notesDir "launch.md"
+    [System.IO.File]::WriteAllText(
+      $notePath,
+      "# What we learned`n`nWe fail at scale, and we propose a new method.`n",
+      $utf8)
+    $corpusPath = Join-Path $tempDir ("maked_integration_corpus_{0}.yaml" -f $CorpusPort)
+    # Forward slashes, because the corpus file is YAML and a Windows path
+    # full of backslashes is a path nobody can read in a file.
+    $notesPath = $notesDir -replace '\\', '/'
+    [System.IO.File]::WriteAllText(
+      $corpusPath,
+      ("format: maked.corpus.v1`nsource:`n  kind: local`n  path: {0}`n  max_results: 10`n" -f $notesPath),
+      $utf8)
+
+    $corpusArgs = @{
+      FilePath               = $exe
+      PassThru               = $true
+      RedirectStandardOutput = (Join-Path $tempDir ("maked_integration_corpus_{0}_out.log" -f $CorpusPort))
+      RedirectStandardError  = (Join-Path $tempDir ("maked_integration_corpus_{0}_err.log" -f $CorpusPort))
+    }
+    if ($IsWindows -or $PSVersionTable.PSVersion.Major -lt 6) {
+      $corpusArgs["WindowStyle"] = "Hidden"
+    }
+    $savedCorpus = $env:MAKED_CORPUS
+    $savedPort = $env:MAKED_PORT
+    $savedDb = $env:MAKED_DB
+    $savedBase = $script:base
+    $env:MAKED_CORPUS = $corpusPath
+    $env:MAKED_PORT = "$CorpusPort"
+    $env:MAKED_DB = (Join-Path $tempDir ("maked_integration_corpus_{0}.db" -f $CorpusPort))
+    $script:base = "http://127.0.0.1:$CorpusPort"
+    $corpusServer = Start-Process @corpusArgs
+    try {
+      $corpusReady = $false
+      for ($i = 0; $i -lt 60; $i++) {
+        Start-Sleep -Milliseconds 250
+        $probe = Invoke-Api -Method GET -Path "/api/status" -TimeoutSec 2
+        if ($probe.Status -eq 200) { $corpusReady = $true; break }
+      }
+      Assert-True "the server starts with a corpus file" $corpusReady
+      if ($corpusReady) {
+        $corpus = Get-Json "/api/research/corpus"
+        Assert-True "and the corpus is the one in the file" `
+          ((Field $corpus "corpus").source.kind -eq "local")
+        Assert-Field "and the file it came from is remembered" $corpus "path" $corpusPath
+        Assert-Field "and it can be written back" $corpus "writable" $true
+
+        $documents = Get-Json "/api/research/documents"
+        Assert-ArrayLength "and the documents are the reader's own" $documents "documents" 1
+        Assert-True "and the first one is the note" `
+          (((Field $documents "documents")[0]).title -eq "What we learned")
+        Assert-True "and the corpus it came from is said out loud" `
+          ((Field $documents "corpus").source -like "*maked_integration_notes*")
+
+        # The document drives the loop: the built-in table's "fail" rule
+        # fires on it, and the built-in model has the slot it names.
+        $drive = Post-Json "/api/research/drive"
+        Assert-Status "the corpus drives the loop" 200 $drive
+        $driveJson = ConvertFrom-Json $drive.Body
+        Assert-True "and the document was driven" `
+          ((Field $driveJson "documents_driven") -ge 1)
+
+        # A corpus that names a source it cannot read is refused, with the
+        # reason, and the corpus that was running keeps running.
+        $bad = Put-Json "/api/research/corpus" `
+          @{ format = "maked.corpus.v1"; source = @{ kind = "local" } }
+        Assert-Status "a corpus with no path is refused" 400 $bad
+        Assert-True "and the reason is given" `
+          (((ConvertFrom-Json $bad.Body).reason) -like "*path*")
+        $after = Get-Json "/api/research/corpus"
+        Assert-True "and the corpus that was running still runs" `
+          ((Field $after "corpus").source.kind -eq "local")
+
+        # A new corpus is accepted, installed and written back.
+        $newCorpus = @'
+{
+  "format": "maked.corpus.v1",
+  "source": { "kind": "arxiv", "query": "all:snns", "max_results": 5 }
+}
+'@
+        $put = Invoke-Api -Method PUT -Path "/api/research/corpus" -Body $newCorpus
+        Assert-Status "a new corpus is accepted" 200 $put
+        $after = Get-Json "/api/research/corpus"
+        Assert-True "and the corpus that runs is the one that was put" `
+          ((Field $after "corpus").source.kind -eq "arxiv")
+        $written = Get-Content $corpusPath -Raw
+        Assert-Contains "and it was written back to the file" $written "all:snns"
+      }
+    } finally {
+      if ($null -ne $corpusServer -and -not $corpusServer.HasExited) {
+        Stop-Process -Id $corpusServer.Id -Force -ErrorAction SilentlyContinue
+      }
+      $env:MAKED_CORPUS = $savedCorpus
+      $env:MAKED_PORT = $savedPort
+      $env:MAKED_DB = $savedDb
+      $script:base = $savedBase
+    }
+  }
+
   Write-Host ""
   Write-Host "-- a table of your own"
   Test-ResearchTable (Join-Path $repo "models/product-iteration.json") `
     (Join-Path $repo "research/product-iteration.yaml") ($Port + 3)
+
+  Write-Host ""
+  Write-Host "-- a corpus of your own"
+  Test-ResearchCorpus ($Port + 4)
 } finally {
   Stop-Server
   Start-Sleep -Milliseconds 300

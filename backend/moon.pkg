@@ -16,6 +16,7 @@ import {
   "moonbitlang/core/string",
   "moonbitlang/moonback",
   "moonbitlang/moonback/middlewares/unstable_static" @static,
+  "moonbitlang/pdflite/markdown" @pdflite_md,
   "riantr/moonbit_doubleML" @dml,
   "riantr/pyroduct/group",
   "riantr/pyroduct/src" @sm,

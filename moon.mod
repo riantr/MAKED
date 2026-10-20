@@ -50,7 +50,8 @@ import {
   "moonbit-community/yaml@0.0.8",
   "moonbitlang/async@0.22.5",
   "moonbitlang/moonback@0.8.9",
+  "moonbitlang/pdflite@0.4.0",
   "moonbitlang/x@0.5.5",
-  "riantr/pyroduct@0.1.32",
   "riantr/moonbit_doubleML@0.163.9",
+  "riantr/pyroduct@0.1.32",
 }

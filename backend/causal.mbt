@@ -1,13 +1,17 @@
-///| Causal inference for research papers using Double/Debiased Machine Learning.
+///| Causal inference for the documents a corpus holds.
 ///
-/// This module bridges the arxiv research cycle with causal inference:
-/// papers fetched from arxiv are treated as "treatments" and we estimate
+/// This module bridges the research cycle with causal inference: the
+/// documents the corpus produced are treated as "treatments" and we estimate
 /// their causal effect on a synthetic outcome using the DoubleML framework.
 ///
-/// The outcome is constructed from paper features (citation proxy, recency,
-/// category diversity). The treatment is a binary indicator of whether the
-/// paper has a "novel" keyword pattern. Confounders are the paper's
-/// numerical features (length, author count, category count).
+/// The outcome is constructed from the document's features (citation proxy,
+/// recency, category diversity). The treatment is a binary indicator of
+/// whether the document has a "novel" keyword pattern. Confounders are the
+/// document's numerical features (length, author count, category count).
+///
+/// The documents are whatever the corpus holds. The analysis does not care
+/// whether they came from arxiv, from a feed or from the reader's own
+/// folder, because the features are read from the text either way.
 
 ///|
 /// Result of a causal inference run.
@@ -36,16 +40,16 @@ pub fn CausalResult::to_json(self : CausalResult) -> Json {
 }
 
 ///|
-/// Extract numerical features from a paper for causal analysis.
+/// Extract numerical features from a document for causal analysis.
 /// Returns (feature_vector, treatment, outcome).
-fn paper_to_features(paper : Paper) -> (Array[Double], Double, Double) {
-  let title_len = paper.title.length().to_double()
-  let summary_len = paper.summary.length().to_double()
-  let n_authors = paper.authors.length().to_double()
-  let n_cats = paper.categories.length().to_double()
+fn document_to_features(document : Document) -> (Array[Double], Double, Double) {
+  let title_len = document.title.length().to_double()
+  let summary_len = document.summary.length().to_double()
+  let n_authors = document.authors.length().to_double()
+  let n_cats = document.categories.length().to_double()
 
   // Treatment: novel/novelty/new method in title or summary
-  let text = (paper.title + " " + paper.summary).to_lowercase_ascii()
+  let text = (document.title + " " + document.summary).to_lowercase_ascii()
   let is_novel = if text.contains("novel") ||
     text.contains("new method") ||
     text.contains("propose") ||
@@ -68,12 +72,12 @@ fn paper_to_features(paper : Paper) -> (Array[Double], Double, Double) {
 }
 
 ///|
-/// Run causal inference on a set of papers.
+/// Run causal inference on a set of documents.
 ///
 /// Uses DoubleMLPLR to estimate the causal effect of "novelty" on a
-/// synthetic impact score, controlling for paper features.
-pub fn estimate_causal_effect(papers : Array[Paper]) -> CausalResult {
-  let n = papers.length()
+/// synthetic impact score, controlling for the document's features.
+pub fn estimate_causal_effect(documents : Array[Document]) -> CausalResult {
+  let n = documents.length()
   if n < 10 {
     // Not enough data for meaningful causal inference
     return {
@@ -95,8 +99,8 @@ pub fn estimate_causal_effect(papers : Array[Paper]) -> CausalResult {
   let y : Array[Double] = []
   let mut n_treated = 0
 
-  for paper in papers {
-    let (features, treatment, outcome) = paper_to_features(paper)
+  for document in documents {
+    let (features, treatment, outcome) = document_to_features(document)
     for f in features {
       x_flat.push(f)
     }

@@ -1,0 +1,7 @@
+format: maked.corpus.v1
+source:
+  kind: local
+  query: ""
+  url: ""
+  path: ./research/notes
+  max_results: 20

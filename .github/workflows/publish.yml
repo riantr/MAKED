@@ -359,10 +359,14 @@ jobs:
           # finding a file to point at. The example mapping table ships with
           # it too, for the same reason: the table is what says what a
           # document means, and a reader who has a model of their own needs
-          # a table of their own.
-          mkdir -p stage/maked/models stage/maked/research
+          # a table of their own. The example corpus ships with it for the
+          # same reason twice over: the corpus says where the documents come
+          # from, and the notes folder it names is a corpus that works the
+          # moment it is unpacked.
+          mkdir -p stage/maked/models stage/maked/research stage/maked/research/notes
           cp models/*.json models/*.yaml stage/maked/models/
           cp research/*.yaml stage/maked/research/
+          cp research/notes/*.md stage/maked/research/notes/
           chmod +x stage/maked/server
           tar -czf "maked-${version}-${{ matrix.target }}.tar.gz" -C stage maked
 
@@ -388,10 +392,14 @@ jobs:
           # finding a file to point at. The YAML model ships too: a .yaml
           # file is a model file like any other, and a reader who unpacks
           # only the JSON one is missing half of what MAKED can run. The
-          # example mapping table ships for the same reason.
-          New-Item -ItemType Directory -Force -Path stage\maked\models, stage\maked\research | Out-Null
+          # example mapping table and the example corpus ship for the same
+          # reason, and the notes folder the example corpus names ships with
+          # them: a corpus that points at a folder that is not there is a
+          # corpus that reads nothing.
+          New-Item -ItemType Directory -Force -Path stage\maked\models, stage\maked\research, stage\maked\research\notes | Out-Null
           Copy-Item models\*.json, models\*.yaml stage\maked\models\
           Copy-Item research\*.yaml stage\maked\research\
+          Copy-Item research\notes\*.md stage\maked\research\notes\
           Compress-Archive -Path stage\maked -DestinationPath "maked-${version}-${{ matrix.target }}.zip"
 
       - uses: actions/upload-artifact@v4

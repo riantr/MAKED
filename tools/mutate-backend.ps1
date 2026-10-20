@@ -32,6 +32,15 @@
 # that cannot fail. Keep these listed anyway: if the surrounding code ever
 # starts reusing one prepared statement, the entry flips to KILLED and that is
 # the signal you want.
+#
+# `-Only <text>` runs the mutations whose name or whose file contains the
+# given text. It exists because a survivor is only useful if it can be
+# re-checked in a minute rather than in half an hour: the whole suite is the
+# honest answer, and a filter is the cheap way to ask "is this one still
+# uncaught?" while the fix is being written.
+param(
+  [string]$Only = ""
+)
 
 Set-Location (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
 
@@ -241,6 +250,135 @@ $mutations = @(
     file = 'backend/research_config.mbt'
     old  = '  g_research[0] = config'
     new  = '  g_research[0] = current_research()'
+  },
+  # The corpus is a file, and a corpus file that says something MAKED does
+  # not understand is a corpus that reads the wrong documents. Accepting a
+  # file from a later version is how a reader's corpus stops being theirs.
+  @{
+    name = 'a corpus file with the wrong format is accepted'
+    file = 'backend/corpus.mbt'
+    old  = '  if format != CORPUS_FORMAT {'
+    new  = '  if false {'
+  },
+  # A corpus that names a source it cannot read reads nothing, and says
+  # nothing while it does. An arxiv source with no query has nothing to ask
+  # arxiv, and the panel would show an empty list as if the answer were
+  # "there is nothing new".
+  @{
+    name = 'an arxiv source with no query is accepted'
+    file = 'backend/corpus.mbt'
+    old  = '    Arxiv => if query == "" { return Rejected("an arxiv source needs a query") }'
+    new  = '    Arxiv => if false { return Rejected("an arxiv source needs a query") }'
+  },
+  # The corpus that runs is the corpus that was read. A server that read a
+  # file and then read arxiv anyway would answer every request confidently
+  # and about the wrong documents -- and the reader would never know.
+  @{
+    name = 'the corpus that was read is never installed'
+    file = 'backend/corpus.mbt'
+    old  = '  g_corpus[0] = config'
+    new  = '  g_corpus[0] = current_corpus()'
+  },
+  # A local corpus is a folder of documents. Reading a folder as if it were
+  # empty leaves the reader with a panel that says nothing about the notes
+  # they put in it.
+  @{
+    name = 'a local corpus reads no documents'
+    file = 'backend/corpus_sources.mbt'
+    old  = '    if !is_readable_extension(file) {
+      continue
+    }'
+    new  = '    if true {
+      continue
+    }'
+  },
+  # A folder is read in path order, so that the same folder drives the same
+  # steps every time. A corpus read in whatever order the filesystem hands
+  # back is a corpus that replays differently every run.
+  @{
+    name = 'a local folder is read in whatever order it comes in'
+    file = 'backend/corpus_sources.mbt'
+    old  = '  sorted_paths(found)'
+    new  = '  found'
+  },
+  # The sort itself. The call above is where the order is decided, and this
+  # is what decides it; a folder read in path order depends on both.
+  @{
+    name = 'the paths are not sorted at all'
+    file = 'backend/corpus_sources.mbt'
+    old  = '  let sorted = paths.copy()
+  sorted.sort_by(fn(a, b) { compare_paths(a, b) })
+  sorted'
+    new  = '  let sorted = paths.copy()
+  sorted'
+  },
+  # MoonBit's own string order is by length first and only then by content,
+  # so a sort that uses it puts "notes/b.txt" before "notes/a/first.txt".
+  # A folder read in that order looks sorted and is not: the reader cannot
+  # predict it, and the same folder drives the loop differently every run.
+  @{
+    name = 'the paths are sorted by length, not by name'
+    file = 'backend/corpus_sources.mbt'
+    old  = '  sorted.sort_by(fn(a, b) { compare_paths(a, b) })'
+    new  = '  sorted.sort_by(fn(a, b) { a.compare(b) })'
+  },
+  # A Zotero export says when its item was written. Dropping the date
+  # leaves the reader with a document that has no history, which is a
+  # document the timeline cannot place.
+  @{
+    name = "a zotero item's date is dropped"
+    file = 'backend/corpus_sources.mbt'
+    old  = '    Number(value, ..) => value.to_int().to_string()'
+    new  = '    Number(value, ..) => ""'
+  },
+  # An Atom feed is read as an Atom feed. Preferring the RSS reading of a
+  # feed that has both would read an arxiv feed as nothing at all, because
+  # an arxiv entry is not an RSS item.
+  @{
+    name = 'an atom feed is read as an rss feed'
+    file = 'backend/corpus_sources.mbt'
+    old  = '  if documents.length() > 0 {
+    return documents
+  }'
+    new  = '  if false {
+    return documents
+  }'
+  },
+  # A markdown file is titled by its heading. A file titled by its first
+  # line instead is a file called "We fail at scale" rather than "What we
+  # learned", and the reader cannot tell one document from another.
+  @{
+    name = 'a markdown file is titled by its first line, not its heading'
+    file = 'backend/corpus_sources.mbt'
+    old  = '  if heading != "" {
+    return clip(heading, 120)
+  }'
+    new  = '  if false {
+    return clip(heading, 120)
+  }'
+  },
+  # A PDF read as markdown is a list of pages, and the converter marks each
+  # one. A document called "Page 1" is a document called nothing at all.
+  @{
+    name = 'a page marker is taken for the title'
+    file = 'backend/corpus_sources.mbt'
+    old  = '  if !trimmed.has_prefix("Page ") && !trimmed.has_prefix("page ") {'
+    new  = '  if true {'
+  },
+  # A PDF that cannot be read is refused. Reading it as an empty document
+  # is a document that says nothing, and the table would answer "nothing"
+  # for it as if the reader had read it.
+  @{
+    name = 'a pdf that cannot be read is read as an empty document'
+    file = 'backend/corpus_sources.mbt'
+    old  = '      return None
+    }
+  }
+  Some(document_from_text(path, text))'
+    new  = '      return Some(document_from_text(path, ""))
+    }
+  }
+  Some(document_from_text(path, text))'
   },
   # The role of a domain is the model's word for it. MAKED used to carry its
   # own five roles and look them up by letter, so a model file's domains had
@@ -530,6 +668,11 @@ $mutations = @(
 $survivors = @()
 $equivalent = @()
 foreach ($m in $mutations) {
+  if ($Only -ne "" -and
+    -not $m.name.Contains($Only) -and
+    -not $m.file.Contains($Only)) {
+    continue
+  }
   $full = Join-Path $PWD $m.file
   $original = [System.IO.File]::ReadAllText($full)
   try {

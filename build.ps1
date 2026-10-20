@@ -41,6 +41,17 @@ Write-Host '==> checking the formatting'
 & $moon fmt --check
 if ($LASTEXITCODE -ne 0) { throw "formatting check failed ($LASTEXITCODE)" }
 
+# The mutation anchors are text in the source, and the formatter rewrites the
+# source: an anchor that pointed at a line the formatter has since re-wrapped
+# stops matching, the mutation never happens, and the suite reports a
+# survivor -- a claim about the tests when the truth is that nothing was
+# broken. The check below asks the same question in a second, and it runs
+# here because the formatter runs here: this is the one place the two can
+# disagree.
+Write-Host '==> checking the mutation anchors'
+& (Join-Path $PSScriptRoot 'tools/check-mutation-anchors.ps1')
+if ($LASTEXITCODE -ne 0) { throw "mutation anchor check failed ($LASTEXITCODE)" }
+
 # The storage layer carries three SQLite behaviours that fail silently rather
 # than loudly, so the tests are run on every build rather than only on demand.
 Write-Host '==> testing the backend'
