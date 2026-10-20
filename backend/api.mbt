@@ -502,8 +502,8 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
               Response::json(loop_payload(db))
             } else {
               let position = before.domain_state(before.current).position
-              let candidates = open_candidates(position, slot)
-              match candidate_named(candidates, target) {
+              let candidates = open_candidates_of(before.model, position, slot)
+              match candidate_named_of(before.model, candidates, target) {
                 Some(_) => {
                   let after = step_loop_with_target(slot, target)
                   record_step(db, before, after, "explicit")
@@ -517,7 +517,9 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
                   let body : Json = {
                     "error": "unknown_target",
                     "target": target,
-                    "targets": string_array_json(candidate_names(candidates)),
+                    "targets": string_array_json(
+                      candidate_names_of(before.model, candidates),
+                    ),
                   }
                   Response::json(body, status=400)
                 }

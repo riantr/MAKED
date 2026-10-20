@@ -486,21 +486,27 @@ fn states_with_moved(moved : Int32) -> Map[String, @backend.DomainState] {
 /// third with nothing to say about it.
 test "the group state counts the domains that have moved" {
   assert_true(
-    @backend.compute_group_state(states_with_moved(0)) is @group.Scattered,
+    @backend.compute_group_state(@backend.current_model(), states_with_moved(0))
+    is @group.Scattered,
   )
   assert_true(
-    @backend.compute_group_state(states_with_moved(1)) is @group.Converging,
+    @backend.compute_group_state(@backend.current_model(), states_with_moved(1))
+    is @group.Converging,
   )
   assert_true(
-    @backend.compute_group_state(states_with_moved(2)) is @group.Converging,
+    @backend.compute_group_state(@backend.current_model(), states_with_moved(2))
+    is @group.Converging,
   )
   assert_true(
-    @backend.compute_group_state(states_with_moved(3)) is @group.CommonTongue,
+    @backend.compute_group_state(@backend.current_model(), states_with_moved(3))
+    is @group.CommonTongue,
   )
   assert_true(
-    @backend.compute_group_state(states_with_moved(4)) is @group.CommonTongue,
+    @backend.compute_group_state(@backend.current_model(), states_with_moved(4))
+    is @group.CommonTongue,
   )
   assert_true(
-    @backend.compute_group_state(states_with_moved(5)) is @group.Settled,
+    @backend.compute_group_state(@backend.current_model(), states_with_moved(5))
+    is @group.Settled,
   )
 }

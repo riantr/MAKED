@@ -277,7 +277,7 @@ fn settling_metric(
     // A step that did not move cannot have found new ground: it left the
     // subject where it was, and where it was is a position the run had
     // already stood on.
-    if !moved_outcome(recent[i - start].outcome) {
+    if !moved_outcome(recent[i - start].outcome_kind) {
       stuck += 1
     }
     i -= 1
@@ -305,18 +305,18 @@ fn settling_metric(
 ///|
 /// Whether a step moved the subject anywhere.
 ///
-/// "Moved" is the only outcome that puts the subject on a different position.
-/// Held keeps it where it is on purpose, Undecided is the table declining to
-/// choose between successors, and No-way is a gap in the table. None of the
+/// "moved" is the only outcome that puts the subject on a different position.
+/// Held keeps it where it is on purpose, Open is the table declining to
+/// choose between successors, and Block is a gap in the table. None of the
 /// three is movement, and a run made of them has not gone anywhere.
 ///
-/// The word compared against is the model's, and when a model file can rename
-/// its outcomes this has to ask the model for the word rather than carry its
-/// own copy. A copy would call a renamed move "something else" and report a
-/// run that moved as a run that did not -- which is the difference between a
+/// The kind is compared against, not the word. The word belongs to the model
+/// and a model file may rename it, and a measure that carried its own copy of
+/// the vocabulary would call a renamed move "something else" and report a run
+/// that moved as a run that did not -- which is the difference between a
 /// measure and a guess.
-fn moved_outcome(outcome : String) -> Bool {
-  outcome == "Moved"
+fn moved_outcome(outcome_kind : String) -> Bool {
+  outcome_kind == "moved"
 }
 
 ///|

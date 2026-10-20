@@ -131,10 +131,20 @@ pub fn Model::drive_slot(self : Model, from : String) -> String? {
     # The map is keyed by domain id, so the lookup carries the id with it.
     # An earlier anchor read `self.domain_states[self.current]`, which stopped
     # matching when the key became the id -- the mutation then never applied
-    # and the guard was testing air.
-    old  = '  let current_ds = self.domain_states[self.current.id]
-  let current_pos = current_ds.position'
-    new  = '  let current_pos = self.current.position()'
+    # and the guard was testing air. A second anchor read
+    # `self.domain_states[self.current.id]`, which stopped matching when the
+    # lookup became a named helper -- same failure, one generation later.
+    old  = @'
+  let current_ds = domain_state_at(
+    self.domain_states,
+    self.current,
+    "to_json_current",
+  )
+  let current_pos = current_ds.position
+'@
+    new  = @'
+  let current_pos = self.current.position()
+'@
   },
   # Block must not advance the cursor.
   @{
@@ -154,7 +164,7 @@ pub fn Model::drive_slot(self : Model, from : String) -> String? {
     name = 'status hard-codes a drive slot again'
     file = 'backend/loop.mbt'
     old  = @'
-    "drive_slot": match drive_slot(current_pos) {
+    "drive_slot": match drive_slot_of(model, current_pos) {
       Some(slot) => model.slot_designation(slot)
       None => ""
     },
@@ -168,19 +178,19 @@ pub fn Model::drive_slot(self : Model, from : String) -> String? {
   @{
     name = 'open_slots lists all eight slots'
     file = 'backend/loop.mbt'
-    old  = '  for slot in exitable_slots(current_pos) {
-    open_slots_json.push(open_slot_json(current_pos, slot))
+    old  = '  for slot in exitable_slots_of(model, current_pos) {
+    open_slots_json.push(open_slot_json(model, current_pos, slot))
   }'
     new  = '  for slot in current_model().slot_ids() {
-    open_slots_json.push(open_slot_json(current_pos, slot))
+    open_slots_json.push(open_slot_json(model, current_pos, slot))
   }'
   },
   # A domain that has already moved must keep being driven from where it is.
   @{
     name = 'step drives the anchor instead of the current position'
     file = 'backend/loop.mbt'
-    old  = '  let chosen = drive_slot(domain_state.position)'
-    new  = '  let chosen = drive_slot(domain_state.domain.position())'
+    old  = '  let chosen = drive_slot_of(self.model, domain_state.position)'
+    new  = '  let chosen = drive_slot_of(self.model, domain_state.domain.position())'
   },
   # StepEffect is the classification the cursor depends on. Collapsing Undecided
   # into Advanced is the bug this type was added to fix, and it must stay red.
@@ -236,7 +246,7 @@ pub fn Model::drive_slot(self : Model, from : String) -> String? {
   @{
     name = 'the domain states are shared instead of copied'
     file = 'backend/loop.mbt'
-    old  = 'let domain_states = copy_domain_states(self.domain_states)'
+    old  = 'let domain_states = copy_domain_states(self.model, self.domain_states)'
     new  = 'let domain_states = self.domain_states'
   }
 )

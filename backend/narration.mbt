@@ -30,15 +30,16 @@ pub(all) struct StepFacts {
   role : String
   /// The slot's designation: "Action".
   slot : String
-  /// The outcome: "Moved", "Held", "Undecided", "Converge" or "No-way".
+  /// The outcome's kind: "moved", "held", "same", "open" or "block".
   ///
-  /// This is the *word*, and the word is the model's. When a model file can
-  /// rename its outcomes, the arms of `step_sentence` have to follow the
-  /// model's own words rather than the five written here -- or a renamed
-  /// model would produce a sentence about the wrong kind of step. That is
-  /// the step where the model owns the vocabulary, and it is why this field
-  /// is a word and not a kind.
-  outcome : String
+  /// This is the kind and not the word, and that is the whole point of the
+  /// change. The word -- "Moved", "Held", "Converge", "Undecided", "No-way" --
+  /// belongs to the model, and a model file is free to rename it. A sentence
+  /// built by matching on the word would then describe the wrong kind of
+  /// step: a model that calls an open branch "Unsure" would get the sentence
+  /// for an undecided step only by accident, and a model that called a move
+  /// something else would get no sentence at all.
+  outcome_kind : String
   /// Where the domain stood before the step.
   position_before : String
   /// Where it ended up. The same as `position_before` when nothing moved.
@@ -72,7 +73,7 @@ pub fn facts_of(step : SessionStep) -> StepFacts {
     domain: step.domain_title,
     role: role_of(step.domain),
     slot: step.slot_designation,
-    outcome: step.outcome,
+    outcome_kind: step.outcome_kind,
     position_before: step.position_before,
     position_after: step.position_after,
     cursor: role_of(step.cursor_after),
@@ -95,8 +96,8 @@ pub fn step_sentence(facts : StepFacts) -> String {
   } else {
     "the cursor advanced to " + facts.cursor
   }
-  match facts.outcome {
-    "Moved" =>
+  match facts.outcome_kind {
+    "moved" =>
       subject +
       " moved from " +
       facts.position_before +
@@ -109,7 +110,7 @@ pub fn step_sentence(facts : StepFacts) -> String {
       ", and " +
       cursor +
       "."
-    "Held" =>
+    "held" =>
       subject +
       " held at " +
       facts.position_before +
@@ -120,7 +121,7 @@ pub fn step_sentence(facts : StepFacts) -> String {
       ", and " +
       cursor +
       "."
-    "Undecided" =>
+    "open" =>
       "The table offered " +
       facts.role +
       " several ways out of " +
@@ -130,7 +131,7 @@ pub fn step_sentence(facts : StepFacts) -> String {
       ", and " +
       cursor +
       "."
-    "Converge" =>
+    "same" =>
       "Several triggers converged on " +
       facts.position_before +
       " for " +
@@ -142,7 +143,7 @@ pub fn step_sentence(facts : StepFacts) -> String {
       ", and " +
       cursor +
       "."
-    "No-way" =>
+    "block" =>
       if facts.available == 0 {
         "Nothing could move " +
         facts.role +
@@ -202,7 +203,7 @@ pub fn phase_summary(steps : Array[StepFacts], group_state : String) -> String {
   }
   let mut moved = 0
   for step in steps {
-    if step.outcome == "Moved" {
+    if step.outcome_kind == "moved" {
       moved += 1
     }
   }

@@ -269,7 +269,7 @@ client-side route, so it survives a cold load and a deep link alike.
 
 | Route | Returns |
 |---|---|
-| `GET /api/model` | the whole machine as JSON: the domains, the 34 positions, the 8 slots, and the rule for every one of the 272 (position, slot) pairs |
+| `GET /api/model` | the whole machine as JSON: the domains, the 34 positions, the 8 slots, the rule for every one of the 272 (position, slot) pairs, and the word each kind of outcome is called |
 
 The model is the machine written down, so it can be read, edited and handed
 back. See [The Machine Is Data, Not a Package](#the-machine-is-data-not-a-package).
@@ -372,6 +372,23 @@ Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be 
 .\tools\mutate-loop.ps1        # 16 mutations, 0 survived
 ```
 
+And the one that finds the rot before the suites do:
+
+```
+.\tools\check-mutation-anchors.ps1   # 73 anchors, 0 dead
+```
+
+Every mutation in those three suites is a text replacement, and a text
+replacement whose anchor no longer occurs changes nothing: the file is left
+alone, the suite stays green, and the mutation is reported as a survivor — a
+claim about the tests when the truth is that the mutation never happened.
+The suites report a missing anchor as an ERROR, so the rot is visible — but
+only after half an hour of running. The checker asks the same question in a
+second, and the answer is what you want before a half hour is spent: eleven
+of the seventy-three anchors had rotted by the time the loop state started
+carrying its own model, and every one of them was a guard that could no
+longer fail.
+
 The one remaining EQUIV is in `mutate-backend` and is deliberate: `page_by_slug`
 prepares a *fresh* statement on every call, so it has no previous bindings and
 has never stepped, and the reset before the first bind is unobservable. It stays
@@ -402,7 +419,7 @@ that cannot break is not a gate, and that one fails the build.
 | js-check | `moon check --target js` | frontend type safety |
 | fmt | `moon fmt --check` | code formatting |
 | tree | `moon tree` | dependency audit |
-| unit-native | `moon test --target native` | 248 backend tests (includes the BDD suite below) |
+| unit-native | `moon test --target native` | 258 backend tests (includes the BDD suite below) |
 | unit-js | `moon test --target js` | 69 frontend tests |
 | coverage | `moon test --enable-coverage` | coverage |
 | bench | `moon bench` | benchmarks |
@@ -810,13 +827,34 @@ the way out of a position the model declined to decide by the kind. A model
 can be renamed without breaking the panel — and renaming a model is exactly
 what a model file is for.
 
-This is the third step and not the whole road. The domains, their letters and
-where each one starts are the model's now, and `MAKED_MODEL` runs a file
-instead of the built-in machine. What is still missing is the wording: the
-words an outcome is called, and the sentences the narration builds out of
-them, are still MAKED's own. That is a smaller step than it looks — the
-*kind* of an outcome already travels beside its label, so the words are the
-only thing left to move.
+This is the fourth step and not the whole road. The domains, their letters and
+where each one starts are the model's; `MAKED_MODEL` runs a file instead of
+the built-in machine; and the words an outcome is called are the model's too.
+A model file may rename them:
+
+```json
+  "outcomes": [
+    { "kind": "moved", "label": "Advanced" },
+    { "kind": "open",  "label": "Undecided" }
+  ]
+```
+
+The `kind` is the machine's — `moved`, `held`, `same`, `open`, `block` — and
+it does not change: a model file may call a move something else, but it is
+still a move. The `label` is the word a reader sees, and a file that says
+nothing about a kind falls back to the kind itself, which is honest — the
+outcome happened, and the file has no better name for it. The built-in
+model's words are the transition table's own English rendering, collected as
+the table is walked rather than written down a second time.
+
+**And the state carries the machine it was built for.** A loop state is not
+just a set of positions; it is a set of positions *on a model*, and every
+question asked of it — which slots have an edge here, what the outcome is
+called, where the cursor goes next — is asked of that model. A state whose
+domains came from one machine and whose lookups were answered by another is
+a state that cannot be read. So a state can be built on any model, and a
+step taken on somebody else's machine is recorded with that machine's words
+and re-derived against that machine when the session is replayed.
 
 ## Your Own Loop
 
@@ -853,7 +891,11 @@ A model file is JSON, and it says which format it is:
   "rules": [
     { "from": "raw", "slot": "ask", "outcome": { "kind": "moved", "edge": "A customer said no", "to": "talked" } }
   ],
-  "continuations": []
+  "continuations": [],
+  "outcomes": [
+    { "kind": "moved", "label": "Advanced" },
+    { "kind": "open",  "label": "Undecided" }
+  ]
 }
 ```
 
@@ -863,7 +905,7 @@ one of `moved`, `held`, `same`, `open` or `block`, and `open` is the one
 that declines to choose — it carries the candidates, and the candidate the
 reader picks is the way out of a position the model would not decide.
 
-**Three things a model file does not have to write down.**
+**Four things a model file does not have to write down.**
 
 - *Every pair.* A rule is only needed for the pairs that lead somewhere.
   A pair with no rule is a position with no way out, and MAKED says so
@@ -873,6 +915,10 @@ reader picks is the way out of a position the model would not decide.
   rather than read off a list.
 - *The five of MAKED's own domains.* The domains are the model's: the
   letters, the titles, the roles and where each one starts.
+- *The words.* If `outcomes` is empty, the *kind* is the word — the panel
+  says "moved" where the built-in model says "Moved". A file that does name
+  them says them everywhere: in the panel, in the history, in the export,
+  and in the sentence the narration writes about the step.
 
 **A model file that cannot be read whole is refused.** A file that names a
 position it does not define is refused, because a rule about a position

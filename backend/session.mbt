@@ -93,8 +93,16 @@ pub(all) struct SessionStep {
   slot : String
   /// The slot's English designation ("Act"), as the button shows it.
   slot_designation : String
-  /// Moved, Held, Same, Open or No-way.
+  /// The word the model calls the outcome: "Moved", "Held", "Converge",
+  /// "Undecided" or "No-way" -- or whatever a model file says instead.
   outcome : String
+  /// The outcome's kind: "moved", "held", "same", "open" or "block".
+  ///
+  /// The word is what a reader sees and the kind is what the machine matches
+  /// on. Both are recorded, because a sentence built from the word would
+  /// break the moment somebody renamed the model -- and renaming a model is
+  /// exactly what a model file is for.
+  outcome_kind : String
   /// The human-readable account of what the step did.
   detail : String
   /// The position the domain was on before the step.
@@ -131,6 +139,7 @@ pub(all) struct StepDraft {
   slot : String
   slot_designation : String
   outcome : String
+  outcome_kind : String
   detail : String
   position_before : String
   position_after : String
@@ -290,6 +299,7 @@ pub fn SessionStep::to_json(self : SessionStep, index : Int32) -> Json {
     "slot": self.slot,
     "slot_designation": self.slot_designation,
     "outcome": self.outcome,
+    "outcome_kind": self.outcome_kind,
     "detail": self.detail,
     "position_before": self.position_before,
     "position_after": self.position_after,
@@ -404,27 +414,33 @@ fn depth_of(all : Array[SessionStep], step : SessionStep) -> Int32 {
 /// A step whose domain or slot cannot be parsed is skipped rather than
 /// aborting the whole replay: one unreadable row should not cost the user the
 /// rest of their history.
+///
+/// The model is named, not assumed. A replay is a re-derivation against a
+/// machine, and the machine has to be the one the steps were taken on --
+/// asking the installed model about a session that belongs to another one
+/// would re-derive the wrong positions and report them as the right ones.
 pub fn replay_steps(
+  model : Model,
   steps : Array[SessionStep],
   start_cursor : String,
   mode : String,
 ) -> LoopState {
-  let base = LoopState::new().with_mode(mode_from_name(mode))
-  let mut state = match domain_from_letter(start_cursor) {
+  let base = LoopState::new_for(model).with_mode(mode_from_name(mode))
+  let mut state = match model.domain_by_letter(start_cursor) {
     Some(domain) => base.focus(domain)
     None => base
   }
   for step in steps {
-    let domain = match domain_from_letter(step.domain) {
+    let domain = match model.domain_by_letter(step.domain) {
       Some(d) => d
       None => continue
     }
-    let slot = match slot_from_english(step.slot) {
+    let slot = match model.slot_from_name(step.slot) {
       Some(s) => s
       None => continue
     }
     state = state.step_domain_with(domain, slot, false)
-    state = match domain_from_letter(step.cursor_after) {
+    state = match model.domain_by_letter(step.cursor_after) {
       Some(d) => state.focus(d)
       None => state
     }
@@ -472,16 +488,16 @@ pub fn reset_session_start(db : Database, state : LoopState) -> Unit raise {
 
 ///|
 /// The slots that had an outgoing edge at a position, as a stored list.
-fn available_slots_text(position : String) -> String {
-  exitable_slots(position).join(",")
+fn available_slots_text(model : Model, position : String) -> String {
+  exitable_slots_of(model, position).join(",")
 }
 
 ///|
 /// The slots that had none at a position, as a stored list.
-fn blocked_slots_text(position : String) -> String {
+fn blocked_slots_text(model : Model, position : String) -> String {
   let names : Array[String] = []
-  let usable = exitable_slots(position)
-  for slot in current_model().slot_ids() {
+  let usable = exitable_slots_of(model, position)
+  for slot in model.slot_ids() {
     if !usable.contains(slot) {
       names.push(slot)
     }
@@ -491,8 +507,8 @@ fn blocked_slots_text(position : String) -> String {
 
 ///|
 /// The slot the model itself would have driven at a position, or "".
-fn drive_slot_text(position : String) -> String {
-  match drive_slot(position) {
+fn drive_slot_text(model : Model, position : String) -> String {
+  match drive_slot_of(model, position) {
     Some(slot) => slot
     None => ""
   }
@@ -523,6 +539,11 @@ pub fn record_step(
   let domain = event.domain
   let position_before = before.domain_state(domain).position
   let position_after = after.domain_state(domain).position
+  // The model that produced the step, not the one that happens to be
+  // installed. The record has to describe the machine the step was taken on:
+  // a step taken on somebody else's model, with the installed model's words
+  // written on it, is a record of a step nobody took.
+  let model = before.model
   let session_id = ensure_session(db)
   let parent_step_id = match db.session_by_id(session_id) {
     Some(session) => session.head_step_id
@@ -534,19 +555,20 @@ pub fn record_step(
     domain: domain.letter(),
     domain_title: domain.title(),
     slot: event.slot,
-    slot_designation: current_model().slot_designation(event.slot),
+    slot_designation: model.slot_designation(event.slot),
     outcome: event.outcome_label,
+    outcome_kind: event.outcome_kind,
     detail: event.outcome_detail,
-    position_before: current_model().position_label(position_before),
-    position_after: current_model().position_label(position_after),
+    position_before: model.position_label(position_before),
+    position_after: model.position_label(position_after),
     cursor_after: after.current.letter(),
     group_state: after.group_state.en_designation(),
     mode: mode_name(after.mode),
     source,
-    drive: drive_slot_text(position_before),
-    undecided: is_undecided(position_before),
-    available: available_slots_text(position_before),
-    blocked: blocked_slots_text(position_before),
+    drive: drive_slot_text(model, position_before),
+    undecided: is_undecided_of(model, position_before),
+    available: available_slots_text(model, position_before),
+    blocked: blocked_slots_text(model, position_before),
   }
   let step = db.insert_step(draft)
   db.set_session_head(session_id, step.id)
@@ -595,7 +617,9 @@ pub fn activate_session(db : Database, id : Int64) -> SessionOutcome raise {
   }
   let all = db.steps_of_session(id)
   let path = chain_to_step(all, session.head_step_id)
-  set_loop_state(replay_steps(path, session.start_cursor, session.mode))
+  set_loop_state(
+    replay_steps(current_model(), path, session.start_cursor, session.mode),
+  )
   set_active_session_id(id)
   Done(session)
 }
@@ -641,7 +665,9 @@ pub fn rewind_session(
   }
   db.set_session_head(id, at_step_id)
   let shorter = chain_to_step(all, at_step_id)
-  set_loop_state(replay_steps(shorter, session.start_cursor, session.mode))
+  set_loop_state(
+    replay_steps(current_model(), shorter, session.start_cursor, session.mode),
+  )
   Done(reload_session(db, id))
 }
 
@@ -690,6 +716,7 @@ pub fn branch_session(
       slot: step.slot,
       slot_designation: step.slot_designation,
       outcome: step.outcome,
+      outcome_kind: step.outcome_kind,
       detail: step.detail,
       position_before: step.position_before,
       position_after: step.position_after,
@@ -706,7 +733,9 @@ pub fn branch_session(
     parent = copied.id
   }
   db.set_session_head(branch.id, parent)
-  set_loop_state(replay_steps(chain, branch.start_cursor, branch.mode))
+  set_loop_state(
+    replay_steps(current_model(), chain, branch.start_cursor, branch.mode),
+  )
   set_active_session_id(branch.id)
   Done(reload_session(db, branch.id))
 }

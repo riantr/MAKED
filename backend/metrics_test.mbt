@@ -26,11 +26,27 @@ fn metric_step(
     before,
     after,
     if before == after {
-      "Held"
+      "held"
     } else {
-      "Moved"
+      "moved"
     },
   )
+}
+
+///|
+/// The word a reader would see for a kind.
+///
+/// The measures do not read this -- they read the kind -- but a step carries
+/// both, and a fixture carrying only one of them would not be a step.
+fn metric_outcome_word(kind : String) -> String {
+  match kind {
+    "moved" => "Moved"
+    "held" => "Held"
+    "same" => "Converge"
+    "open" => "Undecided"
+    "block" => "No-way"
+    _ => kind
+  }
 }
 
 ///|
@@ -40,12 +56,15 @@ fn metric_step(
 /// whose steps did not move the subject is stuck, and a run whose steps
 /// moved into positions it already knew is settling. The same positions
 /// with a different outcome are a different run.
+///
+/// It is the *kind* that is given, because the kind is what the measures read.
+/// The word is derived from it, the way the model derives it.
 fn metric_step_outcome(
   domain : String,
   slot : String,
   before : String,
   after : String,
-  outcome : String,
+  outcome_kind : String,
 ) -> @backend.SessionStep {
   {
     id: 0L,
@@ -55,7 +74,8 @@ fn metric_step_outcome(
     domain_title: domain,
     slot,
     slot_designation: slot,
-    outcome,
+    outcome: metric_outcome_word(outcome_kind),
+    outcome_kind,
     detail: "",
     position_before: before,
     position_after: after,
@@ -220,8 +240,8 @@ async test "a run that moved into known ground is settling, not stuck" {
 async test "a run that did not move at all is stuck, not settling" {
   let path : Array[@backend.SessionStep] = [
     metric_step("M", "Action", "A0", "A1"),
-    metric_step_outcome("M", "Situation", "A1", "A1", "Undecided"),
-    metric_step_outcome("M", "Situation", "A1", "A1", "Undecided"),
+    metric_step_outcome("M", "Situation", "A1", "A1", "open"),
+    metric_step_outcome("M", "Situation", "A1", "A1", "open"),
   ]
   let settling = metric_named(@backend.measure(path), "settling")
   assert_eq(settling.value, 2)

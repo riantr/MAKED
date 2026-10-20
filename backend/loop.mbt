@@ -147,7 +147,17 @@ pub fn Domain::role(self : Domain) -> String {
 /// edge for. That is not hypothetical: the mapping this replaced named five
 /// slots, and all five were Block.
 pub fn exitable_slots(position : String) -> Array[String] {
-  current_model().exitable_slots(position)
+  exitable_slots_of(current_model(), position)
+}
+
+///|
+/// The slots that have an edge out of a position, in a given model.
+///
+/// The loop asks its own model, so a state can run on a machine other than
+/// the installed one. The installed-model version above is for the API,
+/// which serves the machine that is installed.
+fn exitable_slots_of(model : Model, position : String) -> Array[String] {
+  model.exitable_slots(position)
 }
 
 ///|
@@ -163,7 +173,13 @@ pub fn exitable_slots(position : String) -> Array[String] {
 /// None when the position has no outgoing edge at all -- a real gap in the
 /// model. The caller must report that, never paper over it.
 pub fn drive_slot(position : String) -> String? {
-  current_model().drive_slot(position)
+  drive_slot_of(current_model(), position)
+}
+
+///|
+/// The slot to drive a position with, in a given model.
+fn drive_slot_of(model : Model, position : String) -> String? {
+  model.drive_slot(position)
 }
 
 ///|
@@ -172,7 +188,13 @@ pub fn drive_slot(position : String) -> String? {
 /// receipts: better to stop where you are than to invent a next step. The
 /// loop takes the same position -- it surfaces the candidates and waits.
 pub fn is_undecided(position : String) -> Bool {
-  current_model().is_undecided(position)
+  is_undecided_of(current_model(), position)
+}
+
+///|
+/// Whether a given model offers several successors from a position.
+fn is_undecided_of(model : Model, position : String) -> Bool {
+  model.is_undecided(position)
 }
 
 ///|
@@ -295,7 +317,13 @@ pub(all) struct LoopEvent {
   domain : Domain
   /// The slot's id, as the model spells it.
   slot : String
-  outcome_label : String // Moved/Held/Undecided/Converge/No-way
+  /// The word the model calls the outcome: "Moved", "Held", "Converge",
+  /// "Undecided" or "No-way" -- or whatever a model file says instead.
+  outcome_label : String
+  /// The outcome's kind: "moved", "held", "same", "open" or "block". This is
+  /// what the machine matches on, and it travels beside the label so nobody
+  /// has to recognise a word to know what happened.
+  outcome_kind : String
   outcome_detail : String // human-readable detail
   position_designation : String // the state name
   position_label : String // the state name (English collapses the two source layers)
@@ -331,7 +359,8 @@ pub fn DomainState::new(domain : Domain) -> DomainState {
 ///|
 /// Step this domain's state machine with the given slot.
 pub fn DomainState::step(self : DomainState, slot : String) -> DomainState {
-  self.step_by_outcome(slot, current_model().step(self.position, slot))
+  let model = current_model()
+  self.step_by_outcome(model, slot, model.step(self.position, slot))
 }
 
 ///|
@@ -340,12 +369,24 @@ pub fn DomainState::step(self : DomainState, slot : String) -> DomainState {
 /// The move is a parameter rather than something derived here, so that a step
 /// decided by a candidate the reader picked and a step decided by the slot's
 /// own outcome travel the same road: one event, one position, one history.
+///
+/// The model comes in with the move, because the event is written in the
+/// model's own words -- the position's label, the slot's designation, the
+/// word the model calls the outcome. A state that took its words from
+/// somewhere else would be recording a step that nobody took.
 pub fn DomainState::step_by_outcome(
   self : DomainState,
+  model : Model,
   slot : String,
   transition : Move,
 ) -> DomainState {
-  let event = event_from_outcome(self.domain, slot, self.position, transition)
+  let event = event_from_outcome(
+    model,
+    self.domain,
+    slot,
+    self.position,
+    transition,
+  )
   let history = self.history
   history.push(event)
   // Update position if the step landed somewhere
@@ -361,7 +402,21 @@ pub fn DomainState::step_by_outcome(
 
 ///|
 /// The loop state: current domain + per-domain independent state machines + group state + mode.
+///
+/// The model is part of the state, and that is not decoration. A state whose
+/// domains came from one model and whose lookups were answered by another is
+/// a state that cannot be read: the ring would be walked with the wrong
+/// lenses, and a domain the state does not know about would be a lookup that
+/// crashes rather than a lookup that misses.
+///
+/// So a state carries the model it belongs to, and every question about it is
+/// asked of that model. It is also what makes a model change safe: installing
+/// a new model resets the loop, and the state that is left behind keeps
+/// running on the model it was built for, consistently, instead of half
+/// running on the new one.
 pub(all) struct LoopState {
+  /// The model this state is running.
+  model : Model
   current : Domain
   domain_states : Map[String, DomainState]
   group_state : @group.GroupState
@@ -374,13 +429,29 @@ pub extend LoopState with Eq::{not_equal, equal}
 
 ///|
 pub fn LoopState::new() -> LoopState {
-  let domain_states = Map([], capacity=8)
-  for domain in ring_domains_loop() {
-    domain_states[domain.id] = DomainState::new(domain)
-  }
+  LoopState::new_for(current_model())
+}
+
+///|
+/// A new loop state running on a given model.
+///
+/// This is the reason the state carries its model. A state that was built for
+/// one machine and asked its questions of another cannot be read: the ring
+/// would be walked with the wrong lenses, and a domain the state does not
+/// know about would be a lookup that crashes rather than a lookup that
+/// misses.
+///
+/// So a state can be built on *any* model -- the installed one, or one that
+/// belongs to somebody else -- and every question about it is asked of that
+/// model. It is also what makes a model change safe: installing a new model
+/// resets the loop, and the state that is left behind keeps running on the
+/// model it was built for, consistently, instead of half running on the new
+/// one.
+pub fn LoopState::new_for(model : Model) -> LoopState {
   {
-    current: starting_domain(),
-    domain_states,
+    model,
+    current: starting_domain_of(model),
+    domain_states: domain_states_of(model),
     group_state: @group.Scattered,
     history: [],
     mode: Structured,
@@ -388,17 +459,25 @@ pub fn LoopState::new() -> LoopState {
 }
 
 ///|
+/// A fresh set of per-domain states, one for each domain of the model.
+fn domain_states_of(model : Model) -> Map[String, DomainState] {
+  let domain_states = Map([], capacity=8)
+  for domain in model.domains {
+    domain_states[domain.id] = DomainState::new(domain)
+  }
+  domain_states
+}
+
+///|
 /// Create a new loop state starting from the specified domain.
 /// Each domain's state machine still starts at its own anchor position;
 /// only the `current` pointer changes.
 pub fn LoopState::new_from(domain : Domain) -> LoopState {
-  let domain_states = Map([], capacity=8)
-  for d in ring_domains_loop() {
-    domain_states[d.id] = DomainState::new(d)
-  }
+  let model = current_model()
   {
+    model,
     current: domain,
-    domain_states,
+    domain_states: domain_states_of(model),
     group_state: @group.Scattered,
     history: [],
     mode: Structured,
@@ -408,16 +487,61 @@ pub fn LoopState::new_from(domain : Domain) -> LoopState {
 ///|
 /// Create a new loop state in the specified mode.
 pub fn LoopState::new_with_mode(mode : LoopMode) -> LoopState {
-  let domain_states = Map([], capacity=8)
-  for domain in ring_domains_loop() {
-    domain_states[domain.id] = DomainState::new(domain)
-  }
+  let model = current_model()
   {
-    current: starting_domain(),
-    domain_states,
+    model,
+    current: starting_domain_of(model),
+    domain_states: domain_states_of(model),
     group_state: @group.Scattered,
     history: [],
     mode,
+  }
+}
+
+///|
+/// The first domain of the ring, in a model that has one.
+///
+/// A model with no domains at all still has to give the loop somewhere to
+/// stand, so the empty domain is the answer -- and it is an answer that says
+/// "nowhere" rather than one that crashes.
+fn starting_domain_of(model : Model) -> Domain {
+  if model.domains.length() == 0 {
+    return { id: "", letter: "", title: "", role: "", anchor: "", }
+  }
+  model.domains[0]
+}
+
+///|
+/// The state of one domain, by name.
+///
+/// A miss here is a bug, not an empty state: a state whose domains came from
+/// one model and whose lookups are answered by another is a state that cannot
+/// be read. The state and the model are one object now, so the miss is
+/// unreachable by construction -- and the invariant that says so is pinned by
+/// a test rather than by a crash.
+///
+/// A crash here would take the whole test binary down with it, and with it
+/// every other test's result. A guard whose failure mode is "the run died" is
+/// a guard whose result cannot be read, and a bug report that arrives as
+/// "the suite crashed" is a bug report that costs an afternoon.
+///
+/// So the miss is loud and survivable: the inconsistency is said out loud,
+/// with the name of the place that asked, and the domain is answered with a
+/// state at its own anchor -- a domain with no history has not moved, which
+/// is a true statement about it.
+fn domain_state_at(
+  states : Map[String, DomainState],
+  domain : Domain,
+  site : String,
+) -> DomainState {
+  match states.get(domain.id) {
+    Some(state) => state
+    None => {
+      println(
+        "loop: no state for domain '\{domain.id}' at \{site}: the state and the model disagree",
+      )
+      DomainState::new(domain)
+    }
   }
 }
 
@@ -427,19 +551,24 @@ pub fn LoopState::domain_state(
   self : LoopState,
   domain : Domain,
 ) -> DomainState {
-  self.domain_states[domain.id]
+  domain_state_at(self.domain_states, domain, "domain_state")
 }
 
 ///|
 /// Compute the group state based on the configuration of all domain states.
 /// The group emerges from how the domains relate to each other.
+///
+/// The model comes in with the states, because the ring is the model's and
+/// the states are the loop's: walking one model's domains against another
+/// model's states is a lookup that cannot be answered.
 pub fn compute_group_state(
+  model : Model,
   domain_states : Map[String, DomainState],
 ) -> @group.GroupState {
   // Count how many domains have moved from their initial positions
   let mut moved_count = 0
-  for domain in ring_domains_loop() {
-    let ds = domain_states[domain.id]
+  for domain in model.domains {
+    let ds = domain_state_at(domain_states, domain, "compute_group_state")
     if ds.position != domain.position() {
       moved_count += 1
     }
@@ -474,11 +603,16 @@ pub fn compute_group_state(
 ///
 /// The copy is five entries, so it costs nothing that matters, and it makes
 /// `LoopState` a value: a state can be kept, compared, and replayed.
+///
+/// The model's own domains are the ones copied, because the state's map is
+/// keyed by the domains the state was built for -- the model's, not
+/// whichever model happens to be installed now.
 fn copy_domain_states(
+  model : Model,
   source : Map[String, DomainState],
 ) -> Map[String, DomainState] {
   let copy = Map([], capacity=8)
-  for domain in ring_domains_loop() {
+  for domain in model.domains {
     match source.get(domain.id) {
       Some(state) => copy[domain.id] = state
       None => ()
@@ -504,10 +638,10 @@ fn copy_domain_states(
 /// names. Neither mode invents an edge.
 pub fn LoopState::step(self : LoopState) -> LoopState {
   let domain = self.current
-  let domain_state = self.domain_states[domain.id]
+  let domain_state = domain_state_at(self.domain_states, domain, "step")
   // Derived once: the model is the authority, and asking it twice could in
   // principle answer differently mid-call.
-  let chosen = drive_slot(domain_state.position)
+  let chosen = drive_slot_of(self.model, domain_state.position)
   let blocked = chosen is None
   self.step_domain_with(
     domain,
@@ -518,7 +652,7 @@ pub fn LoopState::step(self : LoopState) -> LoopState {
       // name a slot, because the record is per-slot: the first one in the
       // model's order will do, and it is blocked too -- when nothing has an
       // edge, nothing has an edge.
-      None => first_slot_id()
+      None => first_slot_id_of(self.model)
     },
     blocked,
   )
@@ -528,9 +662,10 @@ pub fn LoopState::step(self : LoopState) -> LoopState {
 /// The first slot in the model's order, or "" when it has none.
 ///
 /// Used only to name a slot in an event that is about a position with no way
-/// out at all.
-fn first_slot_id() -> String {
-  let slots = current_model().slot_ids()
+/// out at all. The model that owns the state is the one asked, so the event
+/// names a slot of the machine the step was taken on.
+fn first_slot_id_of(model : Model) -> String {
+  let slots = model.slot_ids()
   if slots.length() == 0 {
     return ""
   }
@@ -549,11 +684,15 @@ pub fn LoopState::step_domain_with(
   slot : String,
   blocked : Bool,
 ) -> LoopState {
-  let domain_state = self.domain_states[domain.id]
+  let domain_state = domain_state_at(
+    self.domain_states,
+    domain,
+    "step_domain_with",
+  )
   self.step_domain_by_outcome(
     domain,
     slot,
-    current_model().step(domain_state.position, slot),
+    self.model.step(domain_state.position, slot),
     blocked,
   )
 }
@@ -594,8 +733,16 @@ fn LoopState::step_domain_by_outcome(
   transition : Move,
   blocked : Bool,
 ) -> LoopState {
-  let domain_state = self.domain_states[domain.id]
-  let new_domain_state = domain_state.step_by_outcome(slot, transition)
+  let domain_state = domain_state_at(
+    self.domain_states,
+    domain,
+    "step_domain_by_outcome",
+  )
+  let new_domain_state = domain_state.step_by_outcome(
+    self.model,
+    slot,
+    transition,
+  )
   let history = self.history
   let mode = self.mode
   match new_domain_state.history.last() {
@@ -603,9 +750,9 @@ fn LoopState::step_domain_by_outcome(
       history.push(event)
       // Copied, not shared: see `copy_domain_states`. The state this step
       // came from has to stay readable as it was.
-      let domain_states = copy_domain_states(self.domain_states)
+      let domain_states = copy_domain_states(self.model, self.domain_states)
       domain_states[domain.id] = new_domain_state
-      let group_state = compute_group_state(domain_states)
+      let group_state = compute_group_state(self.model, domain_states)
       // Advance only when the subject actually went somewhere. Judged by
       // StepEffect rather than by the outcome label string: Blocked was the
       // only case checked before, so Undecided -- the table declining to
@@ -614,16 +761,27 @@ fn LoopState::step_domain_by_outcome(
       // `blocked` -- that the derived drive had no edge -- is a second,
       // independent reason not to advance: the cursor may be asked to advance
       // for a step that landed nowhere even when the table did have edges.
+      //
+      // The next domain comes from *this state's* model, not from whichever
+      // model happens to be installed now.
       let next_domain = if effect.moved() && !blocked {
-        domain.next()
+        self.model.next_domain(domain)
       } else {
         domain
       }
-      { current: next_domain, domain_states, group_state, history, mode, }
+      {
+        model: self.model,
+        current: next_domain,
+        domain_states,
+        group_state,
+        history,
+        mode,
+      }
     }
     None => {
-      let group_state = compute_group_state(self.domain_states)
+      let group_state = compute_group_state(self.model, self.domain_states)
       {
+        model: self.model,
         current: domain,
         domain_states: self.domain_states,
         group_state,
@@ -653,7 +811,20 @@ pub fn LoopState::step_with_slot(self : LoopState, slot : String) -> LoopState {
 /// model declined to make -- that would be a lie about what the model says --
 /// but a reader may make one, and this is the list they make it from.
 pub fn open_candidates(position : String, slot : String) -> Array[Candidate] {
-  current_model().candidates(position, slot)
+  open_candidates_of(current_model(), position, slot)
+}
+
+///|
+/// The model's own candidates for a slot at a position, in a given model.
+///
+/// The loop asks its own model here, so a state running on somebody else's
+/// machine offers that machine's candidates and not the installed one's.
+fn open_candidates_of(
+  model : Model,
+  position : String,
+  slot : String,
+) -> Array[Candidate] {
+  model.candidates(position, slot)
 }
 
 ///|
@@ -672,10 +843,23 @@ pub fn candidate_named(
   candidates : Array[Candidate],
   target : String,
 ) -> Candidate? {
+  candidate_named_of(current_model(), candidates, target)
+}
+
+///|
+/// The candidate whose target is the one named, in a given model.
+///
+/// The label is read from that model: the label of a position is the model's
+/// word for it, and two machines may call the same position different things.
+fn candidate_named_of(
+  model : Model,
+  candidates : Array[Candidate],
+  target : String,
+) -> Candidate? {
   let needle = target.to_lower()
   for candidate in candidates {
     if candidate.to.to_lower() == needle ||
-      current_model().position_label(candidate.to).to_lower() == needle {
+      model.position_label(candidate.to).to_lower() == needle {
       return Some(candidate)
     }
   }
@@ -685,9 +869,18 @@ pub fn candidate_named(
 ///|
 /// The names of the candidates, for an answer that has to list them.
 pub fn candidate_names(candidates : Array[Candidate]) -> Array[String] {
+  candidate_names_of(current_model(), candidates)
+}
+
+///|
+/// The names of the candidates, in a given model.
+fn candidate_names_of(
+  model : Model,
+  candidates : Array[Candidate],
+) -> Array[String] {
   let names : Array[String] = []
   for candidate in candidates {
-    names.push(current_model().position_label(candidate.to))
+    names.push(model.position_label(candidate.to))
   }
   names
 }
@@ -704,9 +897,13 @@ pub fn LoopState::step_with_target(
   target : String,
 ) -> LoopState {
   let domain = self.current
-  let domain_state = self.domain_states[domain.id]
-  let candidates = open_candidates(domain_state.position, slot)
-  match candidate_named(candidates, target) {
+  let domain_state = domain_state_at(
+    self.domain_states,
+    domain,
+    "step_with_target",
+  )
+  let candidates = open_candidates_of(self.model, domain_state.position, slot)
+  match candidate_named_of(self.model, candidates, target) {
     Some(candidate) => self.step_domain_with_candidate(domain, slot, candidate)
     None => self
   }
@@ -714,17 +911,19 @@ pub fn LoopState::step_with_target(
 
 ///|
 fn event_from_outcome(
+  model : Model,
   domain : Domain,
   slot : String,
   position : String,
   transition : Move,
 ) -> LoopEvent {
-  let model = current_model()
-  let detail = outcome_detail(transition, position, slot)
+  let detail = outcome_detail(model, transition, position, slot)
+  let kind = transition.kind()
   {
     domain,
     slot,
-    outcome_label: transition.label(),
+    outcome_label: model.outcome_label(kind),
+    outcome_kind: kind,
     outcome_detail: detail,
     position_designation: model.position_label(position),
     position_label: model.position_label(position),
@@ -735,11 +934,18 @@ fn event_from_outcome(
 /// A human-readable account of what one step did.
 ///
 /// The words are the model's: the edge's own name, the position's label, the
-/// slot's designation. A blocked step is rebuilt from the position and the
-/// slot rather than reusing the model's reason, because the model's reason
-/// is written in its own language and the reader is reading this one.
-fn outcome_detail(transition : Move, at : String, slot : String) -> String {
-  let model = current_model()
+/// slot's designation, and the word the model calls the outcome -- including
+/// the word it calls an undecided step, which used to be written out here as
+/// "Undecided" and is now whatever the model says it is. A blocked step is
+/// rebuilt from the position and the slot rather than reusing the model's
+/// reason, because the model's reason is written in its own language and the
+/// reader is reading this one.
+fn outcome_detail(
+  model : Model,
+  transition : Move,
+  at : String,
+  slot : String,
+) -> String {
   match transition {
     Moved(edge, to) => "\{edge} → \{model.position_label(to)}"
     Held(edge, to) => "\{edge} → held at \{model.position_label(to)}"
@@ -750,7 +956,7 @@ fn outcome_detail(transition : Move, at : String, slot : String) -> String {
           "\{candidate.edge} → \{model.position_label(candidate.to)}",
         )
       }
-      "Undecided: " + parts.join(" / ")
+      model.outcome_label("open") + ": " + parts.join(" / ")
     }
     Same(edges, to) =>
       "\{model.slot_designation(slot)} converge → \{model.position_label(to)} (\{edges.join(" / ")})"
@@ -807,6 +1013,7 @@ pub fn step_loop_with_target(slot : String, target : String) -> LoopState {
 /// because rebuilding from scratch to inspect a domain would destroy history.
 pub fn LoopState::focus(self : LoopState, domain : Domain) -> LoopState {
   {
+    model: self.model,
     current: domain,
     domain_states: self.domain_states,
     group_state: self.group_state,
@@ -847,6 +1054,7 @@ pub fn get_loop_mode() -> LoopMode {
 /// question about the state, not about the process.
 pub fn LoopState::with_mode(self : LoopState, mode : LoopMode) -> LoopState {
   {
+    model: self.model,
     current: self.current,
     domain_states: self.domain_states,
     group_state: self.group_state,
@@ -897,8 +1105,7 @@ pub fn all_slots_info() -> Array[(String, String, String)] {
 /// the machine matches on. A client that has to recognise the *word*
 /// "Undecided" to know that the table declined to choose is a client that
 /// breaks the moment the model is renamed.
-fn open_slot_json(position : String, slot : String) -> Json {
-  let model = current_model()
+fn open_slot_json(model : Model, position : String, slot : String) -> Json {
   let transition = model.step(position, slot)
   let targets = []
   match transition {
@@ -914,7 +1121,7 @@ fn open_slot_json(position : String, slot : String) -> Json {
   let item : Json = {
     "name": slot,
     "designation": model.slot_designation(slot),
-    "outcome": transition.label(),
+    "outcome": model.outcome_label(transition.kind()),
     "outcome_kind": transition.kind(),
     "targets": targets_json(targets),
   }
@@ -965,8 +1172,12 @@ pub fn slots_json() -> Json {
 /// same response. `open_slots` is the replacement for the old hard-coded slot:
 /// it is what the table offers here, so a caller never has to guess.
 pub fn LoopState::to_json(self : LoopState) -> Json {
-  let model = current_model()
-  let current_ds = self.domain_states[self.current.id]
+  let model = self.model
+  let current_ds = domain_state_at(
+    self.domain_states,
+    self.current,
+    "to_json_current",
+  )
   let current_pos = current_ds.position
   let history_json = []
   for e in self.history {
@@ -974,6 +1185,7 @@ pub fn LoopState::to_json(self : LoopState) -> Json {
       "domain": e.domain.letter(),
       "slot": model.slot_designation(e.slot),
       "outcome": e.outcome_label,
+      "outcome_kind": e.outcome_kind,
       "detail": e.outcome_detail,
       "position": e.position_designation,
       "position_label": e.position_label,
@@ -982,22 +1194,22 @@ pub fn LoopState::to_json(self : LoopState) -> Json {
   }
   // Build per-domain states
   let domain_states_json = []
-  for domain in ring_domains_loop() {
-    let ds = self.domain_states[domain.id]
+  for domain in model.domains {
+    let ds = domain_state_at(self.domain_states, domain, "to_json_domains")
     let item : Json = {
       "domain": domain.letter(),
       "title": domain.title(),
       "position": model.position_label(ds.position),
       "position_label": model.position_label(ds.position),
       "history_length": ds.history.length(),
-      "drivable": drive_slot(ds.position) is Some(_),
+      "drivable": drive_slot_of(model, ds.position) is Some(_),
       "at_anchor": ds.position == domain.position(),
     }
     domain_states_json.push(item)
   }
   let open_slots_json = []
-  for slot in exitable_slots(current_pos) {
-    open_slots_json.push(open_slot_json(current_pos, slot))
+  for slot in exitable_slots_of(model, current_pos) {
+    open_slots_json.push(open_slot_json(model, current_pos, slot))
   }
   {
     "current_domain": self.current.letter(),
@@ -1005,20 +1217,20 @@ pub fn LoopState::to_json(self : LoopState) -> Json {
     "current_position": model.position_label(current_pos),
     "current_position_label": model.position_label(current_pos),
     "current_gloss": model.position_gloss(current_pos),
-    "next_domain": self.current.next().letter(),
+    "next_domain": self.model.next_domain(self.current).letter(),
     // Empty string when the model offers no road out of here. An empty
     // drive slot is a true statement; a plausible-looking slot that always
     // reports No-way is not.
-    "drive_slot": match drive_slot(current_pos) {
+    "drive_slot": match drive_slot_of(model, current_pos) {
       Some(slot) => model.slot_designation(slot)
       None => ""
     },
-    "drive_slot_name": match drive_slot(current_pos) {
+    "drive_slot_name": match drive_slot_of(model, current_pos) {
       Some(slot) => slot
       None => ""
     },
-    "blocked": exitable_slots(current_pos).length() == 0,
-    "undecided": is_undecided(current_pos),
+    "blocked": exitable_slots_of(model, current_pos).length() == 0,
+    "undecided": is_undecided_of(model, current_pos),
     "open_slots": [..open_slots_json],
     // The full eight-slot vocabulary travels with the status, so one request
     // is enough to render the whole loop panel. It used to be a second

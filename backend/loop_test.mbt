@@ -560,6 +560,7 @@ test "a moved domain is driven from its new position, not its anchor" {
   // where Situation is the only exitable slot.
   let mut back = state
   back = {
+    model: back.model,
     current: @backend.domain_from_id("model").unwrap(),
     domain_states: back.domain_states,
     group_state: back.group_state,

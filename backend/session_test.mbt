@@ -527,3 +527,152 @@ async test "a step that could not move is recorded as one" {
   db.close()
   drop_db(session_db_path("blocked"))
 }
+
+///|
+/// A renamed model still says what happened.
+///
+/// The words are the model's, so a model that calls a move "Advanced" shows
+/// "Advanced" in the panel and in the history. The sentence MAKED writes
+/// about the step is the same sentence either way, because the sentence is
+/// built from the kind, and the kind did not change.
+///
+/// This is the whole point of the outcome vocabulary moving into the model:
+/// the word is the model's to choose, and the meaning is not.
+///
+/// The model is not installed over the one MAKED runs. The loop carries the
+/// model it was built for, so a step taken on somebody else's machine is
+/// recorded with that machine's words -- and the installed model is left
+/// alone, which is what lets this test sit beside any other test.
+async test "a renamed model still says what happened" {
+  let db = open_session_db("renamed")
+  let session = fresh_session(db, "Renamed")
+  let toy = @backend.Model::from_json(toy_model_with_words()).unwrap()
+  let before = @backend.LoopState::new_for(toy)
+  let after = before.step_with_slot("ask")
+  @backend.record_step(db, before, after, "explicit")
+  let step = db.steps_of_session(session.id)[0]
+  // The word is the model's.
+  assert_eq(step.outcome, "Advanced")
+  // And the kind is the kind, whatever the model calls it.
+  assert_eq(step.outcome_kind, "moved")
+  // The positions are the model's too, and the record says so in the model's
+  // words rather than the installed model's.
+  assert_eq(step.position_before, "Raw idea")
+  assert_eq(step.position_after, "Talked about")
+  // The sentence is about a move, and says so in its own words.
+  let sentence = @backend.step_sentence(@backend.facts_of(step))
+  assert_true(sentence.contains("moved from"))
+  assert_true(sentence.contains("Raw idea"))
+  assert_true(sentence.contains("Talked about"))
+  db.close()
+  drop_db(session_db_path("renamed"))
+}
+
+///|
+/// A session recorded on another model replays on that model.
+///
+/// A replay is a re-derivation: the positions come out of the transition
+/// table again rather than out of a stored snapshot. So the machine it is
+/// re-derived against has to be the machine the steps were taken on -- and
+/// the words it comes back with have to be that machine's words.
+///
+/// Replaying somebody else's session against the installed model would give
+/// the wrong positions and the wrong words, and report both as the truth.
+async test "a session recorded on another model replays on that model" {
+  let db = open_session_db("replaymodel")
+  let session = fresh_session(db, "Replayed")
+  let toy = @backend.Model::from_json(toy_model_with_words()).unwrap()
+  // A step on somebody else's machine, recorded with that machine's words.
+  let before = @backend.LoopState::new_for(toy)
+  let after = before.step_with_slot("ask")
+  @backend.record_step(db, before, after, "explicit")
+  let steps = db.steps_of_session(session.id)
+  assert_eq(steps.length(), 1)
+  assert_eq(steps[0].outcome, "Advanced")
+  // And the replay puts the state back where the step left it.
+  let replayed = @backend.replay_steps(toy, steps, "I", "structured")
+  assert_eq(replayed.history.length(), 1)
+  // The word is the model's -- the replay's, not the installed model's.
+  assert_eq(replayed.history[0].outcome_label, "Advanced")
+  // And the position is the one the model's own rule produces.
+  let idea = toy.domain_by_id("idea").unwrap()
+  assert_eq(replayed.domain_state(idea).position, "talked")
+  db.close()
+  drop_db(session_db_path("replaymodel"))
+}
+
+///|
+/// How many columns a table has.
+///
+/// `PRAGMA table_info` is the way to ask; there is no other. It comes back one
+/// row per column.
+fn table_column_count(
+  connection : @sqlite3.Connection,
+  table : String,
+) -> Int32 raise {
+  let stmt = connection.prepare("PRAGMA table_info(" + table + ")")
+  stmt.reset(clear_bindings=true)
+  let mut n = 0
+  while stmt.step() {
+    n += 1
+  }
+  stmt.finalize()
+  n
+}
+
+///|
+/// A database written before the kind was stored is given the column.
+///
+/// The schema changed once: a step now records the kind of its outcome as
+/// well as the word. `CREATE TABLE IF NOT EXISTS` does not add a column to a
+/// table that already exists, so a database from an older version keeps its
+/// old shape unless it is altered -- and `ALTER TABLE ... ADD COLUMN` fails
+/// loudly when the column is already there, so the check has to come first.
+///
+/// The old shape is made by taking the column away again, which is the
+/// honest way to say "a database from before the column existed": the
+/// current code would never create one.
+///
+/// This was written as a helper called `bisect_migration` and never ran. A
+/// function that is not a test is a function that is not a guard, and a
+/// guard that never ran is indistinguishable from a guard that passes.
+async test "a database written before the kind was stored is given the column" {
+  let path = session_db_path("migrate")
+  drop_db(path)
+  // A database in the current shape, and then a database from before the
+  // column existed.
+  let first = @backend.Database::open(path)
+  first.close()
+  let connection = @sqlite3.Connection::open(path)
+  let stmt = connection.prepare(
+    "ALTER TABLE session_steps DROP COLUMN outcome_kind",
+  )
+  ignore(stmt.step())
+  stmt.finalize()
+  // The column really is gone. Without this the rest of the test would pass
+  // just as well on a database that never needed migrating.
+  assert_eq(table_column_count(connection, "session_steps"), 20)
+  connection.close()
+  // Opening it the way the server does has to bring it up to date.
+  let db = @backend.Database::open(path)
+  let check = @sqlite3.Connection::open(path)
+  assert_eq(table_column_count(check, "session_steps"), 21)
+  check.close()
+  let session = db.insert_session("Migrated", 0L, 0L, "M", "structured")
+  @backend.set_active_session_id(session.id)
+  // And a step can be written into the old database, which it could not be
+  // if the column were missing.
+  let before = @backend.LoopState::new_for(@backend.current_model())
+  let after = before.step()
+  @backend.record_step(db, before, after, "drive")
+  let steps = db.steps_of_session(session.id)
+  assert_eq(steps.length(), 1)
+  // The kind was recorded, and it is the kind the loop recorded.
+  assert_false(steps[0].outcome_kind == "")
+  assert_eq(
+    steps[0].outcome_kind,
+    after.history[after.history.length() - 1].outcome_kind,
+  )
+  db.close()
+  drop_db(path)
+}

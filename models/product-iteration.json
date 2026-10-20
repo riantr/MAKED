@@ -24,6 +24,28 @@
       "anchor": "out"
     }
   ],
+  "outcomes": [
+    {
+      "kind": "moved",
+      "label": "Advanced"
+    },
+    {
+      "kind": "held",
+      "label": "Kept"
+    },
+    {
+      "kind": "same",
+      "label": "Settled"
+    },
+    {
+      "kind": "open",
+      "label": "Undecided"
+    },
+    {
+      "kind": "block",
+      "label": "No way"
+    }
+  ],
   "positions": [
     {
       "id": "raw",

@@ -136,6 +136,7 @@ fn Database::migrate(self : Database) -> Unit raise {
       #|  slot             TEXT NOT NULL,
       #|  slot_designation TEXT NOT NULL,
       #|  outcome          TEXT NOT NULL,
+      #|  outcome_kind     TEXT NOT NULL DEFAULT '',
       #|  detail           TEXT NOT NULL,
       #|  position_before  TEXT NOT NULL,
       #|  position_after   TEXT NOT NULL,
@@ -154,6 +155,48 @@ fn Database::migrate(self : Database) -> Unit raise {
   self.exec(
     "CREATE INDEX IF NOT EXISTS session_steps_session ON session_steps (session_id)",
   )
+  // A column added after the first release of the table.
+  //
+  // `CREATE TABLE IF NOT EXISTS` does not add a column to a table that already
+  // exists, so a database written by an older version keeps its old shape
+  // unless it is altered -- and `ALTER TABLE ... ADD COLUMN` fails loudly when
+  // the column is already there. So the check comes first, and the alter only
+  // runs on the databases that need it.
+  //
+  // The old rows keep an empty kind. A step recorded before the kind was
+  // stored still has its word, and the word is enough for a reader; what it
+  // does not have is a kind to reason about, and the measures that want one
+  // treat an empty kind as "not a move" rather than guessing.
+  if !self.has_column("session_steps", "outcome_kind") {
+    self.exec(
+      "ALTER TABLE session_steps ADD COLUMN outcome_kind TEXT NOT NULL DEFAULT ''",
+    )
+  }
+}
+
+///|
+/// Whether a table has a column.
+///
+/// `PRAGMA table_info` is the way to ask; there is no other. It comes back one
+/// row per column, and the second column of each row is the column's name.
+/// The table name is interpolated into the statement, so it has to be a name
+/// this file chose -- never anything a reader supplied.
+fn Database::has_column(
+  self : Database,
+  table : String,
+  column : String,
+) -> Bool raise {
+  let stmt = self.connection.prepare("PRAGMA table_info(" + table + ")")
+  stmt.reset(clear_bindings=true)
+  let mut found = false
+  while stmt.step() {
+    let name : String = stmt.column(index=1)
+    if name == column {
+      found = true
+    }
+  }
+  stmt.finalize()
+  found
 }
 
 ///|
@@ -550,7 +593,7 @@ pub fn Database::delete_session(self : Database, id : Int64) -> Bool raise {
 }
 
 ///|
-const STEP_COLUMNS : String = "id, session_id, parent_step_id, domain, domain_title, slot, slot_designation, outcome, detail, position_before, position_after, cursor_after, group_state, mode, source, drive, undecided, available, blocked, created_at"
+const STEP_COLUMNS : String = "id, session_id, parent_step_id, domain, domain_title, slot, slot_designation, outcome, outcome_kind, detail, position_before, position_after, cursor_after, group_state, mode, source, drive, undecided, available, blocked, created_at"
 
 ///|
 fn read_step(stmt : @sqlite3.Statement) -> SessionStep raise {
@@ -563,18 +606,19 @@ fn read_step(stmt : @sqlite3.Statement) -> SessionStep raise {
     slot: stmt.column(index=5),
     slot_designation: stmt.column(index=6),
     outcome: stmt.column(index=7),
-    detail: stmt.column(index=8),
-    position_before: stmt.column(index=9),
-    position_after: stmt.column(index=10),
-    cursor_after: stmt.column(index=11),
-    group_state: stmt.column(index=12),
-    mode: stmt.column(index=13),
-    source: stmt.column(index=14),
-    drive: stmt.column(index=15),
-    undecided: (stmt.column(index=16) : Int64) != 0L,
-    available: stmt.column(index=17),
-    blocked: stmt.column(index=18),
-    created_at: stmt.column(index=19),
+    outcome_kind: stmt.column(index=8),
+    detail: stmt.column(index=9),
+    position_before: stmt.column(index=10),
+    position_after: stmt.column(index=11),
+    cursor_after: stmt.column(index=12),
+    group_state: stmt.column(index=13),
+    mode: stmt.column(index=14),
+    source: stmt.column(index=15),
+    drive: stmt.column(index=16),
+    undecided: (stmt.column(index=17) : Int64) != 0L,
+    available: stmt.column(index=18),
+    blocked: stmt.column(index=19),
+    created_at: stmt.column(index=20),
   }
 }
 
@@ -587,10 +631,10 @@ pub fn Database::insert_step(
   let insert = self.connection.prepare(
     (
       #|INSERT INTO session_steps
-      #|  (session_id, parent_step_id, domain, domain_title, slot, slot_designation, outcome, detail,
+      #|  (session_id, parent_step_id, domain, domain_title, slot, slot_designation, outcome, outcome_kind, detail,
       #|   position_before, position_after, cursor_after, group_state, mode, source, drive, undecided,
       #|   available, blocked, created_at)
-      #|VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+      #|VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
     ),
   )
   insert.reset(clear_bindings=true)
@@ -601,17 +645,18 @@ pub fn Database::insert_step(
   insert.bind(index=5, draft.slot)
   insert.bind(index=6, draft.slot_designation)
   insert.bind(index=7, draft.outcome)
-  insert.bind(index=8, draft.detail)
-  insert.bind(index=9, draft.position_before)
-  insert.bind(index=10, draft.position_after)
-  insert.bind(index=11, draft.cursor_after)
-  insert.bind(index=12, draft.group_state)
-  insert.bind(index=13, draft.mode)
-  insert.bind(index=14, draft.source)
-  insert.bind(index=15, draft.drive)
-  insert.bind(index=16, if draft.undecided { 1L } else { 0L })
-  insert.bind(index=17, draft.available)
-  insert.bind(index=18, draft.blocked)
+  insert.bind(index=8, draft.outcome_kind)
+  insert.bind(index=9, draft.detail)
+  insert.bind(index=10, draft.position_before)
+  insert.bind(index=11, draft.position_after)
+  insert.bind(index=12, draft.cursor_after)
+  insert.bind(index=13, draft.group_state)
+  insert.bind(index=14, draft.mode)
+  insert.bind(index=15, draft.source)
+  insert.bind(index=16, draft.drive)
+  insert.bind(index=17, if draft.undecided { 1L } else { 0L })
+  insert.bind(index=18, draft.available)
+  insert.bind(index=19, draft.blocked)
   ignore(insert.step())
   insert.finalize()
   let id_stmt = self.connection.prepare("SELECT last_insert_rowid()")
@@ -633,6 +678,7 @@ pub fn Database::insert_step(
     slot: draft.slot,
     slot_designation: draft.slot_designation,
     outcome: draft.outcome,
+    outcome_kind: draft.outcome_kind,
     detail: draft.detail,
     position_before: draft.position_before,
     position_after: draft.position_after,

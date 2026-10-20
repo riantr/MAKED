@@ -229,6 +229,31 @@ pub extend Continuation with Eq::{not_equal, equal}
 pub extend Continuation with Debug::{to_repr}
 
 ///|
+/// The word an outcome is called.
+///
+/// Two things, and they are not the same thing. The *kind* is what the
+/// machine matches on: "moved", "held", "same", "open", "block". The *label*
+/// is what a reader sees: "Moved", "Held", "Converge", "Undecided", "No-way".
+///
+/// Both are the model's. The kind is the shape of the outcome and does not
+/// change; the label is a word, and a model file is free to choose its own.
+/// Everything that *reasons* about an outcome matches on the kind, so a
+/// renamed model produces the same sentences as before -- with the reader
+/// seeing the model's own words.
+pub(all) struct OutcomeWord {
+  /// The kind: "moved", "held", "same", "open" or "block".
+  kind : String
+  /// The word a reader sees.
+  label : String
+} derive(Eq, Debug)
+
+///|
+pub extend OutcomeWord with Eq::{not_equal, equal}
+
+///|
+pub extend OutcomeWord with Debug::{to_repr}
+
+///|
 /// The whole machine.
 pub(all) struct Model {
   /// What the model is called.
@@ -243,6 +268,8 @@ pub(all) struct Model {
   rules : Array[Rule]
   /// The successors, and how far away they are.
   continuations : Array[Continuation]
+  /// The word each kind of outcome is called.
+  outcomes : Array[OutcomeWord]
 } derive(Eq, Debug)
 
 ///|
@@ -430,25 +457,11 @@ pub fn Move::of(state : @sm.SubjectState, outcome : @sm.Outcome) -> Move {
 }
 
 ///|
-/// What the outcome is called, in the words a reader sees.
-///
-/// The five names are the ones the table's own English rendering uses, so a
-/// reader sees one vocabulary rather than two. They are the outcome's *kind*
-/// dressed in words. The kind itself -- "moved", "open" -- is what the
-/// machine matches on, and it is what travels in the JSON beside the label,
-/// so a client never has to recognise a sentence to know what happened.
-pub fn Move::label(self : Move) -> String {
-  match self {
-    Moved(_, _) => "Moved"
-    Held(_, _) => "Held"
-    Same(_, _) => "Converge"
-    Open(_) => "Undecided"
-    Block(_) => "No-way"
-  }
-}
-
-///|
 /// The outcome's kind, in the words the machine matches on.
+///
+/// The kind is the shape of the outcome and it does not change: a model file
+/// may call a move something else, but it is still a move. The word is the
+/// model's, and `Model::outcome_label` is where it is asked for.
 pub fn Move::kind(self : Move) -> String {
   match self {
     Moved(_, _) => "moved"
@@ -457,6 +470,53 @@ pub fn Move::kind(self : Move) -> String {
     Open(_) => "open"
     Block(_) => "block"
   }
+}
+
+///|
+/// The word the model calls an outcome of this kind.
+///
+/// A model that names no word for a kind falls back to the kind itself, which
+/// is honest: the outcome happened, and the model has no better name for it.
+/// The built-in model's words come from the table's own English rendering, so
+/// a reader sees one vocabulary rather than two.
+pub fn Model::outcome_label(self : Model, kind : String) -> String {
+  for word in self.outcomes {
+    if word.kind == kind {
+      return word.label
+    }
+  }
+  kind
+}
+
+///|
+/// The words the table calls its outcomes, collected as the table is walked.
+///
+/// They are collected rather than written down on purpose. A hard-coded list
+/// of five words is a second copy of the table's vocabulary, and the copy is
+/// what goes stale: the table renamed two of its slots once already, and
+/// nobody noticed until a parser stopped accepting the words the site
+/// displayed.
+fn outcome_words_from(
+  states : Array[@sm.SubjectState],
+  slots : Array[@sm.Slot],
+) -> Array[OutcomeWord] {
+  let words : Array[OutcomeWord] = []
+  for state in states {
+    for slot in slots {
+      let outcome = @sm.step(state, slot)
+      let kind = Move::of(state, outcome).kind()
+      let mut known = false
+      for word in words {
+        if word.kind == kind {
+          known = true
+        }
+      }
+      if !known {
+        words.push({ kind, label: outcome.en_label(), })
+      }
+    }
+  }
+  words
 }
 
 ///|
@@ -582,6 +642,9 @@ pub fn Model::pyroduct() -> Model {
       })
     }
   }
+  // The words an outcome is called, taken from the table's own English
+  // rendering. They are the model's now, so a model file can replace them.
+  let outcomes = outcome_words_from(@sm.all_states(), @sm.all_slots())
   // The continuations are the model's own answer to "what could happen
   // next", and they are asked of the table at the same depth MAKED has
   // always used, so the numbers do not move when the model is written down.
@@ -599,7 +662,15 @@ pub fn Model::pyroduct() -> Model {
       }
     }
   }
-  { name: "MAKED (pyroduct)", domains, positions, slots, rules, continuations, }
+  {
+    name: "MAKED (pyroduct)",
+    domains,
+    positions,
+    slots,
+    rules,
+    continuations,
+    outcomes,
+  }
 }
 
 ///|
@@ -1111,6 +1182,10 @@ pub fn Model::to_json(self : Model) -> Json {
       "steps": continuation.steps,
     })
   }
+  let outcomes : Array[Json] = []
+  for word in self.outcomes {
+    outcomes.push({ "kind": word.kind, "label": word.label })
+  }
   {
     "format": MODEL_FORMAT,
     "name": self.name,
@@ -1119,6 +1194,7 @@ pub fn Model::to_json(self : Model) -> Json {
     "slots": [..slots],
     "rules": [..rules],
     "continuations": [..continuations],
+    "outcomes": [..outcomes],
   }
 }
 
@@ -1188,6 +1264,16 @@ pub fn Model::from_json(json : Json) -> Model? {
       steps: model_int(item, "steps"),
     })
   }
+  // The words an outcome is called. A file may leave them out: then the kind
+  // is the word, which is honest -- the outcome happened, and the file has no
+  // name for it.
+  let outcomes : Array[OutcomeWord] = []
+  for item in json_array(json, "outcomes") {
+    outcomes.push({
+      kind: json_string(item, "kind"),
+      label: json_string(item, "label"),
+    })
+  }
   let model = Model::{
     name: json_string(json, "name"),
     domains,
@@ -1195,6 +1281,7 @@ pub fn Model::from_json(json : Json) -> Model? {
     slots,
     rules,
     continuations,
+    outcomes,
   }
   if model.first_broken_rule() is Some(_) {
     return None

@@ -156,7 +156,7 @@ $mutations = @(
   @{
     name = 'the blocked slots are not recorded'
     file = 'backend/session.mbt'
-    old  = '    blocked: blocked_slots_text(position_before),'
+    old  = '    blocked: blocked_slots_text(model, position_before),'
     new  = '    blocked: "",'
   },
   # A route that acts on one session names that session in its answer. The
@@ -246,7 +246,7 @@ $mutations = @(
   @{
     name = 'a stuck run is reported as settling'
     file = 'backend/metrics.mbt'
-    old  = '    if !moved_outcome(recent[i - start].outcome) {'
+    old  = '    if !moved_outcome(recent[i - start].outcome_kind) {'
     new  = '    if false {'
   },
   # The sentences are read by people. A phrase that begins in the middle of
@@ -273,7 +273,7 @@ $mutations = @(
     name = 'a candidate is never found by its name'
     file = 'backend/loop.mbt'
     old  = '    if candidate.to.to_lower() == needle ||
-      current_model().position_label(candidate.to).to_lower() == needle {'
+      model.position_label(candidate.to).to_lower() == needle {'
     new  = '    if false {'
   },
   # The model is the machine written down. A translation that sends the
@@ -318,8 +318,8 @@ $mutations = @(
     name = 'a candidate can only be named by its label'
     file = 'backend/loop.mbt'
     old  = '    if candidate.to.to_lower() == needle ||
-      current_model().position_label(candidate.to).to_lower() == needle {'
-    new  = '    if current_model().position_label(candidate.to).to_lower() == needle {'
+      model.position_label(candidate.to).to_lower() == needle {'
+    new  = '    if model.position_label(candidate.to).to_lower() == needle {'
   },
   # The outcome's word is the model's, and the model may rename it. A loop
   # that had its own copy of the word would keep saying the old one after the
@@ -327,15 +327,29 @@ $mutations = @(
   @{
     name = 'the model renames the Undecided outcome'
     file = 'backend/model.mbt'
-    old  = '    Open(_) => "Undecided"'
-    new  = '    Open(_) => "Pending"'
+    # The word for an outcome is no longer written down in a table of five --
+    # it is collected from the transition table as the table is walked. So
+    # the mutation moves where the word comes from: the "open" kind is given
+    # a name of its own, and the model's own vocabulary stops being the
+    # table's.
+    old  = @'
+      if !known {
+        words.push({ kind, label: outcome.en_label(), })
+      }
+'@
+    new  = @'
+      if !known {
+        let label = if kind == "open" { "Pending" } else { outcome.en_label() }
+        words.push({ kind, label, })
+      }
+'@
   },
   # The loop offers the edges the model has, not every slot in the vocabulary.
   @{
     name = 'the loop offers every slot, not the model''s edges'
     file = 'backend/loop.mbt'
     old  = 'pub fn exitable_slots(position : String) -> Array[String] {
-  current_model().exitable_slots(position)
+  exitable_slots_of(current_model(), position)
 }'
     new  = 'pub fn exitable_slots(position : String) -> Array[String] {
   let out = []

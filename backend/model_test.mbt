@@ -630,27 +630,29 @@ test "a model with no continuations has them worked out from its rules" {
 ///
 /// The domains are the model's now, so a model with two of them has a loop
 /// with two -- not MAKED's five, and not five lenses standing over a
-/// two-position machine. The built-in model is put back afterwards, because
-/// the model MAKED runs is global and the rest of the suite expects the
-/// built-in one.
+/// two-position machine.
+///
+/// The model is *carried* by the state rather than installed over the one
+/// MAKED runs. That is not a detail: installing a model takes the installed
+/// machine away from every other thread, and the test suite runs its blocks
+/// side by side. A test that swapped the installed model was a race with
+/// every other test, and the race showed up as a crash in a test that had
+/// nothing to do with models.
 test "a model with two domains drives a two-domain loop" {
-  let built_in = @backend.current_model()
-  defer @backend.install_model(built_in)
   let toy = @backend.Model::from_json(toy_model()).unwrap()
-  @backend.install_model(toy)
   // Two domains, and the loop starts on the model's first.
-  assert_eq(@backend.ring_domains_loop().length(), 2)
-  let state = @backend.LoopState::new()
+  assert_eq(toy.domains.length(), 2)
+  let state = @backend.LoopState::new_for(toy)
   assert_eq(state.current.id, "idea")
   // Each domain stands at its own anchor, from the model rather than from a
   // table of MAKED's own.
-  let idea = @backend.domain_from_id("idea").unwrap()
-  let ship = @backend.domain_from_id("ship").unwrap()
+  let idea = toy.domain_by_id("idea").unwrap()
+  let ship = toy.domain_by_id("ship").unwrap()
   assert_eq(state.domain_state(idea).position, "raw")
   assert_eq(state.domain_state(ship).position, "built")
   // And the ring is two steps, not five.
-  assert_eq(idea.next().id, "ship")
-  assert_eq(ship.next().id, "idea")
+  assert_eq(toy.next_domain(idea).id, "ship")
+  assert_eq(toy.next_domain(ship).id, "idea")
 }
 
 ///|
@@ -667,4 +669,221 @@ test "the built-in machine has the five lenses it says it has" {
   let letters = model.domains.map(fn(d) { d.letter })
   assert_eq(ids, ["model", "data", "experience", "attack", "knowledge"])
   assert_eq(letters, ["M", "D", "E", "A", "K"])
+}
+
+///|
+/// A model somebody else wrote, with its own words for the outcomes.
+///
+/// The vocabulary is part of the model, so a file that renames an outcome
+/// renames it everywhere: in the panel, in the history, in the export. It is
+/// also allowed to say nothing about some kinds, and then the kind is the
+/// word -- honest, because the outcome happened and the file has no name
+/// for it.
+fn toy_model_with_words() -> Json {
+  {
+    "format": "maked.model.v1",
+    "name": "Renamed",
+    "domains": [
+      {
+        "id": "idea",
+        "letter": "I",
+        "title": "Idea",
+        "role": "the idea",
+        "anchor": "raw",
+      },
+    ],
+    "positions": [
+      {
+        "id": "raw",
+        "label": "Raw idea",
+        "gloss": "Nobody has built it yet.",
+        "domain": "idea",
+      },
+      {
+        "id": "talked",
+        "label": "Talked about",
+        "gloss": "Someone has heard it.",
+        "domain": "idea",
+      },
+    ],
+    "slots": [
+      { "id": "ask", "designation": "Ask", "gloss": "Talk to a customer." },
+    ],
+    "rules": [
+      {
+        "from": "raw",
+        "slot": "ask",
+        "outcome": {
+          "kind": "moved",
+          "edge": "A customer said no",
+          "to": "talked",
+        },
+      },
+    ],
+    "continuations": [],
+    "outcomes": [
+      { "kind": "moved", "label": "Advanced" },
+      { "kind": "open", "label": "Undecided" },
+    ],
+  }
+}
+
+///|
+/// Every outcome the model can produce has a word.
+///
+/// The words are the model's, and a model that produces an outcome it cannot
+/// name is a model with a hole in it: the reader would see the kind spelled
+/// out in the panel and would have no way of knowing the model had not said
+/// anything about it.
+test "every outcome the model can produce has a word" {
+  let model = @backend.Model::pyroduct()
+  for rule in model.rules {
+    let kind = rule.transition.kind()
+    let word = model.outcome_label(kind)
+    assert_false(word == "")
+    // The built-in model's words are words, not the kinds again.
+    assert_false(word == kind)
+  }
+}
+
+///|
+/// The built-in model's words are the table's own.
+///
+/// The model collects them from the table as it walks it, and this asks the
+/// table again -- the same way the 272 rules are compared -- so a word that
+/// drifted from the table's rendering would be caught here rather than in a
+/// reader's eye.
+test "the built-in model's words are the table's own" {
+  let model = @backend.Model::pyroduct()
+  for state in @sm.all_states() {
+    for slot in @sm.all_slots() {
+      let outcome = @sm.step(state, slot)
+      let kind = @backend.Move::of(state, outcome).kind()
+      assert_eq(model.outcome_label(kind), outcome.en_label())
+    }
+  }
+}
+
+///|
+/// A model file's own words are the words.
+///
+/// The vocabulary is part of the model, so a file that renames an outcome
+/// renames it: the word a reader sees is the file's, not MAKED's.
+test "a model file's own words are the words" {
+  let toy = @backend.Model::from_json(toy_model_with_words()).unwrap()
+  assert_eq(toy.outcome_label("moved"), "Advanced")
+  assert_eq(toy.outcome_label("open"), "Undecided")
+  // And a kind the file says nothing about falls back to the kind itself.
+  assert_eq(toy.outcome_label("held"), "held")
+}
+
+///|
+/// The vocabulary survives a trip through JSON with the rest of the model.
+///
+/// A file that was written down and read back has to say the same thing, and
+/// the words are part of what it says.
+test "the words survive a trip through JSON" {
+  let toy = @backend.Model::from_json(toy_model_with_words()).unwrap()
+  let back = @backend.Model::from_json(toy.to_json()).unwrap()
+  assert_eq(back.outcome_label("moved"), "Advanced")
+  assert_eq(back.outcome_label("open"), "Undecided")
+}
+
+///|
+/// A loop on a model of its own answers from that model.
+///
+/// The state carries the machine it was built for, and every question about
+/// the state -- the outcome's word, the position's label, the ring -- is
+/// asked of that machine. A state that asked the *installed* model would be
+/// half on one machine and half on another: the ring walked with the wrong
+/// lenses, and a word borrowed from a machine nobody took the step on.
+///
+/// The installed model is left alone throughout, and the last line says so.
+test "a loop on a model of its own answers from that model" {
+  let toy = @backend.Model::from_json(toy_model_with_words()).unwrap()
+  let state = @backend.LoopState::new_for(toy)
+  let after = state.step_with_slot("ask")
+  let event = after.history[0]
+  // The word is the model's.
+  assert_eq(event.outcome_label, "Advanced")
+  // And the kind is the kind, whatever the model calls it.
+  assert_eq(event.outcome_kind, "moved")
+  // The position's label is the model's too -- not the installed model's.
+  assert_eq(event.position_label, "Raw idea")
+  assert_eq(event.outcome_detail, "A customer said no → Talked about")
+  // The installed model was neither consulted nor changed.
+  assert_eq(@backend.current_model().outcome_label("moved"), "Moved")
+  assert_eq(@backend.current_model().domain_ids().length(), 5)
+}
+
+///|
+/// The built-in model with a different name, and nothing else changed.
+///
+/// The point of it is that it is *the same machine*. A test that installs a
+/// model with different domains changes what every other test in the suite
+/// sees while it is installed, and the suite runs its blocks side by side --
+/// which is how a test that swapped the model used to crash a test that had
+/// nothing to do with models. A model that differs only in its name can be
+/// installed without changing a single answer any other test reads.
+fn renamed_built_in() -> @backend.Model {
+  let model = @backend.Model::pyroduct()
+  {
+    name: "Renamed",
+    domains: model.domains,
+    positions: model.positions,
+    slots: model.slots,
+    rules: model.rules,
+    continuations: model.continuations,
+    outcomes: model.outcomes,
+  }
+}
+
+///|
+/// The model that was read is the model that runs.
+///
+/// A server that read a file and then ran the built-in machine anyway would
+/// answer every request confidently and about the wrong loop. The install is
+/// what closes that gap.
+///
+/// The model installed here is the built-in one with a new name, so the check
+/// cannot disturb a test running beside it: every answer it gives is the
+/// answer the built-in model gives, and only the name is different.
+test "the model that is installed is the model that runs" {
+  let built_in = @backend.current_model()
+  let renamed = renamed_built_in()
+  @backend.install_model(renamed)
+  let installed = @backend.current_model()
+  // The built-in one goes back before anything is asserted, so the window in
+  // which the installed model is not the built-in one is as short as it can
+  // be.
+  @backend.install_model(built_in)
+  assert_eq(installed.name, "Renamed")
+  // And the built-in model is back, answering as it did.
+  assert_eq(@backend.current_model().name, built_in.name)
+  assert_eq(@backend.current_model().domain_ids().length(), 5)
+}
+
+///|
+/// Every domain of the model has a state.
+///
+/// The per-domain map is keyed by the model's own domain id, and every
+/// domain the model declares has an entry in it. That is the invariant that
+/// makes a lookup answerable rather than a crash: the state and the model
+/// are the same object, so a domain the state is asked about is a domain the
+/// state has.
+///
+/// The check reads the map rather than asking the state, so that a broken
+/// key fails the test instead of taking the whole test binary down with it.
+test "every domain of the model has a state" {
+  let model = @backend.current_model()
+  let state = @backend.LoopState::new_for(model)
+  for domain in model.domains {
+    assert_true(state.domain_states.get(domain.id) is Some(_))
+  }
+  // And a model of somebody else's has the same shape.
+  let toy = @backend.Model::from_json(toy_model()).unwrap()
+  let toy_state = @backend.LoopState::new_for(toy)
+  for domain in toy.domains {
+    assert_true(toy_state.domain_states.get(domain.id) is Some(_))
+  }
 }
