@@ -179,6 +179,24 @@ $mutations = @(
     old  = '    "explicit" => facts.slot + " was the slot you chose"'
     new  = '    "explicit" => facts.slot + " was the slot the table drives with here"'
   },
+  # A model file may be written in YAML as well as JSON. The extension says
+  # which, because the two syntaxes overlap -- JSON is a subset of YAML --
+  # and a file read as the wrong syntax is a file that half-reads.
+  @{
+    name = 'a YAML model file is read as JSON'
+    file = 'backend/model.mbt'
+    old  = '  lower.has_suffix(".yaml") || lower.has_suffix(".yml")'
+    new  = '  lower.has_suffix(".yaml") && lower.has_suffix(".yml")'
+  },
+  # A model file is one machine. A file with two documents in it is a file
+  # whose author was not sure which one they meant, and guessing for them
+  # would be running a machine nobody chose.
+  @{
+    name = 'a model file with two machines in it is read anyway'
+    file = 'backend/model.mbt'
+    old  = '    if documents.length() > 1 {'
+    new  = '    if false {'
+  },
   # The role of a domain is the model's word for it. MAKED used to carry its
   # own five roles and look them up by letter, so a model file's domains had
   # no voice in the sentence about them: a domain called "I" got a sentence

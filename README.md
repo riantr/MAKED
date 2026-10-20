@@ -367,7 +367,7 @@ image carries `pwsh`.
 Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be run separately:
 
 ```
-.\tools\mutate-backend.ps1     # 41 mutations, 0 survived, 1 expected-equivalent
+.\tools\mutate-backend.ps1     # 43 mutations, 0 survived, 1 expected-equivalent
 .\tools\mutate-frontend.ps1    # 23 mutations, 0 survived
 .\tools\mutate-loop.ps1        # 16 mutations, 0 survived
 ```
@@ -375,7 +375,7 @@ Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be 
 And the one that finds the rot before the suites do:
 
 ```
-.\tools\check-mutation-anchors.ps1   # 75 anchors, 0 dead
+.\tools\check-mutation-anchors.ps1   # 77 anchors, 0 dead
 ```
 
 Every mutation in those three suites is a text replacement, and a text
@@ -418,7 +418,7 @@ that cannot break is not a gate, and that one fails the build.
 | js-check | `moon check --target js` | frontend type safety |
 | fmt | `moon fmt --check` | code formatting |
 | tree | `moon tree` | dependency audit |
-| unit-native | `moon test --target native` | 261 backend tests (includes the BDD suite below) |
+| unit-native | `moon test --target native` | 265 backend tests (includes the BDD suite below) |
 | unit-js | `moon test --target js` | 69 frontend tests |
 | coverage | `moon test --enable-coverage` | coverage |
 | bench | `moon bench` | benchmarks |
@@ -795,6 +795,41 @@ one of `moved`, `held`, `same`, `open` or `block`, and `open` is the one
 that declines to choose — it carries the candidates, and the candidate the
 reader picks is the way out of a position the table would not decide.
 
+The same machine in YAML:
+
+```yaml
+format: maked.model.v1
+name: Product iteration
+
+domains:
+  - id: idea
+    letter: "I"
+    title: Idea
+    role: the idea
+    anchor: raw
+
+positions:
+  - id: raw
+    label: Raw idea
+    gloss: Nobody has built it yet.
+    domain: idea
+
+slots:
+  - id: ask
+    designation: Ask
+    gloss: Talk to a customer.
+
+rules:
+  - from: raw
+    slot: ask
+    outcome:
+      kind: moved
+      edge: A customer said no
+      to: talked
+
+continuations: []
+```
+
 **The translation is proved, not assumed.** The built-in model is still
 pyroduct's: `Model::pyroduct` asks the package about all 272 combinations
 and writes the answers down in MAKED's own vocabulary. The test then asks
@@ -880,7 +915,23 @@ its own positions, its own rules, its own way out of a position the model
 declines to decide, and its own lookahead. MAKED runs it, and the panel, the
 narration and the measures are all about that machine.
 
-A model file is JSON, and it says which format it is:
+**A model file may be written in YAML as well as JSON.** A `.yaml` or `.yml`
+file is read as YAML; every other model file is read as JSON. The extension
+decides, because the two syntaxes overlap — JSON is a subset of YAML — and
+a file that says one thing and is read as the other is a file that
+half-reads, and half a machine is worse than none.
+
+The same machine ships in both syntaxes —
+`models/product-iteration.json` and `models/product-iteration.yaml` — and a
+test reads both and compares them, so the two files cannot drift apart:
+
+```powershell
+$env:MAKED_MODEL = 'models/product-iteration.yaml'
+.\maked.exe
+```
+
+A model file says which format it is, and the file says so in whatever
+syntax it is written in:
 
 ```json
 {

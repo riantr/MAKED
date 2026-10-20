@@ -315,11 +315,15 @@ pub fn model_path_from_env() -> String? {
 ///|
 /// Read a model from a file.
 ///
-/// None when the file cannot be read, is not JSON, is not a model this
-/// version understands, or names something it does not define. A model that
-/// cannot be read whole is not read at all: half a machine is worse than the
-/// built-in one, because everything downstream would be confidently wrong
-/// about a machine nobody can see.
+/// None when the file cannot be read, is not JSON (or YAML), is not a model
+/// this version understands, or names something it does not define. A model
+/// that cannot be read whole is not read at all: half a machine is worse
+/// than the built-in one, because everything downstream would be
+/// confidently wrong about a machine nobody can see.
+///
+/// A `.yaml` or `.yml` file is read as YAML; every other file is read as
+/// JSON. The extension decides, because the two are different syntaxes, and
+/// a file written in one and read as the other is a file that half-read.
 pub async fn read_model_file(path : String) -> Model? {
   let text = @fs.read_file(path).text() catch {
     err => {
@@ -327,11 +331,9 @@ pub async fn read_model_file(path : String) -> Model? {
       return None
     }
   }
-  let json = @json.parse(text) catch {
-    err => {
-      println("error: model file \{path} is not JSON: \{err}")
-      return None
-    }
+  let json = match parse_model_text(path, text) {
+    Some(json) => json
+    None => return None
   }
   match Model::from_json(json) {
     Some(model) => Some(model)
@@ -346,6 +348,67 @@ pub async fn read_model_file(path : String) -> Model? {
       None
     }
   }
+}
+
+///|
+/// The JSON a model file says, whatever syntax the file is written in.
+///
+/// A `.yaml` or `.yml` file is read as YAML, and everything else as JSON.
+/// The extension is the whole of the decision, and it is a decision rather
+/// than a guess: the two syntaxes overlap -- JSON is a subset of YAML -- so
+/// a file that says one thing and is read as the other is a file that
+/// half-read, and half a machine is worse than none.
+///
+/// A YAML file with more than one document in it is refused. A model file is
+/// one machine, and a file with two of them in it is a file whose author
+/// was not sure which one they meant.
+///
+/// Public, because the question "what does this file say" is a question
+/// about the text and the name, not about the disk -- and a question that
+/// can only be asked by opening a file is a question that is only ever
+/// asked about a file that happens to be lying around.
+pub fn parse_model_text(path : String, text : String) -> Json? {
+  if is_yaml_path(path) {
+    let documents = @yaml.Yaml::load_from_string(text) catch {
+      err => {
+        println(
+          "error: model file \{path} is not YAML: \{@debug.to_string(err)}",
+        )
+        return None
+      }
+    }
+    if documents.length() == 0 {
+      println("error: model file \{path} is empty")
+      return None
+    }
+    if documents.length() > 1 {
+      println(
+        "error: model file \{path} holds \{documents.length()} documents; a model file holds one",
+      )
+      return None
+    }
+    Some(documents[0].to_json())
+  } else {
+    let json = @json.parse(text) catch {
+      err => {
+        println("error: model file \{path} is not JSON: \{err}")
+        return None
+      }
+    }
+    Some(json)
+  }
+}
+
+///|
+/// Whether a path names a YAML file.
+///
+/// The extension, and nothing else. A file called `.yml` is YAML and a file
+/// called anything else is JSON, and the reason for the rule is the same
+/// as the reason for reading the file at all: a file that is read as the
+/// wrong syntax is a file that is half-read.
+fn is_yaml_path(path : String) -> Bool {
+  let lower = path.to_lower()
+  lower.has_suffix(".yaml") || lower.has_suffix(".yml")
 }
 
 ///|

@@ -7,6 +7,7 @@
 // server, not a general-purpose framework.
 import {
   "moonbit-community/sqlite3",
+  "moonbit-community/yaml",
   "moonbitlang/async/fs",
   "moonbitlang/async/http",
   "moonbitlang/core/debug",

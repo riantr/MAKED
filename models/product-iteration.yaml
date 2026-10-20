@@ -1,0 +1,258 @@
+# The product-iteration loop, written in YAML.
+#
+# This is the same machine as models/product-iteration.json: three domains,
+# seven positions, four slots, twenty-eight rules, and the same five words
+# for the five kinds of outcome. The two files are kept honest by a test --
+# the one that says a machine written in either syntax is the same machine.
+#
+# A `.yaml` or `.yml` file is read as YAML; every other model file is read
+# as JSON. The extension decides, because a file read as the wrong syntax
+# is a file that half-reads.
+format: maked.model.v1
+name: Product iteration
+
+domains:
+  - id: idea
+    letter: "I"
+    title: Idea
+    role: the idea
+    anchor: raw
+  - id: making
+    letter: "W"
+    title: Making
+    role: the making
+    anchor: wip
+  - id: shipped
+    letter: "S"
+    title: Shipped
+    role: the shipping
+    anchor: out
+
+outcomes:
+  - kind: moved
+    label: Advanced
+  - kind: held
+    label: Kept
+  - kind: same
+    label: Settled
+  - kind: open
+    label: Undecided
+  - kind: block
+    label: No way
+
+positions:
+  - id: raw
+    label: Raw idea
+    gloss: Nobody has built it yet.
+    domain: idea
+  - id: talked
+    label: Talked about
+    gloss: Someone has heard it.
+    domain: idea
+  - id: scoped
+    label: Scoped
+    gloss: It has a shape and a name, and it fits.
+    domain: idea
+  - id: wip
+    label: Work in progress
+    gloss: It exists, mostly.
+    domain: making
+  - id: tested
+    label: Tested
+    gloss: It has been tried, and the trying found something.
+    domain: making
+  - id: out
+    label: Out
+    gloss: It is in front of people.
+    domain: shipped
+  - id: retired
+    label: Retired
+    gloss: It was taken back.
+    domain: shipped
+
+slots:
+  - id: ask
+    designation: Ask
+    gloss: Talk to somebody who would use it.
+  - id: scope
+    designation: Scope
+    gloss: Cut it down until it fits.
+  - id: build
+    designation: Build
+    gloss: Make the thing.
+  - id: ship
+    designation: Ship
+    gloss: Put it in front of people.
+
+rules:
+  - from: raw
+    slot: ask
+    outcome:
+      kind: moved
+      edge: A customer said no
+      to: talked
+  - from: raw
+    slot: scope
+    outcome:
+      kind: moved
+      edge: It was cut down to fit
+      to: scoped
+  - from: raw
+    slot: build
+    outcome:
+      kind: moved
+      edge: It was built
+      to: wip
+  - from: raw
+    slot: ship
+    outcome:
+      kind: block
+      reason: there is nothing to ship yet
+  - from: talked
+    slot: ask
+    outcome:
+      kind: moved
+      edge: A customer said yes
+      to: scoped
+  - from: talked
+    slot: scope
+    outcome:
+      kind: moved
+      edge: It was cut down to fit
+      to: scoped
+  - from: talked
+    slot: build
+    outcome:
+      kind: block
+      reason: the shape is not clear yet
+  - from: talked
+    slot: ship
+    outcome:
+      kind: block
+      reason: there is nothing to ship yet
+  - from: scoped
+    slot: ask
+    outcome:
+      kind: moved
+      edge: They asked for it to work
+      to: wip
+  - from: scoped
+    slot: scope
+    outcome:
+      kind: same
+      edges:
+        - It was cut down again
+      to: scoped
+  - from: scoped
+    slot: build
+    outcome:
+      kind: moved
+      edge: It was built
+      to: wip
+  - from: scoped
+    slot: ship
+    outcome:
+      kind: block
+      reason: it does not work yet
+  - from: wip
+    slot: ask
+    outcome:
+      kind: open
+      candidates:
+        - edge: They asked for something else
+          to: talked
+          kind: moved
+        - edge: They asked for a smaller thing
+          to: scoped
+          kind: moved
+  - from: wip
+    slot: scope
+    outcome:
+      kind: moved
+      edge: It was cut down to fit
+      to: scoped
+  - from: wip
+    slot: build
+    outcome:
+      kind: moved
+      edge: It was tried
+      to: tested
+  - from: wip
+    slot: ship
+    outcome:
+      kind: block
+      reason: it is not ready
+  - from: tested
+    slot: ask
+    outcome:
+      kind: moved
+      edge: They did not want it after all
+      to: talked
+  - from: tested
+    slot: scope
+    outcome:
+      kind: moved
+      edge: It was cut down to fit
+      to: scoped
+  - from: tested
+    slot: build
+    outcome:
+      kind: moved
+      edge: It was fixed
+      to: wip
+  - from: tested
+    slot: ship
+    outcome:
+      kind: moved
+      edge: It was released
+      to: out
+  - from: out
+    slot: ask
+    outcome:
+      kind: moved
+      edge: Nobody wanted it
+      to: retired
+  - from: out
+    slot: scope
+    outcome:
+      kind: held
+      edge: It was narrowed
+      to: out
+  - from: out
+    slot: build
+    outcome:
+      kind: held
+      edge: It was rebuilt
+      to: out
+  - from: out
+    slot: ship
+    outcome:
+      kind: held
+      edge: It was shipped again
+      to: out
+  - from: retired
+    slot: ask
+    outcome:
+      kind: moved
+      edge: Somebody wants it again
+      to: raw
+  - from: retired
+    slot: scope
+    outcome:
+      kind: block
+      reason: it is retired
+  - from: retired
+    slot: build
+    outcome:
+      kind: block
+      reason: it is retired
+  - from: retired
+    slot: ship
+    outcome:
+      kind: block
+      reason: it is retired
+
+# Left empty on purpose: the lookahead is worked out from the rules, and a
+# model file that does not have to repeat itself is a model file with one
+# less thing to go stale.
+continuations: []

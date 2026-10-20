@@ -287,6 +287,93 @@ fn toy_model() -> Json {
 }
 
 ///|
+/// The toy model, written in YAML.
+///
+/// The same machine as `toy_model()`, in the other syntax. The two are kept
+/// honest by a test that reads both and compares them.
+fn toy_model_yaml() -> String {
+  (
+    #|format: maked.model.v1
+    #|name: Product iteration
+    #|domains:
+    #|  - id: idea
+    #|    letter: "I"
+    #|    title: Idea
+    #|    role: the idea
+    #|    anchor: raw
+    #|  - id: ship
+    #|    letter: "S"
+    #|    title: Ship
+    #|    role: the shipping
+    #|    anchor: built
+    #|positions:
+    #|  - id: raw
+    #|    label: Raw idea
+    #|    gloss: Nobody has built it yet.
+    #|    domain: idea
+    #|  - id: talked
+    #|    label: Talked about
+    #|    gloss: Someone has heard it.
+    #|    domain: idea
+    #|  - id: built
+    #|    label: Built
+    #|    gloss: It exists.
+    #|    domain: ship
+    #|slots:
+    #|  - id: ask
+    #|    designation: Ask
+    #|    gloss: Talk to a customer.
+    #|  - id: build
+    #|    designation: Build
+    #|    gloss: Make the thing.
+    #|rules:
+    #|  - from: raw
+    #|    slot: ask
+    #|    outcome:
+    #|      kind: moved
+    #|      edge: A customer said no
+    #|      to: talked
+    #|  - from: raw
+    #|    slot: build
+    #|    outcome:
+    #|      kind: moved
+    #|      edge: It was built
+    #|      to: built
+    #|  - from: talked
+    #|    slot: ask
+    #|    outcome:
+    #|      kind: moved
+    #|      edge: A customer said yes
+    #|      to: built
+    #|  - from: talked
+    #|    slot: build
+    #|    outcome:
+    #|      kind: block
+    #|      reason: nothing to build yet
+    #|  - from: built
+    #|    slot: ask
+    #|    outcome:
+    #|      kind: block
+    #|      reason: it is built
+    #|  - from: built
+    #|    slot: build
+    #|    outcome:
+    #|      kind: held
+    #|      edge: Shipped
+    #|      to: built
+    #|continuations:
+    #|  - from: raw
+    #|    slot: ask
+    #|    to: talked
+    #|    steps: 1
+    #|  - from: raw
+    #|    slot: ask
+    #|    to: built
+    #|    steps: 2
+  )
+}
+
+///|
 /// A model that is not pyroproduct's is read, and answers questions.
 test "a model somebody else wrote is read" {
   let model = @backend.Model::from_json(toy_model())
@@ -297,6 +384,66 @@ test "a model somebody else wrote is read" {
   assert_eq(read.positions.length(), 3)
   assert_eq(read.slots.length(), 2)
   assert_eq(read.rules.length(), 6)
+}
+
+///|
+/// A machine written in YAML is the machine written in JSON.
+///
+/// The two syntaxes have to agree, and the only way to know that they do is
+/// to read both and compare. A YAML reader that quietly dropped a field
+/// would give a machine that is *nearly* right, and a nearly right machine
+/// is the dangerous kind: it would look like the model the author wrote.
+///
+/// The comparison is of the two models as MAKED writes them back out, so it
+/// covers every field rather than the handful somebody thought to check.
+test "a machine written in YAML is the machine written in JSON" {
+  let from_json = @backend.Model::from_json(toy_model()).unwrap()
+  let parsed = @backend.parse_model_text("model.yaml", toy_model_yaml())
+  assert_true(parsed is Some(_))
+  let from_yaml = @backend.Model::from_json(parsed.unwrap()).unwrap()
+  // The same machine, down to the JSON it is written back out as.
+  assert_eq(from_yaml.to_json(), from_json.to_json())
+}
+
+///|
+/// The extension decides how a model file is read.
+///
+/// A `.yaml` or `.yml` file is YAML and everything else is JSON. The rule is
+/// there because the two syntaxes overlap -- JSON is a subset of YAML -- so
+/// a file that says one thing and is read as the other is a file that
+/// half-reads, and half a machine is worse than none.
+test "the extension decides how a model file is read" {
+  // The same text, read as each of the two.
+  let json_text = "format: maked.model.v1\nname: Not JSON"
+  assert_true(@backend.parse_model_text("model.json", json_text) is None)
+  assert_true(@backend.parse_model_text("model.yaml", json_text) is Some(_))
+  // And the extension is matched without regard to its case, because a file
+  // called Model.YAML is still a YAML file.
+  assert_true(@backend.parse_model_text("model.YAML", json_text) is Some(_))
+  assert_true(@backend.parse_model_text("model.yml", json_text) is Some(_))
+}
+
+///|
+/// A YAML file that is not YAML is refused.
+///
+/// A file that cannot be read whole is not read at all: half a machine is
+/// worse than the built-in one, because everything downstream would be
+/// confidently wrong about a machine nobody can see.
+test "a model file that is not YAML is refused" {
+  // A mapping that is never closed.
+  let broken = "format: maked.model.v1\ndomains:\n  - id: idea\n   letter: I"
+  assert_true(@backend.parse_model_text("model.yaml", broken) is None)
+}
+
+///|
+/// A YAML file with two machines in it is refused.
+///
+/// A model file is one machine. A file with two documents in it is a file
+/// whose author was not sure which one they meant, and guessing for them
+/// would be running a machine nobody chose.
+test "a model file with two documents in it is refused" {
+  let two = "format: maked.model.v1\nname: One\n---\nformat: maked.model.v1\nname: Two"
+  assert_true(@backend.parse_model_text("model.yaml", two) is None)
 }
 
 ///|

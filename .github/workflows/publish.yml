@@ -358,7 +358,7 @@ jobs:
           # just unpacked it can run a machine of their own without first
           # finding a file to point at.
           mkdir -p stage/maked/models
-          cp models/*.json stage/maked/models/
+          cp models/*.json models/*.yaml stage/maked/models/
           chmod +x stage/maked/server
           tar -czf "maked-${version}-${{ matrix.target }}.tar.gz" -C stage maked
 

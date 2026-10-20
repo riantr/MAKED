@@ -824,63 +824,78 @@ try {
   # server already running cannot be the one that proves it -- and a check
   # that quietly tested the built-in model would pass whatever the file
   # said.
+  #
+  # The same machine is checked twice, once in each of the two syntaxes a
+  # model file can be written in. A machine that reads as JSON and not as
+  # YAML is half a machine, and the two files here are the same machine --
+  # so every check below has to pass for both of them.
+  function Test-OwnModel {
+    param([string]$ModelFile, [string]$Label, [int]$ModelPort)
+
+    Assert-True ("the {0} example model ships with the repository" -f $Label) `
+      (Test-Path $ModelFile)
+    if (-not (Test-Path $ModelFile)) { return }
+
+    $modelArgs = @{
+      FilePath               = $exe
+      PassThru               = $true
+      RedirectStandardOutput = (Join-Path $tempDir ("maked_integration_model_{0}_out.log" -f $ModelPort))
+      RedirectStandardError  = (Join-Path $tempDir ("maked_integration_model_{0}_err.log" -f $ModelPort))
+    }
+    if ($IsWindows -or $PSVersionTable.PSVersion.Major -lt 6) {
+      $modelArgs["WindowStyle"] = "Hidden"
+    }
+    $savedModel = $env:MAKED_MODEL
+    $savedPort = $env:MAKED_PORT
+    $savedDb = $env:MAKED_DB
+    $savedBase = $script:base
+    $env:MAKED_MODEL = $ModelFile
+    $env:MAKED_PORT = "$ModelPort"
+    $env:MAKED_DB = (Join-Path $tempDir ("maked_integration_model_{0}.db" -f $ModelPort))
+    $script:base = "http://127.0.0.1:$ModelPort"
+    $modelServer = Start-Process @modelArgs
+    try {
+      $modelReady = $false
+      for ($i = 0; $i -lt 60; $i++) {
+        Start-Sleep -Milliseconds 250
+        $probe = Invoke-Api -Method GET -Path "/api/status" -TimeoutSec 2
+        if ($probe.Status -eq 200) { $modelReady = $true; break }
+      }
+      Assert-True ("the server starts with the {0} model file" -f $Label) $modelReady
+      if ($modelReady) {
+        $own = (Invoke-Api -Method GET -Path "/api/model").Body | ConvertFrom-Json
+        Assert-Field ("and it is the model in the {0} file" -f $Label) $own "name" "Product iteration"
+        Assert-True ("and it has that model's three domains" -f $Label) (@($own.domains).Count -eq 3)
+        Assert-True ("and that model's seven positions" -f $Label) (@($own.positions).Count -eq 7)
+        Assert-True ("and that model's four slots" -f $Label) (@($own.slots).Count -eq 4)
+        # The loop runs on it: the first domain of the file, at its anchor.
+        $ownStatus = Get-Json "/api/loop/status"
+        Assert-Field ("and the loop starts in that model's first domain" -f $Label) $ownStatus "current_domain" "I"
+        Assert-Field ("at that model's first position" -f $Label) $ownStatus "current_position" "Raw idea"
+        # And the names a reader sees are the file's, not MAKED's.
+        Assert-Field ("and the domain is the one the file names" -f $Label) $ownStatus "current_title" "Idea"
+        # The lookahead is worked out from that model's rules.
+        $ownContinuations = Get-Json "/api/loop/continuations?depth=2"
+        Assert-True ("and the file's own continuations are offered" -f $Label) `
+          (@($ownContinuations.continuations).Count -ge 1)
+      }
+    } finally {
+      if ($null -ne $modelServer -and -not $modelServer.HasExited) {
+        Stop-Process -Id $modelServer.Id -Force -ErrorAction SilentlyContinue
+      }
+      $env:MAKED_MODEL = $savedModel
+      $env:MAKED_PORT = $savedPort
+      $env:MAKED_DB = $savedDb
+      $script:base = $savedBase
+    }
+  }
+
   Write-Host ""
   Write-Host "-- a model of your own"
-  $modelFile = Join-Path $repo "models/product-iteration.json"
-  Assert-True "the example model ships with the repository" (Test-Path $modelFile)
-  $modelPort = $Port + 1
-  $modelArgs = @{
-    FilePath               = $exe
-    PassThru               = $true
-    RedirectStandardOutput = (Join-Path $tempDir "maked_integration_model_out.log")
-    RedirectStandardError  = (Join-Path $tempDir "maked_integration_model_err.log")
-  }
-  if ($IsWindows -or $PSVersionTable.PSVersion.Major -lt 6) {
-    $modelArgs["WindowStyle"] = "Hidden"
-  }
-  $savedModel = $env:MAKED_MODEL
-  $savedPort = $env:MAKED_PORT
-  $savedDb = $env:MAKED_DB
-  $savedBase = $base
-  $env:MAKED_MODEL = $modelFile
-  $env:MAKED_PORT = "$modelPort"
-  $env:MAKED_DB = (Join-Path $tempDir "maked_integration_model.db")
-  $base = "http://127.0.0.1:$modelPort"
-  $modelServer = Start-Process @modelArgs
-  try {
-    $modelReady = $false
-    for ($i = 0; $i -lt 60; $i++) {
-      Start-Sleep -Milliseconds 250
-      $probe = Invoke-Api -Method GET -Path "/api/status" -TimeoutSec 2
-      if ($probe.Status -eq 200) { $modelReady = $true; break }
-    }
-    Assert-True "the server starts with a model file" $modelReady
-    if ($modelReady) {
-      $own = (Invoke-Api -Method GET -Path "/api/model").Body | ConvertFrom-Json
-      Assert-Field "and it is the model in the file" $own "name" "Product iteration"
-      Assert-True "and it has that model's three domains" (@($own.domains).Count -eq 3)
-      Assert-True "and that model's seven positions" (@($own.positions).Count -eq 7)
-      Assert-True "and that model's four slots" (@($own.slots).Count -eq 4)
-      # The loop runs on it: the first domain of the file, at its anchor.
-      $ownStatus = Get-Json "/api/loop/status"
-      Assert-Field "and the loop starts in that model's first domain" $ownStatus "current_domain" "I"
-      Assert-Field "at that model's first position" $ownStatus "current_position" "Raw idea"
-      # And the names a reader sees are the file's, not MAKED's.
-      Assert-Field "and the domain is the one the file names" $ownStatus "current_title" "Idea"
-      # The lookahead is worked out from that model's rules.
-      $ownContinuations = Get-Json "/api/loop/continuations?depth=2"
-      Assert-True "and the file's own continuations are offered" `
-        (@($ownContinuations.continuations).Count -ge 1)
-    }
-  } finally {
-    if ($null -ne $modelServer -and -not $modelServer.HasExited) {
-      Stop-Process -Id $modelServer.Id -Force -ErrorAction SilentlyContinue
-    }
-    $env:MAKED_MODEL = $savedModel
-    $env:MAKED_PORT = $savedPort
-    $env:MAKED_DB = $savedDb
-    $base = $savedBase
-  }
+  Test-OwnModel (Join-Path $repo "models/product-iteration.json") "JSON" ($Port + 1)
+  Write-Host ""
+  Write-Host "-- the same model, written in YAML"
+  Test-OwnModel (Join-Path $repo "models/product-iteration.yaml") "YAML" ($Port + 2)
 } finally {
   Stop-Server
   Start-Sleep -Milliseconds 300
