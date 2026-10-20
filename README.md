@@ -295,6 +295,25 @@ The collective (`/api/society`) and the exports are still English for now.
 The agent's server takes the same switch as an argument: `maked_status`,
 `maked_options` and `maked_step` all accept `lang`.
 
+### The language in the browser
+
+The page has a switch too, at the top right of the header. It names the
+language it switches *to*, so a reader who cannot read the language in force
+can still read the button. Pressing it moves the whole interface: the words
+the client owns come from the client's own table, and the words the machine
+owns come back from the server in the language that was asked for.
+
+The choice is not remembered across a reload. It is a question the reader
+asks of the page, and a page that has just been opened has not been asked.
+
+Two things are still English in a Chinese interface, and both are honest
+about it:
+
+- the prose of the five domain pages, which is the project's own writing and
+  lives in the database;
+- the metrics, the exports, and the collective's own vocabulary, which are
+  the next piece of work.
+
 ### The agent's server
 
 Seven tools. Every answer is in sentences, with the ids beside them for when you want to be

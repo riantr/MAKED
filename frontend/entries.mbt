@@ -135,13 +135,14 @@ pub fn draft_problem(
   domains : Array[String],
   draft_domain : String,
   draft_title : String,
+  c : Chrome,
 ) -> String {
   if draft_domain == "" {
-    "choose a domain first"
+    c.workspace.no_domain
   } else if !domains.contains(draft_domain) {
-    "the domain must be one of M, D, E, A, K"
+    c.workspace.wrong_domain
   } else if draft_title.trim().to_owned().is_empty() {
-    "give the entry a title"
+    c.workspace.no_title
   } else {
     ""
   }

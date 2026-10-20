@@ -76,6 +76,30 @@ body {
     border-bottom: 2px solid #2ecc71;
 }
 
+/* The language switch. It sits at the right of the header, because it is a
+   control rather than a destination: it changes what the page says without
+   taking the reader anywhere. */
+.maked-lang {
+    float: right;
+    margin-top: -34px;
+}
+
+.maked-lang-btn {
+    background: transparent;
+    border: 1px solid #7f8c8d;
+    border-radius: 3px;
+    color: #ecf0f1;
+    cursor: pointer;
+    font-size: 12px;
+    letter-spacing: 1px;
+    padding: 6px 12px;
+}
+
+.maked-lang-btn:hover {
+    border-color: #2ecc71;
+    color: #2ecc71;
+}
+
 /* --- main ---------------------------------------------------------------- */
 .maked-main {
     max-width: 960px;

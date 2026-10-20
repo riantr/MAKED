@@ -180,8 +180,8 @@ $mutations = @(
   @{
     name = 'the request drops the chosen successor'
     file = 'frontend/app.mbt'
-    old  = '  ("/api/loop/step/" + slot, { "target": target })'
-    new  = '  ("/api/loop/step/" + slot, { "target": "" })'
+    old  = '  ("/api/loop/step/" + slot + lang_query(lang), { "target": target })'
+    new  = '  ("/api/loop/step/" + slot + lang_query(lang), { "target": "" })'
   },
   # The candidates are the table's own. A client that decodes none of them
   # draws a way out with no way in it.
@@ -321,8 +321,8 @@ $mutations = @(
   @{
     name = 'the outcome sentence drops where the move came from'
     file = 'frontend/society.mbt'
-    old  = '        "The collective moved from " +'
-    new  = '        "The collective moved to " +'
+    old  = '        collective_moved_from(c, summary.from_label, summary.state_label)'
+    new  = '        collective_moved_to(c, summary.state_label)'
   },
   @{
     name = 'the move button carries the label instead of the name'
@@ -341,6 +341,117 @@ $mutations = @(
     file = 'frontend/app.mbt'
     old  = '("/api/society/step", { "trigger": trigger })'
     new  = '("/api/society/read", { "trigger": trigger })'
+  },
+  # --- the language ---------------------------------------------------------
+  #
+  # The frontend carries its own language and its own table of words, because
+  # the backend's `Lang` is in another package and another target. These
+  # mutations are about the two ways that can go wrong: the table can be the
+  # English one in a Chinese interface, and a sentence with a hole in it can
+  # come out in the wrong language.
+  @{
+    name = 'the Chinese words of the shell are the English ones'
+    file = 'frontend/i18n.mbt'
+    old  = '        nav: nav_zh(),'
+    new  = '        nav: nav_en(),'
+  },
+  @{
+    name = 'the Chinese words of the loop are the English ones'
+    file = 'frontend/i18n.mbt'
+    old  = '        loop_panel: loop_zh(),'
+    new  = '        loop_panel: loop_en(),'
+  },
+  @{
+    name = 'the Chinese words of the corpus are the English ones'
+    file = 'frontend/i18n.mbt'
+    old  = '        research: research_zh(),'
+    new  = '        research: research_en(),'
+  },
+  @{
+    name = 'the Chinese words of the sessions are the English ones'
+    file = 'frontend/i18n.mbt'
+    old  = '        sessions: sessions_zh(),'
+    new  = '        sessions: sessions_en(),'
+  },
+  @{
+    name = 'the Chinese words of the workspace are the English ones'
+    file = 'frontend/i18n.mbt'
+    old  = '        workspace: workspace_zh(),'
+    new  = '        workspace: workspace_en(),'
+  },
+  @{
+    name = 'the Chinese words of the failures are the English ones'
+    file = 'frontend/i18n.mbt'
+    old  = '        status: status_zh(),'
+    new  = '        status: status_en(),'
+  },
+  @{
+    name = 'the Chinese words of the causal panel are the English ones'
+    file = 'frontend/i18n.mbt'
+    old  = '        causal: causal_zh(),'
+    new  = '        causal: causal_en(),'
+  },
+  @{
+    name = 'the Chinese words of the collective are the English ones'
+    file = 'frontend/i18n.mbt'
+    old  = '        society: society_zh(),'
+    new  = '        society: society_en(),'
+  },
+  @{
+    name = 'a sentence with a hole in it ignores the language'
+    file = 'frontend/i18n.mbt'
+    old  = '        lang,
+        nav: nav_zh(),'
+    new  = '        lang: UiLang::english(),
+        nav: nav_zh(),'
+  },
+  @{
+    name = 'the language switch does not switch'
+    file = 'frontend/i18n.mbt'
+    old  = '    English => Chinese'
+    new  = '    English => English'
+  },
+  @{
+    name = 'the language is read as English'
+    file = 'frontend/i18n.mbt'
+    old  = 'if tag == "zh" ||'
+    new  = 'if tag == "zz" ||'
+  },
+  @{
+    name = 'the request does not carry the language'
+    file = 'frontend/i18n.mbt'
+    old  = '  "?lang=" + lang.code()'
+    new  = '  "?lang="'
+  },
+  @{
+    name = 'a domain with no name is shown blank'
+    file = 'frontend/i18n.mbt'
+    old  = '    (_, Chinese) => letter'
+    new  = '    (_, Chinese) => ""'
+  },
+  @{
+    name = 'the interface starts in Chinese'
+    file = 'frontend/app.mbt'
+    old  = '    lang: UiLang::English,'
+    new  = '    lang: UiLang::Chinese,'
+  },
+  @{
+    name = 'the step request does not carry the language'
+    file = 'frontend/app.mbt'
+    old  = '@http.post("/api/loop/step" + lang_query(model.lang))'
+    new  = '@http.post("/api/loop/step")'
+  },
+  @{
+    name = 'the language switch does not ask the server'
+    file = 'frontend/app.mbt'
+    old  = '@http.get("/api/bootstrap" + lang_query(lang))'
+    new  = '@http.get("/api/bootstrap")'
+  },
+  @{
+    name = 'the header switch is not wired to the update'
+    file = 'frontend/views.mbt'
+    old  = 'on_click=emit(LangToggled),'
+    new  = 'on_click=emit(ResetClicked),'
   }
 )
 

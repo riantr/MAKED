@@ -141,13 +141,13 @@ pub fn balance_summaries(json : Json) -> Array[BalanceSummary] {
 /// The verdict is the point of the row. A number without one is a number
 /// the reader has to interpret alone, which is the thing this panel
 /// exists to stop doing.
-pub fn balance_verdict(row : BalanceSummary) -> String {
+pub fn balance_verdict(row : BalanceSummary, c : Chrome) -> String {
   if row.separated {
-    "the two groups do not overlap on this"
+    c.causal.verdict_no_overlap
   } else if row.balanced {
-    "the two groups are close on this"
+    c.causal.verdict_close
   } else {
-    "the two groups differ on this"
+    c.causal.verdict_differ
   }
 }
 
@@ -184,33 +184,27 @@ pub fn format_interval(lower : Double, upper : Double) -> String {
 /// an impact score, with the variables that were controlled for, how well
 /// the two groups match, and how wrong the answer could be.
 pub fn causal_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
+  let c = chrome(model.lang)
   let button = @html.div(class="maked-causal-buttons", [
     @html.button(
       class="maked-btn maked-btn-causal",
       on_click=emit(EstimateCausalClicked),
-      "Estimate Causal Effect (DoubleML)",
+      c.causal.estimate_button,
     ),
   ])
   let result_view = match model.causal_result {
-    None =>
-      @html.p(
-        class="maked-causal-empty",
-        "Click the button to run causal inference on the corpus.",
-      )
+    None => @html.p(class="maked-causal-empty", c.causal.empty)
     Some(causal) => {
       let summary = causal_summary(causal)
       if summary.refused {
         @html.div(class="maked-causal-refused", [
-          @html.h3(class="maked-causal-subtitle", "The estimate was not made"),
+          @html.h3(class="maked-causal-subtitle", c.causal.not_made),
           @html.p(class="maked-causal-reason", summary.reason),
-          @html.h3(
-            class="maked-causal-subtitle",
-            "What the two groups looked like",
-          ),
-          balance_table(summary.balance),
+          @html.h3(class="maked-causal-subtitle", c.causal.groups_looked),
+          balance_table(summary.balance, c),
         ])
       } else {
-        causal_estimate_view(summary)
+        causal_estimate_view(summary, c)
       }
     }
   }
@@ -220,11 +214,8 @@ pub fn causal_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     @html.p(class="maked-causal-error", model.causal_error)
   }
   @html.section(class="maked-causal", [
-    @html.h2(class="maked-causal-title", "Causal Inference"),
-    @html.p(
-      class="maked-causal-lede",
-      "What claiming to be new is worth, on MAKED's own measure of a document -- and what that answer rests on.",
-    ),
+    @html.h2(class="maked-causal-title", c.causal.title),
+    @html.p(class="maked-causal-lede", c.causal.lede),
     button,
     result_view,
     error,
@@ -233,29 +224,30 @@ pub fn causal_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
 
 ///|
 /// The estimate, with the three things that make it arguable.
-fn causal_estimate_view(summary : CausalSummary) -> @html.Html {
+fn causal_estimate_view(summary : CausalSummary, c : Chrome) -> @html.Html {
   let stats = @html.dl(class="maked-causal-stats", [
-    @html.dt("Treatment"),
+    @html.dt(c.causal.treatment),
     @html.dd(class="maked-causal-treatment", summary.treatment),
-    @html.dt("Outcome"),
+    @html.dt(c.causal.outcome),
     @html.dd(class="maked-causal-outcome", summary.outcome),
-    @html.dt("Effect (θ)"),
+    @html.dt(c.causal.effect),
     @html.dd(class="maked-causal-value", format_estimate(summary.theta)),
-    @html.dt("Standard error"),
+    @html.dt(c.causal.standard_error),
     @html.dd(format_estimate(summary.se)),
-    @html.dt("95% confidence interval"),
+    @html.dt(c.causal.confidence_interval),
     @html.dd(format_interval(summary.ci_lower, summary.ci_upper)),
-    @html.dt("Documents"),
+    @html.dt(c.causal.documents),
     @html.dd(
       class="maked-causal-observations",
-      summary.n_obs.to_string() +
-      " (" +
-      summary.n_treated.to_string() +
-      " treated)",
+      documents_count(
+        c,
+        summary.n_obs.to_string(),
+        summary.n_treated.to_string(),
+      ),
     ),
   ])
   let confounders = if summary.confounders.length() == 0 {
-    @html.p(class="maked-causal-empty", "This estimate controlled for nothing.")
+    @html.p(class="maked-causal-empty", c.causal.controlled_nothing)
   } else {
     let items : Array[@html.Html] = []
     for name in summary.confounders {
@@ -263,71 +255,65 @@ fn causal_estimate_view(summary : CausalSummary) -> @html.Html {
     }
     @html.ul(class="maked-causal-confounders", items)
   }
-  let balance = balance_table(summary.balance)
+  let balance = balance_table(summary.balance, c)
   let sensitivity = @html.dl(class="maked-causal-sensitivity", [
-    @html.dt("Robustness value"),
+    @html.dt(c.causal.robustness),
     @html.dd(
       class="maked-causal-robustness",
       format_estimate(summary.robustness_value),
     ),
-    @html.dt("Worst-case interval"),
+    @html.dt(c.causal.worst_case),
     @html.dd(
       class="maked-causal-worst-case",
       format_interval(summary.sensitivity_lower, summary.sensitivity_upper),
     ),
-    @html.dt("Does the sign survive the worst case?"),
+    @html.dt(c.causal.sign_survives),
     @html.dd(
       class="maked-causal-robust",
       if summary.robust {
-        "yes"
+        c.causal.yes
       } else {
-        "no"
+        c.causal.no
       },
     ),
   ])
   @html.div(class="maked-causal-results", [
-    @html.h3(class="maked-causal-subtitle", "What is being estimated"),
+    @html.h3(class="maked-causal-subtitle", c.causal.what_estimated),
     stats,
-    @html.h3(class="maked-causal-subtitle", "What was controlled for"),
+    @html.h3(class="maked-causal-subtitle", c.causal.what_controlled),
     confounders,
-    @html.p(
-      class="maked-causal-note",
-      "Each of those is compared between the two groups below. A variable the two groups differ on is not doing its job.",
-    ),
-    @html.h3(class="maked-causal-subtitle", "Balance of the two groups"),
+    @html.p(class="maked-causal-note", c.causal.confounders_note),
+    @html.h3(class="maked-causal-subtitle", c.causal.balance),
     balance,
-    @html.h3(class="maked-causal-subtitle", "Overlap"),
+    @html.h3(class="maked-causal-subtitle", c.causal.overlap),
     @html.dl(class="maked-causal-overlap-stats", [
-      @html.dt("The two groups overlap"),
+      @html.dt(c.causal.overlap_yes),
       @html.dd(
         class="maked-causal-overlap-verdict",
         if summary.overlaps {
-          "yes"
+          c.causal.yes
         } else {
-          "no"
+          c.causal.no
         },
       ),
-      @html.dt("What that means"),
+      @html.dt(c.causal.what_that_means),
       @html.dd(class="maked-causal-overlap-reading", summary.overlap_reading),
     ]),
-    @html.h3(class="maked-causal-subtitle", "How wrong could this be?"),
+    @html.h3(class="maked-causal-subtitle", c.causal.how_wrong),
     sensitivity,
     @html.p(
       class="maked-causal-sensitivity-reading",
       summary.sensitivity_reading,
     ),
-    @html.p(
-      class="maked-causal-caveat",
-      "The impact score is MAKED's own measure of a document's shape -- its length, its authorship and its breadth. It is not a citation count, so this is an estimate about that score and not about the literature.",
-    ),
+    @html.p(class="maked-causal-caveat", c.causal.impact_note),
   ])
 }
 
 ///|
 /// The balance table: one row per controlled variable.
-fn balance_table(rows : Array[BalanceSummary]) -> @html.Html {
+fn balance_table(rows : Array[BalanceSummary], c : Chrome) -> @html.Html {
   if rows.length() == 0 {
-    return @html.p(class="maked-causal-empty", "No balance was reported.")
+    return @html.p(class="maked-causal-empty", c.causal.no_balance)
   }
   let body : Array[@html.Html] = []
   for row in rows {
@@ -346,18 +332,18 @@ fn balance_table(rows : Array[BalanceSummary]) -> @html.Html {
           class="maked-causal-balance-difference",
           format_estimate(row.standardized_difference),
         ),
-        @html.td(class="maked-causal-balance-verdict", balance_verdict(row)),
+        @html.td(class="maked-causal-balance-verdict", balance_verdict(row, c)),
       ]),
     )
   }
   @html.table(class="maked-causal-balance", [
     @html.thead(class="maked-causal-balance-head", [
       @html.tr([
-        @html.th("Variable"),
-        @html.th("Treated"),
-        @html.th("Untreated"),
-        @html.th("Difference"),
-        @html.th("Verdict"),
+        @html.th(c.causal.variable),
+        @html.th(c.causal.treated),
+        @html.th(c.causal.untreated),
+        @html.th(c.causal.difference),
+        @html.th(c.causal.verdict),
       ]),
     ]),
     @html.tbody(class="maked-causal-balance-body", body),

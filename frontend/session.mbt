@@ -352,12 +352,12 @@ pub fn empty_session() -> Session {
 /// parent's name is carried over, so the two are recognisably the same
 /// exploration -- and the user can rename it afterwards, which is why this
 /// is a default rather than the only option.
-pub fn branch_name(parent : String) -> String {
+pub fn branch_name(parent : String, c : Chrome) -> String {
   let trimmed = parent.trim().to_owned()
   if trimmed == "" {
-    "Branch"
+    c.sessions.branch
   } else {
-    trimmed + " (branch)"
+    trimmed + c.sessions.branch_suffix
   }
 }
 

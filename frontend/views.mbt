@@ -19,26 +19,45 @@
 // user input. A comment saying so belongs next to the call, and did.
 
 ///|
-/// The site header: mark, wordmark, and the navigation bar.
+/// The site header: mark, wordmark, the navigation bar, and the switch that
+/// changes the language.
 ///
 /// The click handler is on the `<li>`, not the `<a>`, because `<a>` has no
 /// `on_click`. The anchor keeps its `href`, so the link still behaves for
 /// middle-click and "open in new tab"; the handler on the wrapper is what
 /// turns an ordinary left click into a client-side navigation.
-pub fn header(current : String, pages : Array[Page]) -> @html.Html {
+///
+/// The language switch is a button rather than a link, because it is not a
+/// place: it changes what the current page says without leaving it. It names
+/// the language it switches *to*, not the one in force, so a reader who
+/// cannot read the current language can still read the button.
+pub fn header(
+  emit : @cmd.Emit[Msg],
+  current : String,
+  pages : Array[Page],
+  lang : UiLang,
+) -> @html.Html {
+  let c = chrome(lang)
   @html.header(class="maked-header", [
     @html.div(class="maked-header-inner", [
       @html.a(href="/", class="maked-brand", [
         logo_mark(44),
         @html.span(class="maked-brand-text", [
           @html.span(class="maked-brand-mark", "MAKED"),
-          @html.span(
-            class="maked-brand-sub",
-            "Model · Attack · Knowledge · Experience · Data",
-          ),
+          @html.span(class="maked-brand-sub", c.nav.tagline),
         ]),
       ]),
-      @html.nav(class="maked-nav", [@html.ul(nav_items(current, pages))]),
+      @html.nav(class="maked-nav", [@html.ul(nav_items(current, pages, c))]),
+      @html.div(class="maked-lang", [
+        @html.button(
+          class="maked-lang-btn",
+          on_click=emit(LangToggled),
+          match lang {
+            English => "中文"
+            Chinese => "English"
+          },
+        ),
+      ]),
     ]),
   ])
 }
@@ -51,7 +70,11 @@ pub fn header(current : String, pages : Array[Page]) -> @html.Html {
 /// is appended here instead of coming out of the pages list. It goes last
 /// because it is the one destination that holds the user's own work rather
 /// than the project's own words.
-fn nav_items(current : String, pages : Array[Page]) -> Array[@html.Html] {
+fn nav_items(
+  current : String,
+  pages : Array[Page],
+  c : Chrome,
+) -> Array[@html.Html] {
   let items : Array[@html.Html] = []
   for page in pages {
     let active = if page.slug == current { " active" } else { "" }
@@ -65,7 +88,7 @@ fn nav_items(current : String, pages : Array[Page]) -> Array[@html.Html] {
   let workspace_active = if current == "workspace" { " active" } else { "" }
   items.push(
     @html.li(class=workspace_active, on_click=@nav.push_url("/workspace"), [
-      @html.a(href="/workspace", "Workspace"),
+      @html.a(href="/workspace", c.nav.workspace),
     ]),
   )
   // The sessions come after the workspace: both hold the user's own work,
@@ -74,7 +97,7 @@ fn nav_items(current : String, pages : Array[Page]) -> Array[@html.Html] {
   let sessions_active = if current == "sessions" { " active" } else { "" }
   items.push(
     @html.li(class=sessions_active, on_click=@nav.push_url("/sessions"), [
-      @html.a(href="/sessions", "Sessions"),
+      @html.a(href="/sessions", c.nav.sessions),
     ]),
   )
   items
@@ -85,7 +108,12 @@ fn nav_items(current : String, pages : Array[Page]) -> Array[@html.Html] {
 ///
 /// Each card is a clickable `<div>` holding a real `<a>`, for the same reason
 /// as the header: `<a>` cannot carry the handler.
-pub fn domain_cards(pages : Array[Page]) -> @html.Html {
+///
+/// The name and the role of a domain are the model's own words, so they are
+/// read out of the table rather than out of the database: the page title was
+/// seeded in English, and a reader who has asked for Chinese should not be
+/// shown an English ring around Chinese prose.
+pub fn domain_cards(pages : Array[Page], lang : UiLang) -> @html.Html {
   let cards : Array[@html.Html] = []
   for page in pages {
     if page.letter == "" {
@@ -97,8 +125,8 @@ pub fn domain_cards(pages : Array[Page]) -> @html.Html {
       @html.div(class=letter_class, on_click=@nav.push_url(target), [
         @html.a(href=target, [
           @html.span(class="letter", page.letter),
-          @html.span(class="name", page.title),
-          @html.span(class="role", page.role),
+          @html.span(class="name", domain_title(page.letter, lang)),
+          @html.span(class="role", domain_role(page.letter, lang)),
         ]),
       ]),
     )
@@ -115,10 +143,19 @@ pub fn domain_cards(pages : Array[Page]) -> @html.Html {
 /// input, and there is no write path in the API to make it so. The compiler's
 /// `alert_xss_vulnerable` warning on the next line is the expected consequence
 /// and is accepted here on the strength of that argument.
-pub fn page_view(page : Page) -> @html.Html {
+///
+/// The title of a domain page is the model's own word for the domain, in the
+/// language asked for. The body is the database's, and it is prose rather
+/// than a name: it stays in the language it was written in.
+pub fn page_view(page : Page, lang : UiLang) -> @html.Html {
+  let title = if page.letter == "" {
+    page.title
+  } else {
+    domain_title(page.letter, lang)
+  }
   let body_attrs = @html.Attrs::build().inner_html(page.body)
   @html.article(class="maked-page", [
-    @html.h1(class="maked-page-title", page.title),
+    @html.h1(class="maked-page-title", title),
     // The children parameter is required even when the content comes from
     // `inner_html`, so it is given `nothing`.
     @html.div(class="maked-body", attrs=body_attrs, @html.nothing),
@@ -126,27 +163,22 @@ pub fn page_view(page : Page) -> @html.Html {
 }
 
 ///|
-pub fn not_found_view(slug : String) -> @html.Html {
+pub fn not_found_view(c : Chrome, slug : String) -> @html.Html {
   @html.article(class="maked-page", [
-    @html.h1(class="maked-page-title", "Not found"),
-    @html.p(
-      class="maked-lede",
-      "Nothing at /" +
-      slug +
-      ". Try one of the five domains, or head back to the index.",
-    ),
+    @html.h1(class="maked-page-title", c.nav.not_found),
+    @html.p(class="maked-lede", nothing_at(c, slug)),
   ])
 }
 
 ///|
-pub fn loading_view() -> @html.Html {
-  @html.article(class="maked-page", [@html.p(class="maked-lede", "Loading…")])
+pub fn loading_view(c : Chrome) -> @html.Html {
+  @html.article(class="maked-page", [@html.p(class="maked-lede", c.nav.loading)])
 }
 
 ///|
-pub fn error_view(reason : String) -> @html.Html {
+pub fn error_view(c : Chrome, reason : String) -> @html.Html {
   @html.article(class="maked-page", [
-    @html.h1(class="maked-page-title", "Server unavailable"),
+    @html.h1(class="maked-page-title", c.nav.server_unavailable),
     @html.p(class="maked-lede", reason),
   ])
 }
@@ -168,6 +200,7 @@ fn last_narration(path : Array[SessionStep]) -> String {
 /// The loop panel on the index page: current position, drive slot, step/reset
 /// buttons, and the history of past transitions.
 pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
+  let c = chrome(model.lang)
   let error = if model.loop_error != "" {
     @html.p(class="maked-loop-error", model.loop_error)
   } else {
@@ -176,8 +209,8 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
   match model.loop_status {
     None =>
       @html.section(class="maked-loop", [
-        @html.h2(class="maked-loop-title", "Loop"),
-        @html.p(class="maked-loop-loading", "Loading loop status…"),
+        @html.h2(class="maked-loop-title", c.loop_panel.title),
+        @html.p(class="maked-loop-loading", c.loop_panel.loading_status),
         error,
       ])
     Some(status) => {
@@ -185,12 +218,12 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
         @html.button(
           class="maked-loop-btn",
           on_click=emit(StepClicked),
-          "Step → \{status.next_domain}",
+          step_caption(c, status.next_domain),
         ),
         @html.button(
           class="maked-loop-btn maked-loop-btn--reset",
           on_click=emit(ResetClicked),
-          "Reset",
+          c.loop_panel.reset,
         ),
       ])
       // Rendered from the backend's own slot list, so this panel cannot drift
@@ -220,7 +253,7 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
             }
             "\{open.designation}\{outcome}\{targets}"
           }
-          None => "\{slot.designation} · no edge here"
+          None => no_edge(c, slot.designation)
         }
         let state_class = match live {
           Some(_) => " maked-loop-slot--open"
@@ -244,14 +277,11 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
       let open_count = status.open_slots.length()
       let count_text = open_count.to_string()
       let situation = if status.blocked {
-        "Nothing can move from here: no slot has an outgoing edge at this position. That is a property of the model, not a failure, so Step will not change the position."
+        c.loop_panel.blocked
       } else if status.undecided {
-        "The table offers " +
-        count_text +
-        " outgoing edges here and declines to choose between them. Pick one on purpose."
+        undecided_situation(c, count_text)
       } else {
-        count_text +
-        " of the 8 slots can move this position. The rest have no outgoing edge here and will do nothing."
+        normal_situation(c, count_text)
       }
       let situation_class = if status.blocked {
         " maked-loop-why--blocked"
@@ -283,21 +313,14 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
           @html.div(class="maked-loop-wayout", [
             @html.p(
               class="maked-loop-wayout-label",
-              "The table offered " +
-              open.targets.length().to_string() +
-              " ways out of here through " +
-              open.designation +
-              " and would not choose between them. Pick one:",
+              way_out(c, open.targets.length().to_string(), open.designation),
             ),
             @html.div(class="maked-loop-targets", targets),
           ])
         }
       }
       let slot_selector = @html.div(class="maked-loop-slots", [
-        @html.p(
-          class="maked-loop-slots-label",
-          "Drive slots. Each one says whether the transition table has an outgoing edge from this position; the highlighted one is this domain's drive slot.",
-        ),
+        @html.p(class="maked-loop-slots-label", c.loop_panel.drive_slots),
         @html.p(class="maked-loop-why\{situation_class}", situation),
         @html.div(class="maked-loop-slot-grid", slot_buttons),
         way_out,
@@ -312,7 +335,10 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
         @html.nothing
       } else {
         @html.div(class="maked-loop-narration", [
-          @html.p(class="maked-loop-narration-label", "What just happened"),
+          @html.p(
+            class="maked-loop-narration-label",
+            c.loop_panel.what_happened,
+          ),
           @html.p(class="maked-loop-narration-text", narration),
         ])
       }
@@ -320,21 +346,21 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
         @html.nothing
       } else {
         @html.div(class="maked-loop-summary", [
-          @html.p(class="maked-loop-summary-label", "The run so far"),
+          @html.p(class="maked-loop-summary-label", c.loop_panel.run_so_far),
           @html.p(class="maked-loop-summary-text", model.session_summary),
         ])
       }
       // And what the run is worth: whether it is still finding ground, how
       // far it has ranged, and whether it is doing better than it was at the
       // start. The step counter cannot answer any of those.
-      let metrics_block_html = metrics_block(model.session_metrics)
+      let metrics_block_html = metrics_block(c, model.session_metrics)
       let current = @html.div(class="maked-loop-current", [
         @html.span(class="maked-loop-domain", status.current_domain),
         @html.span(class="maked-loop-sep", "·"),
         @html.span(class="maked-loop-position", status.current_position),
         @html.span(class="maked-loop-gloss", status.current_gloss),
         @html.span(class="maked-loop-sep", "·"),
-        @html.span(class="maked-loop-drive", "drive: \{status.drive_slot}"),
+        @html.span(class="maked-loop-drive", drive_slot(c, status.drive_slot)),
       ])
       // Which exploration the steps are being recorded into. A step taken
       // here belongs to a session, and a person taking a step should be able
@@ -345,11 +371,13 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
         @html.div(class="maked-loop-session", [
           @html.span(
             class="maked-loop-session-text",
-            "Recording into “\{model.active_session.name}” · " +
-            model.session_path.length().to_string() +
-            " steps · ",
+            recording_into(
+              c,
+              model.active_session.name,
+              model.session_path.length().to_string(),
+            ),
           ),
-          @html.a(href="/sessions", "open the sessions"),
+          @html.a(href="/sessions", c.loop_panel.open_sessions),
         ])
       }
       let history_items : Array[@html.Html] = []
@@ -367,12 +395,12 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
         )
       }
       let history = if n == 0 {
-        @html.p(class="maked-loop-empty", "No steps yet.")
+        @html.p(class="maked-loop-empty", c.loop_panel.no_steps)
       } else {
         @html.ul(class="maked-loop-history", history_items)
       }
       @html.section(class="maked-loop", [
-        @html.h2(class="maked-loop-title", "Loop"),
+        @html.h2(class="maked-loop-title", c.loop_panel.title),
         current,
         narration_block,
         summary_block,
@@ -398,14 +426,14 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
 /// The comparison underneath is the part that answers the question a person
 /// has after twenty clicks -- is this run better than the five steps they
 /// took at the start? -- and it is written by the server, where the path is.
-fn metrics_block(report : MetricReport) -> @html.Html {
+fn metrics_block(c : Chrome, report : MetricReport) -> @html.Html {
   if report.metrics.length() == 0 {
     return @html.nothing
   }
   let items : Array[@html.Html] = []
   for metric in report.metrics {
     let reading = if metric.of > 0 {
-      metric.value.to_string() + " of " + metric.of.to_string()
+      metric_reading(c, metric.value.to_string(), metric.of.to_string())
     } else {
       metric.value.to_string()
     }
@@ -423,7 +451,7 @@ fn metrics_block(report : MetricReport) -> @html.Html {
     @html.p(class="maked-metric-comparison", report.comparison)
   }
   @html.div(class="maked-metrics", [
-    @html.p(class="maked-metrics-title", "How the run is doing"),
+    @html.p(class="maked-metrics-title", c.loop_panel.how_doing),
     @html.ul(class="maked-metric-list", items),
     comparison,
   ])
@@ -437,38 +465,32 @@ fn metrics_block(report : MetricReport) -> @html.Html {
 /// server's: an empty panel means one thing for arxiv and another for a
 /// folder of the reader's own notes.
 pub fn research_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
+  let c = chrome(model.lang)
   let buttons = @html.div(class="maked-research-buttons", [
     @html.button(
       class="maked-btn maked-btn-primary",
       on_click=emit(ReadCorpusClicked),
-      "Read the corpus",
+      c.research.read_corpus,
     ),
     @html.button(
       class="maked-btn maked-btn-accent",
       on_click=emit(DriveLoopClicked),
-      "Drive the loop with them",
+      c.research.drive_with,
     ),
   ])
   let corpus_line = match model.research_corpus {
-    None =>
-      @html.p(
-        class="maked-research-corpus",
-        "The corpus has not been read yet.",
-      )
+    None => @html.p(class="maked-research-corpus", c.research.not_read)
     Some(corpus) => {
       let source = get_string(corpus, "source", "unknown")
-      @html.p(class="maked-research-corpus", "Reading: " + source)
+      @html.p(class="maked-research-corpus", corpus_source(c, source))
     }
   }
   let documents_list = if model.research_documents.length() == 0 {
-    @html.p(
-      class="maked-research-empty",
-      "No documents yet. Click 'Read the corpus' to begin.",
-    )
+    @html.p(class="maked-research-empty", c.research.no_documents)
   } else {
     let items : Array[@html.Html] = []
     for document in model.research_documents {
-      let title = get_string(document, "title", "Untitled")
+      let title = get_string(document, "title", c.research.untitled)
       let authors_array = get_string(document, "authors", "")
       let summary = get_string(document, "summary", "")
       // A local document has no address to link to, and a link to nowhere
@@ -503,7 +525,7 @@ pub fn research_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
       )
     }
     @html.div(class="maked-triggers-section", [
-      @html.h3(class="maked-triggers-title", "Trigger Mappings"),
+      @html.h3(class="maked-triggers-title", c.research.trigger_mappings),
       @html.ul(class="maked-triggers-list", items),
     ])
   }
@@ -518,7 +540,7 @@ pub fn research_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     @html.p(class="maked-research-error", model.research_error)
   }
   @html.section(class="maked-research", [
-    @html.h2(class="maked-research-title", "The Corpus"),
+    @html.h2(class="maked-research-title", c.research.corpus_title),
     corpus_line,
     buttons,
     documents_list,
@@ -537,12 +559,13 @@ pub fn research_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
 /// same table as text. What the reader changes is what the server runs,
 /// and what the server runs is what the panel shows.
 pub fn research_config_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
+  let c = chrome(model.lang)
   let header = @html.div(class="maked-config-header", [
-    @html.h3(class="maked-config-title", "The mapping table"),
+    @html.h3(class="maked-config-title", c.research.mapping_table),
     @html.button(
       class="maked-btn maked-btn-plain",
       on_click=emit(ResearchConfigEditClicked),
-      "Show the table",
+      c.research.show_table,
     ),
   ])
   let rules = match model.research_config {
@@ -575,7 +598,7 @@ pub fn research_config_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html 
       @html.label(
         class="maked-config-label",
         for_="maked-config-text",
-        "The table",
+        c.research.the_table,
       ),
       @html.textarea(
         id="maked-config-text",
@@ -588,7 +611,7 @@ pub fn research_config_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html 
       @html.button(
         class="maked-btn maked-btn-primary",
         on_click=emit(ResearchConfigSaveClicked),
-        "Run this table",
+        c.research.run_table,
       ),
     ])
   }
@@ -620,22 +643,23 @@ pub fn research_config_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html 
 
 ///| here" rewinds the session and keeps the steps it walked back from --
 
-///| they become the roads not taken. "Fork from here" makes a new session
+///| they become the roads not taken. c.sessions.fork makes a new session
 
 ///|
 /// with a copy of the path up to that step, and leaves this one alone.
 pub fn sessions_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
+  let c = chrome(model.lang)
   let active = model.active_session
   let compose = @html.div(class="maked-ss-compose", [
     @html.label(
       class="maked-ss-label",
       for_="maked-ss-name",
-      "Name a new session",
+      c.sessions.name_label,
     ),
     @html.input(
       id="maked-ss-name",
       class="maked-ss-input",
-      placeholder="What is this exploration called?",
+      placeholder=c.sessions.name_placeholder,
       value=model.session_name_draft,
       maxlength=120,
       on_input=emit.map(fn(text) { SessionNameChanged(text) }),
@@ -643,7 +667,7 @@ pub fn sessions_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     @html.button(
       class="maked-ss-btn maked-ss-btn--primary",
       on_click=emit(NewSessionClicked),
-      "New session",
+      c.sessions.new_session,
     ),
   ])
   let status = if model.session_error != "" {
@@ -661,16 +685,20 @@ pub fn sessions_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     @html.a(
       href=export_base + "?format=md",
       class="maked-ss-btn maked-ss-btn--link",
-      "Export Markdown",
+      c.sessions.export_md,
     ),
     @html.a(
       href=export_base + "?format=json",
       class="maked-ss-btn maked-ss-btn--link",
-      "Export JSON",
+      c.sessions.export_json,
     ),
   ])
   let rename = @html.div(class="maked-ss-rename", [
-    @html.label(class="maked-ss-label", for_="maked-ss-rename", "Rename"),
+    @html.label(
+      class="maked-ss-label",
+      for_="maked-ss-rename",
+      c.sessions.rename,
+    ),
     @html.input(
       id="maked-ss-rename",
       class="maked-ss-input",
@@ -681,21 +709,17 @@ pub fn sessions_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     @html.button(
       class="maked-ss-btn",
       on_click=emit(RenameSessionClicked),
-      "Rename",
+      c.sessions.rename,
     ),
   ])
   // How many steps the session has, and how many of them are off the path.
   // The second number is the branches: steps that were taken and then walked
   // back from. They are still recorded, and a reader should know they exist.
-  let count_text = model.session_path.length().to_string() +
-    " steps on this path"
+  let count_text = steps_on_path(c, model.session_path.length().to_string())
   let count_text = if model.session_others.length() == 0 {
     count_text
   } else {
-    count_text +
-    " · " +
-    model.session_others.length().to_string() +
-    " other steps recorded"
+    count_text + other_steps(c, model.session_others.length().to_string())
   }
   let head = @html.div(class="maked-ss-head", [
     @html.h3(class="maked-ss-current-name", active.name),
@@ -723,22 +747,19 @@ pub fn sessions_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
           @html.button(
             class="maked-ss-btn",
             on_click=emit(ReplayStepClicked(step.id)),
-            "Go back to here",
+            c.sessions.go_back,
           ),
           @html.button(
             class="maked-ss-btn",
             on_click=emit(BranchStepClicked(step.id)),
-            "Fork from here",
+            c.sessions.fork,
           ),
         ]),
       ]),
     )
   }
   let timeline = if model.session_path.length() == 0 {
-    @html.p(
-      class="maked-ss-empty",
-      "No steps yet. Take one in the Loop panel and it will be recorded here.",
-    )
+    @html.p(class="maked-ss-empty", c.sessions.no_steps)
   } else {
     @html.ol(class="maked-ss-timeline", step_items)
   }
@@ -758,11 +779,8 @@ pub fn sessions_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     @html.nothing
   } else {
     @html.div(class="maked-ss-others", [
-      @html.h3(class="maked-ss-subtitle", "Other roads taken"),
-      @html.p(
-        class="maked-ss-note",
-        "These steps are recorded in the session but are not on its current path: the branches that were walked and then walked back from.",
-      ),
+      @html.h3(class="maked-ss-subtitle", c.sessions.other_roads),
+      @html.p(class="maked-ss-note", c.sessions.other_roads_note),
       @html.ul(class="maked-ss-others-list", other_items),
     ])
   }
@@ -774,22 +792,26 @@ pub fn sessions_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
       ""
     }
     let pending = model.session_delete_pending == session.id
-    let delete_label = if pending { "Really delete?" } else { "Delete" }
+    let delete_label = if pending {
+      c.sessions.really_delete
+    } else {
+      c.sessions.delete
+    }
     list_items.push(
       @html.li(class="maked-ss-item\{active_class}", [
         @html.span(class="maked-ss-item-name", session.name),
         @html.span(
           class="maked-ss-item-steps",
-          session.steps.to_string() + " steps",
+          session_steps(c, session.steps.to_string()),
         ),
         @html.button(
           class="maked-ss-btn",
           on_click=emit(OpenSessionClicked(session.id)),
-          "Open",
+          c.sessions.open,
         ),
         @html.button(
           class="maked-ss-btn maked-ss-btn--danger",
-          title="Delete this session and every step in it",
+          title=c.sessions.delete_title,
           on_click=emit(DeleteSessionClicked(session.id)),
           delete_label,
         ),
@@ -797,9 +819,9 @@ pub fn sessions_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     )
   }
   let all_sessions = @html.div(class="maked-ss-list", [
-    @html.h3(class="maked-ss-subtitle", "All sessions"),
+    @html.h3(class="maked-ss-subtitle", c.sessions.all_sessions),
     if model.sessions.length() == 0 {
-      @html.p(class="maked-ss-empty", "No sessions yet.")
+      @html.p(class="maked-ss-empty", c.sessions.no_sessions)
     } else {
       @html.ul(class="maked-ss-items", list_items)
     },
@@ -812,23 +834,20 @@ pub fn sessions_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     @html.nothing
   } else {
     @html.div(class="maked-ss-summary", [
-      @html.h3(class="maked-ss-subtitle", "The run so far"),
+      @html.h3(class="maked-ss-subtitle", c.loop_panel.run_so_far),
       @html.p(class="maked-ss-summary-text", model.session_summary),
     ])
   }
   @html.section(class="maked-sessions", [
-    @html.h2(class="maked-ss-title", "Sessions"),
-    @html.p(
-      class="maked-ss-lede",
-      "A session is one exploration, kept. Name it, take steps in it, and come back to it later: the steps are stored with the machine, not in the page, so a restart does not lose them.",
-    ),
+    @html.h2(class="maked-ss-title", c.sessions.title),
+    @html.p(class="maked-ss-lede", c.sessions.lede),
     compose,
     status,
     head,
     summary,
-    metrics_block(model.session_metrics),
+    metrics_block(c, model.session_metrics),
     @html.div(class="maked-ss-timeline-section", [
-      @html.h3(class="maked-ss-subtitle", "Timeline"),
+      @html.h3(class="maked-ss-subtitle", c.sessions.timeline),
       timeline,
     ]),
     others,
@@ -865,6 +884,7 @@ fn rename_text(model : Model) -> String {
 ///   - The records already saved sit next to the form that made them, so the
 ///     result of a save is visible where the save happened.
 pub fn workspace_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
+  let c = chrome(model.lang)
   let domain_buttons : Array[@html.Html] = []
   for letter in model.entry_domains {
     let active = if letter == model.draft_domain {
@@ -881,28 +901,36 @@ pub fn workspace_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     )
   }
   let target = if model.draft_domain == "" {
-    "a domain"
+    c.workspace.target_none
   } else {
-    "the " + model.draft_domain + " domain"
+    domain_target(c, model.draft_domain)
   }
   let form = @html.div(class="maked-ws-form", [
-    @html.p(class="maked-ws-question", "Which domain does this belong to?"),
+    @html.p(class="maked-ws-question", c.workspace.question),
     @html.div(class="maked-ws-domains", domain_buttons),
-    @html.label(class="maked-ws-label", for_="maked-ws-title", "Title"),
+    @html.label(
+      class="maked-ws-label",
+      for_="maked-ws-title",
+      c.workspace.title_label,
+    ),
     @html.input(
       id="maked-ws-title",
       class="maked-ws-input",
-      placeholder="The model, the dataset, the failure",
+      placeholder=c.workspace.title_placeholder,
       value=model.draft_title,
       maxlength=200,
       on_input=emit.map(fn(text) { DraftTitleChanged(text) }),
     ),
-    @html.label(class="maked-ws-label", for_="maked-ws-body", "What happened"),
+    @html.label(
+      class="maked-ws-label",
+      for_="maked-ws-body",
+      c.workspace.body_label,
+    ),
     @html.textarea(
       id="maked-ws-body",
       class="maked-ws-textarea",
       rows=5,
-      placeholder="What you tried, what came out, and what you think it means.",
+      placeholder=c.workspace.body_placeholder,
       value=model.draft_body,
       on_input=emit.map(fn(text) { DraftBodyChanged(text) }),
       @html.nothing,
@@ -910,7 +938,7 @@ pub fn workspace_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     @html.button(
       class="maked-ws-save",
       on_click=emit(DraftSubmitClicked),
-      "Save to \{target}",
+      save_to(c, target),
     ),
   ])
   let status = if model.workspace_error != "" {
@@ -931,29 +959,23 @@ pub fn workspace_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
         @html.button(
           class="maked-ws-entry-delete",
           on_click=emit(EntryDeleteClicked(entry.id)),
-          "Delete",
+          c.workspace.delete,
         ),
       ]),
     )
   }
   let entries_list = if model.entries.length() == 0 {
-    @html.p(
-      class="maked-ws-empty",
-      "Nothing here yet. The first record is usually the thing you most want to forget about.",
-    )
+    @html.p(class="maked-ws-empty", c.workspace.empty)
   } else {
     @html.ul(class="maked-ws-entries", entry_items)
   }
   @html.section(class="maked-workspace", [
-    @html.h2(class="maked-ws-heading", "Workspace"),
-    @html.p(
-      class="maked-ws-lede",
-      "Everything else here is the project's own words. This part is yours: put a model, a dataset, or a failure you want to understand into the domain it belongs to, and it stays on this machine.",
-    ),
+    @html.h2(class="maked-ws-heading", c.workspace.title),
+    @html.p(class="maked-ws-lede", c.workspace.lede),
     @html.div(class="maked-ws-columns", [
       @html.div(class="maked-ws-compose", [form, status]),
       @html.div(class="maked-ws-list", [
-        @html.h3(class="maked-ws-list-title", "Your records"),
+        @html.h3(class="maked-ws-list-title", c.workspace.your_records),
         entries_list,
       ]),
     ]),

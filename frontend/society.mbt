@@ -201,21 +201,17 @@ fn labelled_or(json : Json, label_key : String, id_key : String) -> String {
 /// collective's history is what makes the panel readable: "the collective is
 /// now at a validity claim" tells a reader nothing about whether anything
 /// happened.
-pub fn society_outcome_sentence(summary : SocietySummary) -> String {
+pub fn society_outcome_sentence(summary : SocietySummary, c : Chrome) -> String {
   match summary.kind {
     "moved" =>
       if summary.from_label == "" {
-        "The collective moved to " + summary.state_label + "."
+        collective_moved_to(c, summary.state_label)
       } else {
-        "The collective moved from " +
-        summary.from_label +
-        " to " +
-        summary.state_label +
-        "."
+        collective_moved_from(c, summary.from_label, summary.state_label)
       }
-    "held" => "The collective stayed where it was."
-    "open" => "The move left the collective more than one place to be."
-    "block" => "The collective did not move."
+    "held" => c.society.stayed
+    "open" => c.society.multi
+    "block" => c.society.no_move
     _ => ""
   }
 }
@@ -224,20 +220,17 @@ pub fn society_outcome_sentence(summary : SocietySummary) -> String {
 /// The society panel: the collective, the moves from where it stands, and
 /// what the last move did.
 pub fn society_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
+  let c = chrome(model.lang)
   let button = @html.div(class="maked-society-buttons", [
     @html.button(
       class="maked-btn maked-btn-society",
       on_click=emit(SocietyReadClicked),
-      "Read the Collective",
+      c.society.read,
     ),
   ])
   let result = match model.society {
-    None =>
-      @html.p(
-        class="maked-society-empty",
-        "The collective has not been read yet. MAKED will ask the machine where it stands.",
-      )
-    Some(json) => society_body(json, emit)
+    None => @html.p(class="maked-society-empty", c.society.not_read)
+    Some(json) => society_body(json, emit, c)
   }
   let error = if model.society_error == "" {
     @html.nothing
@@ -245,11 +238,8 @@ pub fn society_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     @html.p(class="maked-society-error", model.society_error)
   }
   @html.section(class="maked-society", [
-    @html.h2(class="maked-society-title", "Society"),
-    @html.p(
-      class="maked-society-lede",
-      "The collective: where it stands, what it can do from there, and what the last move actually did.",
-    ),
+    @html.h2(class="maked-society-title", c.society.title),
+    @html.p(class="maked-society-lede", c.society.lede),
     button,
     result,
     error,
@@ -258,9 +248,9 @@ pub fn society_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
 
 ///|
 /// The collective, as it stands.
-fn society_body(json : Json, emit : @cmd.Emit[Msg]) -> @html.Html {
+fn society_body(json : Json, emit : @cmd.Emit[Msg], c : Chrome) -> @html.Html {
   let summary = society_summary(json)
-  let outcome = society_outcome_sentence(summary)
+  let outcome = society_outcome_sentence(summary, c)
   let outcome_view = if outcome == "" {
     @html.nothing
   } else {
@@ -282,48 +272,42 @@ fn society_body(json : Json, emit : @cmd.Emit[Msg]) -> @html.Html {
       items.push(@html.li(class="maked-society-gap", gap))
     }
     @html.div(class="maked-society-gaps", [
-      @html.h3(
-        class="maked-society-subtitle",
-        "The vocabulary is behind the machine",
-      ),
-      @html.p(
-        class="maked-society-gap-note",
-        "These are names the machine has and the vocabulary file does not. The panel shows them rather than rendering the positions blank.",
-      ),
+      @html.h3(class="maked-society-subtitle", c.society.behind_machine),
+      @html.p(class="maked-society-gap-note", c.society.behind_machine_note),
       @html.ul(class="maked-society-gap-list", items),
     ])
   }
   let words = if summary.path == "" {
-    "the words MAKED ships with"
+    c.society.shipped_words
   } else {
     summary.path
   }
   @html.div(class="maked-society-results", [
-    @html.h3(class="maked-society-subtitle", "Where the collective stands"),
+    @html.h3(class="maked-society-subtitle", c.society.where_stands),
     @html.dl(class="maked-society-position", [
-      @html.dt("Position"),
+      @html.dt(c.society.position),
       @html.dd(class="maked-society-state-label", summary.state_label),
-      @html.dt("Phase"),
+      @html.dt(c.society.phase),
       @html.dd(class="maked-society-phase", summary.phase),
-      @html.dt("What it means"),
+      @html.dt(c.society.what_it_means),
       @html.dd(class="maked-society-gloss", summary.state_gloss),
     ]),
     outcome_view,
-    @html.h3(class="maked-society-subtitle", "What it can do from here"),
-    society_move_table(summary.moves, emit),
-    @html.h3(class="maked-society-subtitle", "The machine"),
+    @html.h3(class="maked-society-subtitle", c.society.what_it_can_do),
+    society_move_table(summary.moves, emit, c),
+    @html.h3(class="maked-society-subtitle", c.society.the_machine),
     @html.dl(class="maked-society-machine", [
-      @html.dt("Positions"),
+      @html.dt(c.society.positions),
       @html.dd(
         class="maked-society-position-count",
         summary.positions.length().to_string(),
       ),
-      @html.dt("Moves in the machine"),
+      @html.dt(c.society.moves_in_machine),
       @html.dd(
         class="maked-society-transition-count",
         summary.transitions.length().to_string(),
       ),
-      @html.dt("The words come from"),
+      @html.dt(c.society.words_from),
       @html.dd(class="maked-society-path", words),
     ]),
     gaps,
@@ -339,12 +323,10 @@ fn society_body(json : Json, emit : @cmd.Emit[Msg]) -> @html.Html {
 fn society_move_table(
   moves : Array[SocietyMoveSummary],
   emit : @cmd.Emit[Msg],
+  c : Chrome,
 ) -> @html.Html {
   if moves.length() == 0 {
-    return @html.p(
-      class="maked-society-empty",
-      "No move leads out of this position. The collective is stuck here until something else changes.",
-    )
+    return @html.p(class="maked-society-empty", c.society.no_move_out)
   }
   let body : Array[@html.Html] = []
   for edge in moves {
@@ -363,7 +345,7 @@ fn society_move_table(
   }
   @html.table(class="maked-society-moves", [
     @html.thead(class="maked-society-move-head", [
-      @html.tr([@html.th("Move"), @html.th("Lands at")]),
+      @html.tr([@html.th(c.society.move_word), @html.th(c.society.lands_at)]),
     ]),
     @html.tbody(class="maked-society-move-body", body),
   ])

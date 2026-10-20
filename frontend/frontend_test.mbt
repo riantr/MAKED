@@ -624,7 +624,20 @@ fn bare_model() -> @frontend.Model {
     session_name_draft: "",
     session_rename_draft: "",
     session_delete_pending: 0,
+    lang: @frontend.UiLang::english(),
   }
+}
+
+///|
+/// The words of the interface, in English.
+fn en() -> @frontend.Chrome {
+  @frontend.chrome(@frontend.UiLang::english())
+}
+
+///|
+/// The words of the interface, in Chinese.
+fn zh() -> @frontend.Chrome {
+  @frontend.chrome(@frontend.UiLang::chinese())
 }
 
 ///|
@@ -840,19 +853,22 @@ test "decode_entry_domains falls back to the five ring letters" {
 test "draft_problem names the thing that is missing" {
   let domains = ["M", "D", "E", "A", "K"]
   assert_eq(
-    @frontend.draft_problem(domains, "", "a title"),
+    @frontend.draft_problem(domains, "", "a title", en()),
     "choose a domain first",
   )
   assert_eq(
-    @frontend.draft_problem(domains, "Z", "a title"),
+    @frontend.draft_problem(domains, "Z", "a title", en()),
     "the domain must be one of M, D, E, A, K",
   )
-  assert_eq(@frontend.draft_problem(domains, "M", ""), "give the entry a title")
   assert_eq(
-    @frontend.draft_problem(domains, "M", "   "),
+    @frontend.draft_problem(domains, "M", "", en()),
     "give the entry a title",
   )
-  assert_eq(@frontend.draft_problem(domains, "M", "a title"), "")
+  assert_eq(
+    @frontend.draft_problem(domains, "M", "   ", en()),
+    "give the entry a title",
+  )
+  assert_eq(@frontend.draft_problem(domains, "M", "a title", en()), "")
 }
 
 ///|
@@ -1286,12 +1302,12 @@ test "a refused session request is recognised and explained" {
 ///|
 test "a branch is named after the session it came from" {
   assert_eq(
-    @frontend.branch_name("First exploration"),
+    @frontend.branch_name("First exploration", en()),
     "First exploration (branch)",
   )
   // A session with no name still gets a name a person can find it by.
-  assert_eq(@frontend.branch_name(""), "Branch")
-  assert_eq(@frontend.branch_name("   "), "Branch")
+  assert_eq(@frontend.branch_name("", en()), "Branch")
+  assert_eq(@frontend.branch_name("   ", en()), "Branch")
 }
 
 ///|
@@ -1502,8 +1518,14 @@ test "the choice reaches the server as a request to the step endpoint" {
 /// can see what went wrong. A body that leaves the field out is therefore a
 /// dead button with a 400 behind it, and the field is the whole message.
 test "the request names the successor the reader picked" {
-  let (path, body) = @frontend.target_step_request("occasion", "Urgency")
-  assert_eq(path, "/api/loop/step/occasion")
+  let (path, body) = @frontend.target_step_request(
+    "occasion",
+    "Urgency",
+    @frontend.UiLang::english(),
+  )
+  // The path carries the language as well: the sentence that comes back is
+  // written in the language the request asked for.
+  assert_eq(path, "/api/loop/step/occasion?lang=en")
   assert_eq(@frontend.get_string(body, "target", ""), "Urgency")
 }
 
@@ -1969,8 +1991,8 @@ test "the causal panel shows the balance of the two groups" {
 /// for.
 test "the balance verdict says which variables the groups differ on" {
   let summary = @frontend.causal_summary(causal_payload())
-  let differs = @frontend.balance_verdict(summary.balance[0])
-  let agrees = @frontend.balance_verdict(summary.balance[1])
+  let differs = @frontend.balance_verdict(summary.balance[0], en())
+  let agrees = @frontend.balance_verdict(summary.balance[1], en())
   assert_true(differs.contains("differ"))
   assert_true(agrees.contains("close"))
 }
@@ -1986,7 +2008,7 @@ test "a variable the groups do not overlap on is not reported as close" {
     balanced: false,
     separated: true,
   }
-  let verdict = @frontend.balance_verdict(separated)
+  let verdict = @frontend.balance_verdict(separated, en())
   assert_true(verdict.contains("do not overlap"))
 }
 
@@ -2053,7 +2075,7 @@ test "a refusal carries the balance that is the evidence for it" {
 /// A group that does not overlap on a variable is not reported as close.
 test "a variable the groups do not overlap on is not reported as close" {
   let summary = @frontend.causal_summary(causal_refusal_payload())
-  let verdict = @frontend.balance_verdict(summary.balance[0])
+  let verdict = @frontend.balance_verdict(summary.balance[0], en())
   assert_true(verdict.contains("do not overlap"))
 }
 
@@ -2219,7 +2241,7 @@ test "an empty society payload does not take the panel down" {
 test "the society panel says what the last move did" {
   let summary = @frontend.society_summary(society_payload())
   assert_eq(
-    @frontend.society_outcome_sentence(summary),
+    @frontend.society_outcome_sentence(summary, en()),
     "The collective moved from Lifeworld to Validity claim.",
   )
 }
@@ -2232,7 +2254,7 @@ test "the society panel says what the last move did" {
 test "a collective that has not moved has nothing to say" {
   let payload : Json = { "state": "World", "state_label": "Lifeworld" }
   let summary = @frontend.society_summary(payload)
-  assert_eq(@frontend.society_outcome_sentence(summary), "")
+  assert_eq(@frontend.society_outcome_sentence(summary, en()), "")
 }
 
 ///|
@@ -2342,4 +2364,723 @@ test "Model Eq distinguishes the society fields" {
   assert_true(
     !Eq::equal(m, { ..m, society_error: "the collective is unavailable", }),
   )
+}
+
+///|
+/// The language of the interface, and the words it is made of.
+///
+/// These are the tests for the layer the frontend carries on its own: the
+/// backend's `Lang` is not reachable from here, because the two are separate
+/// packages and separate targets, so the frontend has its own language type
+/// and its own table of words.
+///
+/// The rules the layer has to keep:
+///
+///   - `zh` means Chinese and everything else means English, including a
+///     language nobody has heard of.
+///   - the query string that carries the language is the one the server
+///     reads on the other end of the same request.
+///   - the Chinese is Chinese. A word that is still English in the Chinese
+///     table is a translation that did not happen, and a word that is the
+///     same in both tables is a word nobody translated.
+///   - a sentence with a hole in it is written in the language it is asked
+///     for, rather than assembled from an English sentence.
+test "the language is read out of the query string" {
+  assert_true(
+    Eq::equal(@frontend.UiLang::parse("zh"), @frontend.UiLang::chinese()),
+  )
+  assert_true(
+    Eq::equal(@frontend.UiLang::parse("ZH"), @frontend.UiLang::chinese()),
+  )
+  assert_true(
+    Eq::equal(@frontend.UiLang::parse("zh-CN"), @frontend.UiLang::chinese()),
+  )
+  assert_true(
+    Eq::equal(@frontend.UiLang::parse("zh_Hant"), @frontend.UiLang::chinese()),
+  )
+  assert_true(
+    Eq::equal(@frontend.UiLang::parse("en"), @frontend.UiLang::english()),
+  )
+  // A language this client has never heard of is answered rather than
+  // refused: the reader still gets the interface, in the language it would
+  // have got without asking.
+  assert_true(
+    Eq::equal(@frontend.UiLang::parse("fr"), @frontend.UiLang::english()),
+  )
+  assert_true(
+    Eq::equal(@frontend.UiLang::parse(""), @frontend.UiLang::english()),
+  )
+  assert_true(
+    Eq::equal(@frontend.UiLang::parse("zhongwen"), @frontend.UiLang::english()),
+  )
+}
+
+///|
+/// The tag the language is written as is the tag it is read from.
+///
+/// A round trip that did not come back would be a language the server and
+/// the client disagreed about, and the disagreement would show up as a
+/// panel in one language and a position name in another.
+test "a language survives the round trip through its tag" {
+  assert_eq(@frontend.UiLang::english().code(), "en")
+  assert_eq(@frontend.UiLang::chinese().code(), "zh")
+  assert_true(
+    Eq::equal(
+      @frontend.UiLang::parse(@frontend.UiLang::english().code()),
+      @frontend.UiLang::english(),
+    ),
+  )
+  assert_true(
+    Eq::equal(
+      @frontend.UiLang::parse(@frontend.UiLang::chinese().code()),
+      @frontend.UiLang::chinese(),
+    ),
+  )
+}
+
+///|
+/// The switch in the header switches to the other language.
+test "the language switch switches to the other language" {
+  assert_true(
+    Eq::equal(@frontend.UiLang::english().other(), @frontend.UiLang::chinese()),
+  )
+  assert_true(
+    Eq::equal(@frontend.UiLang::chinese().other(), @frontend.UiLang::english()),
+  )
+}
+
+///|
+/// The switch has to be a switch, not a label.
+///
+/// The header is the one place the reader can change the language from, and
+/// the click has to reach the update: a button that renders and does nothing
+/// is a control that lies.
+test "the header offers a switch that asks for the other language" {
+  let seen : Array[@frontend.Msg] = []
+  let _ = @frontend.header(
+    capturing_emit(seen),
+    "index",
+    [],
+    @frontend.UiLang::english(),
+  )
+  let mut switches = 0
+  for msg in seen {
+    match msg {
+      @frontend.Msg::LangToggled => switches += 1
+      _ => ()
+    }
+  }
+  assert_eq(switches, 1)
+}
+
+///|
+/// The whole interface moves at once.
+///
+/// The words the client owns are the client's, but the words the machine
+/// owns come back from the server, in the language the request asked for. A
+/// switch that changed only the first kind would leave the panel saying "环"
+/// above a position called Standing.
+test "the language switch asks the server for the other language" {
+  let (_, cmd) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::LangToggled,
+    silent_emit(),
+  )
+  let request = cmd.to_repr().to_string()
+  assert_true(request.contains("?lang=zh"))
+  assert_true(request.contains("/api/bootstrap"))
+}
+
+///|
+/// The model carries the language, and the switch moves it.
+///
+/// rabbita drops an update whose new model compares equal to the old one, so
+/// a language that compared equal would be a switch that changes nothing
+/// visible.
+test "the model carries the language and the switch moves it" {
+  let m = bare_model()
+  assert_true(Eq::equal(m.lang, @frontend.UiLang::english()))
+  let (next, _) = @frontend.update(m, @frontend.Msg::LangToggled, silent_emit())
+  assert_true(Eq::equal(next.lang, @frontend.UiLang::chinese()))
+  assert_true(!Eq::equal(m, next))
+}
+
+///|
+/// The interface opens in English.
+///
+/// The reader asks for the other language; nobody else does. An interface
+/// that opened in Chinese on its own would be a page that had been asked a
+/// question nobody asked.
+test "the interface opens in English" {
+  assert_true(Eq::equal(@frontend.initial().lang, @frontend.UiLang::english()))
+}
+
+///|
+/// The Chinese is Chinese.
+///
+/// Every word of the interface's own table is checked against the English it
+/// sits beside. A word that is the same in both is a word nobody
+/// translated, and a word that is empty in the Chinese is a blank where a
+/// button caption should be.
+test "the Chinese table is Chinese" {
+  assert_eq(zh().nav.workspace, "工作台")
+  assert_eq(zh().nav.sessions, "会话")
+  assert_eq(zh().nav.timeline, "时间线")
+  assert_eq(zh().nav.not_found, "未找到")
+  assert_eq(zh().nav.loading, "加载中…")
+  assert_eq(zh().nav.server_unavailable, "服务不可用")
+  assert_eq(zh().loop_panel.title, "环")
+  assert_eq(zh().loop_panel.reset, "复位")
+  assert_eq(zh().loop_panel.what_happened, "刚刚发生了什么")
+  assert_eq(zh().loop_panel.run_so_far, "到此为止的记录")
+  assert_eq(zh().loop_panel.open_sessions, "打开会话列表")
+  assert_eq(zh().loop_panel.no_steps, "还没有步进。")
+  assert_eq(zh().loop_panel.how_doing, "这段过程目前如何")
+  assert_eq(zh().research.corpus_title, "语料")
+  assert_eq(zh().research.read_corpus, "读取语料")
+  assert_eq(zh().research.drive_with, "用它们驱动环")
+  assert_eq(zh().research.untitled, "无标题")
+  assert_eq(zh().research.trigger_mappings, "触发映射")
+  assert_eq(zh().research.mapping_table, "映射表")
+  assert_eq(zh().research.show_table, "显示表格")
+  assert_eq(zh().research.the_table, "表格")
+  assert_eq(zh().research.run_table, "运行这张表")
+  assert_eq(zh().sessions.title, "会话")
+  assert_eq(zh().sessions.new_session, "新建会话")
+  assert_eq(zh().sessions.export_md, "导出 Markdown")
+  assert_eq(zh().sessions.export_json, "导出 JSON")
+  assert_eq(zh().sessions.rename, "重命名")
+  assert_eq(zh().sessions.go_back, "回到这里")
+  assert_eq(zh().sessions.fork, "从这里分叉")
+  assert_eq(zh().sessions.other_roads, "走过的其他岔路")
+  assert_eq(zh().sessions.really_delete, "真的要删除吗？")
+  assert_eq(zh().sessions.delete, "删除")
+  assert_eq(zh().sessions.open, "打开")
+  assert_eq(zh().sessions.all_sessions, "所有会话")
+  assert_eq(zh().sessions.no_sessions, "还没有会话。")
+  assert_eq(zh().sessions.branch, "分叉")
+  assert_eq(zh().sessions.branch_suffix, "（分叉）")
+  assert_eq(zh().workspace.title, "工作台")
+  assert_eq(zh().workspace.your_records, "你的记录")
+  assert_eq(zh().workspace.question, "这属于哪个域？")
+  assert_eq(zh().workspace.title_label, "标题")
+  assert_eq(zh().workspace.body_label, "发生了什么")
+  assert_eq(zh().workspace.delete, "删除")
+  assert_eq(zh().workspace.target_none, "某个域")
+  assert_eq(zh().workspace.no_domain, "先选一个域")
+  assert_eq(zh().workspace.no_title, "给这条记录起个标题")
+  assert_eq(zh().status.server_unreachable, "连不上服务器")
+  assert_eq(zh().status.step_failed, "步进失败")
+  assert_eq(zh().status.reset_failed, "复位失败")
+  assert_eq(zh().status.loop_unavailable, "环的状态不可用")
+  assert_eq(zh().status.research_unavailable, "研究数据不可用")
+  assert_eq(zh().status.research_drive_failed, "研究驱动失败")
+  assert_eq(zh().status.causal_unavailable, "因果推断不可用")
+  assert_eq(zh().status.society_unavailable, "集体不可用")
+  assert_eq(zh().status.move_unreached, "这一步没有到达服务器")
+  assert_eq(zh().causal.title, "因果推断")
+  assert_eq(zh().causal.estimate_button, "估计因果效应（DoubleML）")
+  assert_eq(zh().causal.treatment, "处理变量")
+  assert_eq(zh().causal.outcome, "结果变量")
+  assert_eq(zh().causal.effect, "效应（θ）")
+  assert_eq(zh().causal.standard_error, "标准误")
+  assert_eq(zh().causal.confidence_interval, "95% 置信区间")
+  assert_eq(zh().causal.documents, "文档")
+  assert_eq(zh().causal.yes, "是")
+  assert_eq(zh().causal.no, "否")
+  assert_eq(zh().causal.variable, "变量")
+  assert_eq(zh().causal.treated, "处理组")
+  assert_eq(zh().causal.untreated, "未处理组")
+  assert_eq(zh().causal.difference, "差异")
+  assert_eq(zh().causal.verdict, "判定")
+  assert_eq(zh().causal.overlap, "重叠")
+  assert_eq(zh().causal.balance, "两组的均衡")
+  assert_eq(zh().causal.how_wrong, "这可能错到什么程度？")
+  assert_eq(zh().society.title, "社会")
+  assert_eq(zh().society.read, "读取集体")
+  assert_eq(zh().society.position, "位置")
+  assert_eq(zh().society.phase, "阶段")
+  assert_eq(zh().society.what_it_means, "这意味着什么")
+  assert_eq(zh().society.what_it_can_do, "从这里能做什么")
+  assert_eq(zh().society.the_machine, "机器")
+  assert_eq(zh().society.positions, "位置")
+  assert_eq(zh().society.moves_in_machine, "机器里的迁移")
+  assert_eq(zh().society.words_from, "这些词来自")
+  assert_eq(zh().society.shipped_words, "MAKED 自带的词")
+  assert_eq(zh().society.behind_machine, "词汇落后于机器")
+  assert_eq(zh().society.move_word, "迁移")
+  assert_eq(zh().society.lands_at, "落到")
+  assert_eq(zh().society.stayed, "集体停在原地。")
+  assert_eq(zh().society.multi, "这一步让集体同时身处不止一处。")
+  assert_eq(zh().society.no_move, "集体没有移动。")
+}
+
+///|
+/// The English is the English it was.
+///
+/// The Chinese was written alongside the English rather than over it, so the
+/// English is unchanged -- and an English word that changed by accident would
+/// be a reader of the English documentation reading a word that is not
+/// there.
+test "the English table is the English it was" {
+  assert_eq(en().nav.workspace, "Workspace")
+  assert_eq(en().nav.sessions, "Sessions")
+  assert_eq(en().nav.timeline, "Timeline")
+  assert_eq(en().nav.not_found, "Not found")
+  assert_eq(en().nav.loading, "Loading…")
+  assert_eq(en().nav.server_unavailable, "Server unavailable")
+  assert_eq(en().loop_panel.title, "Loop")
+  assert_eq(en().loop_panel.reset, "Reset")
+  assert_eq(en().loop_panel.what_happened, "What just happened")
+  assert_eq(en().loop_panel.run_so_far, "The run so far")
+  assert_eq(en().loop_panel.open_sessions, "open the sessions")
+  assert_eq(en().loop_panel.no_steps, "No steps yet.")
+  assert_eq(en().loop_panel.how_doing, "How the run is doing")
+  assert_eq(en().research.corpus_title, "The Corpus")
+  assert_eq(en().research.read_corpus, "Read the corpus")
+  assert_eq(en().research.drive_with, "Drive the loop with them")
+  assert_eq(en().research.untitled, "Untitled")
+  assert_eq(en().research.trigger_mappings, "Trigger Mappings")
+  assert_eq(en().research.mapping_table, "The mapping table")
+  assert_eq(en().research.show_table, "Show the table")
+  assert_eq(en().research.the_table, "The table")
+  assert_eq(en().research.run_table, "Run this table")
+  assert_eq(en().sessions.title, "Sessions")
+  assert_eq(en().sessions.new_session, "New session")
+  assert_eq(en().sessions.export_md, "Export Markdown")
+  assert_eq(en().sessions.export_json, "Export JSON")
+  assert_eq(en().sessions.rename, "Rename")
+  assert_eq(en().sessions.go_back, "Go back to here")
+  assert_eq(en().sessions.fork, "Fork from here")
+  assert_eq(en().sessions.other_roads, "Other roads taken")
+  assert_eq(en().sessions.really_delete, "Really delete?")
+  assert_eq(en().sessions.delete, "Delete")
+  assert_eq(en().sessions.open, "Open")
+  assert_eq(en().sessions.all_sessions, "All sessions")
+  assert_eq(en().sessions.no_sessions, "No sessions yet.")
+  assert_eq(en().sessions.branch, "Branch")
+  assert_eq(en().sessions.branch_suffix, " (branch)")
+  assert_eq(en().workspace.title, "Workspace")
+  assert_eq(en().workspace.your_records, "Your records")
+  assert_eq(en().workspace.question, "Which domain does this belong to?")
+  assert_eq(en().workspace.title_label, "Title")
+  assert_eq(en().workspace.body_label, "What happened")
+  assert_eq(en().workspace.delete, "Delete")
+  assert_eq(en().workspace.target_none, "a domain")
+  assert_eq(en().workspace.no_domain, "choose a domain first")
+  assert_eq(en().workspace.no_title, "give the entry a title")
+  assert_eq(en().status.server_unreachable, "could not reach the server")
+  assert_eq(en().status.step_failed, "step failed")
+  assert_eq(en().status.reset_failed, "reset failed")
+  assert_eq(en().status.loop_unavailable, "loop status unavailable")
+  assert_eq(en().status.research_unavailable, "research data unavailable")
+  assert_eq(en().status.research_drive_failed, "research drive failed")
+  assert_eq(en().status.causal_unavailable, "causal inference unavailable")
+  assert_eq(en().status.society_unavailable, "the collective is unavailable")
+  assert_eq(en().status.move_unreached, "the move did not reach the server")
+  assert_eq(en().causal.title, "Causal Inference")
+  assert_eq(en().causal.estimate_button, "Estimate Causal Effect (DoubleML)")
+  assert_eq(en().causal.treatment, "Treatment")
+  assert_eq(en().causal.outcome, "Outcome")
+  assert_eq(en().causal.effect, "Effect (θ)")
+  assert_eq(en().causal.standard_error, "Standard error")
+  assert_eq(en().causal.confidence_interval, "95% confidence interval")
+  assert_eq(en().causal.documents, "Documents")
+  assert_eq(en().causal.yes, "yes")
+  assert_eq(en().causal.no, "no")
+  assert_eq(en().causal.variable, "Variable")
+  assert_eq(en().causal.treated, "Treated")
+  assert_eq(en().causal.untreated, "Untreated")
+  assert_eq(en().causal.difference, "Difference")
+  assert_eq(en().causal.verdict, "Verdict")
+  assert_eq(en().causal.overlap, "Overlap")
+  assert_eq(en().causal.balance, "Balance of the two groups")
+  assert_eq(en().causal.how_wrong, "How wrong could this be?")
+  assert_eq(en().society.title, "Society")
+  assert_eq(en().society.read, "Read the Collective")
+  assert_eq(en().society.position, "Position")
+  assert_eq(en().society.phase, "Phase")
+  assert_eq(en().society.what_it_means, "What it means")
+  assert_eq(en().society.what_it_can_do, "What it can do from here")
+  assert_eq(en().society.the_machine, "The machine")
+  assert_eq(en().society.positions, "Positions")
+  assert_eq(en().society.moves_in_machine, "Moves in the machine")
+  assert_eq(en().society.words_from, "The words come from")
+  assert_eq(en().society.shipped_words, "the words MAKED ships with")
+  assert_eq(en().society.behind_machine, "The vocabulary is behind the machine")
+  assert_eq(en().society.move_word, "Move")
+  assert_eq(en().society.lands_at, "Lands at")
+  assert_eq(en().society.stayed, "The collective stayed where it was.")
+  assert_eq(
+    en().society.multi,
+    "The move left the collective more than one place to be.",
+  )
+  assert_eq(en().society.no_move, "The collective did not move.")
+}
+
+///|
+/// No word of the interface is the same word in both languages.
+///
+/// A word that is the same in both is a word nobody translated, and it is
+/// the failure a reader sees: a button that says "Reset" on a page that is
+/// otherwise Chinese. The brand is not a word -- "MAKED" is "MAKED" in
+/// both -- and it is not in the table.
+test "no word of the interface is the same word in both languages" {
+  let english = en()
+  let chinese = zh()
+  let pairs : Array[(String, String)] = [
+    (english.nav.tagline, chinese.nav.tagline),
+    (english.nav.workspace, chinese.nav.workspace),
+    (english.nav.sessions, chinese.nav.sessions),
+    (english.nav.timeline, chinese.nav.timeline),
+    (english.nav.not_found, chinese.nav.not_found),
+    (english.nav.loading, chinese.nav.loading),
+    (english.nav.server_unavailable, chinese.nav.server_unavailable),
+    (english.loop_panel.title, chinese.loop_panel.title),
+    (english.loop_panel.loading_status, chinese.loop_panel.loading_status),
+    (english.loop_panel.reset, chinese.loop_panel.reset),
+    (english.loop_panel.blocked, chinese.loop_panel.blocked),
+    (english.loop_panel.drive_slots, chinese.loop_panel.drive_slots),
+    (english.loop_panel.what_happened, chinese.loop_panel.what_happened),
+    (english.loop_panel.run_so_far, chinese.loop_panel.run_so_far),
+    (english.loop_panel.open_sessions, chinese.loop_panel.open_sessions),
+    (english.loop_panel.no_steps, chinese.loop_panel.no_steps),
+    (english.loop_panel.how_doing, chinese.loop_panel.how_doing),
+    (english.research.corpus_title, chinese.research.corpus_title),
+    (english.research.read_corpus, chinese.research.read_corpus),
+    (english.research.drive_with, chinese.research.drive_with),
+    (english.research.not_read, chinese.research.not_read),
+    (english.research.no_documents, chinese.research.no_documents),
+    (english.research.untitled, chinese.research.untitled),
+    (english.research.trigger_mappings, chinese.research.trigger_mappings),
+    (english.research.mapping_table, chinese.research.mapping_table),
+    (english.research.show_table, chinese.research.show_table),
+    (english.research.the_table, chinese.research.the_table),
+    (english.research.run_table, chinese.research.run_table),
+    (english.research.table_running, chinese.research.table_running),
+    (english.research.saving, chinese.research.saving),
+    (english.research.table_unavailable, chinese.research.table_unavailable),
+    (english.research.table_refused, chinese.research.table_refused),
+    (english.research.table_not_saved, chinese.research.table_not_saved),
+    (english.sessions.title, chinese.sessions.title),
+    (english.sessions.lede, chinese.sessions.lede),
+    (english.sessions.name_label, chinese.sessions.name_label),
+    (english.sessions.name_placeholder, chinese.sessions.name_placeholder),
+    (english.sessions.new_session, chinese.sessions.new_session),
+    (english.sessions.export_md, chinese.sessions.export_md),
+    (english.sessions.export_json, chinese.sessions.export_json),
+    (english.sessions.rename, chinese.sessions.rename),
+    (english.sessions.go_back, chinese.sessions.go_back),
+    (english.sessions.fork, chinese.sessions.fork),
+    (english.sessions.no_steps, chinese.sessions.no_steps),
+    (english.sessions.other_roads, chinese.sessions.other_roads),
+    (english.sessions.other_roads_note, chinese.sessions.other_roads_note),
+    (english.sessions.really_delete, chinese.sessions.really_delete),
+    (english.sessions.delete, chinese.sessions.delete),
+    (english.sessions.delete_title, chinese.sessions.delete_title),
+    (english.sessions.open, chinese.sessions.open),
+    (english.sessions.all_sessions, chinese.sessions.all_sessions),
+    (english.sessions.no_sessions, chinese.sessions.no_sessions),
+    (english.sessions.run_so_far, chinese.sessions.run_so_far),
+    (english.sessions.timeline, chinese.sessions.timeline),
+    (english.sessions.started, chinese.sessions.started),
+    (english.sessions.opened, chinese.sessions.opened),
+    (english.sessions.went_back, chinese.sessions.went_back),
+    (english.sessions.forked, chinese.sessions.forked),
+    (english.sessions.renamed, chinese.sessions.renamed),
+    (english.sessions.forgot, chinese.sessions.forgot),
+    (english.sessions.give_name, chinese.sessions.give_name),
+    (english.sessions.starting, chinese.sessions.starting),
+    (english.sessions.opening, chinese.sessions.opening),
+    (english.sessions.going_back, chinese.sessions.going_back),
+    (english.sessions.forking, chinese.sessions.forking),
+    (english.sessions.renaming, chinese.sessions.renaming),
+    (english.sessions.deleting, chinese.sessions.deleting),
+    (english.sessions.confirm_delete, chinese.sessions.confirm_delete),
+    (english.sessions.branch, chinese.sessions.branch),
+    (english.sessions.branch_suffix, chinese.sessions.branch_suffix),
+    (english.workspace.title, chinese.workspace.title),
+    (english.workspace.lede, chinese.workspace.lede),
+    (english.workspace.your_records, chinese.workspace.your_records),
+    (english.workspace.question, chinese.workspace.question),
+    (english.workspace.title_label, chinese.workspace.title_label),
+    (english.workspace.title_placeholder, chinese.workspace.title_placeholder),
+    (english.workspace.body_label, chinese.workspace.body_label),
+    (english.workspace.body_placeholder, chinese.workspace.body_placeholder),
+    (english.workspace.save_to, chinese.workspace.save_to),
+    (english.workspace.target_none, chinese.workspace.target_none),
+    (english.workspace.delete, chinese.workspace.delete),
+    (english.workspace.saving, chinese.workspace.saving),
+    (english.workspace.deleting, chinese.workspace.deleting),
+    (english.workspace.empty, chinese.workspace.empty),
+    (english.workspace.refused, chinese.workspace.refused),
+    (english.workspace.removed, chinese.workspace.removed),
+    (english.workspace.no_domain, chinese.workspace.no_domain),
+    (english.workspace.wrong_domain, chinese.workspace.wrong_domain),
+    (english.workspace.no_title, chinese.workspace.no_title),
+    (english.status.server_unreachable, chinese.status.server_unreachable),
+    (english.status.loop_unavailable, chinese.status.loop_unavailable),
+    (english.status.step_failed, chinese.status.step_failed),
+    (english.status.reset_failed, chinese.status.reset_failed),
+    (english.status.research_unavailable, chinese.status.research_unavailable),
+    (english.status.research_drive_failed, chinese.status.research_drive_failed),
+    (english.status.causal_unavailable, chinese.status.causal_unavailable),
+    (english.status.society_unavailable, chinese.status.society_unavailable),
+    (english.status.move_unreached, chinese.status.move_unreached),
+    (english.causal.title, chinese.causal.title),
+    (english.causal.lede, chinese.causal.lede),
+    (english.causal.estimate_button, chinese.causal.estimate_button),
+    (english.causal.empty, chinese.causal.empty),
+    (english.causal.not_made, chinese.causal.not_made),
+    (english.causal.groups_looked, chinese.causal.groups_looked),
+    (english.causal.treatment, chinese.causal.treatment),
+    (english.causal.outcome, chinese.causal.outcome),
+    (english.causal.effect, chinese.causal.effect),
+    (english.causal.standard_error, chinese.causal.standard_error),
+    (english.causal.confidence_interval, chinese.causal.confidence_interval),
+    (english.causal.documents, chinese.causal.documents),
+    (english.causal.controlled_nothing, chinese.causal.controlled_nothing),
+    (english.causal.robustness, chinese.causal.robustness),
+    (english.causal.worst_case, chinese.causal.worst_case),
+    (english.causal.sign_survives, chinese.causal.sign_survives),
+    (english.causal.yes, chinese.causal.yes),
+    (english.causal.no, chinese.causal.no),
+    (english.causal.what_estimated, chinese.causal.what_estimated),
+    (english.causal.what_controlled, chinese.causal.what_controlled),
+    (english.causal.confounders_note, chinese.causal.confounders_note),
+    (english.causal.balance, chinese.causal.balance),
+    (english.causal.overlap, chinese.causal.overlap),
+    (english.causal.overlap_yes, chinese.causal.overlap_yes),
+    (english.causal.what_that_means, chinese.causal.what_that_means),
+    (english.causal.how_wrong, chinese.causal.how_wrong),
+    (english.causal.impact_note, chinese.causal.impact_note),
+    (english.causal.no_balance, chinese.causal.no_balance),
+    (english.causal.variable, chinese.causal.variable),
+    (english.causal.treated, chinese.causal.treated),
+    (english.causal.untreated, chinese.causal.untreated),
+    (english.causal.difference, chinese.causal.difference),
+    (english.causal.verdict, chinese.causal.verdict),
+    (english.causal.verdict_no_overlap, chinese.causal.verdict_no_overlap),
+    (english.causal.verdict_close, chinese.causal.verdict_close),
+    (english.causal.verdict_differ, chinese.causal.verdict_differ),
+    (english.society.title, chinese.society.title),
+    (english.society.lede, chinese.society.lede),
+    (english.society.read, chinese.society.read),
+    (english.society.not_read, chinese.society.not_read),
+    (english.society.stayed, chinese.society.stayed),
+    (english.society.multi, chinese.society.multi),
+    (english.society.no_move, chinese.society.no_move),
+    (english.society.where_stands, chinese.society.where_stands),
+    (english.society.position, chinese.society.position),
+    (english.society.phase, chinese.society.phase),
+    (english.society.what_it_means, chinese.society.what_it_means),
+    (english.society.what_it_can_do, chinese.society.what_it_can_do),
+    (english.society.the_machine, chinese.society.the_machine),
+    (english.society.positions, chinese.society.positions),
+    (english.society.moves_in_machine, chinese.society.moves_in_machine),
+    (english.society.words_from, chinese.society.words_from),
+    (english.society.shipped_words, chinese.society.shipped_words),
+    (english.society.behind_machine, chinese.society.behind_machine),
+    (english.society.behind_machine_note, chinese.society.behind_machine_note),
+    (english.society.no_move_out, chinese.society.no_move_out),
+    (english.society.move_word, chinese.society.move_word),
+    (english.society.lands_at, chinese.society.lands_at),
+  ]
+  for pair in pairs {
+    assert_true(pair.0 != pair.1)
+    assert_true(pair.1 != "")
+  }
+}
+
+///|
+/// A sentence with a hole in it is written in the language it is asked for.
+///
+/// These are the sentences the interface assembles rather than reads: the
+/// number of steps, the name of a slot, the place the collective moved to. A
+/// template that produced the English in both cases would be a Chinese
+/// sentence with an English sentence inside it.
+test "the sentences with a hole in them are written in the language" {
+  assert_eq(@frontend.step_caption(en(), "Attack"), "Step → Attack")
+  assert_eq(@frontend.step_caption(zh(), "攻击"), "步进 → 攻击")
+  assert_eq(@frontend.no_edge(en(), "Action"), "Action · no edge here")
+  assert_eq(@frontend.no_edge(zh(), "行动"), "行动 · 此处无出边")
+  assert_eq(
+    @frontend.undecided_situation(en(), "2"),
+    "The table offers 2 outgoing edges here and declines to choose between them. Pick one on purpose.",
+  )
+  assert_eq(
+    @frontend.undecided_situation(zh(), "2"),
+    "表格在这里给出 2 条出边，却不肯替你在其中选一条。请自己选一条。",
+  )
+  assert_eq(
+    @frontend.normal_situation(en(), "3"),
+    "3 of the 8 slots can move this position. The rest have no outgoing edge here and will do nothing.",
+  )
+  assert_eq(
+    @frontend.normal_situation(zh(), "3"),
+    "8 个槽里有 3 个能移动这个位置。其余的在这里没有出边，按下去什么也不会发生。",
+  )
+  assert_eq(
+    @frontend.way_out(en(), "2", "Situation"),
+    "The table offered 2 ways out of here through Situation and would not choose between them. Pick one:",
+  )
+  assert_eq(
+    @frontend.way_out(zh(), "2", "处境"),
+    "表格通过处境给出 2 条出路，却不肯替你选。请选一条：",
+  )
+  assert_eq(@frontend.drive_slot(en(), "act"), "drive: act")
+  assert_eq(@frontend.drive_slot(zh(), "act"), "驱动槽：act")
+  assert_eq(
+    @frontend.recording_into(en(), "First run", "4"),
+    "Recording into “First run” · 4 steps · ",
+  )
+  assert_eq(
+    @frontend.recording_into(zh(), "First run", "4"),
+    "正记录到“First run” · 4 步 · ",
+  )
+  assert_eq(@frontend.metric_reading(en(), "2", "8"), "2 of 8")
+  assert_eq(@frontend.metric_reading(zh(), "2", "8"), "2 / 8")
+  assert_eq(@frontend.corpus_source(en(), "arxiv"), "Reading: arxiv")
+  assert_eq(@frontend.corpus_source(zh(), "arxiv"), "正在读取：arxiv")
+  assert_eq(@frontend.not_json(en(), "boom"), "that is not JSON: boom")
+  assert_eq(@frontend.not_json(zh(), "boom"), "那不是 JSON：boom")
+  assert_eq(@frontend.steps_on_path(en(), "4"), "4 steps on this path")
+  assert_eq(@frontend.steps_on_path(zh(), "4"), "这条路径上有 4 步")
+  assert_eq(@frontend.other_steps(en(), "2"), " · 2 other steps recorded")
+  assert_eq(@frontend.other_steps(zh(), "2"), " · 另有 2 步被记录")
+  assert_eq(@frontend.session_steps(en(), "7"), "7 steps")
+  assert_eq(@frontend.session_steps(zh(), "7"), "7 步")
+  assert_eq(@frontend.save_to(en(), "the M domain"), "Save to the M domain")
+  assert_eq(@frontend.save_to(zh(), "M 域"), "保存到M 域")
+  assert_eq(@frontend.domain_target(en(), "M"), "the M domain")
+  assert_eq(@frontend.domain_target(zh(), "M"), "M 域")
+  assert_eq(
+    @frontend.saved_entry(en(), "A failure", "M"),
+    "Saved “A failure” to the M domain.",
+  )
+  assert_eq(
+    @frontend.saved_entry(zh(), "A failure", "M"),
+    "已把“A failure”保存到 M 域。",
+  )
+  assert_eq(@frontend.documents_count(en(), "40", "20"), "40 (20 treated)")
+  assert_eq(
+    @frontend.documents_count(zh(), "40", "20"),
+    "40（其中 20 被处理）",
+  )
+  assert_eq(
+    @frontend.collective_moved_to(en(), "Validity claim"),
+    "The collective moved to Validity claim.",
+  )
+  assert_eq(
+    @frontend.collective_moved_to(zh(), "有效性主张"),
+    "集体移到了有效性主张。",
+  )
+  assert_eq(
+    @frontend.collective_moved_from(en(), "Lifeworld", "Validity claim"),
+    "The collective moved from Lifeworld to Validity claim.",
+  )
+  assert_eq(
+    @frontend.collective_moved_from(zh(), "生活世界", "有效性主张"),
+    "集体从生活世界移到了有效性主张。",
+  )
+  assert_eq(
+    @frontend.nothing_at(en(), "nowhere"),
+    "Nothing at /nowhere. Try one of the five domains, or head back to the index.",
+  )
+  assert_eq(
+    @frontend.nothing_at(zh(), "nowhere"),
+    "/nowhere 上什么都没有。可以去看看五个域中的一个，或者回到首页。",
+  )
+}
+
+///|
+/// The five domains are named in the model's own words.
+///
+/// The page titles were seeded in the database, in English, and a reader who
+/// asked for Chinese should not be shown an English ring around Chinese
+/// prose. A letter is the stable name of a domain, so the letter is what the
+/// table is keyed by.
+test "the five domains are named in the language" {
+  assert_eq(@frontend.domain_title("M", @frontend.UiLang::english()), "Model")
+  assert_eq(@frontend.domain_title("M", @frontend.UiLang::chinese()), "模型")
+  assert_eq(@frontend.domain_title("D", @frontend.UiLang::chinese()), "数据")
+  assert_eq(@frontend.domain_title("E", @frontend.UiLang::chinese()), "经验")
+  assert_eq(@frontend.domain_title("A", @frontend.UiLang::chinese()), "攻击")
+  assert_eq(@frontend.domain_title("K", @frontend.UiLang::chinese()), "知识")
+  // A letter the model does not have is shown as itself rather than as a
+  // blank: a blank in a list of domains reads as a domain with no name.
+  assert_eq(@frontend.domain_title("Z", @frontend.UiLang::chinese()), "Z")
+  assert_eq(
+    @frontend.domain_role("M", @frontend.UiLang::english()),
+    "Model Builder",
+  )
+  assert_eq(
+    @frontend.domain_role("M", @frontend.UiLang::chinese()),
+    "模型构建者",
+  )
+  assert_eq(@frontend.domain_role("Z", @frontend.UiLang::chinese()), "")
+}
+
+///|
+/// The requests carry the language.
+///
+/// The words the machine owns come back in the language the request asked
+/// for, so a request that does not carry the language gets the English
+/// positions under a Chinese panel.
+test "the requests carry the language" {
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::LangToggled,
+    silent_emit(),
+  )
+  let (_, cmd) = @frontend.update(
+    model,
+    @frontend.Msg::StepClicked,
+    silent_emit(),
+  )
+  let request = cmd.to_repr().to_string()
+  assert_true(request.contains("/api/loop/step"))
+  assert_true(request.contains("?lang=zh"))
+}
+
+///|
+/// The choice of a successor carries the language too.
+///
+/// The path is built in one place, and a path that lost the language would
+/// answer in English while everything else answered in Chinese.
+test "the choice of a successor carries the language" {
+  let (path, body) = @frontend.target_step_request(
+    "occasion",
+    "Urgency",
+    @frontend.UiLang::chinese(),
+  )
+  assert_eq(path, "/api/loop/step/occasion?lang=zh")
+  assert_eq(@frontend.get_string(body, "target", ""), "Urgency")
+}
+
+///|
+/// The client's own sentences are in the language too.
+///
+/// The workspace's refusals are written by the client rather than the
+/// server, and they are the sentences a reader sees first when something is
+/// wrong.
+test "the client's own refusals are in the language" {
+  let domains = ["M", "D", "E", "A", "K"]
+  assert_eq(
+    @frontend.draft_problem(domains, "", "a title", en()),
+    "choose a domain first",
+  )
+  assert_eq(
+    @frontend.draft_problem(domains, "", "a title", zh()),
+    "先选一个域",
+  )
+  assert_eq(
+    @frontend.draft_problem(domains, "M", "", zh()),
+    "给这条记录起个标题",
+  )
+  assert_eq(
+    @frontend.branch_name("First exploration", zh()),
+    "First exploration（分叉）",
+  )
+  assert_eq(@frontend.branch_name("", zh()), "分叉")
 }

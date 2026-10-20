@@ -45,6 +45,13 @@ pub(all) enum Msg {
   DriveLoopClicked
   EstimateCausalClicked
   UrlChanged(@url.Url)
+  /// The reader asked for the other language.
+  ///
+  /// The whole interface switches: the words the client owns come from its own
+  /// table, and the words the machine owns come back from the server in the
+  /// language that was asked for. Both halves have to move together, or the
+  /// panel ends up saying "环" above a position called Standing.
+  LangToggled
   // The workspace: the user's own records.
   EntryCreated(Result[Json, Error])
   EntryDeleted(Result[Json, Error])
@@ -171,10 +178,22 @@ pub(all) struct Model {
   /// it out. The armed session is named, so a second click somewhere else
   /// does not delete the wrong one.
   session_delete_pending : Int32
+  /// The language the interface is speaking.
+  ///
+  /// It is here rather than in the router because it is a choice about the
+  /// whole interface rather than about one page: the loop panel, the corpus
+  /// panel, the sessions and the workspace all read it, and the header's
+  /// switch reads it to know which way to switch.
+  lang : UiLang
 } derive(Eq)
 
 ///|
-fn initial() -> Model {
+/// The state the app starts in.
+///
+/// Public because `frontend_test.mbt` asserts it: the language the interface
+/// opens in is a decision, and a decision that no test can read is a
+/// decision that can change without anything noticing.
+pub fn initial() -> Model {
   {
     pages: [],
     current: "index",
@@ -215,6 +234,10 @@ fn initial() -> Model {
     session_name_draft: "",
     session_rename_draft: "",
     session_delete_pending: 0,
+    // English until the reader asks for the other one. The choice is not
+    // remembered across a reload: it is a question the reader asks of the
+    // page, and a page that has just been opened has not been asked.
+    lang: UiLang::English,
   }
 }
 
@@ -249,11 +272,18 @@ pub fn slug_of(path : String) -> String {
 /// wire without a browser in the loop, and the button and the request cannot
 /// drift apart.
 ///
+/// The language travels with it, because the sentence that comes back is
+/// written in the language the reader asked for.
+///
 /// Public for the same reason `update` is public -- the request is the only
 /// thing the server ever sees, and a test that cannot read it can only trust
 /// that the click arrives.
-pub fn target_step_request(slot : String, target : String) -> (String, Json) {
-  ("/api/loop/step/" + slot, { "target": target })
+pub fn target_step_request(
+  slot : String,
+  target : String,
+  lang : UiLang,
+) -> (String, Json) {
+  ("/api/loop/step/" + slot + lang_query(lang), { "target": target })
 }
 
 ///|
@@ -283,6 +313,10 @@ pub fn update(
   msg : Msg,
   emit : @cmd.Emit[Msg],
 ) -> (Model, @cmd.Cmd) {
+  // The words of the interface, in the language it is speaking. Built once
+  // per update rather than read field by field, so that the whole handler
+  // shares one table.
+  let c = chrome(model.lang)
   match msg {
     Loaded(Ok(json)) =>
       (
@@ -321,13 +355,13 @@ pub fn update(
         // The workspace entries ride along in the first response for the same
         // reason. Fetching them with a request of their own would have been a
         // third hop, and the third hop is where this chain used to die.
-        @http.get("/api/loop/status").expect_json(
+        @http.get("/api/loop/status" + lang_query(model.lang)).expect_json(
           emit.map(fn(result) { LoopLoaded(result) }),
         ),
       )
     Loaded(Err(_)) =>
       (
-        { ..model, loaded: true, error: "could not reach the server", },
+        { ..model, loaded: true, error: c.status.server_unreachable, },
         @cmd.none,
       )
     LoopLoaded(Ok(json)) =>
@@ -344,7 +378,7 @@ pub fn update(
         @cmd.none,
       )
     LoopLoaded(Err(_)) =>
-      ({ ..model, loop_error: "loop status unavailable", }, @cmd.none)
+      ({ ..model, loop_error: c.status.loop_unavailable, }, @cmd.none)
     LoopStepped(Ok(json)) =>
       (
         {
@@ -358,7 +392,8 @@ pub fn update(
         },
         @cmd.none,
       )
-    LoopStepped(Err(_)) => ({ ..model, loop_error: "step failed", }, @cmd.none)
+    LoopStepped(Err(_)) =>
+      ({ ..model, loop_error: c.status.step_failed, }, @cmd.none)
     LoopReset(Ok(json)) =>
       (
         {
@@ -368,11 +403,12 @@ pub fn update(
         },
         @cmd.none,
       )
-    LoopReset(Err(_)) => ({ ..model, loop_error: "reset failed", }, @cmd.none)
+    LoopReset(Err(_)) =>
+      ({ ..model, loop_error: c.status.reset_failed, }, @cmd.none)
     StepClicked =>
       (
         model,
-        @http.post("/api/loop/step").expect_json(
+        @http.post("/api/loop/step" + lang_query(model.lang)).expect_json(
           emit.map(fn(result) { LoopStepped(result) }),
         ),
       )
@@ -383,7 +419,7 @@ pub fn update(
     SlotStepClicked(name) =>
       (
         model,
-        @http.post("/api/loop/step/\{name}").expect_json(
+        @http.post("/api/loop/step/\{name}" + lang_query(model.lang)).expect_json(
           emit.map(fn(result) { LoopStepped(result) }),
         ),
       )
@@ -391,7 +427,7 @@ pub fn update(
     // choose between. The slot says which edge the table offered, the target
     // says which of its successors the reader wants.
     TargetStepClicked(name, target) => {
-      let (path, body) = target_step_request(name, target)
+      let (path, body) = target_step_request(name, target, model.lang)
       (
         model,
         @http.post(path)
@@ -402,7 +438,7 @@ pub fn update(
     ResetClicked =>
       (
         model,
-        @http.post("/api/loop/reset").expect_json(
+        @http.post("/api/loop/reset" + lang_query(model.lang)).expect_json(
           emit.map(fn(result) { LoopReset(result) }),
         ),
       )
@@ -419,7 +455,7 @@ pub fn update(
         @cmd.none,
       )
     ResearchLoaded(Err(_)) =>
-      ({ ..model, research_error: "research data unavailable", }, @cmd.none)
+      ({ ..model, research_error: c.status.research_unavailable, }, @cmd.none)
     ResearchDriven(Ok(json)) =>
       (
         {
@@ -433,7 +469,7 @@ pub fn update(
         @cmd.none,
       )
     ResearchDriven(Err(_)) =>
-      ({ ..model, loop_error: "research drive failed", }, @cmd.none)
+      ({ ..model, loop_error: c.status.research_drive_failed, }, @cmd.none)
     // The mapping table.
     ResearchConfigLoaded(Ok(json)) =>
       (
@@ -449,7 +485,7 @@ pub fn update(
       )
     ResearchConfigLoaded(Err(_)) =>
       (
-        { ..model, research_config_error: "the mapping table is unavailable", },
+        { ..model, research_config_error: c.research.table_unavailable, },
         @cmd.none,
       )
     ResearchConfigSaved(Ok(json)) =>
@@ -467,7 +503,7 @@ pub fn update(
             {
               ..model,
               research_config_error: if reason == "" {
-                "the server refused the table"
+                c.research.table_refused
               } else {
                 reason
               },
@@ -489,7 +525,9 @@ pub fn update(
               research_config_text: config_text_of(json),
               research_config_error: "",
               research_config_notice: get_string(
-                json, "notice", "The table is running.",
+                json,
+                "notice",
+                c.research.table_running,
               ),
             },
             @cmd.none,
@@ -497,7 +535,7 @@ pub fn update(
       }
     ResearchConfigSaved(Err(_)) =>
       (
-        { ..model, research_config_error: "the table could not be saved", },
+        { ..model, research_config_error: c.research.table_not_saved, },
         @cmd.none,
       )
     ResearchConfigEditClicked =>
@@ -520,7 +558,7 @@ pub fn update(
           return (
             {
               ..model,
-              research_config_error: "that is not JSON: " + err.to_string(),
+              research_config_error: not_json(c, err.to_string()),
               research_config_notice: "",
             },
             @cmd.none,
@@ -530,7 +568,7 @@ pub fn update(
         {
           ..model,
           research_config_error: "",
-          research_config_notice: "Saving…",
+          research_config_notice: c.research.saving,
         },
         @http.put("/api/research/config")
         .with_json(parsed)
@@ -540,14 +578,14 @@ pub fn update(
     ReadCorpusClicked =>
       (
         model,
-        @http.get("/api/research/documents").expect_json(
+        @http.get("/api/research/documents" + lang_query(model.lang)).expect_json(
           emit.map(fn(result) { ResearchLoaded(result) }),
         ),
       )
     DriveLoopClicked =>
       (
         model,
-        @http.post("/api/research/drive").expect_json(
+        @http.post("/api/research/drive" + lang_query(model.lang)).expect_json(
           emit.map(fn(result) { ResearchDriven(result) }),
         ),
       )
@@ -561,7 +599,7 @@ pub fn update(
         @cmd.none,
       )
     CausalLoaded(Err(_)) =>
-      ({ ..model, causal_error: "causal inference unavailable", }, @cmd.none)
+      ({ ..model, causal_error: c.status.causal_unavailable, }, @cmd.none)
     EstimateCausalClicked =>
       (
         model,
@@ -587,7 +625,7 @@ pub fn update(
     SocietyLoaded(Ok(json)) =>
       ({ ..model, society: Some(json), society_error: "", }, @cmd.none)
     SocietyLoaded(Err(_)) =>
-      ({ ..model, society_error: "the collective is unavailable", }, @cmd.none)
+      ({ ..model, society_error: c.status.society_unavailable, }, @cmd.none)
     // A move for the collective.
     //
     // The body carries the machine's own name for the move. The panel shows
@@ -611,11 +649,30 @@ pub fn update(
     SocietyStepped(Ok(json)) =>
       ({ ..model, society: Some(json), society_error: "", }, @cmd.none)
     SocietyStepped(Err(_)) =>
-      (
-        { ..model, society_error: "the move did not reach the server", },
-        @cmd.none,
-      )
+      ({ ..model, society_error: c.status.move_unreached, }, @cmd.none)
     UrlChanged(url) => ({ ..model, current: slug_of(url.path), }, @cmd.none)
+    // The reader asked for the other language.
+    //
+    // Two things have to move together, and only one of them is the words
+    // this client owns. The other is the words the machine owns: the
+    // positions, the slots, the narrations and the summary are written by
+    // the server, in the language the request asked for. So the switch asks
+    // for the bootstrap again, in the new language, and the chain that
+    // already exists -- bootstrap, then the loop status -- carries the rest
+    // of it.
+    //
+    // The panels the reader has not opened are not re-asked for. They were
+    // not open before the switch and they are not open after it, and the
+    // request is the reader's to make.
+    LangToggled => {
+      let lang = model.lang.other()
+      (
+        { ..model, lang, },
+        @http.get("/api/bootstrap" + lang_query(lang)).expect_json(
+          emit.map(fn(result) { Loaded(result) }),
+        ),
+      )
+    }
     // The workspace.
     //
     // Every branch of this group says what happened. A click that produces no
@@ -643,6 +700,7 @@ pub fn update(
         model.entry_domains,
         model.draft_domain,
         model.draft_title,
+        c,
       )
       if problem != "" {
         (
@@ -656,7 +714,11 @@ pub fn update(
           "body": model.draft_body,
         }
         (
-          { ..model, workspace_error: "", workspace_notice: "Saving…", },
+          {
+            ..model,
+            workspace_error: "",
+            workspace_notice: c.workspace.saving,
+          },
           @http.post("/api/entries")
           .with_json(payload)
           .expect_json(emit.map(fn(result) { EntryCreated(result) })),
@@ -673,7 +735,7 @@ pub fn update(
               draft_title: "",
               draft_body: "",
               workspace_error: "",
-              workspace_notice: "Saved “\{entry.title}” to the \{entry.domain} domain.",
+              workspace_notice: saved_entry(c, entry.title, entry.domain),
             },
             @cmd.none,
           )
@@ -687,7 +749,7 @@ pub fn update(
               ..model,
               workspace_notice: "",
               workspace_error: if reason == "" {
-                "the server refused the entry"
+                c.workspace.refused
               } else {
                 reason
               },
@@ -701,13 +763,17 @@ pub fn update(
         {
           ..model,
           workspace_notice: "",
-          workspace_error: "could not reach the server",
+          workspace_error: c.status.server_unreachable,
         },
         @cmd.none,
       )
     EntryDeleteClicked(id) =>
       (
-        { ..model, workspace_error: "", workspace_notice: "Deleting…", },
+        {
+          ..model,
+          workspace_error: "",
+          workspace_notice: c.workspace.deleting,
+        },
         @http.delete("/api/entries/\{id}").expect_json(
           emit.map(fn(result) { EntryDeleted(result) }),
         ),
@@ -738,7 +804,7 @@ pub fn update(
             ..model,
             entries: remaining,
             workspace_error: "",
-            workspace_notice: "Removed one record.",
+            workspace_notice: c.workspace.removed,
           },
           @cmd.none,
         )
@@ -749,7 +815,7 @@ pub fn update(
         {
           ..model,
           workspace_notice: "",
-          workspace_error: "could not reach the server",
+          workspace_error: c.status.server_unreachable,
         },
         @cmd.none,
       )
@@ -779,7 +845,7 @@ pub fn update(
           {
             ..apply_session_state(model, decode_session_state(json)),
             session_error: "",
-            session_notice: "Started a new session.",
+            session_notice: c.sessions.started,
             session_name_draft: "",
           },
           @cmd.none,
@@ -790,7 +856,7 @@ pub fn update(
         {
           ..model,
           session_notice: "",
-          session_error: "could not reach the server",
+          session_error: c.status.server_unreachable,
         },
         @cmd.none,
       )
@@ -809,7 +875,7 @@ pub fn update(
           {
             ..apply_session_state(model, decode_session_state(json)),
             session_error: "",
-            session_notice: "Opened that session and put the loop back where it was.",
+            session_notice: c.sessions.opened,
           },
           @cmd.none,
         )
@@ -819,7 +885,7 @@ pub fn update(
         {
           ..model,
           session_notice: "",
-          session_error: "could not reach the server",
+          session_error: c.status.server_unreachable,
         },
         @cmd.none,
       )
@@ -838,7 +904,7 @@ pub fn update(
           {
             ..apply_session_state(model, decode_session_state(json)),
             session_error: "",
-            session_notice: "Went back to that step. The steps after it are still recorded.",
+            session_notice: c.sessions.went_back,
           },
           @cmd.none,
         )
@@ -848,7 +914,7 @@ pub fn update(
         {
           ..model,
           session_notice: "",
-          session_error: "could not reach the server",
+          session_error: c.status.server_unreachable,
         },
         @cmd.none,
       )
@@ -867,7 +933,7 @@ pub fn update(
           {
             ..apply_session_state(model, decode_session_state(json)),
             session_error: "",
-            session_notice: "Forked a new session at that step. The loop is standing there; pick a slot to try another road.",
+            session_notice: c.sessions.forked,
           },
           @cmd.none,
         )
@@ -877,7 +943,7 @@ pub fn update(
         {
           ..model,
           session_notice: "",
-          session_error: "could not reach the server",
+          session_error: c.status.server_unreachable,
         },
         @cmd.none,
       )
@@ -896,7 +962,7 @@ pub fn update(
           {
             ..apply_session_state(model, decode_session_state(json)),
             session_error: "",
-            session_notice: "Renamed the session.",
+            session_notice: c.sessions.renamed,
           },
           @cmd.none,
         )
@@ -906,7 +972,7 @@ pub fn update(
         {
           ..model,
           session_notice: "",
-          session_error: "could not reach the server",
+          session_error: c.status.server_unreachable,
         },
         @cmd.none,
       )
@@ -925,7 +991,7 @@ pub fn update(
           {
             ..apply_session_state(model, decode_session_state(json)),
             session_error: "",
-            session_notice: "Forgot that session and its steps.",
+            session_notice: c.sessions.forgot,
           },
           @cmd.none,
         )
@@ -935,7 +1001,7 @@ pub fn update(
         {
           ..model,
           session_notice: "",
-          session_error: "could not reach the server",
+          session_error: c.status.server_unreachable,
         },
         @cmd.none,
       )
@@ -949,18 +1015,14 @@ pub fn update(
       let name = model.session_name_draft.trim().to_owned()
       if name == "" {
         (
-          {
-            ..model,
-            session_notice: "",
-            session_error: "give the session a name",
-          },
+          { ..model, session_notice: "", session_error: c.sessions.give_name, },
           @cmd.none,
         )
       } else {
         let payload : Json = { "name": name }
         (
-          { ..model, session_notice: "Starting…", session_error: "", },
-          @http.post("/api/sessions")
+          { ..model, session_notice: c.sessions.starting, session_error: "", },
+          @http.post("/api/sessions" + lang_query(model.lang))
           .with_json(payload)
           .expect_json(emit.map(fn(result) { SessionCreated(result) })),
         )
@@ -968,16 +1030,19 @@ pub fn update(
     }
     OpenSessionClicked(id) =>
       (
-        { ..model, session_notice: "Opening…", session_error: "", },
-        @http.post("/api/sessions/\{id}/activate").expect_json(
+        { ..model, session_notice: c.sessions.opening, session_error: "", },
+        @http.post("/api/sessions/\{id}/activate" + lang_query(model.lang)).expect_json(
           emit.map(fn(result) { SessionActivated(result) }),
         ),
       )
     ReplayStepClicked(id) => {
       let payload : Json = { "step": id }
       (
-        { ..model, session_notice: "Going back…", session_error: "", },
-        @http.post("/api/sessions/\{model.active_session.id}/replay")
+        { ..model, session_notice: c.sessions.going_back, session_error: "", },
+        @http.post(
+          "/api/sessions/\{model.active_session.id}/replay" +
+          lang_query(model.lang),
+        )
         .with_json(payload)
         .expect_json(emit.map(fn(result) { SessionReplayed(result) })),
       )
@@ -985,11 +1050,14 @@ pub fn update(
     BranchStepClicked(id) => {
       let payload : Json = {
         "step": id,
-        "name": branch_name(model.active_session.name),
+        "name": branch_name(model.active_session.name, c),
       }
       (
-        { ..model, session_notice: "Forking…", session_error: "", },
-        @http.post("/api/sessions/\{model.active_session.id}/branch")
+        { ..model, session_notice: c.sessions.forking, session_error: "", },
+        @http.post(
+          "/api/sessions/\{model.active_session.id}/branch" +
+          lang_query(model.lang),
+        )
         .with_json(payload)
         .expect_json(emit.map(fn(result) { SessionBranched(result) })),
       )
@@ -998,18 +1066,17 @@ pub fn update(
       let name = rename_text(model).trim().to_owned()
       if name == "" {
         (
-          {
-            ..model,
-            session_notice: "",
-            session_error: "give the session a name",
-          },
+          { ..model, session_notice: "", session_error: c.sessions.give_name, },
           @cmd.none,
         )
       } else {
         let payload : Json = { "name": name }
         (
-          { ..model, session_notice: "Renaming…", session_error: "", },
-          @http.post("/api/sessions/\{model.active_session.id}/rename")
+          { ..model, session_notice: c.sessions.renaming, session_error: "", },
+          @http.post(
+            "/api/sessions/\{model.active_session.id}/rename" +
+            lang_query(model.lang),
+          )
           .with_json(payload)
           .expect_json(emit.map(fn(result) { SessionRenamed(result) })),
         )
@@ -1020,7 +1087,7 @@ pub fn update(
         (
           {
             ..model,
-            session_notice: "Deleting…",
+            session_notice: c.sessions.deleting,
             session_error: "",
             session_delete_pending: 0,
           },
@@ -1032,7 +1099,7 @@ pub fn update(
         (
           {
             ..model,
-            session_notice: "Click Delete again to delete that session and every step in it.",
+            session_notice: c.sessions.confirm_delete,
             session_error: "",
             session_delete_pending: id,
           },
@@ -1099,14 +1166,15 @@ fn subscriptions(_model : Model, emit : @cmd.Emit[Msg]) -> @sub.Sub {
 ///|
 fn view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
   let nav_pages = navigation(model.pages)
+  let c = chrome(model.lang)
   let content = if !model.loaded {
-    loading_view()
+    loading_view(c)
   } else if model.error != "" {
-    error_view(model.error)
+    error_view(c, model.error)
   } else {
     match model.page() {
-      Some(page) => page_view(page)
-      None => not_found_view(model.current)
+      Some(page) => page_view(page, model.lang)
+      None => not_found_view(c, model.current)
     }
   }
   let body = if model.current == "index" {
@@ -1121,7 +1189,7 @@ fn view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
       society_panel,
       research_panel,
       causal_panel,
-      domain_cards(nav_pages),
+      domain_cards(nav_pages, model.lang),
     ])
   } else if model.current == "workspace" && model.loaded {
     // The workspace is a client-side route rather than a seeded page: what it
@@ -1135,18 +1203,18 @@ fn view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     // them -- and a patched control is a different thing from an inserted one.
     workspace_view(emit, model)
   } else if model.current == "workspace" {
-    loading_view()
+    loading_view(c)
   } else if model.current == "sessions" && model.loaded {
     // The sessions, for the same reason as the workspace: a client-side
     // route over data the backend holds, not a row in the `pages` table.
     sessions_view(emit, model)
   } else if model.current == "sessions" {
-    loading_view()
+    loading_view(c)
   } else {
     content
   }
   @html.div([
-    header(model.current, nav_pages),
+    header(emit, model.current, nav_pages, model.lang),
     @html.div(class="maked-main", [body]),
     @html.footer(
       class="maked-footer",
