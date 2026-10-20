@@ -420,6 +420,12 @@ pub(all) struct LoopState {
   current : Domain
   domain_states : Map[String, DomainState]
   group_state : @group.GroupState
+  /// Where the collective is, in the society machine.
+  ///
+  /// The third layer: the group state says how the five domains sit
+  /// together, and this says what the collective they make up is doing --
+  /// raising a claim, arguing, agreeing, or being colonised by a system.
+  society_state : @society.State
   history : Array[LoopEvent]
   mode : LoopMode
 } derive(Eq)
@@ -453,6 +459,7 @@ pub fn LoopState::new_for(model : Model) -> LoopState {
     current: starting_domain_of(model),
     domain_states: domain_states_of(model),
     group_state: @group.Scattered,
+    society_state: @society.initial(),
     history: [],
     mode: Structured,
   }
@@ -479,6 +486,7 @@ pub fn LoopState::new_from(domain : Domain) -> LoopState {
     current: domain,
     domain_states: domain_states_of(model),
     group_state: @group.Scattered,
+    society_state: @society.initial(),
     history: [],
     mode: Structured,
   }
@@ -493,6 +501,7 @@ pub fn LoopState::new_with_mode(mode : LoopMode) -> LoopState {
     current: starting_domain_of(model),
     domain_states: domain_states_of(model),
     group_state: @group.Scattered,
+    society_state: @society.initial(),
     history: [],
     mode,
   }
@@ -774,6 +783,7 @@ fn LoopState::step_domain_by_outcome(
         current: next_domain,
         domain_states,
         group_state,
+        society_state: self.society_state,
         history,
         mode,
       }
@@ -785,6 +795,7 @@ fn LoopState::step_domain_by_outcome(
         current: domain,
         domain_states: self.domain_states,
         group_state,
+        society_state: self.society_state,
         history,
         mode,
       }
@@ -1017,6 +1028,7 @@ pub fn LoopState::focus(self : LoopState, domain : Domain) -> LoopState {
     current: domain,
     domain_states: self.domain_states,
     group_state: self.group_state,
+    society_state: self.society_state,
     history: self.history,
     mode: self.mode,
   }
@@ -1058,8 +1070,31 @@ pub fn LoopState::with_mode(self : LoopState, mode : LoopMode) -> LoopState {
     current: self.current,
     domain_states: self.domain_states,
     group_state: self.group_state,
+    society_state: self.society_state,
     history: self.history,
     mode,
+  }
+}
+
+///|
+/// The same state with the collective somewhere else.
+///
+/// The society layer moves on its own triggers, so the move is set on the
+/// state rather than on the module cell: a session that is replayed has to
+/// be able to say where the collective was, and that is a question about
+/// the state, not about the process.
+pub fn LoopState::with_society_state(
+  self : LoopState,
+  state : @society.State,
+) -> LoopState {
+  {
+    model: self.model,
+    current: self.current,
+    domain_states: self.domain_states,
+    group_state: self.group_state,
+    society_state: state,
+    history: self.history,
+    mode: self.mode,
   }
 }
 
@@ -1246,6 +1281,14 @@ pub fn LoopState::to_json(self : LoopState) -> Json {
     "domain_states": [..domain_states_json],
     "group_state": self.group_state.en_designation(),
     "group_state_gloss": self.group_state.en_gloss(),
+    // The third layer, named in the vocabulary's words rather than in
+    // pyroduct's Chinese: the reader has to be able to read where the
+    // collective is.
+    "society_state": society_position_id(self.society_state),
+    "society_state_label": society_position_label(
+      current_society_vocabulary(),
+      society_position_id(self.society_state),
+    ),
     "mode": match self.mode {
       Structured => "structured"
       Free => "free"

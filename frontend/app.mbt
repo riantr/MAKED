@@ -29,6 +29,16 @@ pub(all) enum Msg {
   ResearchConfigTextChanged(String)
   ResearchConfigSaveClicked
   CausalLoaded(Result[Json, Error])
+  /// The Society layer: the collective, read from the server.
+  SocietyLoaded(Result[Json, Error])
+  /// A move was taken and the machine answered.
+  SocietyStepped(Result[Json, Error])
+  /// Read the collective: where it stands and what it can do from there.
+  SocietyReadClicked
+  /// The reader chose a move for the collective. The machine's own name for
+  /// the move, not its label: the label is for the reader and can be changed
+  /// in the vocabulary file, while the name is what the machine understands.
+  SocietyStepClicked(String)
   /// Read the corpus: whatever the server is configured to read, whether
   /// that is arxiv, a feed or the reader's own folder.
   ReadCorpusClicked
@@ -108,6 +118,11 @@ pub(all) struct Model {
   research_config_notice : String
   causal_result : Json?
   causal_error : String
+  /// The society machine, as the server describes it: where the collective
+  /// stands, the moves from there, and the gaps in the vocabulary.
+  society : Json?
+  /// What the society panel says after the last action.
+  society_error : String
   /// The user's own records, fetched with the pages so that the workspace
   /// needs no second request of its own. See the note in `app`.
   entries : Array[Entry]
@@ -180,6 +195,8 @@ fn initial() -> Model {
     research_config_notice: "",
     causal_result: None,
     causal_error: "",
+    society: None,
+    society_error: "",
     entries: [],
     entry_domains: default_entry_domains(),
     draft_domain: "",
@@ -237,6 +254,20 @@ pub fn slug_of(path : String) -> String {
 /// that the click arrives.
 pub fn target_step_request(slot : String, target : String) -> (String, Json) {
   ("/api/loop/step/" + slot, { "target": target })
+}
+
+///|
+/// The request that carries the reader's choice of move to the server.
+///
+/// The move travels by the machine's own name rather than by the label the
+/// reader saw: the label is for the reader and can be changed in the
+/// vocabulary file, while the name is what the machine understands.
+///
+/// Public for the same reason `update` is public -- the request is the only
+/// thing the server ever sees, and a test that cannot read it can only
+/// trust that the click arrives.
+pub fn society_step_request(trigger : String) -> (String, Json) {
+  ("/api/society/step", { "trigger": trigger })
 }
 
 ///|
@@ -537,6 +568,52 @@ pub fn update(
         @http.get("/api/research/causal").expect_json(
           emit.map(fn(result) { CausalLoaded(result) }),
         ),
+      )
+    // The collective.
+    //
+    // The society panel is not chained onto the start-up requests on
+    // purpose. The loop status already carries the collective's position,
+    // and the machine itself is only wanted when a reader asks for it --
+    // so the panel asks for it rather than the page paying for it on every
+    // load. See the note on the chained requests above: that chain is one
+    // hop, and this one is not part of it.
+    SocietyReadClicked =>
+      (
+        model,
+        @http.get("/api/society").expect_json(
+          emit.map(fn(result) { SocietyLoaded(result) }),
+        ),
+      )
+    SocietyLoaded(Ok(json)) =>
+      ({ ..model, society: Some(json), society_error: "", }, @cmd.none)
+    SocietyLoaded(Err(_)) =>
+      ({ ..model, society_error: "the collective is unavailable", }, @cmd.none)
+    // A move for the collective.
+    //
+    // The body carries the machine's own name for the move. The panel shows
+    // the reader a label, but the label can be changed in the vocabulary
+    // file -- so the name is what travels, and the server looks the move up
+    // by the name the machine gave it.
+    SocietyStepClicked(trigger) => {
+      let (path, body) = society_step_request(trigger)
+      (
+        model,
+        @http.post(path)
+        .with_json(body)
+        .expect_json(emit.map(fn(result) { SocietyStepped(result) })),
+      )
+    }
+    // The answer to a move has the same shape as the answer to "where does
+    // the collective stand": the machine, the position and the moves from
+    // it. A refusal is in the same body as the reason, so the panel keeps
+    // showing where the collective is rather than going blank because a
+    // move did not land.
+    SocietyStepped(Ok(json)) =>
+      ({ ..model, society: Some(json), society_error: "", }, @cmd.none)
+    SocietyStepped(Err(_)) =>
+      (
+        { ..model, society_error: "the move did not reach the server", },
+        @cmd.none,
       )
     UrlChanged(url) => ({ ..model, current: slug_of(url.path), }, @cmd.none)
     // The workspace.
@@ -1035,11 +1112,13 @@ fn view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
   let body = if model.current == "index" {
     let hero = @html.div(class="maked-hero", [logo(240), content])
     let loop_panel = loop_view(emit, model)
+    let society_panel = society_view(emit, model)
     let research_panel = research_view(emit, model)
     let causal_panel = causal_view(emit, model)
     @html.div([
       hero,
       loop_panel,
+      society_panel,
       research_panel,
       causal_panel,
       domain_cards(nav_pages),

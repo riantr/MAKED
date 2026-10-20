@@ -1,0 +1,147 @@
+# The Society layer: the collective, and the words for it.
+#
+# The machine is pyroduct's: its 13 positions, 8 phases and 28 transitions
+# are the authority, and nothing here changes them. What this file adds is
+# the English. pyroduct keeps the society machine's own wording in Chinese,
+# the way it keeps the subject machine's, and MAKED is an English surface --
+# so the words live here, where a reader can change them.
+#
+# The ids are pyroduct's own names for the positions and the triggers. They
+# are not MAKED's vocabulary to invent: an id here is the authority's name,
+# so a position pyroduct defines and this file does not name is a gap the
+# panel says out loud, and a name here that pyroduct does not define is a
+# name about nowhere.
+#
+#   MAKED_SOCIETY=research/society.yaml
+#
+# The file's name decides how it is read: a .yaml file is read as YAML and
+# every other file as JSON. It is written back in the same syntax.
+format: maked.society.v1
+
+positions:
+  - id: World
+    label: Lifeworld
+    gloss: >-
+      The prior place where speakers and listeners meet, organised by
+      language. Claims are raised here, argued over, and sometimes agreed.
+  - id: Suprasubjective
+    label: Suprasubjectivity
+    gloss: >-
+      Understanding and language are events that happen to us rather than
+      acts we perform. It is language that speaks us, and building a
+      lifeworld is a task that cannot be carried out.
+  - id: Intersubjective
+    label: Intersubjectivity
+    gloss: >-
+      Intersubjectivity is established through language. Claims are checked
+      against one another, and consensus is built out of that checking
+      rather than out of one voice.
+  - id: Claim
+    label: Validity claim
+    gloss: >-
+      What one actor says, in words meant to be taken up by others. A claim
+      is a candidate for agreement, not a result.
+  - id: Discourse
+    label: Discourse
+    gloss: >-
+      The conversation that filters claims: what comes out of it is what
+      everyone can reasonably be expected to accept.
+  - id: Justification
+    label: Justification
+    gloss: >-
+      A claim is true when the speech act that asserts it has been
+      justified. Agreement comes after the argument, not instead of it.
+  - id: Consensus
+    label: Consensus
+    gloss: >-
+      An understanding that has been justified and taken up by the
+      community -- worth accepting, and reached for reasons.
+  - id: Norm
+    label: Norm
+    gloss: >-
+      Practical discourse sets rules that bind the participants. The rules
+      are there to hold each other to, and what they bind has already
+      happened.
+  - id: Gap
+    label: Gap
+    gloss: >-
+      One other cannot do the whole job: a third party has to weigh the
+      possible criticism against the judgement. The model says the third
+      party is not available, and admits what that costs.
+  - id: System
+    label: System
+    gloss: >-
+      Money and power as intermediaries. The system exists to serve the
+      lifeworld, and the lifeworld is where truth is produced.
+  - id: Colony
+    label: Colonisation
+    gloss: >-
+      Instrumental reason lets the system's appetite grow, and it reaches
+      into the lifeworld: the form-structured system takes over the
+      life-structured world.
+  - id: Distortion
+    label: Distorted communication
+    gloss: >-
+      Communication that the system has twisted. It is the root of every
+      consensus that could not be reached without coercion.
+  - id: Reconstruction
+    label: Reconstruction
+    gloss: >-
+      Putting the distorted sphere of communication back together, so that
+      the systems serve the lifeworld again.
+
+phases:
+  - id: Life
+    label: Life
+  - id: Language
+    label: Language
+  - id: Discourse
+    label: Discourse
+  - id: Rule
+    label: Rule
+  - id: Aporia
+    label: Aporia
+  - id: Instrument
+    label: Instrument
+  - id: Domination
+    label: Domination
+  - id: Rebuild
+    label: Rebuild
+
+triggers:
+  - id: SpeakLanguage
+    label: Language speaks
+  - id: BuildIntersubjective
+    label: Build intersubjectivity
+  - id: RaiseClaims
+    label: Raise a validity claim
+  - id: EnterDiscourse
+    label: Enter discourse
+  - id: Filter
+    label: Filter through discourse
+  - id: Justify
+    label: Justify
+  - id: Subsume
+    label: Subsume
+  - id: Store
+    label: Store
+  - id: EnactNorm
+    label: Enact a norm
+  - id: LabelPast
+    label: Label the past
+  - id: DemandThird
+    label: Demand a third party
+  - id: Serve
+    label: Serve the lifeworld
+  - id: Expand
+    label: Expand
+  - id: Colonize
+    label: Colonise the lifeworld
+  - id: Distort
+    label: Distort communication
+  - id: Hinder
+    label: Hinder consensus
+  - id: Reconstruct
+    label: Reconstruct
+  - id: Circulate
+    label: Circulate

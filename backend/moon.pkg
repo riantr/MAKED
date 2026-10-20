@@ -20,6 +20,7 @@ import {
   "moonbitlang/pdflite/markdown" @pdflite_md,
   "riantr/moonbit_doubleML" @dml,
   "riantr/pyroduct/group",
+  "riantr/pyroduct/society",
   "riantr/pyroduct/src" @sm,
 }
 

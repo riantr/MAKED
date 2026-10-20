@@ -604,6 +604,8 @@ fn bare_model() -> @frontend.Model {
     research_config_notice: "",
     causal_result: None,
     causal_error: "",
+    society: None,
+    society_error: "",
     entries: [],
     entry_domains: ["M", "D", "E", "A", "K"],
     draft_domain: "",
@@ -2095,4 +2097,249 @@ test "the causal panel sends the estimate click" {
     }
   }
   assert_eq(estimates, 1)
+}
+
+///|
+/// A society payload, as the server sends it.
+///
+/// The collective standing in the lifeworld, with two moves out of it and one
+/// move already taken.
+fn society_payload() -> Json {
+  {
+    "state": "Claim",
+    "state_label": "Validity claim",
+    "state_gloss": "What one actor says, in words meant to be taken up by others.",
+    "phase": "Language",
+    "positions": [
+      {
+        "id": "World",
+        "label": "Lifeworld",
+        "gloss": "Where speakers meet.",
+        "phase": "Life",
+        "phase_label": "Life",
+      },
+      {
+        "id": "Claim",
+        "label": "Validity claim",
+        "gloss": "A candidate for agreement.",
+        "phase": "Language",
+        "phase_label": "Language",
+      },
+    ],
+    "transitions": [
+      {
+        "from": "World",
+        "trigger": "RaiseClaims",
+        "trigger_label": "Raise a validity claim",
+        "to": "Claim",
+        "to_label": "Validity claim",
+      },
+      {
+        "from": "Claim",
+        "trigger": "EnterDiscourse",
+        "trigger_label": "Enter discourse",
+        "to": "Discourse",
+        "to_label": "Discourse",
+      },
+    ],
+    "moves": [
+      {
+        "trigger": "EnterDiscourse",
+        "trigger_label": "Enter discourse",
+        "to": "Discourse",
+        "to_label": "Discourse",
+      },
+      {
+        "trigger": "Justify",
+        "trigger_label": "Justify",
+        "to": "Justification",
+        "to_label": "Justification",
+      },
+    ],
+    "gaps": [],
+    "path": "research/society.yaml",
+    "kind": "moved",
+    "reason": "",
+    "from": "World",
+    "from_label": "Lifeworld",
+  }
+}
+
+///|
+/// The panel reads where the collective stands.
+test "the society panel reads where the collective stands" {
+  let summary = @frontend.society_summary(society_payload())
+  assert_eq(summary.state, "Claim")
+  assert_eq(summary.state_label, "Validity claim")
+  assert_eq(
+    summary.state_gloss,
+    "What one actor says, in words meant to be taken up by others.",
+  )
+  assert_eq(summary.phase, "Language")
+  assert_eq(summary.path, "research/society.yaml")
+}
+
+///|
+/// The panel reads the moves the machine offers from here.
+test "the society panel reads the moves the machine offers" {
+  let summary = @frontend.society_summary(society_payload())
+  assert_eq(summary.moves.length(), 2)
+  assert_eq(summary.moves[0].trigger, "EnterDiscourse")
+  assert_eq(summary.moves[0].to_label, "Discourse")
+  assert_eq(summary.transitions.length(), 2)
+  assert_eq(summary.positions.length(), 2)
+}
+
+///|
+/// A position the vocabulary has no word for still shows the machine's name.
+///
+/// A blank where a name should be reads as "the machine has a state nobody
+/// has a word for". The machine's own name is the next best thing, and it
+/// is better than nothing.
+test "the society panel falls back to the machine's name" {
+  let payload : Json = { "state": "Claim" }
+  let summary = @frontend.society_summary(payload)
+  assert_eq(summary.state_label, "Claim")
+}
+
+///|
+/// A payload with nothing in it does not take the panel down.
+///
+/// The backend is the only writer, so a missing field is a backend change
+/// and not a reason for the page to die.
+test "an empty society payload does not take the panel down" {
+  let summary = @frontend.society_summary(Json::empty_object())
+  assert_eq(summary.state, "")
+  assert_eq(summary.moves.length(), 0)
+  assert_eq(summary.gaps.length(), 0)
+}
+
+///|
+/// The panel says what the last move did, and where it started.
+test "the society panel says what the last move did" {
+  let summary = @frontend.society_summary(society_payload())
+  assert_eq(
+    @frontend.society_outcome_sentence(summary),
+    "The collective moved from Lifeworld to Validity claim.",
+  )
+}
+
+///|
+/// A collective that has not moved yet has no sentence to say.
+///
+/// An empty sentence and a sentence about a move that did not happen look
+/// the same to a reader, so the panel has to keep them apart.
+test "a collective that has not moved has nothing to say" {
+  let payload : Json = { "state": "World", "state_label": "Lifeworld" }
+  let summary = @frontend.society_summary(payload)
+  assert_eq(@frontend.society_outcome_sentence(summary), "")
+}
+
+///|
+/// A refusal keeps the panel showing where the collective stands.
+///
+/// The refusal and the machine arrive in the same body, so a move that does
+/// not land does not blank the panel.
+test "a refused move still leaves the collective where it was" {
+  let payload : Json = {
+    "state": "World",
+    "state_label": "Lifeworld",
+    "kind": "block",
+    "reason": "From Lifeworld there is no \"Distort communication\" to take.",
+    "moves": [
+      {
+        "trigger": "RaiseClaims",
+        "trigger_label": "Raise a validity claim",
+        "to": "Claim",
+        "to_label": "Validity claim",
+      },
+    ],
+  }
+  let summary = @frontend.society_summary(payload)
+  assert_eq(summary.kind, "block")
+  assert_true(summary.reason.contains("Distort communication"))
+  assert_eq(summary.state_label, "Lifeworld")
+  assert_eq(summary.moves.length(), 1)
+}
+
+///|
+/// The gaps in the vocabulary are read, not dropped.
+///
+/// A vocabulary that has fallen behind the machine is a defect, and the
+/// panel's job is to show it.
+test "the society panel reads the gaps in the vocabulary" {
+  let payload : Json = { "gaps": ["position Nowhere"] }
+  let summary = @frontend.society_summary(payload)
+  assert_eq(summary.gaps.length(), 1)
+  assert_eq(summary.gaps[0], "position Nowhere")
+}
+
+///|
+/// The panel's button asks for the collective.
+test "the society panel sends the read click" {
+  let seen : Array[@frontend.Msg] = []
+  let _ = @frontend.society_view(capturing_emit(seen), bare_model())
+  let mut reads = 0
+  for msg in seen {
+    match msg {
+      @frontend.Msg::SocietyReadClicked => reads += 1
+      _ => ()
+    }
+  }
+  assert_eq(reads, 1)
+}
+
+///|
+/// Every move the machine offers is a button, and the button carries the
+/// move's own name.
+///
+/// The label is for the reader and can be changed in the vocabulary file,
+/// so the name is what has to travel.
+test "the society panel offers a button for every move" {
+  let seen : Array[@frontend.Msg] = []
+  let model = { ..bare_model(), society: Some(society_payload()), }
+  let _ = @frontend.society_view(capturing_emit(seen), model)
+  let chosen : Array[String] = []
+  for msg in seen {
+    match msg {
+      @frontend.Msg::SocietyStepClicked(trigger) => chosen.push(trigger)
+      _ => ()
+    }
+  }
+  assert_eq(chosen.length(), 2)
+  assert_eq(chosen[0], "EnterDiscourse")
+  assert_eq(chosen[1], "Justify")
+}
+
+///|
+/// The click has to become a request to the society step endpoint.
+test "the collective's move reaches the society step endpoint" {
+  let (_, cmd) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::SocietyStepClicked("EnterDiscourse"),
+    silent_emit(),
+  )
+  let request = cmd.to_repr().to_string()
+  assert_true(request.contains("/api/society/step"))
+}
+
+///|
+/// The request names the move the reader picked.
+test "the request names the move the reader picked" {
+  let (path, body) = @frontend.society_step_request("EnterDiscourse")
+  assert_eq(path, "/api/society/step")
+  assert_eq(@frontend.get_string(body, "trigger", ""), "EnterDiscourse")
+}
+
+///|
+/// The collective's fields are distinguished by Eq.
+///
+/// rabbita drops an update whose new model compares equal to the old one,
+/// so a society field that compared equal would be a field the screen
+/// silently refuses to show.
+test "Model Eq distinguishes the society fields" {
+  let m = bare_model()
+  assert_true(
+    !Eq::equal(m, { ..m, society_error: "the collective is unavailable", }),
+  )
 }

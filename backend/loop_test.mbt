@@ -564,6 +564,7 @@ test "a moved domain is driven from its new position, not its anchor" {
     current: @backend.domain_from_id("model").unwrap(),
     domain_states: back.domain_states,
     group_state: back.group_state,
+    society_state: back.society_state,
     history: back.history,
     mode: back.mode,
   }

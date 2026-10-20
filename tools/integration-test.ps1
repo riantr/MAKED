@@ -81,8 +81,7 @@ function Assert-FieldNotEmpty {
 
 function Assert-ArrayLength {
   param([string]$Desc, $Json, [string]$Field, [int]$Expected)
-  $actual = (Field $Json $Field)
-  $count = if ($null -eq $actual) { -1 } else { @($actual).Count }
+  $count = ArrayCount $Json $Field
   Assert-True $Desc ($count -eq $Expected) `
     ("expected '{0}' to hold {1} entries, got {2}" -f $Field, $Expected, $count)
 }
@@ -285,6 +284,24 @@ function Field {
   $property = $Json.PSObject.Properties[$Name]
   if ($null -eq $property) { return $null }
   return $property.Value
+}
+
+# How many entries a list field holds.
+#
+# This exists because `Field` cannot be used for the count: a function that
+# returns an empty array hands the caller *nothing*, so an empty JSON list
+# arrives as `$null` and an empty list is indistinguishable from a missing
+# field. A check that says "there are no gaps" then passes for the wrong
+# reason -- and a check that says "the gaps are reported" would pass for a
+# field the server never sent at all.
+#
+# -1 means the field is not there. 0 means it is there and it is empty.
+function ArrayCount {
+  param($Json, [string]$Name)
+  if ($null -eq $Json) { return -1 }
+  $property = $Json.PSObject.Properties[$Name]
+  if ($null -eq $property) { return -1 }
+  return @($property.Value).Count
 }
 
 # --- build and start --------------------------------------------------------
@@ -1258,6 +1275,114 @@ try {
     }
   }
 
+  # The Society layer: the collective, read over real HTTP.
+  #
+  # The machine is pyroduct's and the words are the vocabulary file's, and
+  # this is where the two are checked against each other over the wire: the
+  # machine has thirteen positions and twenty-eight moves, and a payload
+  # that says so is a payload the panel can render.
+  #
+  # The refusal is the part worth the most attention. A move that does not
+  # exist has to come back with the reason *and* with the machine: a body
+  # that carried only the reason would leave the panel with nothing to show
+  # but the reason, and a collective that goes blank when it refuses a move
+  # is the exact failure this project exists to remove.
+  function Test-Society {
+    param([int]$SocietyPort)
+    $response = Invoke-Api -Method GET -Path "/api/society"
+    Assert-Status "the society endpoint answers" 200 $response
+    $body = $response.Body | ConvertFrom-Json
+    Assert-FieldNotEmpty "and the collective is standing somewhere" $body "state"
+    Assert-FieldNotEmpty "and the position has a name" $body "state_label"
+    Assert-FieldNotEmpty "and the position has a gloss" $body "state_gloss"
+    Assert-FieldNotEmpty "and the phase is named" $body "phase"
+    Assert-ArrayLength "and the machine's thirteen positions are served" $body "positions" 13
+    Assert-ArrayLength "and the machine's twenty-eight moves are served" $body "transitions" 28
+    Assert-True "and the moves from here are served" `
+      (@(Field $body "moves").Count -gt 0)
+    Assert-HasField "and the gaps are reported at all" $body "gaps"
+    Assert-ArrayLength "and the built-in vocabulary has no gaps" $body "gaps" 0
+    Assert-Field "and no move has been taken yet" $body "kind" ""
+
+    $moved = Post-Json "/api/society/step" @{ trigger = "RaiseClaims" }
+    Assert-Status "a move for the collective is accepted" 200 $moved
+    $after = $moved.Body | ConvertFrom-Json
+    Assert-Field "and the collective moved" $after "kind" "moved"
+    Assert-Field "and it moved from where it stood" $after "from" "World"
+    Assert-FieldNotEmpty "and the place it came from has a name" $after "from_label"
+    Assert-FieldNotEmpty "and it is standing somewhere new" $after "state_label"
+    Assert-True "and the moves from the new place are served" `
+      (@(Field $after "moves").Count -gt 0)
+    Assert-ArrayLength "and the machine is still there" $after "positions" 13
+
+    $refused = Post-Json "/api/society/step" @{ trigger = "NotAMove" }
+    Assert-Status "a move that does not exist is answered, not thrown" 200 $refused
+    $block = $refused.Body | ConvertFrom-Json
+    Assert-Field "and the answer says the collective did not move" $block "kind" "block"
+    Assert-FieldNotEmpty "and the answer says why" $block "reason"
+    Assert-Contains "and the reason names the move that was asked for" `
+      (Field $block "reason") "NotAMove"
+    Assert-ArrayLength "and the machine is still there after a refusal" $block "positions" 13
+    Assert-True "and the moves from here are still served" `
+      (@(Field $block "moves").Count -gt 0)
+    Assert-FieldNotEmpty "and the collective is still standing somewhere" $block "state_label"
+
+    # The shipped vocabulary, run as a file.
+    #
+    # The built-in words and the file have to agree: a reader who unpacks the
+    # binary and points MAKED_SOCIETY at the file it shipped with must see
+    # the same panel. A file that does not parse, or that names a position
+    # the machine does not have, is refused at startup -- and a refusal at
+    # startup is a server that does not start.
+    $vocabularyFile = Join-Path $repo "research/society.yaml"
+    Assert-True "the example vocabulary ships with the repository" (Test-Path $vocabularyFile)
+    if (-not (Test-Path $vocabularyFile)) { return }
+    $copy = Join-Path $tempDir ("maked_integration_society_{0}.yaml" -f $SocietyPort)
+    Copy-Item $vocabularyFile $copy -Force
+    $societyArgs = @{
+      FilePath               = $exe
+      PassThru               = $true
+      RedirectStandardOutput = (Join-Path $tempDir ("maked_integration_society_{0}_out.log" -f $SocietyPort))
+      RedirectStandardError  = (Join-Path $tempDir ("maked_integration_society_{0}_err.log" -f $SocietyPort))
+    }
+    if ($IsWindows -or $PSVersionTable.PSVersion.Major -lt 6) {
+      $societyArgs["WindowStyle"] = "Hidden"
+    }
+    $savedSociety = $env:MAKED_SOCIETY
+    $savedPort = $env:MAKED_PORT
+    $savedDb = $env:MAKED_DB
+    $savedBase = $script:base
+    $env:MAKED_SOCIETY = $copy
+    $env:MAKED_PORT = "$SocietyPort"
+    $env:MAKED_DB = (Join-Path $tempDir ("maked_integration_society_{0}.db" -f $SocietyPort))
+    $script:base = "http://127.0.0.1:$SocietyPort"
+    $societyServer = Start-Process @societyArgs
+    try {
+      $societyReady = $false
+      for ($i = 0; $i -lt 60; $i++) {
+        Start-Sleep -Milliseconds 250
+        $probe = Invoke-Api -Method GET -Path "/api/status" -TimeoutSec 2
+        if ($probe.Status -eq 200) { $societyReady = $true; break }
+      }
+      Assert-True "the server starts with a vocabulary file" $societyReady
+      if ($societyReady) {
+        $own = Get-Json "/api/society"
+        Assert-Field "and the file it came from is remembered" $own "path" $copy
+        Assert-Field "and the collective is still at the lifeworld" $own "state_label" "Lifeworld"
+        Assert-ArrayLength "and the machine is the same machine" $own "positions" 13
+        Assert-ArrayLength "and the shipped vocabulary has no gaps" $own "gaps" 0
+      }
+    } finally {
+      if ($null -ne $societyServer -and -not $societyServer.HasExited) {
+        Stop-Process -Id $societyServer.Id -Force -ErrorAction SilentlyContinue
+      }
+      $env:MAKED_SOCIETY = $savedSociety
+      $env:MAKED_PORT = $savedPort
+      $env:MAKED_DB = $savedDb
+      $script:base = $savedBase
+    }
+  }
+
   Write-Host ""
   Write-Host "-- a table of your own"
   Test-ResearchTable (Join-Path $repo "models/product-iteration.json") `
@@ -1270,6 +1395,10 @@ try {
   Write-Host ""
   Write-Host "-- what the causal estimate rests on"
   Test-ResearchCausal ($Port + 5)
+
+  Write-Host ""
+  Write-Host "-- the collective"
+  Test-Society ($Port + 6)
 } finally {
   Stop-Server
   Start-Sleep -Milliseconds 300

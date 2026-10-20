@@ -87,6 +87,29 @@ async fn main {
       }
     }
   }
+  // The words for the Society layer. `MAKED_SOCIETY` names a vocabulary
+  // file, and a file that cannot be read whole is refused for the same
+  // reason the model file is: the society machine is pyroduct's, and a
+  // vocabulary that half-reads leaves the collective's positions unnamed --
+  // a panel that shows a collective and cannot say where it is.
+  let society_path = @maked.society_path_from_env()
+  match society_path {
+    Some(path) =>
+      match @maked.read_society_file(path) {
+        Some(vocabulary) => @maked.install_society_vocabulary(vocabulary)
+        None => {
+          println("")
+          println(
+            "MAKED will not start with a society vocabulary it could not read.",
+          )
+          println(
+            "  unset MAKED_SOCIETY to run the built-in vocabulary instead",
+          )
+          return
+        }
+      }
+    None => ()
+  }
   // The corpus the documents come from. `MAKED_CORPUS` names a corpus
   // file, and a file that cannot be read whole is refused for the same
   // reason the model file is: a server that quietly fell back to arxiv

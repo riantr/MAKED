@@ -749,6 +749,120 @@ $mutations = @(
     file = 'backend/causal.mbt'
     old  = '        "balance": [..refusal.balance.map(fn(row) { row.to_json() })],'
     new  = '        "balance": [],'
+  },
+  # The Society layer. The machine is pyroduct's and the words are the
+  # vocabulary file's, and the file exists so that a word the reader wants to
+  # change does not need a release. These mutations are the two ways that
+  # arrangement can go wrong without anything crashing: the file can drift
+  # away from the machine, or the machine can stop being told what the
+  # reader asked for.
+  @{
+    name = 'the gaps in the vocabulary are never found'
+    file = 'backend/society.mbt'
+    old  = 'if vocabulary.positions.get(id) is None {'
+    new  = 'if false {'
+  },
+  @{
+    name = 'the stray names in the vocabulary are accepted'
+    file = 'backend/society.mbt'
+    old  = 'let stray = first_stray(vocabulary)'
+    new  = 'let stray : String? = None'
+  },
+  @{
+    name = 'a vocabulary in another format is accepted'
+    file = 'backend/society.mbt'
+    old  = 'if format != SOCIETY_FORMAT {'
+    new  = 'if false {'
+  },
+  @{
+    name = 'the vocabulary does not remember the file it came from'
+    file = 'backend/society.mbt'
+    old  = 'let vocabulary = { positions: p, phases: ph, triggers: t, path, }'
+    new  = 'let vocabulary = { positions: p, phases: ph, triggers: t, path: "", }'
+  },
+  @{
+    name = 'the reason for a move that does not exist does not name it'
+    file = 'backend/society.mbt'
+    old  = '"There is no move called \"" + trigger_id + "\" in the society machine."'
+    new  = '"There is no move."'
+  },
+  @{
+    name = 'the reason for a blocked move does not name the move'
+    file = 'backend/society.mbt'
+    old  = 'trigger.label +'
+    new  = 'trigger.gloss +'
+  },
+  @{
+    name = 'a landed move is reported as a hold'
+    file = 'backend/society.mbt'
+    old  = 'Advanced(_, _) => "moved"'
+    new  = 'Advanced(_, _) => "held"'
+  },
+  @{
+    name = 'the moves offered are the moves of every position'
+    file = 'backend/society.mbt'
+    old  = 'if transition.from == state {'
+    new  = 'if true {'
+  },
+  @{
+    name = 'the lifeworld is renamed behind the reader''s back'
+    file = 'backend/society.mbt'
+    old  = '          label: "Lifeworld",'
+    new  = '          label: "Life-world",'
+  },
+  @{
+    name = 'the positions are never served'
+    file = 'backend/api.mbt'
+    old  = '"positions": positions,'
+    new  = '"positions": [],'
+  },
+  @{
+    name = 'the transitions are never served'
+    file = 'backend/api.mbt'
+    old  = '"transitions": transitions,'
+    new  = '"transitions": [],'
+  },
+  @{
+    name = 'the moves from here are never served'
+    file = 'backend/api.mbt'
+    old  = '"moves": moves,'
+    new  = '"moves": [],'
+  },
+  @{
+    name = 'the gaps in the vocabulary are never served'
+    file = 'backend/api.mbt'
+    old  = '"gaps": society_vocabulary_gaps(vocabulary),'
+    new  = '"gaps": [],'
+  },
+  @{
+    name = 'what the last move did is never carried'
+    file = 'backend/api.mbt'
+    old  = '"kind": outcome.kind,'
+    new  = '"kind": "",'
+  },
+  @{
+    name = 'the reason a move did not happen is never carried'
+    file = 'backend/api.mbt'
+    old  = '"reason": outcome.reason,'
+    new  = '"reason": "",'
+  },
+  @{
+    name = 'where the collective came from is never carried'
+    file = 'backend/api.mbt'
+    old  = '"from": outcome.from,'
+    new  = '"from": "",'
+  },
+  @{
+    name = 'the collective''s name is never served'
+    file = 'backend/api.mbt'
+    old  = '"state_label": position.label,'
+    new  = '"state_label": "",'
+  },
+  @{
+    name = 'the phase the collective is in is never served'
+    file = 'backend/api.mbt'
+    old  = '"phase": society_phase_id(state.phase()),'
+    new  = '"phase": "",'
   }
 )
 

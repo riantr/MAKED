@@ -835,6 +835,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       }
     }
   })
+
   // Causal inference endpoint: estimate the causal effect of a document
   // claiming to be new on an impact score, using Double/Debiased Machine
   // Learning, and report the diagnostics that make the estimate arguable.
@@ -861,6 +862,199 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     }
     Response::json(body)
   })
+
+  // The Society layer: pyroduct's collective machine, the words for it, and
+  // where the collective is standing.
+  //
+  // GET  /api/society       → the machine, the collective's position, the
+  //                            moves available from it, and the gaps in the
+  //                            vocabulary
+  // POST /api/society/step  → take a move; the machine answers with where it
+  //                            lands, or with the reason there was no move
+  //
+  // The machine is pyroduct's and the words are the vocabulary file's, and
+  // the two are kept apart on purpose: a position the machine has and the
+  // file does not name is a gap, and the gap is said out loud rather than
+  // rendered as a blank.
+  //
+  // Both answers have the same shape. That is the point: a move that is
+  // refused still answers with the machine, the collective's position and
+  // the moves available from it, plus the reason the move did not happen.
+  // A response that carried only a reason on refusal would leave the panel
+  // holding two different shapes and no way to tell which one it had.
+  app.get("/api/society", _req => {
+    let vocabulary = current_society_vocabulary()
+    let state = get_loop_state()
+    Response::json(
+      society_payload(vocabulary, state.society_state, SocietyOutcome::none()),
+    )
+  })
+  app.post("/api/society/step", req => {
+    let payload = req.json().unwrap_or(Json::empty_object())
+    let trigger = json_string(payload, "trigger")
+    let vocabulary = current_society_vocabulary()
+    let before = get_loop_state()
+    let from = society_position_id(before.society_state)
+    let step = society_step(vocabulary, before.society_state, trigger)
+    match step {
+      Advanced(_, to) => {
+        let landing = society_position_from_id(to)
+        match landing {
+          Some(state) => {
+            set_loop_state(before.with_society_state(state))
+            Response::json(
+              society_payload(vocabulary, state, {
+                kind: "moved",
+                reason: "",
+                from,
+              }),
+            )
+          }
+          // The machine named a landing place that is not one of its
+          // positions. That cannot happen with the machine this build
+          // knows, and if it ever did, the collective stays where it is
+          // and the reader is told why -- rather than the server inventing
+          // a position to send it to.
+          None =>
+            Response::json(
+              society_payload(
+                vocabulary,
+                before.society_state,
+                society_outcome_of(vocabulary, step, from),
+              ),
+            )
+        }
+      }
+      Kept(_, _) =>
+        Response::json(
+          society_payload(
+            vocabulary,
+            before.society_state,
+            society_outcome_of(vocabulary, step, from),
+          ),
+        )
+      Undecided(_, _) =>
+        Response::json(
+          society_payload(
+            vocabulary,
+            before.society_state,
+            society_outcome_of(vocabulary, step, from),
+          ),
+        )
+      Refused(_, _) =>
+        Response::json(
+          society_payload(
+            vocabulary,
+            before.society_state,
+            society_outcome_of(vocabulary, step, from),
+          ),
+        )
+    }
+  })
+}
+
+///|
+/// What a move did, in the terms the panel reads.
+fn society_outcome_of(
+  vocabulary : SocietyVocabulary,
+  step : SocietyStep,
+  from : String,
+) -> SocietyOutcome {
+  {
+    kind: step.society_step_kind(),
+    reason: society_step_reason(vocabulary, step),
+    from,
+  }
+}
+
+///|
+/// The Society layer, as the panel reads it.
+///
+/// One shape for every answer. The outcome travels with it, so a reader who
+/// asks where the collective stands and a reader who just moved it are
+/// looking at the same body.
+pub fn society_payload(
+  vocabulary : SocietyVocabulary,
+  state : @society.State,
+  outcome : SocietyOutcome,
+) -> Json {
+  let id = society_position_id(state)
+  let position = society_word(vocabulary.positions, id)
+  let positions : Array[Json] = []
+  for p in society_positions(vocabulary) {
+    positions.push({
+      "id": p.id,
+      "label": p.label,
+      "gloss": p.gloss,
+      "phase": p.phase,
+      "phase_label": society_phase_label(vocabulary, p.phase),
+    })
+  }
+  let transitions : Array[Json] = []
+  for t in society_transitions() {
+    transitions.push({
+      "from": t.from,
+      "trigger": t.trigger,
+      "trigger_label": society_trigger_label(vocabulary, t.trigger),
+      "to": t.to,
+      "to_label": society_position_label(vocabulary, t.to),
+    })
+  }
+  let moves : Array[Json] = []
+  for m in society_moves(state) {
+    moves.push({
+      "trigger": m.trigger,
+      "trigger_label": society_trigger_label(vocabulary, m.trigger),
+      "to": m.to,
+      "to_label": society_position_label(vocabulary, m.to),
+    })
+  }
+  {
+    "state": id,
+    "state_label": position.label,
+    "state_gloss": position.gloss,
+    "phase": society_phase_id(state.phase()),
+    "positions": positions,
+    "transitions": transitions,
+    "moves": moves,
+    // A gap in the vocabulary is a defect, and a defect the panel shows.
+    "gaps": society_vocabulary_gaps(vocabulary),
+    "path": vocabulary.path,
+    // What the last move did, and why it did not do anything else.
+    "kind": outcome.kind,
+    "reason": outcome.reason,
+    "from": outcome.from,
+    "from_label": if outcome.from == "" {
+      ""
+    } else {
+      society_position_label(vocabulary, outcome.from)
+    },
+  }
+}
+
+///|
+/// The reason a move did not happen, in words.
+pub fn society_step_reason(
+  vocabulary : SocietyVocabulary,
+  step : SocietyStep,
+) -> String {
+  match step {
+    Advanced(_, _) => ""
+    Kept(_, place) =>
+      "The collective stayed where it was: " +
+      society_position_label(vocabulary, place) +
+      " is where that move leads."
+    Undecided(_, places) => {
+      let names : Array[String] = []
+      for place in places {
+        names.push(society_position_label(vocabulary, place))
+      }
+      "That move leaves the collective more than one place to be: " +
+      names.join(", ") +
+      "."
+    }
+    Refused(_, reason) => reason
+  }
 }
 
 ///|

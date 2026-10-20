@@ -28,7 +28,7 @@ The ring order M → D → E → A → K is the path the logo draws clockwise, n
 
 1. **Subject layer**: every domain owns an independent pyroduct state machine (34 positions × 8 slots × 53 transitions)
 2. **Group layer**: group states that coordinate across domains (Scattered → Converging → Common Tongue → Settled, 20 states)
-3. **Society layer**: not yet implemented
+3. **Society layer**: the collective as a communicative whole (13 positions × 8 phases × 28 transitions) — see [The Collective](#the-collective)
 
 **Flexible starting point**: the loop may start at any domain (Model by default); switch the starting domain with `POST /api/loop/reset/:domain`. Each domain's state machine initialises independently — only the `current` pointer changes.
 
@@ -126,6 +126,7 @@ broken image is caught before it is ever tagged.
 | `MAKED_MODEL` | *(unset)* | a model file to run instead of the built-in one — see [Your Own Loop](#your-own-loop) |
 | `MAKED_RESEARCH` | *(unset)* | a mapping table that says what a document means — see [The Table That Says What A Document Means](#the-table-that-says-what-a-document-means) |
 | `MAKED_CORPUS` | *(unset)* | a corpus file: where the documents come from — see [The Corpus Is Yours](#the-corpus-is-yours) |
+| `MAKED_SOCIETY` | *(unset)* | a vocabulary file: the English words for the collective — see [The Collective](#the-collective) |
 
 ## API
 
@@ -312,6 +313,17 @@ Structured mode is the default. Free mode allows exploring transition paths thro
 | `GET /api/research/corpus` | the corpus, the file it came from, and whether it can be written back |
 | `PUT /api/research/corpus` | replace the corpus; a corpus naming a source it cannot read is refused, with the reason |
 
+### The Society Layer
+
+| Route | Returns |
+|---|---|
+| `GET /api/society` | the collective's position and name, the thirteen positions, the twenty-eight moves, the moves available from here, and the gaps in the vocabulary |
+| `POST /api/society/step` | take a move: `{ "trigger": "RaiseClaims" }` -- where the collective lands, or the reason there was no such move |
+
+Both answers have the same shape. A move that is refused still answers with the
+machine, the collective's position and the moves available from it, plus the
+reason. See [The Collective](#the-collective).
+
 ## Project Structure
 
 ```
@@ -333,6 +345,8 @@ backend/          micro-framework, storage layer, API routes, state loop engine
   corpus_sources.mbt  the readers: arxiv, a feed, and the reader's own files
   datafile.mbt      reading a file written in JSON or in YAML, either way
   causal.mbt        DoubleML causal inference: the estimate, and what it rests on
+  society.mbt       the society layer: pyroduct's collective machine, and the
+                    words for it
   maked_app.mbt     assembly, static files, SPA fallback
 frontend/         rabbita single-page application
   app.mbt           state machine and router
@@ -343,10 +357,12 @@ frontend/         rabbita single-page application
   loop_state.mbt    loop state visualisation
   page.mbt          typed accessors for the backend JSON
   causal.mbt        the causal panel: the estimate, and the diagnostics around it
+  society.mbt       the society panel: the collective, and the moves it can make
 cmd/server/       native entry point
 cmd/web/          js entry point (browser bundle)
 models/           the example machine, in both syntaxes
-research/         the example mapping table, and the example corpus
+research/         the example mapping table, the example corpus, and the
+                  vocabulary of the collective
 Dockerfile        container image: build stage, then a runtime stage with
                   no toolchain in it
 docker-compose.yml  the container with a volume for the records
@@ -380,15 +396,15 @@ image carries `pwsh`.
 Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be run separately:
 
 ```
-.\tools\mutate-backend.ps1     # 74 mutations, 0 survived, 1 expected-equivalent
-.\tools\mutate-frontend.ps1    # 31 mutations, 0 survived
+.\tools\mutate-backend.ps1     # 94 mutations, 0 survived, 1 expected-equivalent
+.\tools\mutate-frontend.ps1    # 44 mutations, 0 survived
 .\tools\mutate-loop.ps1        # 16 mutations, 0 survived
 ```
 
 And the one that finds the rot before the suites do:
 
 ```
-.\tools\check-mutation-anchors.ps1   # 121 anchors, 0 dead
+.\tools\check-mutation-anchors.ps1   # 152 anchors, 0 dead
 ```
 
 Every mutation in those three suites is a text replacement, and a text
@@ -431,8 +447,8 @@ that cannot break is not a gate, and that one fails the build.
 | js-check | `moon check --target js` | frontend type safety |
 | fmt | `moon fmt --check` | code formatting |
 | tree | `moon tree` | dependency audit |
-| unit-native | `moon test --target native` | 332 backend tests (includes the BDD suite below) |
-| unit-js | `moon test --target js` | 99 frontend tests |
+| unit-native | `moon test --target native` | 355 backend tests (includes the BDD suite below) |
+| unit-js | `moon test --target js` | 112 frontend tests |
 | coverage | `moon test --enable-coverage` | coverage |
 | bench | `moon bench` | benchmarks |
 | prove | `moon prove` | formal verification (Why3) |
@@ -466,7 +482,7 @@ The cause was not root-caused — the same build works when the init issues a GE
 ## The Integration Tests Are The Net For That Class Of Bug
 
 ```powershell
-.\tools\integration-test.ps1              # builds the server, then runs 202 checks
+.\tools\integration-test.ps1              # builds the server, then runs 233 checks
 .\tools\integration-test.ps1 -SkipBuild   # reuse the binary that is already built
 ```
 
@@ -1213,6 +1229,89 @@ The outcome is still MAKED's own measure — a document's length, its
 authorship and its breadth — and the panel says so, because a reader who
 thinks MAKED measured impact will read the number as a fact about the
 world.
+
+## The Collective
+
+MAKED had two layers and now has three. The **subject** layer is the ring of
+five domains: the one you drive, with its 34 positions and 8 drive slots. The
+**society** layer is the collective — a lifeworld, a claim, a consensus, a
+norm — and the moves that take it from one to another.
+
+The machine is **pyroduct's**, and MAKED does not restate it. Thirteen
+positions, eight phases, twenty-eight transitions, read from the authority at
+run time. The `society_position_id` and `society_trigger_id` matches are
+exhaustive on purpose: if pyroduct adds a position, MAKED stops compiling
+rather than quietly calling the new position one of the old ones.
+
+What MAKED adds is the **English**, because pyroduct keeps the society
+machine's own wording in Chinese — the way it keeps the subject machine's —
+and MAKED is an English surface.
+
+That English is a **file** (`research/society.yaml`), not code, for the same
+reason the mapping table and the corpus are files: a word the reader wants to
+change should not need a release to change. The file's ids are pyroduct's own
+names, so the two cannot drift apart silently, and MAKED keeps two
+invariants:
+
+- A name in the file that the machine does not have is **refused**. It is a
+  word about nowhere, and a vocabulary carrying one is a vocabulary that has
+  drifted away from the machine it names.
+- A name the machine has and the file does not name is a **gap**, and the
+  panel says so in as many words. The alternative is a position that renders
+  as a blank, and a blank in a list of positions reads as "the machine has an
+  unnamed state" rather than "the file is behind the machine".
+
+Set `MAKED_SOCIETY` to run a vocabulary of your own. Unset means the built-in
+words; a file that cannot be read is refused at startup, the same way the
+model, the table and the corpus are.
+
+### There are no slots here
+
+The subject machine has eight drive slots, and 228 of the 272
+position-slot combinations are `Block` — which is why the loop panel has to
+explain *why* nothing happened. The collective has **no slots at all**. There
+is nothing for the machine to choose for it, so the reader picks the move and
+the machine answers with one of the same four shapes the rest of MAKED uses:
+
+| The machine answers | What it means |
+|---|---|
+| `moved` | the collective went somewhere |
+| `held` | the move leads back where it came from |
+| `open` | the move left more than one place to be |
+| `block` | there was no such move from here |
+
+### One shape for every answer
+
+`GET /api/society` and `POST /api/society/step` answer with the same body:
+where the collective stands, its thirteen positions, its twenty-eight moves,
+the moves available from where it is, the gaps in the vocabulary, and what
+the last move did.
+
+That is a deliberate choice, and it was made because of the failure this
+project keeps running into. A refusal used to answer with a different body —
+a reason, and nothing else — so a move that did not land left the panel
+holding a payload it could not read. A collective that goes blank when it
+refuses a move is exactly the failure this project exists to remove. Now the
+refusal arrives *with* the machine, and the panel keeps showing where the
+collective stands and what it can do next.
+
+A move that lands also says where the collective came from. "The collective is
+now at a validity claim" is a fact with no history in it; a reader watching
+the collective move cannot tell a first step from a return without knowing
+where the move started.
+
+### What this does not do yet
+
+- The collective's position lives in the loop state, so it travels with a
+  session's value. It is **not** written to the `session_steps` table, so
+  replaying a session from its history does not replay the collective. That
+  is a schema migration, and it is not done.
+- The collective is one machine, not two arguing. pyroduct's `multi` package
+  models two subjects meeting and judging each other (R1–R14), and that is
+  the natural next step here — but MAKED's subject positions are its own, so
+  the mapping from a MAKED model onto a pyroduct subject has to be solved
+  before the two can be put in a room together.
+
 ## Deep Links Need A `<base>` Tag
 
 `index.html` carries `<base href="/" />`, and it is load-bearing.

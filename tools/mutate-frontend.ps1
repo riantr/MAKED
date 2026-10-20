@@ -259,6 +259,88 @@ $mutations = @(
     file = 'frontend/causal.mbt'
     old  = '    overlaps: get_bool(sub(json, "overlap"), "overlaps", false),'
     new  = '    overlaps: true,'
+  },
+  # The Society panel. The collective is the third layer, and it has the same
+  # failure the rest of MAKED has: a panel that reads the wrong field shows a
+  # fallback and looks fine doing it. These mutations are the ways the panel
+  # can quietly stop knowing where the collective is.
+  @{
+    name = 'the collective''s position is never read'
+    file = 'frontend/society.mbt'
+    old  = '    state: get_string(json, "state", ""),'
+    new  = '    state: "",'
+  },
+  @{
+    name = 'the collective''s name falls back to nothing'
+    file = 'frontend/society.mbt'
+    old  = '    get_string(json, id_key, "")'
+    new  = '    ""'
+  },
+  @{
+    name = 'what the last move did is never read'
+    file = 'frontend/society.mbt'
+    old  = '    kind: get_string(json, "kind", ""),'
+    new  = '    kind: "",'
+  },
+  @{
+    name = 'the reason a move did not happen is never read'
+    file = 'frontend/society.mbt'
+    old  = '    reason: get_string(json, "reason", ""),'
+    new  = '    reason: "",'
+  },
+  @{
+    name = 'where the collective came from is never read'
+    file = 'frontend/society.mbt'
+    old  = '    from_label: labelled_or(json, "from_label", "from"),'
+    new  = '    from_label: "",'
+  },
+  @{
+    name = 'the moves from here are never read'
+    file = 'frontend/society.mbt'
+    old  = '    moves: society_moves(json),'
+    new  = '    moves: [],'
+  },
+  @{
+    name = 'the positions are never read'
+    file = 'frontend/society.mbt'
+    old  = '    positions: society_positions(json),'
+    new  = '    positions: [],'
+  },
+  @{
+    name = 'the transitions are never read'
+    file = 'frontend/society.mbt'
+    old  = '    transitions: society_transitions(json),'
+    new  = '    transitions: [],'
+  },
+  @{
+    name = 'the gaps in the vocabulary are never read'
+    file = 'frontend/society.mbt'
+    old  = '    gaps: get_strings(json, "gaps"),'
+    new  = '    gaps: [],'
+  },
+  @{
+    name = 'the outcome sentence drops where the move came from'
+    file = 'frontend/society.mbt'
+    old  = '        "The collective moved from " +'
+    new  = '        "The collective moved to " +'
+  },
+  @{
+    name = 'the move button carries the label instead of the name'
+    file = 'frontend/society.mbt'
+    old  = 'on_click=emit(SocietyStepClicked(edge.trigger)),'
+    new  = 'on_click=emit(SocietyStepClicked(edge.trigger_label)),'
+  },
+  @{
+    name = 'the request names no move at all'
+    file = 'frontend/app.mbt'
+    old  = '("/api/society/step", { "trigger": trigger })'
+    new  = '("/api/society/step", { "trigger": "" })'
+  },
+  @{
+    name = 'the move goes to an endpoint that does not exist'
+    file = 'frontend/app.mbt'
+    old  = '("/api/society/step", { "trigger": trigger })'
+    new  = '("/api/society/read", { "trigger": trigger })'
   }
 )
 
