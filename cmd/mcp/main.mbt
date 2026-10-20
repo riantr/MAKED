@@ -93,16 +93,26 @@ fn int_of(args : Json, key : String, fallback : Int32) -> Int32 {
 }
 
 ///|
+/// The language a tool call asks for.
+///
+/// The same switch the HTTP routes use, read from the same place: the tool's
+/// `lang` argument. A call that leaves it out is answered in English, which
+/// is what a caller that has never heard of the argument gets.
+fn lang_of(args : Json) -> @maked.Lang {
+  @maked.Lang::parse(string_of(args, "lang"))
+}
+
+///|
 /// Where the loop stands, and what the last move did.
 async fn status_tool(
   _context : @runtime.RequestContext,
-  _args : Json,
+  args : Json,
 ) -> Result[@tool.ToolResult, @mcp_types.MCPError] {
   let db = match database_or_error() {
     Ok(db) => db
     Err(err) => return Err(err)
   }
-  let payload = @maked.agent_status(db) catch {
+  let payload = @maked.agent_status(db, lang_of(args)) catch {
     err =>
       return Err(
         @mcp_types.MCPError::InternalError(
@@ -121,7 +131,7 @@ async fn options_tool(
 ) -> Result[@tool.ToolResult, @mcp_types.MCPError] {
   let depth = int_of(args, "depth", 3)
   let bounded = if depth <= 0 || depth > 8 { 3 } else { depth }
-  Ok(result_of(@maked.agent_options(bounded)))
+  Ok(result_of(@maked.agent_options(bounded, lang_of(args))))
 }
 
 ///|
@@ -137,10 +147,11 @@ async fn step_tool(
     Ok(db) => db
     Err(err) => return Err(err)
   }
+  let lang = lang_of(args)
   let slot = string_of(args, "slot")
   let target = string_of(args, "target")
   if slot == "" {
-    let _ = @maked.take_drive_step(db) catch {
+    let _ = @maked.take_drive_step(db, lang) catch {
       err =>
         return Err(
           @mcp_types.MCPError::InternalError(
@@ -149,7 +160,7 @@ async fn step_tool(
         )
     }
   } else {
-    let answer = @maked.take_slot_step(db, slot, target) catch {
+    let answer = @maked.take_slot_step(db, slot, target, lang) catch {
       err =>
         return Err(
           @mcp_types.MCPError::InternalError(
@@ -179,7 +190,7 @@ async fn step_tool(
         )
     }
   }
-  let payload = @maked.agent_step_result(db) catch {
+  let payload = @maked.agent_step_result(db, lang) catch {
     err =>
       return Err(
         @mcp_types.MCPError::InternalError(

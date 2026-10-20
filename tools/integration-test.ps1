@@ -245,7 +245,15 @@ function Invoke-Api {
   }
   try {
     $response = Invoke-WebRequest @params
-    return @{ Status = [int]$response.StatusCode; Body = $response.Content }
+    # The headers travel with the answer because a check may need to say what
+    # the body claimed to be: a body that says it is UTF-8 and a body that is
+    # Latin-1 are the same bytes and different words, and only the header says
+    # which one the client got.
+    return @{
+      Status = [int]$response.StatusCode
+      Body = $response.Content
+      Headers = $response.Headers
+    }
   } catch {
     $ex = $_.Exception
     if ($null -ne $ex.Response) {
@@ -253,9 +261,10 @@ function Invoke-Api {
         Status = [int]$ex.Response.StatusCode
         Body = Read-ErrorBody $_
         Error = ""
+        Headers = $null
       }
     }
-    return @{ Status = 0; Body = ""; Error = $ex.Message }
+    return @{ Status = 0; Body = ""; Error = $ex.Message; Headers = $null }
   }
 }
 
@@ -1482,6 +1491,127 @@ try {
     }
   }
 
+  # The other language, over real HTTP.
+  #
+  # The unit tests say the model carries a Chinese vocabulary and that the
+  # sentences are written in Chinese rather than translated. What they cannot
+  # say is that the server *honours* the language: that is a question about
+  # the route, and the route exists only in a running process.
+  #
+  # The check is that the same machine says two different things in two
+  # languages, and that the Chinese one is Chinese and not the English with a
+  # different content type. A server that ignored `?lang=` would answer both
+  # requests identically, which is the failure this is here to catch.
+  function Test-ChineseSurface {
+    param([int]$ChinesePort)
+    $english = Invoke-Api -Method GET -Path "/api/loop/status"
+    Assert-Status "the loop status answers" 200 $english
+    $englishBody = $english.Body | ConvertFrom-Json
+    $chinese = Invoke-Api -Method GET -Path "/api/loop/status?lang=zh"
+    Assert-Status "the loop status answers in Chinese" 200 $chinese
+    $chineseBody = $chinese.Body | ConvertFrom-Json
+
+    # The body has to say what it is written in. A client that defaults to
+    # Latin-1 -- Windows PowerShell's own `Invoke-WebRequest` is one -- turns
+    # every Chinese name into mojibake without the charset, and the check
+    # below would be checking mojibake rather than Chinese.
+    Assert-True "and the response says what it is written in" `
+      ("$($chinese.Headers['Content-Type'])" -like "*charset=utf-8*") `
+      ("the content type was '{0}'" -f $chinese.Headers['Content-Type'])
+
+    $englishPosition = Field $englishBody "current_position"
+    $chinesePosition = Field $chineseBody "current_position"
+    Assert-FieldNotEmpty "the position is named in English" $englishBody "current_position"
+    Assert-FieldNotEmpty "the position is named in Chinese" $chineseBody "current_position"
+    Assert-True "and the two are not the same word" `
+      ("$englishPosition" -ne "$chinesePosition") `
+      ("both said '{0}'" -f $englishPosition)
+    Assert-True "and the Chinese one really is Chinese" `
+      ("$chinesePosition" -match "[\u4e00-\u9fff]") `
+      ("'{0}' has no Chinese in it" -f $chinesePosition)
+    Assert-True "and the English one really is English" `
+      ("$englishPosition" -notmatch "[\u4e00-\u9fff]") `
+      ("'{0}' has Chinese in it" -f $englishPosition)
+
+    # The gloss is the position's own sentence, and it travels in the reader's
+    # language too.
+    $chineseGloss = Field $chineseBody "current_gloss"
+    Assert-True "and the gloss is Chinese as well" `
+      ("$chineseGloss" -match "[\u4e00-\u9fff]") `
+      ("'{0}' has no Chinese in it" -f $chineseGloss)
+
+    # The slots come with the status, and they are named in the reader's
+    # language too.
+    $englishSlots = @(Field $englishBody "slots")
+    $chineseSlots = @(Field $chineseBody "slots")
+    Assert-True "the eight slots are served in both languages" `
+      ($englishSlots.Count -eq 8 -and $chineseSlots.Count -eq 8) `
+      ("English had {0}, Chinese had {1}" -f $englishSlots.Count, $chineseSlots.Count)
+    if ($englishSlots.Count -gt 0 -and $chineseSlots.Count -gt 0) {
+      $firstEnglish = Field $englishSlots[0] "designation"
+      $firstChinese = Field $chineseSlots[0] "designation"
+      Assert-True "and the slot names differ" `
+        ("$firstEnglish" -ne "$firstChinese") `
+        ("both said '{0}'" -f $firstEnglish)
+      Assert-True "and the Chinese slot name really is Chinese" `
+        ("$firstChinese" -match "[\u4e00-\u9fff]") `
+        ("'{0}' has no Chinese in it" -f $firstChinese)
+    }
+
+    # The group state is named in the reader's language as well, and it is a
+    # fixed vocabulary, so it is a lookup rather than a translation.
+    $englishGroup = Field $englishBody "group_state"
+    $chineseGroup = Field $chineseBody "group_state"
+    Assert-FieldNotEmpty "the group is named in English" $englishBody "group_state"
+    Assert-True "and the group is named in Chinese too" `
+      ("$chineseGroup" -match "[\u4e00-\u9fff]") `
+      ("'{0}' has no Chinese in it" -f $chineseGroup)
+
+    # The model carries both languages as data, so a client can choose for
+    # itself rather than asking the server to choose for it.
+    $model = Invoke-Api -Method GET -Path "/api/model"
+    Assert-Status "the model answers" 200 $model
+    $modelBody = $model.Body | ConvertFrom-Json
+    $positions = @(Field $modelBody "positions")
+    Assert-True "the model carries its thirty-four positions" `
+      ($positions.Count -eq 34) ("it carried {0}" -f $positions.Count)
+    $chineseNames = 0
+    foreach ($position in $positions) {
+      if ("$(Field $position 'label_zh')" -ne "") { $chineseNames += 1 }
+    }
+    Assert-True "and every position carries a Chinese name" `
+      ($chineseNames -eq 34) ("{0} of them did" -f $chineseNames)
+    $edges = @(Field $modelBody "edges")
+    Assert-True "and the model carries the edge names" `
+      ($edges.Count -gt 40) ("it carried {0}" -f $edges.Count)
+
+    # A step taken in Chinese is answered in Chinese, and the sentence that
+    # says what the step did is the one that matters.
+    $step = Post-Json "/api/loop/step?lang=zh" @{}
+    Assert-Status "a step is taken" 200 $step
+    $stepBody = $step.Body | ConvertFrom-Json
+    $sessionState = Field $stepBody "session_state"
+    $path = @(Field $sessionState "path")
+    Assert-True "and the step is on the path" ($path.Count -gt 0)
+    if ($path.Count -gt 0) {
+      $narration = Field $path[0] "narration"
+      Assert-True "and the step says what it did, in Chinese" `
+        ("$narration" -match "[\u4e00-\u9fff]") `
+        ("'{0}' has no Chinese in it" -f $narration)
+      $englishNarration = Field $path[0] "position_before"
+      Assert-True "and the position it left is named in Chinese" `
+        ("$englishNarration" -match "[\u4e00-\u9fff]") `
+        ("'{0}' has no Chinese in it" -f $englishNarration)
+    }
+
+    # An unknown language is not an error: it is the English the caller would
+    # have got anyway.
+    $unknown = Invoke-Api -Method GET -Path "/api/loop/status?lang=xx"
+    Assert-Status "an unknown language is answered, not refused" 200 $unknown
+    $unknownBody = $unknown.Body | ConvertFrom-Json
+    Assert-Field "and it is the English" $unknownBody "current_position" $englishPosition
+  }
+
   # The agent's server: the loop as tools, over the Model Context Protocol.
   #
   # This is the check that the agent's server is not a program that starts.
@@ -1799,6 +1929,10 @@ try {
   Write-Host ""
   Write-Host "-- the collective"
   Test-Society ($Port + 6)
+
+  Write-Host ""
+  Write-Host "-- the other language"
+  Test-ChineseSurface ($Port + 6)
 
   Write-Host ""
   Write-Host "-- the agent's server"

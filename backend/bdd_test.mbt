@@ -268,7 +268,7 @@ test "Scenario: to_json has all frontend fields" {
   // Given a loop state
   let state = @backend.LoopState::new()
   // When I convert to JSON
-  let json = state.to_json()
+  let json = state.to_json(@backend.Lang::english())
   // Then the JSON has all fields the frontend needs
   match json {
     Object(fields) => {

@@ -122,6 +122,33 @@ pub fn LoopMode::gloss(self : LoopMode) -> String {
 }
 
 ///|
+/// The mode's name, in the language asked for.
+pub fn LoopMode::designation_in(self : LoopMode, lang : Lang) -> String {
+  match lang {
+    English => self.designation()
+    Chinese =>
+      match self {
+        Structured => "结构化"
+        Free => "自由"
+      }
+  }
+}
+
+///|
+/// The mode's explanation, in the language asked for.
+pub fn LoopMode::gloss_in(self : LoopMode, lang : Lang) -> String {
+  match lang {
+    English => self.gloss()
+    Chinese =>
+      match self {
+        Structured =>
+          "沿着环序 M→D→E→A→K 推进，每个域由自己的槽驱动"
+        Free => "任何槽都可以驱动，用来探索状态空间"
+      }
+  }
+}
+
+///|
 /// The domain's letter, as the ring is drawn with it.
 pub fn Domain::letter(self : Domain) -> String {
   self.letter
@@ -137,6 +164,57 @@ pub fn Domain::title(self : Domain) -> String {
 /// The domain's role, as a phrase with its article.
 pub fn Domain::role(self : Domain) -> String {
   self.role
+}
+
+///|
+/// The domain's name, in the language asked for.
+pub fn Domain::title_in(self : Domain, lang : Lang) -> String {
+  lang.pick(self.title, self.title_zh)
+}
+
+///|
+/// The domain's role, in the language asked for.
+pub fn Domain::role_in(self : Domain, lang : Lang) -> String {
+  lang.pick(self.role, self.role_zh)
+}
+
+///|
+/// The name of a group state, in the language asked for.
+///
+/// The group vocabulary is fixed -- a handful of states the group machine
+/// can be in -- so the Chinese name of a recorded group state is a lookup
+/// rather than a guess. A state the table does not have is shown in the
+/// language it was recorded in, which is the only honest thing left to show.
+pub fn group_state_in(en : String, lang : Lang) -> String {
+  match lang {
+    English => en
+    Chinese => {
+      for state in @group.all_states() {
+        if state.en_designation() == en {
+          return state.designation()
+        }
+      }
+      en
+    }
+  }
+}
+
+///|
+/// The explanation of a group state, in the language asked for.
+///
+/// The same lookup as the name, over the gloss rather than the designation.
+pub fn group_gloss_in(en : String, lang : Lang) -> String {
+  match lang {
+    English => en
+    Chinese => {
+      for state in @group.all_states() {
+        if state.en_gloss() == en {
+          return state.gloss()
+        }
+      }
+      en
+    }
+  }
 }
 
 ///|
@@ -306,7 +384,15 @@ pub fn ring_domains_loop() -> Array[Domain] {
 pub fn starting_domain() -> Domain {
   let domains = current_model().domains
   if domains.length() == 0 {
-    return { id: "", letter: "", title: "", role: "", anchor: "", }
+    return {
+      id: "",
+      letter: "",
+      title: "",
+      role: "",
+      anchor: "",
+      title_zh: "",
+      role_zh: "",
+    }
   }
   domains[0]
 }
@@ -327,6 +413,21 @@ pub(all) struct LoopEvent {
   outcome_detail : String // human-readable detail
   position_designation : String // the state name
   position_label : String // the state name (English collapses the two source layers)
+  /// The id of the position the step was taken from.
+  ///
+  /// The event above carries the *name* of that position, and a name is a
+  /// word in one language. The id is the position itself, so it is the thing
+  /// that can be asked for a name in whichever language the reader is reading
+  /// in.
+  position_id : String
+  /// The move the step took.
+  ///
+  /// The event carries the move rather than only the sentence it produced,
+  /// because the sentence is written in one language and the move is not a
+  /// sentence at all: it is the edge, the destination and the kind. A
+  /// sentence can be written again from a move; a sentence cannot be
+  /// translated back into one.
+  transition : Move
 } derive(Eq, Debug)
 
 ///|
@@ -334,6 +435,30 @@ pub extend LoopEvent with Eq::{not_equal, equal}
 
 ///|
 pub extend LoopEvent with Debug::{to_repr}
+
+///|
+/// The detail of one step, in the language asked for.
+///
+/// English is the sentence the event already carries. Chinese is written
+/// again from the move, because the move is the fact and the sentence is
+/// only one of the ways of saying it.
+pub fn LoopEvent::detail_in(
+  self : LoopEvent,
+  model : Model,
+  lang : Lang,
+) -> String {
+  match lang {
+    English => self.outcome_detail
+    Chinese =>
+      outcome_detail_zh(
+        model,
+        self.transition,
+        self.position_id,
+        self.slot,
+        lang,
+      )
+  }
+}
 
 ///|
 /// Individual state machine for one domain. Each domain has its own position
@@ -515,7 +640,15 @@ pub fn LoopState::new_with_mode(mode : LoopMode) -> LoopState {
 /// "nowhere" rather than one that crashes.
 fn starting_domain_of(model : Model) -> Domain {
   if model.domains.length() == 0 {
-    return { id: "", letter: "", title: "", role: "", anchor: "", }
+    return {
+      id: "",
+      letter: "",
+      title: "",
+      role: "",
+      anchor: "",
+      title_zh: "",
+      role_zh: "",
+    }
   }
   model.domains[0]
 }
@@ -938,6 +1071,8 @@ fn event_from_outcome(
     outcome_detail: detail,
     position_designation: model.position_label(position),
     position_label: model.position_label(position),
+    position_id: position,
+    transition,
   }
 }
 
@@ -973,6 +1108,60 @@ fn outcome_detail(
       "\{model.slot_designation(slot)} converge → \{model.position_label(to)} (\{edges.join(" / ")})"
     Block(_) =>
       "No road from \{model.position_label(at)} through \{model.slot_designation(slot)}"
+  }
+}
+
+///|
+/// A human-readable account of what one step did, in Chinese.
+///
+/// Written from the move rather than translated from the English sentence,
+/// because the English sentence says "held at" and "converge" and "no road",
+/// and Chinese says those things differently: 守在, 同归, 无路.
+fn outcome_detail_zh(
+  model : Model,
+  transition : Move,
+  at : String,
+  slot : String,
+  lang : Lang,
+) -> String {
+  match transition {
+    Moved(edge, to) =>
+      model.edge_label_in(edge, lang) +
+      " → " +
+      model.position_label_in(to, lang)
+    Held(edge, to) =>
+      model.edge_label_in(edge, lang) +
+      " → 守在" +
+      model.position_label_in(to, lang)
+    Open(candidates) => {
+      let parts = []
+      for candidate in candidates {
+        parts.push(
+          model.edge_label_in(candidate.edge, lang) +
+          " → " +
+          model.position_label_in(candidate.to, lang),
+        )
+      }
+      model.outcome_label_in("open", lang) + "：" + parts.join(" / ")
+    }
+    Same(edges, to) => {
+      let named = []
+      for edge in edges {
+        named.push(model.edge_label_in(edge, lang))
+      }
+      model.slot_designation_in(slot, lang) +
+      " 同归 → " +
+      model.position_label_in(to, lang) +
+      "（" +
+      named.join(" / ") +
+      "）"
+    }
+    Block(_) =>
+      "从" +
+      model.position_label_in(at, lang) +
+      "经由" +
+      model.slot_designation_in(slot, lang) +
+      "无路"
   }
 }
 
@@ -1118,17 +1307,27 @@ pub fn set_loop_mode(mode : LoopMode) -> LoopState {
 }
 
 ///|
-/// All eight drive slots with their English designation and gloss, for the
-/// frontend.
+/// All eight drive slots with their designation and gloss, in the language
+/// asked for.
 ///
-/// pyroduct's `Slot::source()` is the Chinese source quote, and it is the one
+/// pyroproduct's `Slot::source()` is the Chinese source quote, and it is the one
 /// field deliberately not carried here: the source layer exists to trace a
 /// name back to the original Chinese text, so there is no English form of it,
 /// and inventing one would break exactly the traceability it is for.
-pub fn all_slots_info() -> Array[(String, String, String)] {
+///
+/// The Chinese gloss that *is* carried is the slot's structural explanation,
+/// which is a layer of its own: it says what the relation is, in the table's
+/// own words, and it is not the source quote.
+pub fn all_slots_info(lang : Lang) -> Array[(String, String, String)] {
   let result = []
   for slot in current_model().slots {
-    result.push((slot.id, slot.designation, slot.gloss))
+    result.push(
+      (
+        slot.id,
+        lang.pick(slot.designation, slot.designation_zh),
+        lang.pick(slot.gloss, slot.gloss_zh),
+      ),
+    )
   }
   result
 }
@@ -1140,23 +1339,28 @@ pub fn all_slots_info() -> Array[(String, String, String)] {
 /// the machine matches on. A client that has to recognise the *word*
 /// "Undecided" to know that the table declined to choose is a client that
 /// breaks the moment the model is renamed.
-fn open_slot_json(model : Model, position : String, slot : String) -> Json {
+fn open_slot_json(
+  model : Model,
+  position : String,
+  slot : String,
+  lang : Lang,
+) -> Json {
   let transition = model.step(position, slot)
   let targets = []
   match transition {
-    Moved(_, to) => targets.push(model.position_label(to))
-    Held(_, to) => targets.push(model.position_label(to))
-    Same(_, to) => targets.push(model.position_label(to))
+    Moved(_, to) => targets.push(model.position_label_in(to, lang))
+    Held(_, to) => targets.push(model.position_label_in(to, lang))
+    Same(_, to) => targets.push(model.position_label_in(to, lang))
     Open(candidates) =>
       for candidate in candidates {
-        targets.push(model.position_label(candidate.to))
+        targets.push(model.position_label_in(candidate.to, lang))
       }
     Block(_) => ()
   }
   let item : Json = {
     "name": slot,
-    "designation": model.slot_designation(slot),
-    "outcome": model.outcome_label(transition.kind()),
+    "designation": model.slot_designation_in(slot, lang),
+    "outcome": model.outcome_label_in(transition.kind(), lang),
     "outcome_kind": transition.kind(),
     "targets": targets_json(targets),
   }
@@ -1184,9 +1388,9 @@ fn targets_json(names : Array[String]) -> Json {
 /// The same eight slots as `all_slots_info`, in the JSON shape the frontend
 /// decodes. Shared by `GET /api/loop/slots` and by the `slots` field of the
 /// status response, so the two can never drift apart.
-pub fn slots_json() -> Json {
+pub fn slots_json(lang : Lang) -> Json {
   let items = []
-  for (english, designation, gloss) in all_slots_info() {
+  for (english, designation, gloss) in all_slots_info(lang) {
     let item : Json = {
       "name": english,
       "designation": designation,
@@ -1206,7 +1410,7 @@ pub fn slots_json() -> Json {
 /// position -- the status contradicted the history sitting next to it in the
 /// same response. `open_slots` is the replacement for the old hard-coded slot:
 /// it is what the table offers here, so a caller never has to guess.
-pub fn LoopState::to_json(self : LoopState) -> Json {
+pub fn LoopState::to_json(self : LoopState, lang : Lang) -> Json {
   let model = self.model
   let current_ds = domain_state_at(
     self.domain_states,
@@ -1218,12 +1422,12 @@ pub fn LoopState::to_json(self : LoopState) -> Json {
   for e in self.history {
     let item : Json = {
       "domain": e.domain.letter(),
-      "slot": model.slot_designation(e.slot),
-      "outcome": e.outcome_label,
+      "slot": model.slot_designation_in(e.slot, lang),
+      "outcome": model.outcome_label_in(e.outcome_kind, lang),
       "outcome_kind": e.outcome_kind,
-      "detail": e.outcome_detail,
-      "position": e.position_designation,
-      "position_label": e.position_label,
+      "detail": e.detail_in(model, lang),
+      "position": model.position_label_in(e.position_id, lang),
+      "position_label": model.position_label_in(e.position_id, lang),
     }
     history_json.push(item)
   }
@@ -1233,9 +1437,9 @@ pub fn LoopState::to_json(self : LoopState) -> Json {
     let ds = domain_state_at(self.domain_states, domain, "to_json_domains")
     let item : Json = {
       "domain": domain.letter(),
-      "title": domain.title(),
-      "position": model.position_label(ds.position),
-      "position_label": model.position_label(ds.position),
+      "title": domain.title_in(lang),
+      "position": model.position_label_in(ds.position, lang),
+      "position_label": model.position_label_in(ds.position, lang),
       "history_length": ds.history.length(),
       "drivable": drive_slot_of(model, ds.position) is Some(_),
       "at_anchor": ds.position == domain.position(),
@@ -1244,20 +1448,20 @@ pub fn LoopState::to_json(self : LoopState) -> Json {
   }
   let open_slots_json = []
   for slot in exitable_slots_of(model, current_pos) {
-    open_slots_json.push(open_slot_json(model, current_pos, slot))
+    open_slots_json.push(open_slot_json(model, current_pos, slot, lang))
   }
   {
     "current_domain": self.current.letter(),
-    "current_title": self.current.title(),
-    "current_position": model.position_label(current_pos),
-    "current_position_label": model.position_label(current_pos),
-    "current_gloss": model.position_gloss(current_pos),
+    "current_title": self.current.title_in(lang),
+    "current_position": model.position_label_in(current_pos, lang),
+    "current_position_label": model.position_label_in(current_pos, lang),
+    "current_gloss": model.position_gloss_in(current_pos, lang),
     "next_domain": self.model.next_domain(self.current).letter(),
     // Empty string when the model offers no road out of here. An empty
     // drive slot is a true statement; a plausible-looking slot that always
     // reports No-way is not.
     "drive_slot": match drive_slot_of(model, current_pos) {
-      Some(slot) => model.slot_designation(slot)
+      Some(slot) => model.slot_designation_in(slot, lang)
       None => ""
     },
     "drive_slot_name": match drive_slot_of(model, current_pos) {
@@ -1275,12 +1479,18 @@ pub fn LoopState::to_json(self : LoopState) -> Json {
     // server and answered 200, but the reply never reached `update`, with
     // nothing logged anywhere. Folding the vocabulary in here removes the step
     // that stalled rather than working around it.
-    "slots": slots_json(),
+    "slots": slots_json(lang),
     "history_length": self.history.length(),
     "history": [..history_json],
     "domain_states": [..domain_states_json],
-    "group_state": self.group_state.en_designation(),
-    "group_state_gloss": self.group_state.en_gloss(),
+    "group_state": match lang {
+      English => self.group_state.en_designation()
+      Chinese => self.group_state.designation()
+    },
+    "group_state_gloss": match lang {
+      English => self.group_state.en_gloss()
+      Chinese => self.group_state.gloss()
+    },
     // The third layer, named in the vocabulary's words rather than in
     // pyroduct's Chinese: the reader has to be able to read where the
     // collective is.
@@ -1290,8 +1500,16 @@ pub fn LoopState::to_json(self : LoopState) -> Json {
       society_position_id(self.society_state),
     ),
     "mode": match self.mode {
-      Structured => "structured"
-      Free => "free"
+      Structured =>
+        match lang {
+          English => "structured"
+          Chinese => "结构化"
+        }
+      Free =>
+        match lang {
+          English => "free"
+          Chinese => "自由"
+        }
     },
     "mode_designation": self.mode.designation(),
     "mode_gloss": self.mode.gloss(),

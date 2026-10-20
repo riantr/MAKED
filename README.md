@@ -260,6 +260,41 @@ start-up rather than ignored.
 | `GET` | `/api/society` | the collective: where it stands, what it can do |
 | `POST` | `/api/society/step` | take a move for the collective |
 
+### The language
+
+The model has two vocabularies — the English reading MAKED was built with,
+and the table's own Chinese — and the endpoints that answer about the loop,
+the timeline and the research take `?lang=`:
+
+| `?lang=` | What comes back |
+|---|---|
+| *(absent)* | English |
+| `zh` | Chinese |
+
+```
+GET  /api/loop/status?lang=zh
+GET  /api/loop/slots?lang=zh
+GET  /api/loop/continuations?lang=zh
+POST /api/loop/step?lang=zh
+GET  /api/sessions/1?lang=zh
+```
+
+The Chinese is the table's own rather than MAKED's translation of it: a
+position is called 立位 because pyroduct calls it that, and the sentences are
+written in Chinese rather than translated from the English ones.
+
+`GET /api/model` needs no parameter. The model carries both vocabularies, so
+a client can choose for itself.
+
+A model file with no Chinese in it is still read, and a reader who asks for
+Chinese gets the English names rather than a blank. That is the only rule
+about the fallback.
+
+The collective (`/api/society`) and the exports are still English for now.
+
+The agent's server takes the same switch as an argument: `maked_status`,
+`maked_options` and `maked_step` all accept `lang`.
+
 ### The agent's server
 
 Seven tools. Every answer is in sentences, with the ids beside them for when you want to be

@@ -1013,6 +1013,7 @@ fn renamed_built_in() -> @backend.Model {
     rules: model.rules,
     continuations: model.continuations,
     outcomes: model.outcomes,
+    edges: model.edges,
   }
 }
 

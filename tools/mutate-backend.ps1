@@ -24,6 +24,12 @@
 #     the ring test compared each node's distance against RING_R, so shrinking
 #     the radius to 64 moved the nodes and the expectation together and the
 #     suite stayed green. The geometry is now pinned to literal coordinates.
+#   - A non-ASCII literal in this file. Windows PowerShell reads a script with
+#     no byte-order mark as the system's own encoding, so a Chinese anchor
+#     here is mojibake before the script has run, and it never matches the
+#     UTF-8 source it is looking for. The mutation then reads as a survivor
+#     when what happened is that it never applied. Every anchor and every
+#     replacement below is ASCII.
 
 # A mutation marked `equivalent = $true` is *expected* to survive. That means
 # the change is unobservable, not that the suite is too weak -- the usual cause
@@ -419,7 +425,7 @@ $mutations = @(
   @{
     name = 'the exported document drops the sentence for each step'
     file = 'backend/session.mbt'
-    old  = '    out = out + step_sentence(facts_of(current_model(), step)) + "\n\n"'
+    old  = '    out = out + step_sentence(facts_of(current_model(), step), English) + "\n\n"'
     new  = '    out = out + "\n\n"'
   },
   # The json export carries the summary so that a consumer does not have to
@@ -560,13 +566,18 @@ $mutations = @(
     # table's.
     old  = @'
       if !known {
-        words.push({ kind, label: outcome.en_label(), })
+        words.push({
+          kind,
+          label: outcome.en_label(),
+          label_zh: outcome.label(),
+        })
       }
 '@
     new  = @'
       if !known {
         let label = if kind == "open" { "Pending" } else { outcome.en_label() }
-        words.push({ kind, label, })
+        let label_zh = if kind == "open" { "Pending" } else { outcome.label() }
+        words.push({ kind, label, label_zh, })
       }
 '@
   },
@@ -1055,6 +1066,71 @@ $mutations = @(
     file = 'backend/agent.mbt'
     old  = '    "http": Json::array(agent_http_endpoints()),'
     new  = '    "http": Json::array([]),'
+  },
+  # The other language. Four things have to hold at once: the model carries a
+  # Chinese vocabulary, that vocabulary is the table's own rather than a
+  # translation, a name with no Chinese in it falls back to the English, and
+  # the Chinese sentence is a Chinese sentence and not the English one with
+  # the words swapped.
+  @{
+    name = 'the Chinese fallback never falls back'
+    file = 'backend/i18n.mbt'
+    old  = '    Chinese => if chinese == "" { english } else { chinese }'
+    new  = '    Chinese => chinese'
+  },
+  @{
+    name = 'the model gives no position a Chinese name'
+    file = 'backend/model.mbt'
+    old  = '      label_zh: state.designation(),'
+    new  = '      label_zh: "",'
+  },
+  @{
+    name = 'the model''s Chinese position name is its English one'
+    file = 'backend/model.mbt'
+    old  = '      label_zh: state.designation(),'
+    new  = '      label_zh: state.en_label(),'
+  },
+  @{
+    name = 'the model gives no slot a Chinese name'
+    file = 'backend/model.mbt'
+    old  = '      designation_zh: slot.designation(),'
+    new  = '      designation_zh: "",'
+  },
+  @{
+    name = 'the edge names have no Chinese'
+    file = 'backend/model.mbt'
+    old  = '    edges.push({ en: trigger.en_label(), zh: trigger.label(), })'
+    new  = '    edges.push({ en: trigger.en_label(), zh: "", })'
+  },
+  @{
+    name = 'the Chinese sentence is the English sentence'
+    file = 'backend/narration.mbt'
+    old  = '    Chinese => step_sentence_zh(facts)'
+    new  = '    Chinese => step_sentence_en(facts)'
+  },
+  @{
+    name = 'the Chinese sentence forgets where the cursor went'
+    file = 'backend/narration.mbt'
+    # The anchor is the field, not the sentence around it, and that is not an
+    # accident: this script is read by Windows PowerShell, which reads a file
+    # with no byte-order mark as the system's own encoding -- so a Chinese
+    # literal in here is mojibake before the script has run, and an anchor
+    # made of one never matches the UTF-8 source it is looking for. The field
+    # name is ASCII, and it says the same thing.
+    old  = 'facts.cursor_zh'
+    new  = 'facts.role_zh'
+  },
+  @{
+    name = 'the JSON body does not say what it is written in'
+    file = 'backend/response.mbt'
+    old  = 'pub const JSON_CONTENT_TYPE : String = "application/json; charset=utf-8"'
+    new  = 'pub const JSON_CONTENT_TYPE : String = "application/json"'
+  },
+  @{
+    name = 'the outcome has no Chinese name'
+    file = 'backend/model.mbt'
+    old  = '          label_zh: outcome.label(),'
+    new  = '          label_zh: "",'
   }
 )
 

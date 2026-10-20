@@ -359,7 +359,7 @@ test "status reports the real position, not the anchor, after a move" {
   assert_true(
     ds.position != @backend.domain_from_id("model").unwrap().position(),
   )
-  let json = stepped.to_json()
+  let json = stepped.to_json(@backend.Lang::english())
   // Model moved to Freedom; the per-domain view must say so.
   let mut saw_freedom = false
   for item in json_array(json, "domain_states") {
@@ -396,7 +396,7 @@ test "status reports the real position, not the anchor, after a move" {
 /// `drive_slot` in the status is the model's answer, not a hard-coded one.
 test "status drive_slot comes from the model" {
   let state = @backend.LoopState::new()
-  let json = state.to_json()
+  let json = state.to_json(@backend.Lang::english())
   // Standing only leaves via Action -- the old mapping said Co-being.
   assert_eq(json_str(json, "drive_slot"), "Action")
   assert_eq(json_str(json, "drive_slot_name"), "act")
@@ -420,7 +420,7 @@ test "status drive_slot comes from the model" {
 /// for the status, and that chain stalled after the second step.
 test "status carries the whole slot vocabulary, not just the open ones" {
   let state = @backend.LoopState::new()
-  let json = state.to_json()
+  let json = state.to_json(@backend.Lang::english())
   let slots = json_array(json, "slots")
   // All eight, whereas `open_slots` holds only what this position can reach.
   assert_eq(slots.length(), 8)
@@ -445,7 +445,7 @@ test "status carries the whole slot vocabulary, not just the open ones" {
   assert_eq(seen.length(), 8)
   // The standalone endpoint and the status field are the same helper's output,
   // so they cannot drift apart.
-  assert_eq(@backend.slots_json(), [..slots])
+  assert_eq(@backend.slots_json(@backend.Lang::english()), [..slots])
 }
 
 ///|
@@ -453,7 +453,7 @@ test "status carries the whole slot vocabulary, not just the open ones" {
 test "status open_slots lists only slots the model has edges for" {
   let model = @backend.current_model()
   let state = @backend.LoopState::new()
-  let open = json_array(state.to_json(), "open_slots")
+  let open = json_array(state.to_json(@backend.Lang::english()), "open_slots")
   // Standing has exactly one exitable slot out of eight.
   assert_eq(open.length(), 1)
   assert_eq(json_str(open[0], "name"), "act")
@@ -501,7 +501,7 @@ test "status reports undecided at an Undecided branch" {
   // Freedom is where Situation is Undecided. Drive Model back to the cursor and
   // step it.
   let back = state.focus(@backend.domain_from_id("model").unwrap())
-  let json = back.to_json()
+  let json = back.to_json(@backend.Lang::english())
   // From Freedom the only exitable slot is Situation, which is Undecided. The
   // status must say Undecided rather than present the branch as an ordinary
   // drive.
@@ -532,7 +532,7 @@ test "status reports undecided at an Undecided branch" {
 /// renamed -- and a rename is exactly what a model file is for.
 test "every open slot carries the kind as well as the label" {
   let state = @backend.LoopState::new()
-  let open = json_array(state.to_json(), "open_slots")
+  let open = json_array(state.to_json(@backend.Lang::english()), "open_slots")
   assert_true(open.length() > 0)
   for item in open {
     assert_true(json_str(item, "outcome") != "")
@@ -793,7 +793,7 @@ test "reset_loop returns to initial state" {
 /// to_json has the shape the frontend decodes.
 test "to_json contains all required fields" {
   let state = @backend.LoopState::new()
-  let json = state.to_json()
+  let json = state.to_json(@backend.Lang::english())
   match json {
     Object(fields) => {
       assert_true(fields.get("current_domain") is Some(_))
@@ -814,7 +814,7 @@ test "to_json contains all required fields" {
 /// to_json current_domain matches the domain letter.
 test "to_json current_domain is the letter, not the title" {
   let state = @backend.LoopState::new()
-  let json = state.to_json()
+  let json = state.to_json(@backend.Lang::english())
   match json {
     Object(fields) =>
       match fields.get("current_domain") {
@@ -829,7 +829,7 @@ test "to_json current_domain is the letter, not the title" {
 /// to_json history is an empty array for a fresh state.
 test "to_json history is empty for fresh state" {
   let state = @backend.LoopState::new()
-  let json = state.to_json()
+  let json = state.to_json(@backend.Lang::english())
   match json {
     Object(fields) => {
       match fields.get("history") {
@@ -852,7 +852,7 @@ test "to_json history_length matches history array length after steps" {
   for _ in 0..<3 {
     state = state.step()
   }
-  let json = state.to_json()
+  let json = state.to_json(@backend.Lang::english())
   match json {
     Object(fields) => {
       let length = match fields.get("history_length") {
@@ -983,7 +983,7 @@ test "slot_from_designation round-trips with designation" {
 /// pyroproduct's source quote is Chinese source-layer text with no English form,
 /// and inventing one would break the traceability it exists for.
 test "all_slots_info returns eight entries" {
-  let info = @backend.all_slots_info()
+  let info = @backend.all_slots_info(@backend.Lang::english())
   assert_eq(info.length(), 8)
   for (id, designation, gloss) in info {
     assert_true(id != "")

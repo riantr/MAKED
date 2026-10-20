@@ -28,7 +28,7 @@
 /// The slots the model has, as names.
 fn slot_names() -> Array[String] {
   let names : Array[String] = []
-  for (name, _, _) in @backend.all_slots_info() {
+  for (name, _, _) in @backend.all_slots_info(@backend.Lang::english()) {
     names.push(name)
   }
   names
@@ -106,14 +106,14 @@ fn drive_to_an_open_slot(db : @backend.Database) -> String raise {
   let mut slot = ""
   let mut i = 0
   while i < 30 && slot == "" {
-    for (name, _, _) in @backend.all_slots_info() {
+    for (name, _, _) in @backend.all_slots_info(@backend.Lang::english()) {
       if @backend.open_candidate_names(name).length() > 0 {
         slot = name
         break
       }
     }
     if slot == "" {
-      ignore(@backend.take_drive_step(db))
+      ignore(@backend.take_drive_step(db, @backend.Lang::english()))
     }
     i += 1
   }
@@ -127,7 +127,7 @@ fn drive_to_an_open_slot(db : @backend.Database) -> String raise {
 /// The options name every slot the model has, and name each one once.
 test "the options account for every slot the model has" {
   ignore(@backend.reset_loop())
-  let options = @backend.agent_options(3)
+  let options = @backend.agent_options(3, @backend.Lang::english())
   let can = json_array(options, "can_move")
   let cannot = json_array(options, "cannot_move")
   let all = slot_names()
@@ -154,10 +154,10 @@ test "the options account for every slot the model has" {
 /// model's own outcome, not a tidied-up version of it.
 test "the options say what the model says about each slot" {
   ignore(@backend.reset_loop())
-  let options = @backend.agent_options(3)
+  let options = @backend.agent_options(3, @backend.Lang::english())
   let can = json_array(options, "can_move")
   let cannot = json_array(options, "cannot_move")
-  for (name, _, _) in @backend.all_slots_info() {
+  for (name, _, _) in @backend.all_slots_info(@backend.Lang::english()) {
     let kind = model_outcome_at(name)
     if kind == "block" {
       assert_true(holds_name(slots_in(cannot), name))
@@ -178,7 +178,7 @@ test "the options say what the model says about each slot" {
 /// A slot that cannot move says why it cannot.
 test "a slot that cannot move says why it cannot" {
   ignore(@backend.reset_loop())
-  let options = @backend.agent_options(3)
+  let options = @backend.agent_options(3, @backend.Lang::english())
   let cannot = json_array(options, "cannot_move")
   assert_true(cannot.length() > 0)
   for entry in cannot {
@@ -201,7 +201,7 @@ test "a slot that cannot move says why it cannot" {
 /// so the shape has to be checked rather than the count.
 test "the lists of names an agent reads are flat arrays of strings" {
   ignore(@backend.reset_loop())
-  let options = @backend.agent_options(3)
+  let options = @backend.agent_options(3, @backend.Lang::english())
   let can = json_array(options, "can_move")
   assert_true(can.length() > 0)
   for entry in can {
@@ -222,7 +222,7 @@ test "the lists of names an agent reads are flat arrays of strings" {
 /// The slots the table declined to choose are the open ones, and no others.
 test "the slots the table declined to choose are the open ones and no others" {
   ignore(@backend.reset_loop())
-  let options = @backend.agent_options(3)
+  let options = @backend.agent_options(3, @backend.Lang::english())
   let can = json_array(options, "can_move")
   let declined = json_array(options, "the_table_declined_to_choose")
   let mut open = 0
@@ -256,7 +256,7 @@ test "the slots the table declined to choose are the open ones and no others" {
 /// The ids the agent is given are the model's own ids, read the model's way.
 test "the position the agent is told about is labelled the way the model labels it" {
   ignore(@backend.reset_loop())
-  let place = @backend.agent_where()
+  let place = @backend.agent_where(@backend.Lang::english())
   let model = @backend.current_model()
   let position = json_str(place, "position")
   assert_true(position != "")
@@ -274,7 +274,7 @@ test "the position the agent is told about is labelled the way the model labels 
 async test "the status says where the loop stands before anything has happened" {
   let db = open_session_db("agent_status")
   let _ = fresh_session(db, "First exploration")
-  let status = @backend.agent_status(db)
+  let status = @backend.agent_status(db, @backend.Lang::english())
   let place = object_of(status, "where")
   assert_eq(json_str(place, "domain"), "M")
   assert_eq(json_str(place, "domain_name"), "Model")
@@ -294,14 +294,14 @@ async test "the status says where the loop stands before anything has happened" 
 async test "a step taken through the agent's tool is recorded and narrated" {
   let db = open_session_db("agent_step")
   let session = fresh_session(db, "First exploration")
-  let before = @backend.agent_where()
+  let before = @backend.agent_where(@backend.Lang::english())
   let before_label = json_str(before, "position_label")
-  let _ = @backend.take_drive_step(db)
+  let _ = @backend.take_drive_step(db, @backend.Lang::english())
   // Recorded: the step is written down, so a person can look at it later.
   let steps = db.steps_of_session(session.id)
   assert_eq(steps.length(), 1)
   let step = steps[0]
-  let result = @backend.agent_step_result(db)
+  let result = @backend.agent_step_result(db, @backend.Lang::english())
   assert_eq(int_of(result, "steps_taken"), 1)
   let what = json_str(result, "what_happened")
   assert_true(what != "")
@@ -319,7 +319,8 @@ async test "a step taken through the agent's tool is recorded and narrated" {
 async test "a slot the model does not have is refused by name" {
   let db = open_session_db("agent_slot")
   let _ = fresh_session(db, "First exploration")
-  match @backend.take_slot_step(db, "no-such-slot", "") {
+  match
+    @backend.take_slot_step(db, "no-such-slot", "", @backend.Lang::english()) {
     @backend.UnknownSlot(name) => assert_eq(name, "no-such-slot")
     @backend.Taken(_) => fail("a slot the model does not have was taken")
     @backend.UnknownTarget(_, _) =>
@@ -332,7 +333,7 @@ async test "a slot the model does not have is refused by name" {
 async test "a slot may be named by the id the machine uses or the label a reader saw" {
   let db = open_session_db("agent_slot_name")
   let _ = fresh_session(db, "First exploration")
-  match @backend.take_slot_step(db, "act", "") {
+  match @backend.take_slot_step(db, "act", "", @backend.Lang::english()) {
     @backend.Taken(_) => ()
     @backend.UnknownSlot(name) =>
       fail("the slot the machine calls act was refused: " + name)
@@ -340,7 +341,7 @@ async test "a slot may be named by the id the machine uses or the label a reader
       fail("a step with no target was read as a bad target")
   }
   // And the same slot under the name the panel shows.
-  match @backend.take_slot_step(db, "Action", "") {
+  match @backend.take_slot_step(db, "Action", "", @backend.Lang::english()) {
     @backend.Taken(_) => ()
     @backend.UnknownSlot(name) =>
       fail("the slot the panel calls Action was refused: " + name)
@@ -357,7 +358,8 @@ async test "a target the table does not offer is refused with the ones it does" 
   let slot = drive_to_an_open_slot(db)
   let offered = @backend.open_candidate_names(slot)
   assert_true(offered.length() > 0)
-  match @backend.take_slot_step(db, slot, "no-such-place") {
+  match
+    @backend.take_slot_step(db, slot, "no-such-place", @backend.Lang::english()) {
     @backend.UnknownTarget(asked, names) => {
       assert_eq(asked, "no-such-place")
       // The refusal names the candidates that were really on offer, so a
@@ -372,7 +374,8 @@ async test "a target the table does not offer is refused with the ones it does" 
       fail("a slot the machine has was refused: " + name)
   }
   // And the target that IS on offer is taken.
-  match @backend.take_slot_step(db, slot, offered[0]) {
+  match
+    @backend.take_slot_step(db, slot, offered[0], @backend.Lang::english()) {
     @backend.Taken(_) => ()
     @backend.UnknownTarget(asked, _) =>
       fail("a target the table offered was refused: " + asked)
@@ -387,7 +390,7 @@ async test "the options name the slot the table declined to choose" {
   let db = open_session_db("agent_declined")
   let _ = fresh_session(db, "First exploration")
   let slot = drive_to_an_open_slot(db)
-  let options = @backend.agent_options(3)
+  let options = @backend.agent_options(3, @backend.Lang::english())
   let declined = json_array(options, "the_table_declined_to_choose")
   assert_true(declined.length() > 0)
   let mut found = false
@@ -455,7 +458,7 @@ async test "the explorations are listed and the active one is marked" {
 async test "an exploration can be taken away as Markdown and as JSON" {
   let db = open_session_db("agent_export")
   let session = fresh_session(db, "First exploration")
-  let _ = @backend.take_drive_step(db)
+  let _ = @backend.take_drive_step(db, @backend.Lang::english())
   let markdown = @backend.agent_export(db, session.id, "markdown")
   assert_eq(json_str(markdown, "format"), "markdown")
   let text = json_str(markdown, "the_exploration")

@@ -64,9 +64,9 @@ and an `Mcp-Method: <method>` header naming the method the body carries.
 
 | Tool | Arguments | What it answers |
 |---|---|---|
-| `maked_status` | — | where the loop stands, what the last move did, what the run adds up to, whether it is still finding ground |
-| `maked_options` | `depth` | the slots that can move, the slots that cannot and why, the successors the table declined to choose between |
-| `maked_step` | `slot`, `target` | take a move, and say what happened |
+| `maked_status` | `lang` | where the loop stands, what the last move did, what the run adds up to, whether it is still finding ground |
+| `maked_options` | `depth`, `lang` | the slots that can move, the slots that cannot and why, the successors the table declined to choose between |
+| `maked_step` | `slot`, `target`, `lang` | take a move, and say what happened |
 | `maked_model` | — | the machine as data: domains, positions, slots, and the rule for every pair |
 | `maked_society` | `trigger` | where the collective stands; with a trigger, take that move |
 | `maked_sessions` | — | the named explorations, and which one is in front of us |
@@ -77,6 +77,11 @@ The order that works: **`maked_status` → `maked_options` → `maked_step`**.
 `maked_step` with no slot lets the table choose; with a slot you choose; with
 a `target` you answer a question the table asked. Every answer is in
 sentences, with the ids beside them for when you want to be exact.
+
+`lang` is the language to answer in: `"en"` or `"zh"`, and `"en"` when it is
+left out. The Chinese is the table's own vocabulary — a position is called 立位
+because pyroduct calls it that — and the sentences are written in Chinese
+rather than translated from the English ones.
 
 ## The same questions over plain HTTP
 
@@ -91,6 +96,10 @@ sentences, with the ids beside them for when you want to be exact.
 | `POST` | `/api/society/step` | `maked_society` |
 | `GET` | `/api/sessions` | `maked_sessions` |
 | `GET` | `/api/sessions/:id/export` | `maked_export` |
+
+The loop, the timeline and the research endpoints take `?lang=zh` as well:
+`GET /api/loop/status?lang=zh`. `GET /api/model` does not need it — the model
+carries both vocabularies, so a client can choose for itself.
 
 ## The four files
 

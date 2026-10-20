@@ -55,6 +55,16 @@ pub(all) struct Domain {
   role : String
   /// The position this domain starts at.
   anchor : String
+  /// The name of the domain in Chinese: "模型".
+  ///
+  /// Empty when the model has no Chinese name for it, and then the reader
+  /// sees `title`. See `Lang::pick`.
+  title_zh : String
+  /// The phrase in Chinese: "模型构建者".
+  ///
+  /// Empty when the model has no Chinese phrase for it, and then the reader
+  /// sees `role`.
+  role_zh : String
 } derive(Eq, Debug)
 
 ///|
@@ -80,6 +90,8 @@ fn maked_domains() -> Array[Domain] {
       title: "Model",
       role: "the model formulator",
       anchor: position_id_of(@sm.Standing),
+      title_zh: "模型",
+      role_zh: "模型构建者",
     },
     {
       id: "data",
@@ -87,6 +99,8 @@ fn maked_domains() -> Array[Domain] {
       title: "Data",
       role: "the data turbine",
       anchor: position_id_of(@sm.Encounter),
+      title_zh: "数据",
+      role_zh: "数据涡轮",
     },
     {
       id: "experience",
@@ -94,6 +108,8 @@ fn maked_domains() -> Array[Domain] {
       title: "Experience",
       role: "the experience absorber",
       anchor: position_id_of(@sm.Honor),
+      title_zh: "经验",
+      role_zh: "经验吸收者",
     },
     {
       id: "attack",
@@ -101,6 +117,8 @@ fn maked_domains() -> Array[Domain] {
       title: "Attack",
       role: "the attack generator",
       anchor: position_id_of(@sm.Evil),
+      title_zh: "攻击",
+      role_zh: "攻击生成者",
     },
     {
       id: "knowledge",
@@ -108,6 +126,8 @@ fn maked_domains() -> Array[Domain] {
       title: "Knowledge",
       role: "the knowledge distiller",
       anchor: position_id_of(@sm.Discipline),
+      title_zh: "知识",
+      role_zh: "知识蒸馏者",
     },
   ]
 }
@@ -123,6 +143,24 @@ pub(all) struct PositionSpec {
   /// The domain this position belongs to, or "" when it belongs to none.
   /// Most positions belong to no domain: a domain is a lens, not a place.
   domain : String
+  /// The name in Chinese: "立位".
+  ///
+  /// This is the table's **general designation** rather than its source
+  /// wording, and the difference matters. The source wording is what the
+  /// original text said ("站立"), and the general designation is what the
+  /// model calls the structural relation ("立位"). pyroduct leads with the
+  /// general designation everywhere it renders Chinese, and so does this
+  /// file: a ring of thirty-four names is only readable when they are the
+  /// same shape.
+  ///
+  /// Empty when the model has no Chinese name for it, and then the reader
+  /// sees `label`.
+  label_zh : String
+  /// The sentence in Chinese: the text the source gives for the position.
+  ///
+  /// This is the counterpart of `gloss` rather than of `label`: the English
+  /// gloss is the English rendering of the same source sentence.
+  gloss_zh : String
 } derive(Eq, Debug)
 
 ///|
@@ -139,6 +177,14 @@ pub(all) struct SlotSpec {
   designation : String
   /// One sentence about what the slot is.
   gloss : String
+  /// The name in Chinese: "处境".
+  ///
+  /// The counterpart of `designation` exactly: pyroduct's eight slots have a
+  /// general designation in both languages, so this is the same layer the
+  /// English name is on.
+  designation_zh : String
+  /// The sentence in Chinese.
+  gloss_zh : String
 } derive(Eq, Debug)
 
 ///|
@@ -245,6 +291,11 @@ pub(all) struct OutcomeWord {
   kind : String
   /// The word a reader sees.
   label : String
+  /// The word a reader sees in Chinese: "迁", "守", "未定", "同归", "无路".
+  ///
+  /// Empty when the model has no Chinese word for it, and then the reader
+  /// sees `label`.
+  label_zh : String
 } derive(Eq, Debug)
 
 ///|
@@ -252,6 +303,34 @@ pub extend OutcomeWord with Eq::{not_equal, equal}
 
 ///|
 pub extend OutcomeWord with Debug::{to_repr}
+
+///|
+/// The name of an edge, in both languages.
+///
+/// The edge is the one name in the model that does not belong to a position,
+/// a slot, a domain or an outcome: it is the name of the move itself, the
+/// trigger the table fired. It lives in its own little table rather than
+/// inside `Move` because the transition it names is data that a model file
+/// carries, and adding a second language to it would mean changing the
+/// shape of every transition in every model file -- a change to the format
+/// that buys nothing, because a table of names says the same thing.
+///
+/// The key is the model's own English name for the edge. A model file that
+/// renames an edge renames it there, and its Chinese name follows the new
+/// name, because the table is looked up by whatever the transition says.
+pub(all) struct EdgeWord {
+  /// The edge's name, exactly as a transition spells it.
+  en : String
+  /// The same edge in Chinese. Empty when the model has no Chinese name
+  /// for it, and then the reader sees `en`.
+  zh : String
+} derive(Eq, Debug)
+
+///|
+pub extend EdgeWord with Eq::{not_equal, equal}
+
+///|
+pub extend EdgeWord with Debug::{to_repr}
 
 ///|
 /// The whole machine.
@@ -270,6 +349,8 @@ pub(all) struct Model {
   continuations : Array[Continuation]
   /// The word each kind of outcome is called.
   outcomes : Array[OutcomeWord]
+  /// The name of every edge, in both languages.
+  edges : Array[EdgeWord]
 } derive(Eq, Debug)
 
 ///|
@@ -533,7 +614,11 @@ fn outcome_words_from(
         }
       }
       if !known {
-        words.push({ kind, label: outcome.en_label(), })
+        words.push({
+          kind,
+          label: outcome.en_label(),
+          label_zh: outcome.label(),
+        })
       }
     }
   }
@@ -638,6 +723,12 @@ pub fn Model::pyroduct() -> Model {
       label: state.en_label(),
       gloss: state.en_gloss(),
       domain: "",
+      // The Chinese name is the table's general designation and the Chinese
+      // gloss is the table's own sentence for the state. The two come from
+      // different layers on purpose: the designation is what the model calls
+      // the relation, and the gloss is the text the source gives for it.
+      label_zh: state.designation(),
+      gloss_zh: state.gloss(),
     })
   }
   let slots : Array[SlotSpec] = []
@@ -646,6 +737,8 @@ pub fn Model::pyroduct() -> Model {
       id: slot_id_of(slot),
       designation: slot.en_designation(),
       gloss: slot.en_gloss(),
+      designation_zh: slot.designation(),
+      gloss_zh: slot.gloss(),
     })
   }
   // The domains are MAKED's own, written down as data. They used to be read
@@ -666,6 +759,13 @@ pub fn Model::pyroduct() -> Model {
   // The words an outcome is called, taken from the table's own English
   // rendering. They are the model's now, so a model file can replace them.
   let outcomes = outcome_words_from(@sm.all_states(), @sm.all_slots())
+  // The edges are the one name that is not a position, a slot, a domain or
+  // an outcome, so they get their own table: the trigger the table fired,
+  // in the model's English and in the source's Chinese.
+  let edges : Array[EdgeWord] = []
+  for trigger in @sm.all_triggers() {
+    edges.push({ en: trigger.en_label(), zh: trigger.label(), })
+  }
   // The continuations are the model's own answer to "what could happen
   // next", and they are asked of the table at the same depth MAKED has
   // always used, so the numbers do not move when the model is written down.
@@ -691,6 +791,7 @@ pub fn Model::pyroduct() -> Model {
     rules,
     continuations,
     outcomes,
+    edges,
   }
 }
 
@@ -1050,6 +1151,125 @@ pub fn Model::slot_gloss(self : Model, id : String) -> String {
   }
 }
 
+/// -- The other language ------------------------------------------------------
+
+///|
+/// The name a reader sees for a position, in the language asked for.
+///
+/// The English accessor above is kept as it is, because a great deal of code
+/// wants the model's own reading and does not care which one it is. This is
+/// the one that takes the reader's language, and it is the one the API and the
+/// agent use.
+pub fn Model::position_label_in(
+  self : Model,
+  id : String,
+  lang : Lang,
+) -> String {
+  match self.position(id) {
+    Some(position) => lang.pick(position.label, position.label_zh)
+    None => ""
+  }
+}
+
+///|
+/// What a position is, in one sentence, in the language asked for.
+pub fn Model::position_gloss_in(
+  self : Model,
+  id : String,
+  lang : Lang,
+) -> String {
+  match self.position(id) {
+    Some(position) => lang.pick(position.gloss, position.gloss_zh)
+    None => ""
+  }
+}
+
+///|
+/// The name a reader sees for a slot, in the language asked for.
+pub fn Model::slot_designation_in(
+  self : Model,
+  id : String,
+  lang : Lang,
+) -> String {
+  match self.slot(id) {
+    Some(slot) => lang.pick(slot.designation, slot.designation_zh)
+    None => ""
+  }
+}
+
+///|
+/// What a slot is, in one sentence, in the language asked for.
+pub fn Model::slot_gloss_in(self : Model, id : String, lang : Lang) -> String {
+  match self.slot(id) {
+    Some(slot) => lang.pick(slot.gloss, slot.gloss_zh)
+    None => ""
+  }
+}
+
+///|
+/// The word the model calls an outcome, in the language asked for.
+pub fn Model::outcome_label_in(
+  self : Model,
+  kind : String,
+  lang : Lang,
+) -> String {
+  for word in self.outcomes {
+    if word.kind == kind {
+      return lang.pick(word.label, word.label_zh)
+    }
+  }
+  kind
+}
+
+///|
+/// The name of an edge, in the language asked for.
+///
+/// The lookup is by the model's own English name for the edge, because that
+/// is what a transition carries: the table is written down in one language
+/// and read back in whichever the reader wants.
+pub fn Model::edge_label_in(self : Model, en : String, lang : Lang) -> String {
+  for edge in self.edges {
+    if edge.en == en {
+      return lang.pick(edge.en, edge.zh)
+    }
+  }
+  en
+}
+
+///|
+/// The position with this name, if the model has one.
+///
+/// The lookup is by the name a reader sees, in either language, and it exists
+/// for one reason: a recorded step stores the *name* of the position it was
+/// taken from, not the position's id, and a name that cannot be found in the
+/// model cannot be shown in the other language.
+///
+/// Both names are tried, because a step recorded before the model had a
+/// Chinese vocabulary carries the English one, and a step recorded after it
+/// carries whichever the writer was reading.
+pub fn Model::position_by_label(self : Model, label : String) -> PositionSpec? {
+  for position in self.positions {
+    if position.label == label || position.label_zh == label {
+      return Some(position)
+    }
+  }
+  None
+}
+
+///|
+/// The id of the position with this name, if the model has one.
+///
+/// Empty when the model does not have it, which is the honest answer: a
+/// recorded step that names a position the model no longer has cannot be
+/// placed, and pretending otherwise would put the reader somewhere the
+/// machine cannot go.
+pub fn Model::position_id_by_label(self : Model, label : String) -> String {
+  match self.position_by_label(label) {
+    Some(position) => position.id
+    None => ""
+  }
+}
+
 ///|
 /// The domain a position belongs to, by its id.
 pub fn Model::domain_of_position(self : Model, id : String) -> String {
@@ -1167,6 +1387,8 @@ pub fn Model::to_json(self : Model) -> Json {
       "title": domain.title,
       "role": domain.role,
       "anchor": domain.anchor,
+      "title_zh": domain.title_zh,
+      "role_zh": domain.role_zh,
     })
   }
   let positions : Array[Json] = []
@@ -1176,6 +1398,8 @@ pub fn Model::to_json(self : Model) -> Json {
       "label": position.label,
       "gloss": position.gloss,
       "domain": position.domain,
+      "label_zh": position.label_zh,
+      "gloss_zh": position.gloss_zh,
     })
   }
   let slots : Array[Json] = []
@@ -1184,6 +1408,8 @@ pub fn Model::to_json(self : Model) -> Json {
       "id": slot.id,
       "designation": slot.designation,
       "gloss": slot.gloss,
+      "designation_zh": slot.designation_zh,
+      "gloss_zh": slot.gloss_zh,
     })
   }
   let rules : Array[Json] = []
@@ -1205,7 +1431,15 @@ pub fn Model::to_json(self : Model) -> Json {
   }
   let outcomes : Array[Json] = []
   for word in self.outcomes {
-    outcomes.push({ "kind": word.kind, "label": word.label })
+    outcomes.push({
+      "kind": word.kind,
+      "label": word.label,
+      "label_zh": word.label_zh,
+    })
+  }
+  let edges : Array[Json] = []
+  for edge in self.edges {
+    edges.push({ "en": edge.en, "zh": edge.zh })
   }
   {
     "format": MODEL_FORMAT,
@@ -1216,6 +1450,7 @@ pub fn Model::to_json(self : Model) -> Json {
     "rules": [..rules],
     "continuations": [..continuations],
     "outcomes": [..outcomes],
+    "edges": [..edges],
   }
 }
 
@@ -1242,6 +1477,8 @@ pub fn Model::from_json(json : Json) -> Model? {
       title: json_string(item, "title"),
       role: json_string(item, "role"),
       anchor: json_string(item, "anchor"),
+      title_zh: json_string(item, "title_zh"),
+      role_zh: json_string(item, "role_zh"),
     })
   }
   let positions : Array[PositionSpec] = []
@@ -1251,6 +1488,8 @@ pub fn Model::from_json(json : Json) -> Model? {
       label: json_string(item, "label"),
       gloss: json_string(item, "gloss"),
       domain: json_string(item, "domain"),
+      label_zh: json_string(item, "label_zh"),
+      gloss_zh: json_string(item, "gloss_zh"),
     })
   }
   let slots : Array[SlotSpec] = []
@@ -1259,6 +1498,8 @@ pub fn Model::from_json(json : Json) -> Model? {
       id: json_string(item, "id"),
       designation: json_string(item, "designation"),
       gloss: json_string(item, "gloss"),
+      designation_zh: json_string(item, "designation_zh"),
+      gloss_zh: json_string(item, "gloss_zh"),
     })
   }
   let rules : Array[Rule] = []
@@ -1293,7 +1534,14 @@ pub fn Model::from_json(json : Json) -> Model? {
     outcomes.push({
       kind: json_string(item, "kind"),
       label: json_string(item, "label"),
+      label_zh: json_string(item, "label_zh"),
     })
+  }
+  // The edge names. A file may leave them out: then an edge is shown in the
+  // language its own transition spells it in.
+  let edges : Array[EdgeWord] = []
+  for item in json_array(json, "edges") {
+    edges.push({ en: json_string(item, "en"), zh: json_string(item, "zh"), })
   }
   let model = Model::{
     name: json_string(json, "name"),
@@ -1303,6 +1551,7 @@ pub fn Model::from_json(json : Json) -> Model? {
     rules,
     continuations,
     outcomes,
+    edges,
   }
   if model.first_broken_rule() is Some(_) {
     return None

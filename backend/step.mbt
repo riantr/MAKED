@@ -35,11 +35,11 @@ pub(all) enum StepAnswer {
 /// nothing here to get wrong: the table has an opinion about this position
 /// and this is it. A step the caller names a slot for can be refused; this
 /// one cannot.
-pub fn take_drive_step(db : Database) -> Json raise {
+pub fn take_drive_step(db : Database, lang : Lang) -> Json raise {
   let before = get_loop_state()
   let after = step_loop()
   record_step(db, before, after, "drive")
-  loop_payload(db)
+  loop_payload(db, lang)
 }
 
 ///|
@@ -57,6 +57,7 @@ pub fn take_slot_step(
   db : Database,
   slot_name : String,
   target : String,
+  lang : Lang,
 ) -> StepAnswer raise {
   let parsed = match slot_from_english(slot_name) {
     Some(s) => Some(s)
@@ -69,7 +70,7 @@ pub fn take_slot_step(
       if target == "" {
         let after = step_loop_with_slot(slot)
         record_step(db, before, after, "explicit")
-        Taken(loop_payload(db))
+        Taken(loop_payload(db, lang))
       } else {
         let position = before.domain_state(before.current).position
         let candidates = open_candidates_of(before.model, position, slot)
@@ -77,7 +78,7 @@ pub fn take_slot_step(
           Some(_) => {
             let after = step_loop_with_target(slot, target)
             record_step(db, before, after, "explicit")
-            Taken(loop_payload(db))
+            Taken(loop_payload(db, lang))
           }
           None =>
             UnknownTarget(target, candidate_names_of(before.model, candidates))

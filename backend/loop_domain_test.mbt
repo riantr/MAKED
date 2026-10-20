@@ -103,7 +103,7 @@ test "LoopState::step changes group state" {
 /// LoopState::to_json includes domain_states array.
 test "LoopState::to_json includes domain_states" {
   let state = @backend.LoopState::new()
-  let json = state.to_json()
+  let json = state.to_json(@backend.Lang::english())
   match json {
     Object(fields) =>
       match fields.get("domain_states") {
@@ -118,7 +118,7 @@ test "LoopState::to_json includes domain_states" {
 /// LoopState::to_json includes group_state field.
 test "LoopState::to_json includes group_state" {
   let state = @backend.LoopState::new()
-  let json = state.to_json()
+  let json = state.to_json(@backend.Lang::english())
   match json {
     Object(fields) => {
       assert_true(fields.get("group_state") is Some(_))
@@ -132,7 +132,7 @@ test "LoopState::to_json includes group_state" {
 /// LoopState::to_json domain_states have expected shape.
 test "LoopState::to_json domain_states have correct shape" {
   let state = @backend.LoopState::new()
-  let json = state.to_json()
+  let json = state.to_json(@backend.Lang::english())
   match json {
     Object(fields) =>
       match fields.get("domain_states") {
@@ -391,7 +391,7 @@ test "LoopState::new_with_mode creates correct mode" {
 /// LoopState::to_json includes mode fields.
 test "LoopState::to_json includes mode fields" {
   let state = @backend.LoopState::new()
-  let json = state.to_json()
+  let json = state.to_json(@backend.Lang::english())
   match json {
     Object(fields) => {
       assert_true(fields.get("mode") is Some(_))

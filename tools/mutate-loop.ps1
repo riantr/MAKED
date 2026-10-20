@@ -165,7 +165,7 @@ pub fn Model::drive_slot(self : Model, from : String) -> String? {
     file = 'backend/loop.mbt'
     old  = @'
     "drive_slot": match drive_slot_of(model, current_pos) {
-      Some(slot) => model.slot_designation(slot)
+      Some(slot) => model.slot_designation_in(slot, lang)
       None => ""
     },
 '@
@@ -179,10 +179,10 @@ pub fn Model::drive_slot(self : Model, from : String) -> String? {
     name = 'open_slots lists all eight slots'
     file = 'backend/loop.mbt'
     old  = '  for slot in exitable_slots_of(model, current_pos) {
-    open_slots_json.push(open_slot_json(model, current_pos, slot))
+    open_slots_json.push(open_slot_json(model, current_pos, slot, lang))
   }'
     new  = '  for slot in current_model().slot_ids() {
-    open_slots_json.push(open_slot_json(model, current_pos, slot))
+    open_slots_json.push(open_slot_json(model, current_pos, slot, lang))
   }'
   },
   # A domain that has already moved must keep being driven from where it is.

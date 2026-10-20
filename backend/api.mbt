@@ -48,7 +48,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   //
   // The response is not cacheable. It carries the user's own records, and a
   // cached copy would be a stale list of what the server holds.
-  app.get("/api/bootstrap", _req => {
+  app.get("/api/bootstrap", req => {
     let pages = db.all_pages().map(fn(p) { p.to_json() })
     let entries = db.all_entries().map(fn(e) { e.to_json() })
     let body : Json = {
@@ -65,7 +65,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       // and the branches that are not on the path. A client that had to ask
       // for the timeline separately would be one request further from the
       // answer on every page that shows it.
-      "session_state": session_state_json(db),
+      "session_state": session_state_json(db, lang_of(req)),
     }
     Response::json(body).with_header("Cache-Control", "no-store")
   })
@@ -187,7 +187,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
         // replaced keeps its own steps and can be activated again, so
         // starting a new one never costs the old one.
         set_loop_state(LoopState::new().with_mode(get_loop_mode()))
-        Response::json(session_payload(db), status=201)
+        Response::json(session_payload(db, lang_of(req)), status=201)
       }
     }
   })
@@ -198,7 +198,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       Response::json(body, status=400)
     } else {
       match db.session_by_id(id.to_int64()) {
-        Some(_) => Response::json(session_payload(db))
+        Some(_) => Response::json(session_payload(db, lang_of(req)))
         None => {
           let body : Json = { "error": "not_found", "id": id }
           Response::json(body, status=404)
@@ -213,7 +213,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       Response::json(body, status=400)
     } else {
       match activate_session(db, id.to_int64()) {
-        Done(_) => Response::json(session_payload(db))
+        Done(_) => Response::json(session_payload(db, lang_of(req)))
         MissingSession => {
           let body : Json = { "error": "not_found", "id": id }
           Response::json(body, status=404)
@@ -238,7 +238,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       let payload = req.json().unwrap_or(Json::empty_object())
       let step = json_int(payload, "step")
       match rewind_session(db, id.to_int64(), step.to_int64()) {
-        Done(_) => Response::json(session_payload(db))
+        Done(_) => Response::json(session_payload(db, lang_of(req)))
         MissingSession => {
           let body : Json = { "error": "not_found", "id": id }
           Response::json(body, status=404)
@@ -275,7 +275,8 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
         }
         Ok(name) =>
           match branch_session(db, id.to_int64(), step.to_int64(), name) {
-            Done(_) => Response::json(session_payload(db), status=201)
+            Done(_) =>
+              Response::json(session_payload(db, lang_of(req)), status=201)
             MissingSession => {
               let body : Json = { "error": "not_found", "id": id }
               Response::json(body, status=404)
@@ -313,7 +314,9 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
               // otherwise answer with a session the caller did not ask
               // about.
               Some(session) =>
-                Response::json(session_payload_with(db, "renamed", session))
+                Response::json(
+                  session_payload_with(db, "renamed", session, lang_of(req)),
+                )
               None => {
                 let body : Json = { "error": "not_found", "id": id }
                 Response::json(body, status=404)
@@ -397,14 +400,14 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   // POST /api/loop/step         → advance one step using the domain's drive slot
   // POST /api/loop/step/:slot   → advance one step using the named slot
   // POST /api/loop/reset        → return to Model with empty history
-  app.get("/api/loop/status", _req => {
+  app.get("/api/loop/status", req => {
     let state = get_loop_state()
-    Response::json(state.to_json())
+    Response::json(state.to_json(lang_of(req)))
   })
-  app.get("/api/loop/slots", _req => {
+  app.get("/api/loop/slots", req => {
     // The same array the status response carries under `slots`, from the same
     // helper, so the two endpoints cannot disagree about the vocabulary.
-    let body : Json = { "slots": slots_json() }
+    let body : Json = { "slots": slots_json(lang_of(req)) }
     Response::json(body)
   })
   // GET /api/model
@@ -437,6 +440,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   // endpoint -- it returns the candidates and lets a person pick.
   app.get("/api/loop/continuations", req => {
     let model = current_model()
+    let lang = lang_of(req)
     let state = get_loop_state()
     let current_pos = state.domain_state(state.current).position
     let depth = match req.query("depth") {
@@ -447,8 +451,8 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     let items = []
     for (next, steps) in continuations(current_pos, bounded) {
       let item : Json = {
-        "position": model.position_label(next),
-        "position_label": model.position_label(next),
+        "position": model.position_label_in(next, lang),
+        "position_label": model.position_label_in(next, lang),
         "steps": steps,
       }
       items.push(item)
@@ -458,21 +462,21 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       let targets = []
       for (next, steps) in model.continuations_for(current_pos, slot, bounded) {
         let target : Json = {
-          "position": model.position_label(next),
+          "position": model.position_label_in(next, lang),
           "steps": steps,
         }
         targets.push(target)
       }
       let entry : Json = {
         "name": slot,
-        "designation": model.slot_designation(slot),
+        "designation": model.slot_designation_in(slot, lang),
         "targets": [..targets],
       }
       by_slot.push(entry)
     }
     let body : Json = {
-      "from": model.position_label(current_pos),
-      "from_label": model.position_label(current_pos),
+      "from": model.position_label_in(current_pos, lang),
+      "from_label": model.position_label_in(current_pos, lang),
       "depth": bounded,
       "continuations": [..items],
       "by_slot": [..by_slot],
@@ -490,7 +494,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     // step count and its summary of the run are the ones the step just
     // produced. Without it they were the ones from start-up, and the count
     // stopped moving after the first click.
-    _req => Response::json(take_drive_step(db)),
+    req => Response::json(take_drive_step(db, lang_of(req))),
   )
   app.post("/api/loop/step/:slot", req => {
     match req.param("slot") {
@@ -504,7 +508,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
         // keep in step with each other.
         let payload = req.json().unwrap_or(Json::empty_object())
         let asked = json_string(payload, "target")
-        match take_slot_step(db, slot_name, asked) {
+        match take_slot_step(db, slot_name, asked, lang_of(req)) {
           Taken(body) => Response::json(body)
           UnknownSlot(name) => {
             let body : Json = { "error": "unknown_slot", "slot": name }
@@ -530,10 +534,10 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       }
     }
   })
-  app.post("/api/loop/reset", _req => {
+  app.post("/api/loop/reset", req => {
     let state = reset_to(starting_domain())
     reset_session_start(db, state)
-    Response::json(loop_payload(db))
+    Response::json(loop_payload(db, lang_of(req)))
   })
   // POST /api/loop/reset/:domain → reset to start from the specified domain
   app.post("/api/loop/reset/:domain", req => {
@@ -547,7 +551,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
           Some(domain) => {
             let state = reset_to(domain)
             reset_session_start(db, state)
-            Response::json(loop_payload(db))
+            Response::json(loop_payload(db, lang_of(req)))
           }
           None => {
             let body : Json = {
@@ -597,7 +601,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
             // was explored in.
             let session_id = ensure_session(db)
             db.set_session_mode(session_id, mode_name(mode))
-            Response::json(loop_payload(db))
+            Response::json(loop_payload(db, lang_of(req)))
           }
           None => {
             let body : Json = { "error": "unknown_mode", "mode": raw_mode }
@@ -620,7 +624,8 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   // PUT  /api/research/config    → replace the table, and write it back
   // GET  /api/research/corpus    → the corpus the reader may replace
   // PUT  /api/research/corpus    → replace the corpus, and write it back
-  app.get("/api/research/documents", _req => {
+  app.get("/api/research/documents", req => {
+    let lang = lang_of(req)
     let corpus = current_corpus()
     let documents = fetch_corpus(corpus) catch { _ => [] }
     let model = current_model()
@@ -634,7 +639,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       let item : Json = {
         "document_id": d.id,
         "rule": label,
-        "slot": model.slot_designation(slot),
+        "slot": model.slot_designation_in(slot, lang),
         "slot_english": slot,
       }
       item
@@ -656,7 +661,8 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     }
     Response::json(body)
   })
-  app.post("/api/research/drive", _req => {
+  app.post("/api/research/drive", req => {
+    let lang = lang_of(req)
     let corpus = current_corpus()
     let documents = fetch_corpus(corpus) catch { _ => [] }
     let model = current_model()
@@ -696,7 +702,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
         "document_id": document.id,
         "document_title": document.title,
         "rule": label,
-        "slot": model.slot_designation(slot),
+        "slot": model.slot_designation_in(slot, lang),
         "slot_english": slot,
         "driven": true,
         "domain_before": state_before.current.letter(),
@@ -709,7 +715,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     let final_state = get_loop_state()
     let body : Json = {
       "results": [..results],
-      "final_state": final_state.to_json(),
+      "final_state": final_state.to_json(lang),
       "documents_processed": documents.length(),
       "documents_driven": driven,
       "corpus": corpus_json(corpus),
@@ -1063,6 +1069,18 @@ fn corpus_json(corpus : CorpusConfig) -> Json {
     "path": corpus.path,
     "max_results": corpus.max_results,
   }
+}
+
+///|
+/// The language a request asks for.
+///
+/// `?lang=zh` is the whole of the switch, and an absent parameter means
+/// English. It is a query parameter rather than a header because it is a
+/// choice rather than a negotiation: the client says which language it wants
+/// and the server answers in that one, without a second round trip to ask
+/// what the server supports.
+fn lang_of(req : Request) -> Lang {
+  lang_from_query(req.query("lang"))
 }
 
 ///|

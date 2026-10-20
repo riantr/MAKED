@@ -58,7 +58,7 @@ fn last_step(path : Array[SessionStep]) -> SessionStep? {
 ///
 /// The ids travel beside the words, because an agent that wants to be exact
 /// needs the model's own names and not only the ones the reader sees.
-pub fn agent_where() -> Json {
+pub fn agent_where(lang : Lang) -> Json {
   let state = get_loop_state()
   let model = state.model
   let domain = state.current
@@ -67,14 +67,14 @@ pub fn agent_where() -> Json {
   let society_id = society_position_id(state.society_state)
   {
     "domain": domain.letter(),
-    "domain_name": domain.title(),
-    "the_domain_in_words": role_of(model, domain.letter()),
+    "domain_name": domain.title_in(lang),
+    "the_domain_in_words": role_of_in(model, domain.letter(), lang),
     "position": position,
-    "position_label": model.position_label(position),
-    "position_gloss": model.position_gloss(position),
-    "mode": state.mode.designation(),
-    "the_group": state.group_state.en_designation(),
-    "the_group_gloss": state.group_state.en_gloss(),
+    "position_label": model.position_label_in(position, lang),
+    "position_gloss": model.position_gloss_in(position, lang),
+    "mode": state.mode.designation_in(lang),
+    "the_group": group_state_in(state.group_state.en_designation(), lang),
+    "the_group_gloss": group_gloss_in(state.group_state.en_gloss(), lang),
     "the_collective": society_position_label(vocabulary, society_id),
     "the_collective_position": society_id,
   }
@@ -82,17 +82,17 @@ pub fn agent_where() -> Json {
 
 ///|
 /// The state of the loop, as an agent should read it.
-pub fn agent_status(db : Database) -> Json raise {
+pub fn agent_status(db : Database, lang : Lang) -> Json raise {
   let model = current_model()
   let path = active_path(db)
   let last_move = match last_step(path) {
-    Some(step) => step_sentence(facts_of(model, step))
+    Some(step) => step_sentence(facts_of(model, step), lang)
     None => "No step has been taken yet. The loop is standing where it starts."
   }
   {
-    "where": agent_where(),
+    "where": agent_where(lang),
     "the_last_move": last_move,
-    "the_run_so_far": summary_of(path),
+    "the_run_so_far": summary_of(path, lang),
     "steps_taken": path.length(),
     "the_measures": measure(path).to_json(),
     "note": "Call maked_options to see what the table offers from here, and maked_step to take one of them.",
@@ -105,14 +105,14 @@ pub fn agent_status(db : Database) -> Json raise {
 /// The two lists are the same length as the model's slot vocabulary, and
 /// together they are all of it. A slot that cannot move says why, because a
 /// slot that is merely absent reads as a slot nobody has heard of.
-pub fn agent_options(depth : Int32) -> Json {
+pub fn agent_options(depth : Int32, lang : Lang) -> Json {
   let state = get_loop_state()
   let model = state.model
   let position = state.domain_state(state.current).position
   let can_move : Array[Json] = []
   let cannot_move : Array[Json] = []
   let declined : Array[Json] = []
-  for (name, designation, gloss) in all_slots_info() {
+  for (name, designation, gloss) in all_slots_info(lang) {
     let transition = model.step(position, name)
     let kind = transition.kind()
     if kind == "block" {
@@ -123,18 +123,18 @@ pub fn agent_options(depth : Int32) -> Json {
         "why": "There is no \"" +
         designation +
         "\" out of " +
-        model.position_label(position) +
+        model.position_label_in(position, lang) +
         ".",
       })
     } else {
       let lands : Array[String] = []
       match transition {
-        Moved(_, to) => lands.push(model.position_label(to))
-        Held(_, to) => lands.push(model.position_label(to))
-        Same(_, to) => lands.push(model.position_label(to))
+        Moved(_, to) => lands.push(model.position_label_in(to, lang))
+        Held(_, to) => lands.push(model.position_label_in(to, lang))
+        Same(_, to) => lands.push(model.position_label_in(to, lang))
         Open(candidates) =>
           for candidate in candidates {
-            lands.push(model.position_label(candidate.to))
+            lands.push(model.position_label_in(candidate.to, lang))
           }
         Block(_) => ()
       }
@@ -142,7 +142,7 @@ pub fn agent_options(depth : Int32) -> Json {
         "slot": name,
         "slot_name": designation,
         "what_the_slot_is": gloss,
-        "outcome": model.outcome_label(kind),
+        "outcome": model.outcome_label_in(kind, lang),
         "outcome_kind": kind,
         "lands_at": agent_strings(lands),
       })
@@ -160,7 +160,7 @@ pub fn agent_options(depth : Int32) -> Json {
   for (next, steps) in continuations(position, depth) {
     ahead.push({
       "position": next,
-      "position_label": model.position_label(next),
+      "position_label": model.position_label_in(next, lang),
       "steps_away": steps,
     })
   }
@@ -177,17 +177,17 @@ pub fn agent_options(depth : Int32) -> Json {
 /// What a step did, in words.
 ///
 /// The step itself is taken in `step.mbt`; this says what it came to.
-pub fn agent_step_result(db : Database) -> Json raise {
+pub fn agent_step_result(db : Database, lang : Lang) -> Json raise {
   let model = current_model()
   let path = active_path(db)
   let what_happened = match last_step(path) {
-    Some(step) => step_sentence(facts_of(model, step))
+    Some(step) => step_sentence(facts_of(model, step), lang)
     None => "The step did not land anywhere the history can describe."
   }
   {
     "what_happened": what_happened,
-    "where_now": agent_where(),
-    "the_run_so_far": summary_of(path),
+    "where_now": agent_where(lang),
+    "the_run_so_far": summary_of(path, lang),
     "steps_taken": path.length(),
     "the_measures": measure(path).to_json(),
   }
@@ -324,6 +324,27 @@ fn agent_no_arguments() -> Json {
 }
 
 ///|
+/// The schema of a tool that answers in a chosen language.
+///
+/// The language is an argument rather than a server setting because the
+/// caller is the one that knows: an agent reasoning in Chinese wants the
+/// model's own words in Chinese, and the same agent on another run may want
+/// them in English. Leaving the argument out means English, so a caller that
+/// has not heard of the argument still gets a usable answer.
+fn agent_lang_schema() -> Json {
+  {
+    "type": "object",
+    "properties": {
+      "lang": {
+        "type": "string",
+        "description": "The language to answer in: \"en\" or \"zh\". Default \"en\".",
+      },
+    },
+    "required": [],
+  }
+}
+
+///|
 /// The schema of the step tool.
 fn agent_step_schema() -> Json {
   {
@@ -336,6 +357,10 @@ fn agent_step_schema() -> Json {
       "target": {
         "type": "string",
         "description": "One of the successors the table offered and declined to choose between. Only needed when maked_options says the table declined to choose.",
+      },
+      "lang": {
+        "type": "string",
+        "description": "The language to answer in: \"en\" or \"zh\". Default \"en\".",
       },
     },
     "required": [],
@@ -351,6 +376,10 @@ fn agent_options_schema() -> Json {
       "depth": {
         "type": "integer",
         "description": "How many steps ahead to look when listing what could happen next. Default 3.",
+      },
+      "lang": {
+        "type": "string",
+        "description": "The language to answer in: \"en\" or \"zh\". Default \"en\".",
       },
     },
     "required": [],
@@ -423,7 +452,7 @@ pub fn agent_tool_specs() -> Array[AgentTool] {
     {
       name: "maked_status",
       description: "Where the loop stands: the domain and position, what the last move did in words, what the run adds up to, and whether it is still finding ground.",
-      arguments: agent_no_arguments(),
+      arguments: agent_lang_schema(),
     },
     {
       name: "maked_options",

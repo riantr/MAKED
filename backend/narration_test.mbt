@@ -54,6 +54,11 @@ fn moved_facts() -> @backend.StepFacts {
     cursor: "the data turbine",
     source: "drive",
     available: 3,
+    role_zh: "模型构建者",
+    slot_zh: "行动",
+    position_before_zh: "立位",
+    position_after_zh: "自由",
+    cursor_zh: "数据涡轮",
   }
 }
 
@@ -71,6 +76,11 @@ fn held_facts() -> @backend.StepFacts {
     cursor: "the data turbine",
     source: "drive",
     available: 4,
+    role_zh: "数据涡轮",
+    slot_zh: "持存",
+    position_before_zh: "修习",
+    position_after_zh: "修习",
+    cursor_zh: "数据涡轮",
   }
 }
 
@@ -88,6 +98,11 @@ fn blocked_facts(available : Int32) -> @backend.StepFacts {
     cursor: "the knowledge distiller",
     source: "drive",
     available,
+    role_zh: "知识蒸馏者",
+    slot_zh: "揭蔽",
+    position_before_zh: "隐没",
+    position_after_zh: "隐没",
+    cursor_zh: "知识蒸馏者",
   }
 }
 
@@ -105,6 +120,11 @@ fn undecided_facts() -> @backend.StepFacts {
     cursor: "the experience absorber",
     source: "drive",
     available: 5,
+    role_zh: "经验吸收者",
+    slot_zh: "处境",
+    position_before_zh: "受赏",
+    position_after_zh: "受赏",
+    cursor_zh: "经验吸收者",
   }
 }
 
@@ -120,7 +140,7 @@ test "the first letter of a phrase is capitalised, and the rest is left alone" {
 
 ///|
 test "a step that moved is told as a sentence" {
-  let sentence = @backend.step_sentence(moved_facts())
+  let sentence = @backend.step_sentence(moved_facts(), @backend.Lang::english())
   // What moved, from where, and through what.
   assert_true(sentence.contains("moved from Standing to Freedom"))
   assert_true(sentence.contains("Action"))
@@ -136,19 +156,22 @@ test "a step that moved is told as a sentence" {
 
 ///|
 test "a step says who chose the slot" {
-  let driven = @backend.step_sentence(moved_facts())
+  let driven = @backend.step_sentence(moved_facts(), @backend.Lang::english())
   assert_true(driven.contains("the slot the table drives with here"))
   // The same step, taken by hand, says something different. "The table
   // chose this" and "you chose this" are different claims, and the outcome
   // alone does not tell them apart.
-  let chosen = @backend.step_sentence({ ..moved_facts(), source: "explicit", })
+  let chosen = @backend.step_sentence(
+    { ..moved_facts(), source: "explicit", },
+    @backend.Lang::english(),
+  )
   assert_true(chosen.contains("the slot you chose"))
   assert_true(!chosen.contains("the slot the table drives with here"))
 }
 
 ///|
 test "a step that moved nothing says so" {
-  let sentence = @backend.step_sentence(held_facts())
+  let sentence = @backend.step_sentence(held_facts(), @backend.Lang::english())
   assert_true(sentence.contains("held at Discipline"))
   // The cursor stayed where it was, and the sentence says that rather than
   // leaving the reader to infer it from the absence of a new domain.
@@ -158,20 +181,29 @@ test "a step that moved nothing says so" {
 ///|
 test "a step that found no road says that, and says which kind" {
   // No road at all: the position itself is a dead end.
-  let dead_end = @backend.step_sentence(blocked_facts(0))
+  let dead_end = @backend.step_sentence(
+    blocked_facts(0),
+    @backend.Lang::english(),
+  )
   assert_true(dead_end.contains("Nothing could move the knowledge distiller"))
   assert_true(dead_end.contains("no slot has a road out of there"))
   // A road that was tried and had none: a different sentence, because the
   // difference is the difference between "there is nowhere to go" and "that
   // way is closed".
-  let closed = @backend.step_sentence(blocked_facts(3))
+  let closed = @backend.step_sentence(
+    blocked_facts(3),
+    @backend.Lang::english(),
+  )
   assert_true(closed.contains("that slot has no road out of there"))
   assert_true(!closed.contains("no slot has a road out of there"))
 }
 
 ///|
 test "a step the table declined to choose says so" {
-  let sentence = @backend.step_sentence(undecided_facts())
+  let sentence = @backend.step_sentence(
+    undecided_facts(),
+    @backend.Lang::english(),
+  )
   assert_true(sentence.contains("declined to choose"))
   assert_true(sentence.contains("the experience absorber"))
 }
@@ -188,6 +220,7 @@ test "the summary says where the run went and what it moved" {
     @backend.current_model(),
     steps,
     "Converging",
+    @backend.Lang::english(),
   )
   // Which domains the run visited, and how often.
   assert_true(summary.contains("the model formulator twice"))
@@ -209,6 +242,7 @@ test "the summary counts the steps it was given" {
     @backend.current_model(),
     steps,
     "Scattered",
+    @backend.Lang::english(),
   )
   assert_true(
     summary.contains("The last 3 steps were all in the model formulator."),
@@ -222,6 +256,7 @@ test "a single step is summarised as a single step" {
     @backend.current_model(),
     [moved_facts()],
     "Scattered",
+    @backend.Lang::english(),
   )
   assert_true(summary.contains("The last step was in the model formulator."))
   assert_true(summary.contains("It moved a position."))
@@ -233,7 +268,12 @@ test "a summary of nothing is empty" {
   // Not "No steps yet.": the caller decides whether to show a line at all,
   // and a summary that invented a sentence for no steps would be a lie.
   assert_eq(
-    @backend.phase_summary(@backend.current_model(), [], "Scattered"),
+    @backend.phase_summary(
+      @backend.current_model(),
+      [],
+      "Scattered",
+      @backend.Lang::english(),
+    ),
     "",
   )
 }
@@ -245,6 +285,7 @@ test "a run of steps that moved nothing says that none of them moved" {
     @backend.current_model(),
     steps,
     "Scattered",
+    @backend.Lang::english(),
   )
   assert_true(summary.contains("None of them moved a position."))
 }
@@ -256,7 +297,7 @@ async test "the summary of a session covers the last five steps and no more" {
   ignore(take_steps(db, 7))
   let path = db.steps_of_session(session.id)
   assert_eq(path.length(), 7)
-  let summary = @backend.summary_of(path)
+  let summary = @backend.summary_of(path, @backend.Lang::english())
   // Five, not seven: a summary of the whole history stops being a summary,
   // and a reader cannot hold seven steps in their head. The sentence says
   // which five it is talking about, so the number is not a private choice.
@@ -278,6 +319,7 @@ async test "the export carries the sentences and the summary too" {
   // same words the page did.
   let sentence = @backend.step_sentence(
     @backend.facts_of(@backend.current_model(), steps[0]),
+    @backend.Lang::english(),
   )
   assert_true(markdown.contains(sentence))
   // And the account of the run is at the top of it.
@@ -302,13 +344,13 @@ async test "the step record carries the sentence and the state carries the summa
   assert_eq(steps.length(), 3)
   // The step's own JSON carries the sentence, so a reader of the timeline
   // gets it without asking for anything else.
-  let step_json = steps[0].to_json(1)
+  let step_json = steps[0].to_json(1, @backend.Lang::english())
   match json_field(step_json, "narration") {
     Some(Json::String(sentence)) => assert_true(sentence != "")
     _ => fail("the step should carry a sentence")
   }
   // And the session state carries the summary of the run.
-  let state = @backend.session_state_json(db)
+  let state = @backend.session_state_json(db, @backend.Lang::english())
   match json_field(state, "summary") {
     Some(Json::String(summary)) => assert_true(summary != "")
     _ => fail("the session state should carry a summary")
@@ -332,7 +374,7 @@ test "a step is described with the model's own words" {
   // The role is the model's.
   assert_eq(facts.role, "the idea")
   // And the sentence says it.
-  let sentence = @backend.step_sentence(facts)
+  let sentence = @backend.step_sentence(facts, @backend.Lang::english())
   assert_true(sentence.contains("the idea"))
   assert_true(!sentence.contains("the model formulator"))
 }
@@ -347,7 +389,12 @@ test "a step is described with the model's own words" {
 test "the summary counts the model's own domains" {
   let toy = model_or_fail(toy_model())
   let facts = @backend.facts_of(toy, toy_step())
-  let summary = @backend.phase_summary(toy, [facts], "Scattered")
+  let summary = @backend.phase_summary(
+    toy,
+    [facts],
+    "Scattered",
+    @backend.Lang::english(),
+  )
   assert_true(summary.contains("The last step was in the idea."))
   assert_true(!summary.contains("the model formulator"))
 }
@@ -368,7 +415,12 @@ test "the summary lists the domains in the model's own ring order" {
   })
   let idea = @backend.facts_of(toy, toy_step())
   // The run visited the shipping first, and the idea second.
-  let summary = @backend.phase_summary(toy, [shipping, idea], "Scattered")
+  let summary = @backend.phase_summary(
+    toy,
+    [shipping, idea],
+    "Scattered",
+    @backend.Lang::english(),
+  )
   // The ring has the idea first anyway.
   assert_true(summary.contains("the idea once and the shipping once"))
 }

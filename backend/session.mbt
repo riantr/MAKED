@@ -290,21 +290,37 @@ pub fn Session::to_json(self : Session) -> Json {
 /// `index` is the step's depth along its own path, 1-based. It is derived
 /// rather than stored: two branches from the same step share a depth, and a
 /// stored counter would have to be kept in step with the tree by hand.
-pub fn SessionStep::to_json(self : SessionStep, index : Int32) -> Json {
+///
+/// The names a step carries are re-rendered in the reader's language rather
+/// than shown as they were recorded. A step records the names the model was
+/// written in, and a name is a word in one language; the ids it also records
+/// are the thing the word was about, and those are what a re-rendering asks
+/// the model about.
+pub fn SessionStep::to_json(
+  self : SessionStep,
+  index : Int32,
+  lang : Lang,
+) -> Json {
+  let model = current_model()
   {
     "id": self.id,
     "index": index,
     "domain": self.domain,
-    "domain_title": self.domain_title,
+    "domain_title": domain_title_in(model, self.domain, self.domain_title, lang),
     "slot": self.slot,
-    "slot_designation": self.slot_designation,
-    "outcome": self.outcome,
+    "slot_designation": slot_name_in(
+      model,
+      self.slot,
+      self.slot_designation,
+      lang,
+    ),
+    "outcome": model.outcome_label_in(self.outcome_kind, lang),
     "outcome_kind": self.outcome_kind,
-    "detail": self.detail,
-    "position_before": self.position_before,
-    "position_after": self.position_after,
+    "detail": step_detail_in(model, self, lang),
+    "position_before": position_name_in(model, self.position_before, lang),
+    "position_after": position_name_in(model, self.position_after, lang),
     "cursor_after": self.cursor_after,
-    "group_state": self.group_state,
+    "group_state": group_state_in(self.group_state, lang),
     "mode": self.mode,
     "source": self.source,
     "drive": self.drive,
@@ -312,15 +328,92 @@ pub fn SessionStep::to_json(self : SessionStep, index : Int32) -> Json {
     // The reason, in one sentence, written here rather than in the client:
     // a second copy of that rule in the browser would be a second thing to
     // keep in step with this one.
-    "why": why_line(self),
+    "why": why_line_in(self, lang),
     // What the step did, in a sentence: the position it left, the position
     // it reached, the slot it went through, and where the cursor went next.
     // The label and the detail above are the same fact in the machine's
     // vocabulary; this is the same fact in a reader's.
-    "narration": step_sentence(facts_of(current_model(), self)),
+    "narration": step_sentence(facts_of(model, self), lang),
     "available": string_array_json(split_slots(self.available)),
     "blocked": string_array_json(split_slots(self.blocked)),
     "created_at": self.created_at,
+  }
+}
+
+///|
+/// The title of a domain, in the language asked for.
+///
+/// A domain the model does not have keeps the title it was recorded with,
+/// because a stored title is better than no title at all.
+fn domain_title_in(
+  model : Model,
+  letter : String,
+  stored : String,
+  lang : Lang,
+) -> String {
+  match model.domain_by_letter(letter) {
+    Some(domain) => domain.title_in(lang)
+    None => stored
+  }
+}
+
+///|
+/// The transition a recorded step took, rebuilt from the model.
+///
+/// A step records where it went, not which edge it went by, so the edge is
+/// asked of the model. The one case where the model's own answer is not the
+/// answer is the branch the table declined to choose: there the model offers
+/// several candidates and the reader picked one, so the step records the
+/// move the reader made rather than the refusal. The recorded kind says
+/// which of the two it was.
+fn transition_of(model : Model, step : SessionStep) -> Move {
+  let from = model.position_id_by_label(step.position_before)
+  let to = model.position_id_by_label(step.position_after)
+  let transition = model.step(from, step.slot)
+  match transition {
+    Open(candidates) => {
+      if step.outcome_kind == "open" {
+        return transition
+      }
+      for candidate in candidates {
+        if candidate.to == to && candidate.kind == step.outcome_kind {
+          return match candidate.kind {
+            "held" => Held(candidate.edge, candidate.to)
+            "same" => Same([candidate.edge], candidate.to)
+            _ => Moved(candidate.edge, candidate.to)
+          }
+        }
+      }
+      transition
+    }
+    _ => transition
+  }
+}
+
+///|
+/// The detail of a recorded step, in the language asked for.
+///
+/// English is the sentence the step already carries. Chinese is written
+/// again from the move, because a move can be said in more than one way and
+/// a sentence cannot be turned back into one.
+///
+/// The move is read from the model in force now, so a step recorded on a
+/// different model reads through the model that is installed. The
+/// structured fields beside it -- where the step went, which slot it used --
+/// are read from what the step recorded, and they do not move.
+fn step_detail_in(model : Model, step : SessionStep, lang : Lang) -> String {
+  match lang {
+    English => step.detail
+    Chinese => {
+      let from = model.position_id_by_label(step.position_before)
+      outcome_detail_zh(
+        model,
+        transition_of(model, step),
+        from,
+        step.slot,
+        lang,
+      )
+    }
   }
 }
 
@@ -753,22 +846,26 @@ fn contains_id(steps : Array[SessionStep], id : Int64) -> Bool {
 
 ///|
 /// The path of a session as JSON, 1-based, oldest first.
-fn path_json(path : Array[SessionStep]) -> Json {
+fn path_json(path : Array[SessionStep], lang : Lang) -> Json {
   let items = []
   let mut index = 0
   for step in path {
     index += 1
-    items.push(step.to_json(index))
+    items.push(step.to_json(index, lang))
   }
   [..items]
 }
 
 ///|
 /// The branches of a session that are not on its path, as JSON.
-fn others_json(all : Array[SessionStep], others : Array[SessionStep]) -> Json {
+fn others_json(
+  all : Array[SessionStep],
+  others : Array[SessionStep],
+  lang : Lang,
+) -> Json {
   let items = []
   for step in others {
-    items.push(step.to_json(depth_of(all, step)))
+    items.push(step.to_json(depth_of(all, step), lang))
   }
   [..items]
 }
@@ -788,7 +885,7 @@ fn empty_json_array() -> Json {
 /// one request out, one answer in, then the loop status. Folding the status
 /// in as well would mean two copies of it, one of them a moment older than
 /// the other.
-pub fn session_state_json(db : Database) -> Json raise {
+pub fn session_state_json(db : Database, lang : Lang) -> Json raise {
   let sessions = sessions_array_json(db)
   let session_id = active_session_id()
   match db.session_by_id(session_id) {
@@ -810,12 +907,12 @@ pub fn session_state_json(db : Database) -> Json raise {
         "sessions": sessions,
         "active_session_id": session_id,
         "session": session.to_json(),
-        "path": path_json(path),
-        "other_steps": others_json(all, others),
+        "path": path_json(path, lang),
+        "other_steps": others_json(all, others, lang),
         // What the last few steps add up to. The timeline says what each step
         // did; this says what the run of them did, which is the question a
         // person has after the fifth click.
-        "summary": summary_of(path),
+        "summary": summary_of(path, lang),
         // And whether the run is still finding ground, or going round in
         // circles. The summary says what happened; these say what it is
         // worth, which is the question after the twentieth click.
@@ -832,7 +929,7 @@ pub fn session_state_json(db : Database) -> Json raise {
 /// the sentence stays about something a reader can hold in their head. The
 /// group state is the one the last step left behind, which is the one the
 /// loop is in now.
-pub fn summary_of(path : Array[SessionStep]) -> String {
+pub fn summary_of(path : Array[SessionStep], lang : Lang) -> String {
   let start = if path.length() > 5 { path.length() - 5 } else { 0 }
   let recent : Array[SessionStep] = []
   let mut i = start
@@ -846,7 +943,7 @@ pub fn summary_of(path : Array[SessionStep]) -> String {
     Some(step) => step.group_state
     None => ""
   }
-  phase_summary(model, facts, group)
+  phase_summary(model, facts, group, lang)
 }
 
 ///|
@@ -857,15 +954,15 @@ pub fn summary_of(path : Array[SessionStep]) -> String {
 /// requests, and the second was only made at start-up -- so the panel showed
 /// a step count that stopped moving after the first step, and a summary of a
 /// run that was one step out of date. One payload keeps them in step.
-pub fn loop_payload(db : Database) -> Json raise {
-  let status = get_loop_state().to_json()
+pub fn loop_payload(db : Database, lang : Lang) -> Json raise {
+  let status = get_loop_state().to_json(lang)
   match status {
     Object(fields) => {
       let merged = Map([], capacity=16)
       for (name, value) in fields {
         merged[name] = value
       }
-      merged["session_state"] = session_state_json(db)
+      merged["session_state"] = session_state_json(db, lang)
       Json::object(merged)
     }
     _ => status
@@ -879,15 +976,15 @@ pub fn loop_payload(db : Database) -> Json raise {
 /// branched does not have to ask for it again -- and a client that asked for
 /// it again could get a different answer, because the live state is whatever
 /// the last request left it as.
-pub fn session_payload(db : Database) -> Json raise {
-  let state = session_state_json(db)
+pub fn session_payload(db : Database, lang : Lang) -> Json raise {
+  let state = session_state_json(db, lang)
   match state {
     Object(fields) => {
       let merged = Map([], capacity=16)
       for (name, value) in fields {
         merged[name] = value
       }
-      merged["loop"] = get_loop_state().to_json()
+      merged["loop"] = get_loop_state().to_json(lang)
       Json::object(merged)
     }
     _ => state
@@ -907,8 +1004,9 @@ pub fn session_payload_with(
   db : Database,
   key : String,
   session : Session,
+  lang : Lang,
 ) -> Json raise {
-  let state = session_payload(db)
+  let state = session_payload(db, lang)
   match state {
     Object(fields) => {
       let merged = Map([], capacity=16)
@@ -972,9 +1070,9 @@ pub fn sessions_payload(db : Database) -> Json raise {
 /// The slot list is stored under the URL-safe names ("occasion", "act"), so
 /// that a step can be addressed by it. A reader knows the slots by their
 /// designations ("Situation", "Action"), which are the words on the buttons.
-fn slot_designation_of(english_name : String) -> String {
+fn slot_designation_of(english_name : String, lang : Lang) -> String {
   match slot_from_english(english_name) {
-    Some(slot) => current_model().slot_designation(slot)
+    Some(slot) => current_model().slot_designation_in(slot, lang)
     None => english_name
   }
 }
@@ -985,27 +1083,65 @@ fn slot_designation_of(english_name : String) -> String {
 /// Built from the snapshot the step carries, so it describes the moment the
 /// step was taken rather than the table as it stands now.
 pub fn why_line(step : SessionStep) -> String {
+  why_line_in(step, English)
+}
+
+///|
+/// One sentence saying why the step was possible, in the language asked for.
+///
+/// Written in Chinese rather than translated: the English sentence is a list
+/// of clauses joined by semicolons, and Chinese joins a list of clauses with
+/// a comma and a full stop rather than with a semicolon.
+fn why_line_in(step : SessionStep, lang : Lang) -> String {
   let available = split_slots(step.available)
   let blocked = split_slots(step.blocked)
   let parts : Array[String] = []
-  parts.push(
-    available.length().to_string() + " of the 8 slots had an outgoing edge here",
-  )
-  if step.undecided {
-    parts.push("the table offered several and declined to choose")
+  match lang {
+    English => {
+      parts.push(
+        available.length().to_string() +
+        " of the 8 slots had an outgoing edge here",
+      )
+      if step.undecided {
+        parts.push("the table offered several and declined to choose")
+      }
+      if step.drive != "" {
+        // The drive slot is stored under its URL-safe name ("occasion"), which is
+        // the code's name for it. The reader knows it as "Situation", and a line
+        // that said "occasion" would be a line about the implementation.
+        parts.push(
+          "its own drive slot was " + slot_designation_of(step.drive, lang),
+        )
+      } else {
+        parts.push("it had no drive slot at all")
+      }
+      if blocked.length() > 0 {
+        parts.push(blocked.length().to_string() + " slots had no edge here")
+      }
+      parts.join("; ")
+    }
+    Chinese => {
+      parts.push(
+        "八个槽中有" +
+        available.length().to_string() +
+        "个在此处有出边",
+      )
+      if step.undecided {
+        parts.push("表格给出了几条路却不肯选择")
+      }
+      if step.drive != "" {
+        parts.push(
+          "它自己的驱动槽是" + slot_designation_of(step.drive, lang),
+        )
+      } else {
+        parts.push("它根本没有驱动槽")
+      }
+      if blocked.length() > 0 {
+        parts.push(blocked.length().to_string() + "个槽在此处没有边")
+      }
+      parts.join("，") + "。"
+    }
   }
-  if step.drive != "" {
-    // The drive slot is stored under its URL-safe name ("occasion"), which is
-    // the code's name for it. The reader knows it as "Situation", and a line
-    // that said "occasion" would be a line about the implementation.
-    parts.push("its own drive slot was " + slot_designation_of(step.drive))
-  } else {
-    parts.push("it had no drive slot at all")
-  }
-  if blocked.length() > 0 {
-    parts.push(blocked.length().to_string() + " slots had no edge here")
-  }
-  parts.join("; ")
 }
 
 ///|
@@ -1040,7 +1176,7 @@ pub fn export_markdown(db : Database, session : Session) -> String raise {
   }
   // What the last few steps add up to. A document that opens with a
   // timeline and no account of it is a list; this is the account.
-  let summary = summary_of(path)
+  let summary = summary_of(path, English)
   if summary != "" {
     out = out + "\n## The run so far\n\n" + summary + "\n"
   }
@@ -1083,7 +1219,7 @@ pub fn export_markdown(db : Database, session : Session) -> String raise {
     // The sentence first, for the same reason the timeline on screen leads
     // with it: a document that a person reads later should say what
     // happened, not only list the labels.
-    out = out + step_sentence(facts_of(current_model(), step)) + "\n\n"
+    out = out + step_sentence(facts_of(current_model(), step), English) + "\n\n"
     out = out +
       "- **Position:** " +
       step.position_before +
@@ -1091,7 +1227,7 @@ pub fn export_markdown(db : Database, session : Session) -> String raise {
       step.position_after +
       "\n"
     out = out + "- **Detail:** " + step.detail + "\n"
-    out = out + "- **Why:** " + why_line(step) + "\n"
+    out = out + "- **Why:** " + why_line_in(step, English) + "\n"
     out = out +
       "- **Cursor after:** " +
       step.cursor_after +
@@ -1140,15 +1276,15 @@ pub fn export_json(db : Database, session : Session) -> Json raise {
   let mut index = 0
   for step in path {
     index += 1
-    path_json.push(step.to_json(index))
+    path_json.push(step.to_json(index, English))
   }
   let others_json = []
   for step in others {
-    others_json.push(step.to_json(depth_of(all, step)))
+    others_json.push(step.to_json(depth_of(all, step), English))
   }
   // The account of the run, kept in a name of its own so that the document
   // and the live state say the same thing by the same route.
-  let run_summary = summary_of(path)
+  let run_summary = summary_of(path, English)
   let run_metrics = measure(path)
   {
     "format": "maked.session.v1",

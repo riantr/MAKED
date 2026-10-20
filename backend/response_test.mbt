@@ -99,3 +99,18 @@ test "Response constructors produce correct body types" {
     _ => fail("json response has wrong body type")
   }
 }
+
+///|
+/// The JSON body says what it is written in.
+///
+/// The JSON spec says a JSON body is UTF-8, and a client that reads the spec
+/// never needs to be told. A client that does not read the spec -- Windows
+/// PowerShell's `Invoke-WebRequest` is one -- falls back to Latin-1, and then
+/// every Chinese name in the body arrives as mojibake. The charset is the one
+/// word that stops that, and it is on the content type because there is
+/// nowhere else to put it.
+test "a JSON body says that it is written in UTF-8" {
+  let content_type = @backend.JSON_CONTENT_TYPE
+  assert_true(content_type.contains("application/json"))
+  assert_true(content_type.contains("charset=utf-8"))
+}

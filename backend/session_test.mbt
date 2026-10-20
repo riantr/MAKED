@@ -384,7 +384,12 @@ async test "a payload names the session it acted on, not only the active one" {
   )
   assert_true(db.rename_session(background.id, "Renamed"))
   let renamed = reload(db, background.id)
-  let payload = @backend.session_payload_with(db, "renamed", renamed)
+  let payload = @backend.session_payload_with(
+    db,
+    "renamed",
+    renamed,
+    @backend.Lang::english(),
+  )
   // The renamed session is there, under its own key, with its new name.
   match json_field(payload, "renamed") {
     Some(Json::Object(fields)) =>
@@ -560,7 +565,10 @@ async test "a renamed model still says what happened" {
   assert_eq(step.position_before, "Raw idea")
   assert_eq(step.position_after, "Talked about")
   // The sentence is about a move, and says so in its own words.
-  let sentence = @backend.step_sentence(@backend.facts_of(toy, step))
+  let sentence = @backend.step_sentence(
+    @backend.facts_of(toy, step),
+    @backend.Lang::english(),
+  )
   assert_true(sentence.contains("moved from"))
   assert_true(sentence.contains("Raw idea"))
   assert_true(sentence.contains("Talked about"))
