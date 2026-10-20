@@ -179,6 +179,31 @@ $mutations = @(
     old  = '    "explicit" => facts.slot + " was the slot you chose"'
     new  = '    "explicit" => facts.slot + " was the slot the table drives with here"'
   },
+  # The role of a domain is the model's word for it. MAKED used to carry its
+  # own five roles and look them up by letter, so a model file's domains had
+  # no voice in the sentence about them: a domain called "I" got a sentence
+  # about the letter I.
+  @{
+    name = 'the role is looked up in the installed model, not the one asked'
+    file = 'backend/narration.mbt'
+    old  = '  match model.domain_by_letter(letter) {'
+    new  = '  match current_model().domain_by_letter(letter) {'
+  },
+  # The ring is the model's, so the order the summary lists the domains in is
+  # the model's too. A summary that walked MAKED's own five would count
+  # nothing for a model file's domains -- and would list no domains at all.
+  @{
+    name = 'the summary walks the installed model''s ring, not the one asked'
+    file = 'backend/narration.mbt'
+    old  = '  for domain in model.domains {
+    let mut count = 0
+    for step in steps {
+      if step.letter == domain.letter {'
+    new  = '  for domain in current_model().domains {
+    let mut count = 0
+    for step in steps {
+      if step.letter == domain.letter {'
+  },
   # The summary is a summary of the last few steps. Summarising the whole
   # history instead would answer a different question, and one nobody asked.
   @{
@@ -193,7 +218,7 @@ $mutations = @(
   @{
     name = 'the exported document drops the sentence for each step'
     file = 'backend/session.mbt'
-    old  = '    out = out + step_sentence(facts_of(step)) + "\n\n"'
+    old  = '    out = out + step_sentence(facts_of(current_model(), step)) + "\n\n"'
     new  = '    out = out + "\n\n"'
   },
   # The json export carries the summary so that a consumer does not have to

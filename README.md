@@ -367,7 +367,7 @@ image carries `pwsh`.
 Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be run separately:
 
 ```
-.\tools\mutate-backend.ps1     # 39 mutations, 0 survived, 1 expected-equivalent
+.\tools\mutate-backend.ps1     # 41 mutations, 0 survived, 1 expected-equivalent
 .\tools\mutate-frontend.ps1    # 23 mutations, 0 survived
 .\tools\mutate-loop.ps1        # 16 mutations, 0 survived
 ```
@@ -375,7 +375,7 @@ Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be 
 And the one that finds the rot before the suites do:
 
 ```
-.\tools\check-mutation-anchors.ps1   # 73 anchors, 0 dead
+.\tools\check-mutation-anchors.ps1   # 75 anchors, 0 dead
 ```
 
 Every mutation in those three suites is a text replacement, and a text
@@ -385,9 +385,8 @@ claim about the tests when the truth is that the mutation never happened.
 The suites report a missing anchor as an ERROR, so the rot is visible — but
 only after half an hour of running. The checker asks the same question in a
 second, and the answer is what you want before a half hour is spent: eleven
-of the seventy-three anchors had rotted by the time the loop state started
-carrying its own model, and every one of them was a guard that could no
-longer fail.
+of the anchors had rotted by the time the loop state started carrying its
+own model, and every one of them was a guard that could no longer fail.
 
 The one remaining EQUIV is in `mutate-backend` and is deliberate: `page_by_slug`
 prepares a *fresh* statement on every call, so it has no previous bindings and
@@ -419,7 +418,7 @@ that cannot break is not a gate, and that one fails the build.
 | js-check | `moon check --target js` | frontend type safety |
 | fmt | `moon fmt --check` | code formatting |
 | tree | `moon tree` | dependency audit |
-| unit-native | `moon test --target native` | 258 backend tests (includes the BDD suite below) |
+| unit-native | `moon test --target native` | 261 backend tests (includes the BDD suite below) |
 | unit-js | `moon test --target js` | 69 frontend tests |
 | coverage | `moon test --enable-coverage` | coverage |
 | bench | `moon bench` | benchmarks |
@@ -856,6 +855,14 @@ a state that cannot be read. So a state can be built on any model, and a
 step taken on somebody else's machine is recorded with that machine's words
 and re-derived against that machine when the session is replayed.
 
+**And the sentences are about the model's domains.** The role of a domain —
+"the model formulator", "the idea" — is the model's word for it, and the
+order a summary lists the domains in is the model's ring order. MAKED used
+to carry its own five roles and its own five letters and look them up by
+hand, so a model file's domains had no voice in the sentence about them: a
+domain called "I" got a sentence about the letter I, and a summary of a run
+in a two-domain model counted nothing and listed no domains at all.
+
 ## Your Own Loop
 
 The machine is a file. Point MAKED at one and it runs that machine instead of
@@ -919,6 +926,10 @@ reader picks is the way out of a position the model would not decide.
   says "moved" where the built-in model says "Moved". A file that does name
   them says them everywhere: in the panel, in the history, in the export,
   and in the sentence the narration writes about the step.
+
+The sentences and the summary are about the file's domains too: the role of
+a domain — "the idea", "the shipping" — is the file's own phrase for it, and
+the order the summary lists the domains in is the file's ring order.
 
 **A model file that cannot be read whole is refused.** A file that names a
 position it does not define is refused, because a rule about a position

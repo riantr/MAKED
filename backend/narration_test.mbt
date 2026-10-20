@@ -12,6 +12,35 @@
 /// about what happened, whatever the table said.
 
 ///|
+/// A step on somebody else's machine: the toy model's own domain, its own
+/// letter and its own words.
+fn toy_step() -> @backend.SessionStep {
+  {
+    id: 1L,
+    session_id: 1L,
+    parent_step_id: 0L,
+    domain: "I",
+    domain_title: "Idea",
+    slot: "ask",
+    slot_designation: "Ask",
+    outcome: "Advanced",
+    outcome_kind: "moved",
+    detail: "A customer said no to Talked about",
+    position_before: "Raw idea",
+    position_after: "Talked about",
+    cursor_after: "I",
+    group_state: "Scattered",
+    mode: "structured",
+    source: "explicit",
+    drive: "ask",
+    undecided: false,
+    available: "ask",
+    blocked: "",
+    created_at: "2026-01-01T00:00:00Z",
+  }
+}
+
+///|
 /// The facts of a step that moved.
 fn moved_facts() -> @backend.StepFacts {
   {
@@ -155,7 +184,11 @@ test "the summary says where the run went and what it moved" {
     held_facts(),
     { ..held_facts(), letter: "E", role: "the experience absorber", },
   ]
-  let summary = @backend.phase_summary(steps, "Converging")
+  let summary = @backend.phase_summary(
+    @backend.current_model(),
+    steps,
+    "Converging",
+  )
   // Which domains the run visited, and how often.
   assert_true(summary.contains("the model formulator twice"))
   assert_true(summary.contains("the data turbine once"))
@@ -172,7 +205,11 @@ test "the summary counts the steps it was given" {
   // "the model formulator once" for five steps in the model would be
   // counting the domains rather than the steps.
   let steps = [moved_facts(), moved_facts(), moved_facts()]
-  let summary = @backend.phase_summary(steps, "Scattered")
+  let summary = @backend.phase_summary(
+    @backend.current_model(),
+    steps,
+    "Scattered",
+  )
   assert_true(
     summary.contains("The last 3 steps were all in the model formulator."),
   )
@@ -181,7 +218,11 @@ test "the summary counts the steps it was given" {
 
 ///|
 test "a single step is summarised as a single step" {
-  let summary = @backend.phase_summary([moved_facts()], "Scattered")
+  let summary = @backend.phase_summary(
+    @backend.current_model(),
+    [moved_facts()],
+    "Scattered",
+  )
   assert_true(summary.contains("The last step was in the model formulator."))
   assert_true(summary.contains("It moved a position."))
   assert_true(!summary.contains("of them"))
@@ -191,13 +232,20 @@ test "a single step is summarised as a single step" {
 test "a summary of nothing is empty" {
   // Not "No steps yet.": the caller decides whether to show a line at all,
   // and a summary that invented a sentence for no steps would be a lie.
-  assert_eq(@backend.phase_summary([], "Scattered"), "")
+  assert_eq(
+    @backend.phase_summary(@backend.current_model(), [], "Scattered"),
+    "",
+  )
 }
 
 ///|
 test "a run of steps that moved nothing says that none of them moved" {
   let steps = [held_facts(), held_facts()]
-  let summary = @backend.phase_summary(steps, "Scattered")
+  let summary = @backend.phase_summary(
+    @backend.current_model(),
+    steps,
+    "Scattered",
+  )
   assert_true(summary.contains("None of them moved a position."))
 }
 
@@ -228,7 +276,9 @@ async test "the export carries the sentences and the summary too" {
   // The sentence is in the document, not only on the screen: the document is
   // the thing the user takes away, and it should say what happened in the
   // same words the page did.
-  let sentence = @backend.step_sentence(@backend.facts_of(steps[0]))
+  let sentence = @backend.step_sentence(
+    @backend.facts_of(@backend.current_model(), steps[0]),
+  )
   assert_true(markdown.contains(sentence))
   // And the account of the run is at the top of it.
   assert_true(markdown.contains("## The run so far"))
@@ -265,4 +315,60 @@ async test "the step record carries the sentence and the state carries the summa
   }
   db.close()
   drop_db(session_db_path("narration"))
+}
+
+///|
+/// A step is described with the model's own words.
+///
+/// The role of a domain -- "the model formulator", "the idea" -- is the
+/// model's word for it. MAKED used to carry its own five roles and look them
+/// up by letter, so a model file's domains had no voice in the sentence
+/// about them: a domain called "I" got a sentence about the letter I.
+///
+/// The facts are read from the model here, so the sentence is the model's.
+test "a step is described with the model's own words" {
+  let toy = @backend.Model::from_json(toy_model()).unwrap()
+  let facts = @backend.facts_of(toy, toy_step())
+  // The role is the model's.
+  assert_eq(facts.role, "the idea")
+  // And the sentence says it.
+  let sentence = @backend.step_sentence(facts)
+  assert_true(sentence.contains("the idea"))
+  assert_true(!sentence.contains("the model formulator"))
+}
+
+///|
+/// The summary counts the domains the model has.
+///
+/// The five of MAKED's own are not the only lenses: a model file brings its
+/// own, and a summary that counted MAKED's five would count nothing for a
+/// model with two of its own -- and would say so in the worst possible way,
+/// by listing no domains at all.
+test "the summary counts the model's own domains" {
+  let toy = @backend.Model::from_json(toy_model()).unwrap()
+  let facts = @backend.facts_of(toy, toy_step())
+  let summary = @backend.phase_summary(toy, [facts], "Scattered")
+  assert_true(summary.contains("The last step was in the idea."))
+  assert_true(!summary.contains("the model formulator"))
+}
+
+///|
+/// The summary lists the domains in the model's own ring order.
+///
+/// The ring is how this project explains itself, so a count that followed
+/// the click order would read as an accident. The ring is the model's, so
+/// the order is the model's too: the toy's idea comes before its shipping,
+/// whatever order the run happened to visit them in.
+test "the summary lists the domains in the model's own ring order" {
+  let toy = @backend.Model::from_json(toy_model()).unwrap()
+  let shipping = @backend.facts_of(toy, {
+    ..toy_step(),
+    domain: "S",
+    cursor_after: "S",
+  })
+  let idea = @backend.facts_of(toy, toy_step())
+  // The run visited the shipping first, and the idea second.
+  let summary = @backend.phase_summary(toy, [shipping, idea], "Scattered")
+  // The ring has the idea first anyway.
+  assert_true(summary.contains("the idea once and the shipping once"))
 }

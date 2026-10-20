@@ -56,10 +56,14 @@ pub(all) struct StepFacts {
 }
 
 ///|
-/// The role phrase for a domain letter, or the letter itself when it is not
-/// one of the five.
-pub fn role_of(letter : String) -> String {
-  match domain_from_letter(letter) {
+/// The role phrase for a domain letter, or the letter itself when the model
+/// has no such domain.
+///
+/// The phrase is the model's. A model file gives each of its own domains a
+/// role -- "the idea", "the shipping" -- and a domain the model does not have
+/// is a domain MAKED cannot describe, so the letter is the honest answer.
+pub fn role_of(model : Model, letter : String) -> String {
+  match model.domain_by_letter(letter) {
     Some(domain) => domain.role()
     None => letter
   }
@@ -67,16 +71,20 @@ pub fn role_of(letter : String) -> String {
 
 ///|
 /// The facts of a recorded step, for the sentences to be written from.
-pub fn facts_of(step : SessionStep) -> StepFacts {
+///
+/// The model is asked, because the role and the cursor's role are the
+/// model's words: a step recorded on somebody else's machine is described
+/// with that machine's domains, not with MAKED's five.
+pub fn facts_of(model : Model, step : SessionStep) -> StepFacts {
   {
     letter: step.domain,
     domain: step.domain_title,
-    role: role_of(step.domain),
+    role: role_of(model, step.domain),
     slot: step.slot_designation,
     outcome_kind: step.outcome_kind,
     position_before: step.position_before,
     position_after: step.position_after,
-    cursor: role_of(step.cursor_after),
+    cursor: role_of(model, step.cursor_after),
     source: step.source,
     available: split_slots(step.available).length(),
   }
@@ -196,7 +204,11 @@ fn provenance(facts : StepFacts) -> String {
 ///
 /// Empty when there is nothing to summarise, so a caller can leave the line
 /// out rather than print an empty one.
-pub fn phase_summary(steps : Array[StepFacts], group_state : String) -> String {
+pub fn phase_summary(
+  model : Model,
+  steps : Array[StepFacts],
+  group_state : String,
+) -> String {
   let n = steps.length()
   if n == 0 {
     return ""
@@ -207,7 +219,7 @@ pub fn phase_summary(steps : Array[StepFacts], group_state : String) -> String {
       moved += 1
     }
   }
-  let run = run_clause(steps)
+  let run = run_clause(model, steps)
   let movement = if n == 1 {
     if moved == 1 {
       "It moved a position."
@@ -231,11 +243,11 @@ pub fn phase_summary(steps : Array[StepFacts], group_state : String) -> String {
 
 ///|
 /// The first clause of a summary: where the run went.
-fn run_clause(steps : Array[StepFacts]) -> String {
+fn run_clause(model : Model, steps : Array[StepFacts]) -> String {
   let n = steps.length()
-  let counts = count_domains(steps)
+  let counts = count_domains(model, steps)
   if counts.length() == 1 {
-    let role = role_of(counts[0].0)
+    let role = role_of(model, counts[0].0)
     if n == 1 {
       "The last step was in " + role + "."
     } else {
@@ -244,7 +256,7 @@ fn run_clause(steps : Array[StepFacts]) -> String {
   } else {
     let parts : Array[String] = []
     for (letter, count) in counts {
-      parts.push(role_of(letter) + " " + count_phrase(count))
+      parts.push(role_of(model, letter) + " " + count_phrase(count))
     }
     "The last " + n.to_string() + " steps visited " + join_list(parts) + "."
   }
@@ -256,17 +268,25 @@ fn run_clause(steps : Array[StepFacts]) -> String {
 /// Ring order rather than order of first appearance: the ring is how this
 /// project explains itself, and a count that followed the click order would
 /// read as an accident.
-fn count_domains(steps : Array[StepFacts]) -> Array[(String, Int32)] {
+///
+/// The ring is the model's, so the order is the model's too. A model with two
+/// domains has a two-domain ring, and the five of MAKED's own are not
+/// consulted -- a run in a domain the model does not have is not counted at
+/// all, because there is no lens there to count.
+fn count_domains(
+  model : Model,
+  steps : Array[StepFacts],
+) -> Array[(String, Int32)] {
   let out : Array[(String, Int32)] = []
-  for letter in ["M", "D", "E", "A", "K"] {
+  for domain in model.domains {
     let mut count = 0
     for step in steps {
-      if step.letter == letter {
+      if step.letter == domain.letter {
         count += 1
       }
     }
     if count > 0 {
-      out.push((letter, count))
+      out.push((domain.letter, count))
     }
   }
   out

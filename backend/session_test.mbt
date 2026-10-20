@@ -560,7 +560,7 @@ async test "a renamed model still says what happened" {
   assert_eq(step.position_before, "Raw idea")
   assert_eq(step.position_after, "Talked about")
   // The sentence is about a move, and says so in its own words.
-  let sentence = @backend.step_sentence(@backend.facts_of(step))
+  let sentence = @backend.step_sentence(@backend.facts_of(toy, step))
   assert_true(sentence.contains("moved from"))
   assert_true(sentence.contains("Raw idea"))
   assert_true(sentence.contains("Talked about"))

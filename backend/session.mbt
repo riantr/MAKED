@@ -317,7 +317,7 @@ pub fn SessionStep::to_json(self : SessionStep, index : Int32) -> Json {
     // it reached, the slot it went through, and where the cursor went next.
     // The label and the detail above are the same fact in the machine's
     // vocabulary; this is the same fact in a reader's.
-    "narration": step_sentence(facts_of(self)),
+    "narration": step_sentence(facts_of(current_model(), self)),
     "available": string_array_json(split_slots(self.available)),
     "blocked": string_array_json(split_slots(self.blocked)),
     "created_at": self.created_at,
@@ -840,12 +840,13 @@ pub fn summary_of(path : Array[SessionStep]) -> String {
     recent.push(path[i])
     i += 1
   }
-  let facts : Array[StepFacts] = recent.map(fn(step) { facts_of(step) })
+  let model = current_model()
+  let facts : Array[StepFacts] = recent.map(fn(step) { facts_of(model, step) })
   let group = match recent.last() {
     Some(step) => step.group_state
     None => ""
   }
-  phase_summary(facts, group)
+  phase_summary(model, facts, group)
 }
 
 ///|
@@ -1082,7 +1083,7 @@ pub fn export_markdown(db : Database, session : Session) -> String raise {
     // The sentence first, for the same reason the timeline on screen leads
     // with it: a document that a person reads later should say what
     // happened, not only list the labels.
-    out = out + step_sentence(facts_of(step)) + "\n\n"
+    out = out + step_sentence(facts_of(current_model(), step)) + "\n\n"
     out = out +
       "- **Position:** " +
       step.position_before +

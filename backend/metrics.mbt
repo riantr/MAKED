@@ -400,7 +400,8 @@ fn domain_spread_metric(recent : Array[SessionStep]) -> Metric {
 /// the size of the state space is the machine's business, and a number
 /// copied into MAKED would be wrong the day the table grew.
 fn position_drift_metric(path : Array[SessionStep]) -> Metric {
-  let total = current_model().positions.length()
+  let model = current_model()
+  let total = model.positions.length()
   let all : Array[String] = []
   let per_domain : Array[(String, Int32)] = []
   for letter in domain_letters() {
@@ -424,7 +425,7 @@ fn position_drift_metric(path : Array[SessionStep]) -> Metric {
     " of the " +
     total.to_string() +
     " positions. " +
-    drift_clause(per_domain) +
+    drift_clause(model, per_domain) +
     "."
   {
     key: "position_drift",
@@ -446,10 +447,10 @@ fn position_drift_metric(path : Array[SessionStep]) -> Metric {
 /// The first part is capitalised, because it follows a full stop: the total
 /// and the parts are two sentences, and a sentence that starts in the
 /// middle of the alphabet reads as a typo.
-fn drift_clause(per_domain : Array[(String, Int32)]) -> String {
+fn drift_clause(model : Model, per_domain : Array[(String, Int32)]) -> String {
   let parts : Array[String] = []
   for (letter, count) in per_domain {
-    parts.push(role_of(letter) + " has ranged over " + count.to_string())
+    parts.push(role_of(model, letter) + " has ranged over " + count.to_string())
   }
   if parts.length() == 0 {
     return ""
