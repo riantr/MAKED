@@ -316,3 +316,297 @@ pub fn agent_export(
     }
   }
 }
+
+///|
+/// The schema of a tool that takes no arguments.
+fn agent_no_arguments() -> Json {
+  { "type": "object", "properties": {}, "required": [] }
+}
+
+///|
+/// The schema of the step tool.
+fn agent_step_schema() -> Json {
+  {
+    "type": "object",
+    "properties": {
+      "slot": {
+        "type": "string",
+        "description": "The drive slot to step with: the model's own id (\"act\") or the designation the panel shows (\"Action\"). Leave it out and the table chooses.",
+      },
+      "target": {
+        "type": "string",
+        "description": "One of the successors the table offered and declined to choose between. Only needed when maked_options says the table declined to choose.",
+      },
+    },
+    "required": [],
+  }
+}
+
+///|
+/// The schema of the options tool.
+fn agent_options_schema() -> Json {
+  {
+    "type": "object",
+    "properties": {
+      "depth": {
+        "type": "integer",
+        "description": "How many steps ahead to look when listing what could happen next. Default 3.",
+      },
+    },
+    "required": [],
+  }
+}
+
+///|
+/// The schema of the society tool.
+fn agent_society_schema() -> Json {
+  {
+    "type": "object",
+    "properties": {
+      "trigger": {
+        "type": "string",
+        "description": "The move to take, by the machine's own name (\"RaiseClaims\"). Leave it out to look without moving.",
+      },
+    },
+    "required": [],
+  }
+}
+
+///|
+/// The schema of the export tool.
+fn agent_export_schema() -> Json {
+  {
+    "type": "object",
+    "properties": {
+      "session_id": {
+        "type": "integer",
+        "description": "Which exploration to export. Leave it out for the one in front of us.",
+      },
+      "format": {
+        "type": "string",
+        "description": "markdown or json. Default markdown, which is the reading form.",
+      },
+    },
+    "required": [],
+  }
+}
+
+///|
+/// One tool, as the agent's server offers it.
+///
+/// A type rather than a piece of JSON, so that the agent's server can read
+/// the name, the description and the argument schema without parsing
+/// anything: the two surfaces that offer these tools are in different
+/// packages, and a field access is a thing that cannot be got wrong in
+/// two places at once.
+pub struct AgentTool {
+  name : String
+  description : String
+  arguments : Json
+}
+
+///|
+/// The seven tools MAKED offers an agent.
+///
+/// The names, the descriptions and the argument schemas live here, in the
+/// backend, rather than in the agent's server, because two surfaces offer
+/// them: the Model Context Protocol server and the discovery document at
+/// `GET /api/agent`. Two lists of tools are two lists of tools, and the
+/// one that drifts is the one nobody is looking at.
+///
+/// The handlers are not here -- they need the database, and the database is
+/// the agent's server's business -- but the *names* are, and the server
+/// matches on them, so a tool that is offered without a handler is a tool
+/// the server does not have.
+pub fn agent_tool_specs() -> Array[AgentTool] {
+  [
+    {
+      name: "maked_status",
+      description: "Where the loop stands: the domain and position, what the last move did in words, what the run adds up to, and whether it is still finding ground.",
+      arguments: agent_no_arguments(),
+    },
+    {
+      name: "maked_options",
+      description: "What can be done from here and what cannot. The slots that can move, the slots that cannot and why, the successors the table declined to choose between, and what the machine says could happen next.",
+      arguments: agent_options_schema(),
+    },
+    {
+      name: "maked_step",
+      description: "Take a move. With no slot the table chooses; with a slot the caller chooses; with a target the caller answers a question the table asked. Answers with what happened, in words.",
+      arguments: agent_step_schema(),
+    },
+    {
+      name: "maked_model",
+      description: "The machine itself as data: the domains, the positions, the slots, and the rule for every pair of them.",
+      arguments: agent_no_arguments(),
+    },
+    {
+      name: "maked_society",
+      description: "The collective. With no trigger it says where the collective stands and what it can do from there; with a trigger it takes that move.",
+      arguments: agent_society_schema(),
+    },
+    {
+      name: "maked_sessions",
+      description: "The named explorations, and which one is in front of us.",
+      arguments: agent_no_arguments(),
+    },
+    {
+      name: "maked_export",
+      description: "One exploration as something to take away: markdown to read, json to process.",
+      arguments: agent_export_schema(),
+    },
+  ]
+}
+
+///|
+/// The tools, as the discovery document carries them.
+///
+/// The shape is the Model Context Protocol's: `name`, `description` and
+/// `inputSchema`, the three fields a `tools/list` answer carries, so an
+/// agent that has read one reads the other.
+fn agent_tools_as_json() -> Array[Json] {
+  let items : Array[Json] = []
+  for tool in agent_tool_specs() {
+    items.push({
+      "name": tool.name,
+      "description": tool.description,
+      "inputSchema": tool.arguments,
+    })
+  }
+  items
+}
+
+///|
+/// What an agent should do first, and what the tools are for.
+///
+/// The same words the agent's server sends as its instructions, so an agent
+/// that speaks the Model Context Protocol and an agent that only reads the
+/// discovery document are told the same thing.
+pub fn agent_instructions() -> String {
+  "Start with maked_status to see where the loop stands and what the last move did. Call maked_options to see what the table offers from here -- it lists the slots that can move and the ones that cannot, and says why. Then call maked_step with one of those slots. If the table declined to choose between several successors, pass one of them as the target. Every answer says in words what happened; the ids are there when you want to be exact."
+}
+
+///|
+/// The HTTP endpoints an agent can use instead of the tools.
+///
+/// The tools are the agent's way in; these are the same questions asked over
+/// plain HTTP, for an agent that does not speak the Model Context Protocol.
+fn agent_http_endpoints() -> Array[Json] {
+  [
+    {
+      "method": "GET",
+      "path": "/api/loop/status",
+      "tool": "maked_status",
+      "what": "where the loop stands",
+    },
+    {
+      "method": "GET",
+      "path": "/api/loop/continuations",
+      "tool": "maked_options",
+      "what": "what the machine says could happen next",
+    },
+    {
+      "method": "POST",
+      "path": "/api/loop/step",
+      "tool": "maked_step",
+      "what": "take a move and let the table choose",
+    },
+    {
+      "method": "POST",
+      "path": "/api/loop/step/:slot",
+      "tool": "maked_step",
+      "what": "take a move with a named slot",
+    },
+    {
+      "method": "GET",
+      "path": "/api/model",
+      "tool": "maked_model",
+      "what": "the machine as data",
+    },
+    {
+      "method": "GET",
+      "path": "/api/society",
+      "tool": "maked_society",
+      "what": "where the collective stands",
+    },
+    {
+      "method": "POST",
+      "path": "/api/society/step",
+      "tool": "maked_society",
+      "what": "take a move for the collective",
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions",
+      "tool": "maked_sessions",
+      "what": "the named explorations",
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/:id/export",
+      "tool": "maked_export",
+      "what": "one exploration as markdown or json",
+    },
+  ]
+}
+
+///|
+/// The files MAKED runs on, and the environment variables that name them.
+///
+/// An agent that wants MAKED to run on its own machine, its own table or
+/// its own documents needs to know that these are files and what they are
+/// called.
+fn agent_files() -> Array[Json] {
+  [
+    {
+      "what": "the machine",
+      "variable": "MAKED_MODEL",
+      "format": "maked.model.v1",
+      "says": "the domains, positions, slots and rules the loop runs on",
+    },
+    {
+      "what": "the mapping table",
+      "variable": "MAKED_RESEARCH",
+      "format": "maked.research.v1",
+      "says": "what a document means: which words make a rule fire, and which slot it drives",
+    },
+    {
+      "what": "the society vocabulary",
+      "variable": "MAKED_SOCIETY",
+      "format": "maked.society.v1",
+      "says": "the English words for the collective's positions and moves",
+    },
+    {
+      "what": "the corpus",
+      "variable": "MAKED_CORPUS",
+      "format": "maked.corpus.v1",
+      "says": "where the documents come from: arxiv, a feed, or your own folder",
+    },
+  ]
+}
+
+///|
+/// The discovery document: everything an agent needs to drive MAKED
+/// without speaking the Model Context Protocol.
+///
+/// The Model Context Protocol has its own discovery document, and this is
+/// the same information for an agent that would rather use plain HTTP --
+/// or that has never heard of the protocol at all.
+pub fn agent_discovery() -> Json {
+  {
+    "format": "maked.agent.v1",
+    "name": "MAKED",
+    "version": MAKED_VERSION,
+    "summary": "MAKED is an adversarial knowledge loop. Five domains in a ring -- Model, Data, Experience, Attack, Knowledge -- each the overcoming of the one before it. Which slot can push a position is answered by the transition table, never by a hard-coded guess, and a position the table cannot move is reported as blocked rather than silently skipped.",
+    "protocol": {
+      "mcp": "2026-07-28",
+      "entry_point": "server/discover",
+      "note": "There is no handshake in this version of the protocol: `initialize` is not a method. Every request carries its own version in `params._meta`, under `io.modelcontextprotocol/protocolVersion`, together with `io.modelcontextprotocol/clientCapabilities`. Over HTTP the request also needs the `MCP-Protocol-Version` header and an `Mcp-Method` header naming the method the body carries.",
+    },
+    "instructions": agent_instructions(),
+    "tools": Json::array(agent_tools_as_json()),
+    "http": Json::array(agent_http_endpoints()),
+    "files": Json::array(agent_files()),
+    "note": "A file that cannot be read stops MAKED before it serves anything, and the reason is on stderr. An empty environment variable counts as unset.",
+  }
+}

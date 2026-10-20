@@ -5,6 +5,11 @@ This is a [MoonBit](https://docs.moonbitlang.com) project.
 You can browse and install extra skills here:
 <https://github.com/moonbitlang/skills>
 
+If your job here is to **drive** MAKED rather than to change it — to read
+where the loop stands and take moves in it — read [AGENT.md](AGENT.md) instead.
+It carries the seven tools, the discovery document at `GET /api/agent`, and the
+Model Context Protocol details.
+
 ## Project Structure
 
 - MoonBit packages are organized per directory; each directory contains a

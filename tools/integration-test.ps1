@@ -1605,6 +1605,109 @@ try {
     }
   }
 
+  # --- the discovery document ----------------------------------------------
+  #
+  # The document at /api/agent is what an agent that does not speak the
+  # Model Context Protocol reads. It offers the same seven tools the
+  # protocol offers, and it lists the plain HTTP endpoints that ask the
+  # same questions.
+  #
+  # Both of those are checked against the running server rather than
+  # against the code: two lists of tools are two lists of tools, and the one
+  # that drifts is the one nobody is looking at. A tool the protocol
+  # offers and the document does not, an endpoint the document names and
+  # the server does not serve, and a tool the instructions file forgets to
+  # mention are all failures that no unit test can see.
+  function Test-AgentDiscovery {
+    param([int]$DiscoveryPort)
+
+    $document = Get-Json "/api/agent"
+    Assert-True "the discovery document answers" ($null -ne $document)
+    if ($null -eq $document) { return }
+    Assert-Field "and it says what it is" $document "format" "maked.agent.v1"
+    Assert-FieldNotEmpty "and it carries the version" $document "version"
+    Assert-FieldNotEmpty "and it says what MAKED is" $document "summary"
+    Assert-FieldNotEmpty "and it carries the instructions" $document "instructions"
+    Assert-True "and it says which protocol version it speaks" `
+      ((Field (Field $document "protocol") "mcp") -eq "2026-07-28")
+
+    $tools = @(Field $document "tools")
+    Assert-ArrayLength "and the loop is offered as seven tools" $document "tools" 7
+    $documentNames = @()
+    foreach ($tool in $tools) {
+      $documentNames += (Field $tool "name")
+      Assert-True ("and the '{0}' tool says what it is for" -f (Field $tool "name")) `
+        ((Field $tool "description") -ne "")
+      Assert-True ("and the '{0}' tool carries an argument schema" -f (Field $tool "name")) `
+        ($null -ne (Field $tool "inputSchema"))
+    }
+
+    # The protocol's own list, from the agent's server, so the two are
+    # compared rather than both assumed.
+    if ($null -ne $mcpExe) {
+      $meta = '{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}'
+      $list = '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":' + $meta + '}}'
+      $db = Join-Path $tempDir ("maked_integration_discovery_{0}.db" -f $DiscoveryPort)
+      if (Test-Path $db) { Remove-Item $db -Force }
+      $session = Invoke-StdioSession -Exe $mcpExe -DbPath $db -Lines @($list) -Expect 1
+      Assert-True "the agent's server answers over stdio" `
+        ($session.Answers.Count -eq 1) `
+        ("expected 1 answer, got {0}" -f $session.Answers.Count)
+      if ($session.Answers.Count -ge 1) {
+        $answer = $null
+        try { $answer = $session.Answers[0] | ConvertFrom-Json } catch { }
+        $protocolNames = @()
+        foreach ($tool in @(Field (Field $answer "result") "tools")) { $protocolNames += (Field $tool "name") }
+        Assert-True "and it offers seven tools too" ($protocolNames.Count -eq 7) `
+          ("the protocol offered {0} tools" -f $protocolNames.Count)
+        foreach ($name in $protocolNames) {
+          Assert-True ("and the document offers the '{0}' tool the protocol offers" -f $name) `
+            ($documentNames -contains $name)
+        }
+        foreach ($name in $documentNames) {
+          Assert-True ("and the protocol offers the '{0}' tool the document offers" -f $name) `
+            ($protocolNames -contains $name)
+        }
+      }
+    }
+
+    # Every endpoint the document names is an endpoint the server serves.
+    # A 404 is the answer to "there is no such route"; anything else is
+    # the route being there.
+    $sessionId = 1
+    $sessions = Get-Json "/api/sessions"
+    if ($null -ne $sessions) {
+      $list = @(Field $sessions "sessions")
+      if ($list.Count -gt 0) { $sessionId = [int64](Field $list[0] "id") }
+    }
+    $endpoints = @(Field $document "http")
+    Assert-True "and it lists the plain HTTP endpoints" ($endpoints.Count -ge 9)
+    foreach ($endpoint in $endpoints) {
+      $path = [string](Field $endpoint "path")
+      $method = [string](Field $endpoint "method")
+      # The paths carry placeholders where the caller supplies an id.
+      $path = $path.Replace(":slot", "act").Replace(":id", "$sessionId")
+      $response = Invoke-Api -Method $method -Path $path -Body "{}"
+      Assert-True ("and the server serves {0} {1}" -f $method, $path) `
+        ($response.Status -ne 404) `
+        ("the server answered {0}" -f $response.Status)
+    }
+
+    # The instructions file an agent reads in the repository has to name
+    # the same tools. It is a file, so it can fall behind the code without
+    # anything failing -- which is exactly why it is checked here.
+    $instructionsFile = Join-Path $repo "AGENT.md"
+    Assert-True "the agent's instructions file ships with the repository" `
+      (Test-Path $instructionsFile)
+    if (Test-Path $instructionsFile) {
+      $text = Get-Content $instructionsFile -Raw
+      foreach ($name in $documentNames) {
+        Assert-Contains ("and the instructions file names the '{0}' tool" -f $name) $text $name
+      }
+      Assert-Contains "and the instructions file names the discovery document" $text "/api/agent"
+    }
+  }
+
   # --- a file that cannot be read --------------------------------------------
   #
   # A server that starts with half a machine answers every request
@@ -1700,6 +1803,10 @@ try {
   Write-Host ""
   Write-Host "-- the agent's server"
   Test-AgentServer ($Port + 7)
+
+  Write-Host ""
+  Write-Host "-- the discovery document"
+  Test-AgentDiscovery ($Port + 9)
 
   Write-Host ""
   Write-Host "-- a file that cannot be read"

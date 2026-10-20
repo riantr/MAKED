@@ -54,6 +54,8 @@ Protocol over stdio or HTTP.
   possible; replay, branch, rename, and export as Markdown or JSON
 - ✅ **An agent's server** — the Model Context Protocol (2026-07-28) over stdio or HTTP,
   seven tools, every answer in sentences
+- ✅ **A discovery document** — `GET /api/agent`, for an agent that does not speak the
+  protocol: the same seven tools, the instructions, and the plain HTTP endpoints
 - ✅ **A browser front end** — a rabbita single-page app served by the same process as the
   API; no second web server, no CORS configuration
 - ✅ **A file that cannot be read stops the start-up** — a half-read machine answers every
@@ -156,8 +158,18 @@ down — every step with the reason it was possible.
 
 ### Run it from another agent
 
-MAKED speaks the Model Context Protocol, version **2026-07-28**. Build the agent's server
-and point your agent at it:
+The short version:
+
+```bash
+curl -s http://127.0.0.1:8080/api/agent
+```
+
+That is the discovery document: the seven tools with their argument schemas, the
+instructions for calling them, the plain HTTP endpoints that ask the same questions, and the
+four files MAKED runs on. An agent that reads it needs nothing else.
+
+MAKED also speaks the Model Context Protocol, version **2026-07-28**. Build the agent's
+server and point your agent at it:
 
 ```bash
 moon build --release --target native cmd/mcp
@@ -237,6 +249,7 @@ start-up rather than ignored.
 | `POST` | `/api/loop/reset` | back to Model with an empty history |
 | `POST` | `/api/loop/reset/:domain` | back to a chosen domain |
 | `GET` | `/api/model` | the machine as data |
+| `GET` | `/api/agent` | the discovery document: the seven tools, the instructions, and the HTTP endpoints |
 | `GET` | `/api/research/documents` | the documents the corpus holds |
 | `POST` | `/api/research/drive` | drive a document through the loop |
 | `GET` | `/api/research/config` | the mapping table, and whether it can be written back |
@@ -265,6 +278,25 @@ exact.
 The suggested order is: `maked_status` → `maked_options` → `maked_step`. `maked_step` with
 no slot lets the table choose; with a slot you choose; with a `target` you answer a question
 the table asked.
+
+### The discovery document
+
+`GET /api/agent` is the same information for an agent that does not speak the Model Context
+Protocol — or that has never heard of it. It carries the seven tools with their argument
+schemas, the instructions for calling them, the plain HTTP endpoints that ask the same
+questions, and the four files MAKED runs on.
+
+```bash
+curl -s http://127.0.0.1:8080/api/agent
+```
+
+The tool list in the document and the tool list the protocol server offers come from one
+place in the code, and the integration suite compares them against the running server — two
+lists of tools are two lists of tools, and the one that drifts is the one nobody is looking
+at.
+
+The same material is in **[AGENT.md](AGENT.md)**, for an agent that reads the repository
+rather than the server. The integration suite checks that it names the same seven tools.
 
 ### The four files
 
@@ -406,7 +438,7 @@ MAKED_moonbit/
 │   ├── loop.mbt                      # the subject loop and the group states
 │   ├── society.mbt                   # the collective
 │   ├── step.mbt                      # one step, shared by the API and the agent
-│   ├── agent.mbt                     # the agent's payloads, in sentences
+│   ├── agent.mbt                     # the agent's payloads, in sentences, and the discovery document
 │   ├── bootstrap.mbt                 # the start-up: plan → read → install
 │   ├── version.mbt                   # the version the agent reports
 │   ├── api.mbt                       # every HTTP route
@@ -417,7 +449,7 @@ MAKED_moonbit/
 │   ├── narration.mbt                 # the sentences
 │   ├── session.mbt                   # explorations, timelines, exports
 │   ├── database.mbt                  # SQLite
-│   └── *_test.mbt                    # 382 tests
+│   └── *_test.mbt                    # 389 tests
 ├── frontend/                         # the single-page app (js)
 │   ├── app.mbt  loop_state.mbt  society.mbt  views.mbt
 │   └── frontend_test.mbt             # 112 tests
@@ -434,11 +466,13 @@ MAKED_moonbit/
 │   ├── corpus-arxiv.yaml
 │   └── corpus-local.yaml
 ├── tools/
-│   ├── integration-test.ps1          # 264 checks against a running server
-│   ├── mutate-backend.ps1            # 116 mutations of the backend
+│   ├── integration-test.ps1          # 320 checks against a running server
+│   ├── mutate-backend.ps1            # 120 mutations of the backend
 │   ├── mutate-frontend.ps1           # 44 mutations of the frontend
 │   ├── mutate-loop.ps1               # 16 mutations of the loop
-│   └── check-mutation-anchors.ps1    # 176 anchors, and whether any is dead
+│   └── check-mutation-anchors.ps1    # 180 anchors, and whether any is dead
+├── AGENT.md                         # how to drive MAKED from another agent
+├── AGENTS.md                        # how to work on MAKED
 ├── moon.mod  moon.pkg
 ├── build.ps1                         # build the bundle, check, test, build the server
 ├── ci.sh                             # 15 gates
@@ -502,13 +536,13 @@ fits. Keep the two files next to each other, and set both variables.
 
 | What | How many | How it is checked |
 |---|---|---|
-| Backend tests | 382 | `moon test --target native backend` |
+| Backend tests | 389 | `moon test --target native backend` |
 | Frontend tests | 112 | `moon test --target js frontend` |
-| Integration checks | 264 | `tools/integration-test.ps1` — against a server that is really running |
-| Backend mutations | 116 | `tools/mutate-backend.ps1` |
+| Integration checks | 320 | `tools/integration-test.ps1` — against a server that is really running |
+| Backend mutations | 120 | `tools/mutate-backend.ps1` |
 | Frontend mutations | 44 | `tools/mutate-frontend.ps1` |
 | Loop mutations | 16 | `tools/mutate-loop.ps1` |
-| Mutation anchors | 176 | `tools/check-mutation-anchors.ps1` — and whether any is dead |
+| Mutation anchors | 180 | `tools/check-mutation-anchors.ps1` — and whether any is dead |
 | CI gates | 15 | `ci.sh` |
 
 ### Running the tests
@@ -606,7 +640,7 @@ Five jobs, all of which have to be green: **Test**, **Build (native)**, **Build 
 - [x] Causal estimates that report what they rest on
 - [x] Explorations: replay, branch, rename, export
 - [x] The agent's server — Model Context Protocol over stdio and HTTP
-- [ ] A discovery document at `GET /api/agent`, for agents that do not speak MCP
+- [x] A discovery document at `GET /api/agent`, for agents that do not speak MCP
 - [ ] A Chinese front end
 
 ## Contributing

@@ -33,3 +33,9 @@
 # them by accident.
 /_dbg/
 /_reqlog/
+
+# Fixtures the backend tests write into the working directory. They are
+# removed when the test finishes, but a test that dies leaves them behind,
+# and a fixture in the tree is a file that looks like source.
+/test_bootstrap_*
+/test_agent_*

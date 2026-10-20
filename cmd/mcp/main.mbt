@@ -93,80 +93,6 @@ fn int_of(args : Json, key : String, fallback : Int32) -> Int32 {
 }
 
 ///|
-/// The schema of a tool that takes no arguments.
-fn no_arguments() -> Json {
-  { "type": "object", "properties": {}, "required": [] }
-}
-
-///|
-/// The schema of the step tool.
-fn step_schema() -> Json {
-  {
-    "type": "object",
-    "properties": {
-      "slot": {
-        "type": "string",
-        "description": "The drive slot to step with: the model's own id (\"act\") or the designation the panel shows (\"Action\"). Leave it out and the table chooses.",
-      },
-      "target": {
-        "type": "string",
-        "description": "One of the successors the table offered and declined to choose between. Only needed when maked_options says the table declined to choose.",
-      },
-    },
-    "required": [],
-  }
-}
-
-///|
-/// The schema of the options tool.
-fn options_schema() -> Json {
-  {
-    "type": "object",
-    "properties": {
-      "depth": {
-        "type": "integer",
-        "description": "How many steps ahead to look when listing what could happen next. Default 3.",
-      },
-    },
-    "required": [],
-  }
-}
-
-///|
-/// The schema of the society tool.
-fn society_schema() -> Json {
-  {
-    "type": "object",
-    "properties": {
-      "trigger": {
-        "type": "string",
-        "description": "The move to take, by the machine's own name (\"RaiseClaims\"). Leave it out to look without moving.",
-      },
-    },
-    "required": [],
-  }
-}
-
-///|
-/// The schema of the export tool.
-fn export_schema() -> Json {
-  {
-    "type": "object",
-    "properties": {
-      "session_id": {
-        "type": "integer",
-        "description": "Which exploration to export. Leave it out for the one in front of us.",
-      },
-      "format": {
-        "type": "string",
-        "description": "markdown or json. Default markdown, which is the reading form.",
-      },
-    },
-    "required": [],
-  }
-}
-
-///|
 /// Where the loop stands, and what the last move did.
 async fn status_tool(
   _context : @runtime.RequestContext,
@@ -474,57 +400,44 @@ async fn serve_stdio(server : @mcp.MCPServer) -> Unit {
 
 ///|
 /// The server, with its tools.
+///
+/// The tools themselves -- their names, their descriptions and their
+/// argument schemas -- are the backend's, because the discovery document
+/// at `GET /api/agent` offers the same seven. What is here is the other
+/// half: the handler for each one, which needs the database, and the
+/// database is this process's business.
+///
+/// The names are matched, not assumed: a tool the backend offers that has
+/// no handler here is a tool this server does not have, and the
+/// integration suite compares the two lists so that the difference cannot
+/// go unnoticed.
 fn build_server() -> @mcp.MCPServer raise @mcp_types.MCPError {
-  @mcp.MCPServer::MCPServer("maked", @maked.MAKED_VERSION)
-  .with_title("MAKED")
-  .with_description(
-    "MAKED: the adversarial knowledge loop. Three layers -- the subject (a ring of five domains), the group, and the collective. The tools here read and move the subject loop and the collective.",
-  )
-  .with_instructions(
-    "Start with maked_status to see where the loop stands and what the last move did. Call maked_options to see what the table offers from here -- it lists the slots that can move and the ones that cannot, and says why. Then call maked_step with one of those slots. If the table declined to choose between several successors, pass one of them as the target. Every answer says in words what happened; the ids are there when you want to be exact.",
-  )
-  .tool(
-    "maked_status",
-    "Where the loop stands: the domain and position, what the last move did in words, what the run adds up to, and whether it is still finding ground.",
-    no_arguments(),
-    status_tool,
-  )
-  .tool(
-    "maked_options",
-    "What can be done from here and what cannot. The slots that can move, the slots that cannot and why, the successors the table declined to choose between, and what the machine says could happen next.",
-    options_schema(),
-    options_tool,
-  )
-  .tool(
-    "maked_step",
-    "Take a move. With no slot the table chooses; with a slot the caller chooses; with a target the caller answers a question the table asked. Answers with what happened, in words.",
-    step_schema(),
-    step_tool,
-  )
-  .tool(
-    "maked_model",
-    "The machine itself as data: the domains, the positions, the slots, and the rule for every pair of them.",
-    no_arguments(),
-    model_tool,
-  )
-  .tool(
-    "maked_society",
-    "The collective. With no trigger it says where the collective stands and what it can do from there; with a trigger it takes that move.",
-    society_schema(),
-    society_tool,
-  )
-  .tool(
-    "maked_sessions",
-    "The named explorations, and which one is in front of us.",
-    no_arguments(),
-    sessions_tool,
-  )
-  .tool(
-    "maked_export",
-    "One exploration as something to take away: markdown to read, json to process.",
-    export_schema(),
-    export_tool,
-  )
+  let mut server = @mcp.MCPServer::MCPServer("maked", @maked.MAKED_VERSION)
+    .with_title("MAKED")
+    .with_description(
+      "MAKED: the adversarial knowledge loop. Three layers -- the subject (a ring of five domains), the group, and the collective. The tools here read and move the subject loop and the collective.",
+    )
+    .with_instructions(@maked.agent_instructions())
+  for tool in @maked.agent_tool_specs() {
+    server = match tool.name {
+      "maked_status" =>
+        server.tool(tool.name, tool.description, tool.arguments, status_tool)
+      "maked_options" =>
+        server.tool(tool.name, tool.description, tool.arguments, options_tool)
+      "maked_step" =>
+        server.tool(tool.name, tool.description, tool.arguments, step_tool)
+      "maked_model" =>
+        server.tool(tool.name, tool.description, tool.arguments, model_tool)
+      "maked_society" =>
+        server.tool(tool.name, tool.description, tool.arguments, society_tool)
+      "maked_sessions" =>
+        server.tool(tool.name, tool.description, tool.arguments, sessions_tool)
+      "maked_export" =>
+        server.tool(tool.name, tool.description, tool.arguments, export_tool)
+      _ => server
+    }
+  }
+  server
 }
 
 ///|

@@ -415,6 +415,18 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   // rather than off a package, and a file nobody can get at is not a file
   // anybody can edit.
   app.get("/api/model", _req => Response::json(current_model().to_json()))
+  // GET /api/agent
+  //
+  // The discovery document: what MAKED is, the seven tools an agent can
+  // call, the instructions for calling them, and the plain HTTP endpoints
+  // that ask the same questions.
+  //
+  // It is here for an agent that does not speak the Model Context
+  // Protocol, and for one that has never heard of it. The agent's server
+  // offers the same tools over the protocol, and the two lists come from
+  // one place, so an agent that reads this and an agent that asks the
+  // server are told the same thing about the same seven tools.
+  app.get("/api/agent", _req => Response::json(agent_discovery()))
   // GET /api/loop/continuations?depth=3
   //
   // What the model itself says could happen next from the current position,

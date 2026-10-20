@@ -1029,6 +1029,32 @@ $mutations = @(
     file = 'backend/version.mbt'
     old  = 'pub const MAKED_VERSION : String = "0.1.7"'
     new  = 'pub const MAKED_VERSION : String = "0.1.8"'
+  },
+  # The discovery document. An agent that reads it has nothing else to go
+  # on, so every part of it that can go missing has to be caught.
+  @{
+    name = 'the discovery document offers no tools'
+    file = 'backend/agent.mbt'
+    old  = '    "tools": Json::array(agent_tools_as_json()),'
+    new  = '    "tools": Json::array([]),'
+  },
+  @{
+    name = 'the discovery document says the wrong protocol version'
+    file = 'backend/agent.mbt'
+    old  = '      "mcp": "2026-07-28",'
+    new  = '      "mcp": "2026-07-27",'
+  },
+  @{
+    name = 'a tool in the discovery document says nothing about itself'
+    file = 'backend/agent.mbt'
+    old  = '      description: "Where the loop stands: the domain and position, what the last move did in words, what the run adds up to, and whether it is still finding ground.",'
+    new  = '      description: "",'
+  },
+  @{
+    name = 'the discovery document names no HTTP endpoints'
+    file = 'backend/agent.mbt'
+    old  = '    "http": Json::array(agent_http_endpoints()),'
+    new  = '    "http": Json::array([]),'
   }
 )
 
