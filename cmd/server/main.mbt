@@ -44,6 +44,49 @@ async fn main {
       }
     None => @maked.current_model().name
   }
+  // The table that says what a document means. `MAKED_RESEARCH` names a
+  // research file, and a file that cannot be read whole is refused for the
+  // same reason the model file is: a table that half-reads fires on the
+  // wrong documents, and a step in the timeline that nobody can explain is
+  // worse than a server that says it is not running.
+  //
+  // The model is installed first, because the table names slots and the
+  // model is what has the slots.
+  let research_path = @maked.research_path_from_env()
+  match research_path {
+    Some(path) =>
+      match @maked.read_research_file(path) {
+        Some(config) => @maked.install_research(config)
+        None => {
+          println("")
+          println(
+            "MAKED will not start with a mapping table it could not read.",
+          )
+          println("  unset MAKED_RESEARCH to run the built-in table instead")
+          return
+        }
+      }
+    None => {
+      // The built-in table is the built-in model's: it names slots like
+      // "feedback" and "act". A model file has slots of its own, and a
+      // table that names a slot the running model does not have is a rule
+      // about nowhere. Saying so at start-up is better than letting every
+      // document be skipped in silence.
+      let config = @maked.current_research()
+      match config.first_unfitting_slot(@maked.current_model()) {
+        Some(slot) => {
+          println("")
+          println(
+            "WARNING: the built-in mapping table names the slot \"\{slot}\", which this model does not have.",
+          )
+          println(
+            "  the research panel will not drive the loop until MAKED_RESEARCH names a table for this model",
+          )
+        }
+        None => ()
+      }
+    }
+  }
   let port = parse_port(env_or("MAKED_PORT", "8080"))
   let host = env_or("MAKED_HOST", "127.0.0.1")
   let db_path = env_or("MAKED_DB", "maked.db")

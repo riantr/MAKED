@@ -1,0 +1,54 @@
+# A mapping table for the product-iteration model.
+#
+# The table says what a document means: which words make a rule fire, and
+# which slot the rule drives. The slots are the model's -- "ask", "scope",
+# "build", "ship" -- so this table fits models/product-iteration.json and
+# not the built-in model, whose slots have other names.
+#
+# The order is the priority. The first rule that matches wins, so the rule
+# for a question comes before the rule for a build, and a document that
+# mentions both is read as the question it opens with.
+#
+#   MAKED_MODEL=models/product-iteration.json
+#   MAKED_RESEARCH=research/product-iteration.yaml
+#
+# The file's name decides how it is read: a .yaml file is read as YAML and
+# every other file as JSON. It is written back in the same syntax, so an
+# edit made in the browser does not turn the file into something else.
+format: maked.research.v1
+mapping:
+  - label: A question worth asking
+    keywords:
+      - question
+      - why
+      - unclear
+      - ask
+    slot: ask
+    notes: The document opens a question rather than answering one.
+  - label: A scope worth setting
+    keywords:
+      - scope
+      - plan
+      - requirement
+      - boundary
+    slot: scope
+    notes: The document says what will and will not be done.
+  - label: A thing being built
+    keywords:
+      - build
+      - implement
+      - code
+      - prototype
+    slot: build
+    notes: The document is about making the thing.
+  - label: A thing going out
+    keywords:
+      - ship
+      - release
+      - deploy
+      - launch
+    slot: ship
+    notes: The document is about putting it in front of people.
+fallback:
+  label: Anything else
+  slot: scope

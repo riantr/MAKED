@@ -1,19 +1,16 @@
 ///| Arxiv-driven SNN research cycle.
 ///
 /// This module implements the "D" (Data) domain of MAKED: fetching recent
-/// Spiking Neural Network papers from arxiv and mapping them to pyroduct
-/// triggers so the Loop can be driven by real research output.
+/// Spiking Neural Network papers from arxiv and reading them so the Loop
+/// can be driven by real research output.
 ///
 /// The arxiv API returns Atom XML; we parse the minimal subset needed
 /// (entry -> id, title, summary, categories, published).
 ///
-/// Paper -> Trigger mapping heuristic:
-///   - "benchmark", "dataset", "evaluation" -> FeelFinitude (Occasion)
-///   - "novel", "new method", "propose" -> ActInFreedom (Act)
-///   - "outperform", "state-of-the-art", "improve" -> AbsorbGlory (Feedback)
-///   - "fail", "limitation", "challenge" -> Sting (Feedback)
-///   - "review", "survey", "overview" -> KeepContinuity (Hold)
-///   - Default -> TouchFuture (Antecedent)
+/// What a paper *means* is not decided here. It is decided by the mapping
+/// table in `research_config.mbt`, which the reader can edit: this module
+/// knows how to turn a document into text and hand it over, and nothing
+/// about which slot a claim of superiority belongs in.
 
 ///|
 pub(all) struct Paper {
@@ -249,44 +246,16 @@ fn clean_text(s : String) -> String {
 }
 
 ///|
-/// Map a paper to a pyroduct Trigger based on keyword heuristics.
-pub fn paper_to_trigger(paper : Paper) -> @sm.Trigger {
-  let text = (paper.title + " " + paper.summary).to_lowercase_ascii()
-  if text.contains("state-of-the-art") ||
-    text.contains("outperform") ||
-    text.contains("sota") {
-    return @sm.AbsorbGlory
-  }
-  if text.contains("limitation") ||
-    text.contains("fail") ||
-    text.contains("challenge") ||
-    text.contains("struggle") {
-    return @sm.Sting
-  }
-  if text.contains("novel") ||
-    text.contains("propose") ||
-    text.contains("new method") ||
-    text.contains("introduce") {
-    return @sm.ActInFreedom
-  }
-  if text.contains("survey") ||
-    text.contains("review") ||
-    text.contains("overview") ||
-    text.contains("tutorial") {
-    return @sm.KeepContinuity
-  }
-  if text.contains("benchmark") ||
-    text.contains("dataset") ||
-    text.contains("evaluation") {
-    return @sm.FeelFinitude
-  }
-  @sm.TouchFuture
-}
-
-///|
-/// Map a Trigger to its Slot.
-pub fn trigger_to_slot(trigger : @sm.Trigger) -> @sm.Slot {
-  trigger.slot()
+/// The slot a paper is taken to mean, and the name of the rule that said so.
+///
+/// The table is the reader's, and it is asked rather than assumed: the same
+/// paper read under a different table is a different step, and the step in
+/// the timeline has to be able to say which table produced it.
+pub fn paper_to_slot(
+  config : ResearchConfig,
+  paper : Paper,
+) -> (String, String) {
+  config.slot_for_text(paper.title + " " + paper.summary)
 }
 
 ///|

@@ -356,9 +356,13 @@ jobs:
           cp packaging/RUN.txt stage/maked/RUN.txt
           # The example model ships with the binary, so that a reader who has
           # just unpacked it can run a machine of their own without first
-          # finding a file to point at.
-          mkdir -p stage/maked/models
+          # finding a file to point at. The example mapping table ships with
+          # it too, for the same reason: the table is what says what a
+          # document means, and a reader who has a model of their own needs
+          # a table of their own.
+          mkdir -p stage/maked/models stage/maked/research
           cp models/*.json models/*.yaml stage/maked/models/
+          cp research/*.yaml stage/maked/research/
           chmod +x stage/maked/server
           tar -czf "maked-${version}-${{ matrix.target }}.tar.gz" -C stage maked
 
@@ -381,9 +385,13 @@ jobs:
           Copy-Item packaging\RUN.txt stage\maked\RUN.txt
           # The example model ships with the binary, so that a reader who has
           # just unpacked it can run a machine of their own without first
-          # finding a file to point at.
-          New-Item -ItemType Directory -Force -Path stage\maked\models | Out-Null
-          Copy-Item models\*.json stage\maked\models\
+          # finding a file to point at. The YAML model ships too: a .yaml
+          # file is a model file like any other, and a reader who unpacks
+          # only the JSON one is missing half of what MAKED can run. The
+          # example mapping table ships for the same reason.
+          New-Item -ItemType Directory -Force -Path stage\maked\models, stage\maked\research | Out-Null
+          Copy-Item models\*.json, models\*.yaml stage\maked\models\
+          Copy-Item research\*.yaml stage\maked\research\
           Compress-Archive -Path stage\maked -DestinationPath "maked-${version}-${{ matrix.target }}.zip"
 
       - uses: actions/upload-artifact@v4

@@ -472,12 +472,12 @@ pub fn research_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     let items : Array[@html.Html] = []
     for trigger in model.research_triggers {
       let paper_id = get_string(trigger, "paper_id", "")
-      let trigger_name = get_string(trigger, "trigger", "")
+      let rule_name = get_string(trigger, "rule", "")
       let slot = get_string(trigger, "slot", "")
       items.push(
         @html.li(class="maked-research-trigger", [
           @html.span(class="maked-trigger-paper", paper_id),
-          @html.span(class="maked-trigger-name", trigger_name),
+          @html.span(class="maked-trigger-name", rule_name),
           @html.span(class="maked-trigger-slot", slot),
         ]),
       )
@@ -497,8 +497,82 @@ pub fn research_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     buttons,
     papers_list,
     triggers_list,
+    research_config_view(emit, model),
     error,
   ])
+}
+
+///|
+/// The mapping table: the rules as they stand, and a place to change them.
+///
+/// The table is the reader's, so the panel shows all of it -- every rule,
+/// the words it fires on, and the slot it drives -- and the editor is that
+/// same table as text. What the reader changes is what the server runs,
+/// and what the server runs is what the panel shows.
+pub fn research_config_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
+  let header = @html.div(class="maked-config-header", [
+    @html.h3(class="maked-config-title", "The mapping table"),
+    @html.button(
+      class="maked-btn maked-btn-plain",
+      on_click=emit(ResearchConfigEditClicked),
+      "Show the table",
+    ),
+  ])
+  let rules = match model.research_config {
+    None => @html.nothing
+    Some(config) => {
+      let items : Array[@html.Html] = []
+      match field(config, "mapping") {
+        Some(Array(mapping)) =>
+          for rule in mapping {
+            let label = get_string(rule, "label", "")
+            let slot = get_string(rule, "slot", "")
+            let words = get_strings(rule, "keywords").join(", ")
+            items.push(
+              @html.li(class="maked-config-rule", [
+                @html.span(class="maked-config-label", label),
+                @html.span(class="maked-config-slot", slot),
+                @html.span(class="maked-config-words", words),
+              ]),
+            )
+          }
+        _ => ()
+      }
+      @html.ul(class="maked-config-rules", items)
+    }
+  }
+  let editor = if model.research_config_text == "" {
+    @html.nothing
+  } else {
+    @html.div(class="maked-config-editor", [
+      @html.label(
+        class="maked-config-label",
+        for_="maked-config-text",
+        "The table",
+      ),
+      @html.textarea(
+        id="maked-config-text",
+        class="maked-config-textarea",
+        rows=10,
+        value=model.research_config_text,
+        on_input=emit.map(fn(text) { ResearchConfigTextChanged(text) }),
+        @html.nothing,
+      ),
+      @html.button(
+        class="maked-btn maked-btn-primary",
+        on_click=emit(ResearchConfigSaveClicked),
+        "Run this table",
+      ),
+    ])
+  }
+  let status = if model.research_config_error != "" {
+    @html.p(class="maked-config-error", model.research_config_error)
+  } else if model.research_config_notice != "" {
+    @html.p(class="maked-config-notice", model.research_config_notice)
+  } else {
+    @html.nothing
+  }
+  @html.div(class="maked-config", [header, rules, editor, status])
 }
 
 ///|

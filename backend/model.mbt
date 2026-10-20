@@ -325,13 +325,7 @@ pub fn model_path_from_env() -> String? {
 /// JSON. The extension decides, because the two are different syntaxes, and
 /// a file written in one and read as the other is a file that half-read.
 pub async fn read_model_file(path : String) -> Model? {
-  let text = @fs.read_file(path).text() catch {
-    err => {
-      println("error: model file \{path} unreadable: \{err}")
-      return None
-    }
-  }
-  let json = match parse_model_text(path, text) {
+  let json = match read_data_text("model", path) {
     Some(json) => json
     None => return None
   }
@@ -367,48 +361,12 @@ pub async fn read_model_file(path : String) -> Model? {
 /// about the text and the name, not about the disk -- and a question that
 /// can only be asked by opening a file is a question that is only ever
 /// asked about a file that happens to be lying around.
-pub fn parse_model_text(path : String, text : String) -> Json? {
-  if is_yaml_path(path) {
-    let documents = @yaml.Yaml::load_from_string(text) catch {
-      err => {
-        println(
-          "error: model file \{path} is not YAML: \{@debug.to_string(err)}",
-        )
-        return None
-      }
-    }
-    if documents.length() == 0 {
-      println("error: model file \{path} is empty")
-      return None
-    }
-    if documents.length() > 1 {
-      println(
-        "error: model file \{path} holds \{documents.length()} documents; a model file holds one",
-      )
-      return None
-    }
-    Some(documents[0].to_json())
-  } else {
-    let json = @json.parse(text) catch {
-      err => {
-        println("error: model file \{path} is not JSON: \{err}")
-        return None
-      }
-    }
-    Some(json)
-  }
-}
-
-///|
-/// Whether a path names a YAML file.
 ///
-/// The extension, and nothing else. A file called `.yml` is YAML and a file
-/// called anything else is JSON, and the reason for the rule is the same
-/// as the reason for reading the file at all: a file that is read as the
-/// wrong syntax is a file that is half-read.
-fn is_yaml_path(path : String) -> Bool {
-  let lower = path.to_lower()
-  lower.has_suffix(".yaml") || lower.has_suffix(".yml")
+/// The rule itself lives in `datafile.mbt`, because the research file
+/// follows it too, and two rules written down twice are two rules that
+/// will one day disagree.
+pub fn parse_model_text(path : String, text : String) -> Json? {
+  parse_data_text("model", path, text)
 }
 
 ///|

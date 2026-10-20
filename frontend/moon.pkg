@@ -4,9 +4,10 @@
 // bundle is produced by `cmd/web`, which is the executable that mounts it.
 //
 // `Json` is a builtin and needs no import, and `assert_eq`/`assert_true` come
-// from the prelude, so neither `moonbitlang/core/json` nor
-// `moonbitlang/core/test` is listed: importing either is an `unused_package`
-// warning. `string` is listed in the main block because `entries.mbt` parses a
+// from the prelude, so `moonbitlang/core/test` is not listed: importing it is
+// an `unused_package` warning. `json` *is* listed, because the mapping table
+// is edited as text and the text has to be parsed before it is sent.
+// `string` is listed in the main block because `entries.mbt` parses a
 // record id with it; a `for "test"` block is not needed on top of that, since
 // the main imports are available to the test build too. `double` is not
 // listed at all: `sqrt`/`abs` resolve as `Double` methods without it.
@@ -19,6 +20,7 @@ import {
   "moonbit-community/rabbita/sub",
   "moonbit-community/rabbita/svg",
   "moonbit-community/rabbita/url",
+  "moonbitlang/core/json",
   "moonbitlang/core/math",
   "moonbitlang/core/string",
 }

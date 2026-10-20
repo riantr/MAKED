@@ -620,21 +620,26 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     }
   })
   // Research endpoints: arxiv-driven SNN research cycle.
+  //
   // GET  /api/research/papers  → fetch recent SNN papers from arxiv
   // POST /api/research/drive   → fetch papers and drive the Loop with them
+  // GET  /api/research/config  → the mapping table the reader may edit
+  // PUT  /api/research/config  → replace the table, and write it back
   app.get("/api/research/papers", _req => {
     let papers = fetch_snn_papers(10) catch { _ => [] }
     let papers_json = papers.map(fn(p) { p.to_json() })
+    let model = current_model()
+    let config = current_research()
     let triggers = papers.map(fn(p) {
-      let t = paper_to_trigger(p)
-      // The trigger vocabulary is still the table's own; the *slot* it names
-      // is read as the model's id, so the rest of the server only ever sees
-      // the model's vocabulary.
-      let slot = slot_id_of(trigger_to_slot(t))
+      // The table says which slot a document drives and what the rule is
+      // called. It is the reader's table, so the slot is read as the
+      // model's id and the rest of the server only ever sees the model's
+      // vocabulary.
+      let (slot, label) = paper_to_slot(config, p)
       let item : Json = {
         "paper_id": p.id,
-        "trigger": @debug.to_string(t),
-        "slot": current_model().slot_designation(slot),
+        "rule": label,
+        "slot": model.slot_designation(slot),
         "slot_english": slot,
       }
       item
@@ -648,10 +653,33 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   })
   app.post("/api/research/drive", _req => {
     let papers = fetch_snn_papers(5) catch { _ => [] }
+    let model = current_model()
+    let config = current_research()
     let results : Array[Json] = []
+    let mut driven = 0
     for paper in papers {
-      let trigger = paper_to_trigger(paper)
-      let slot = slot_id_of(trigger_to_slot(trigger))
+      let (slot, label) = paper_to_slot(config, paper)
+      // A table may name a slot the running model does not have -- the
+      // built-in table is the built-in model's, and a model file has slots
+      // of its own. Such a document is not driven, and it is said so: a
+      // step that went nowhere while looking like a step is the failure
+      // this project exists to remove.
+      if slot == "" || model.slot_from_name(slot) is None {
+        let skipped : Json = {
+          "paper_id": paper.id,
+          "paper_title": paper.title,
+          "rule": label,
+          "slot_english": slot,
+          "driven": false,
+          "reason": if slot == "" {
+            "the table leaves documents it does not recognise alone"
+          } else {
+            "the model has no slot called \"" + slot + "\""
+          },
+        }
+        results.push(skipped)
+        continue
+      }
       let state_before = get_loop_state()
       let state_after = step_loop_with_slot(slot)
       // A step taken by a paper is a step like any other, and it belongs in
@@ -661,22 +689,82 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       let result : Json = {
         "paper_id": paper.id,
         "paper_title": paper.title,
-        "trigger": @debug.to_string(trigger),
-        "slot": current_model().slot_designation(slot),
+        "rule": label,
+        "slot": model.slot_designation(slot),
         "slot_english": slot,
+        "driven": true,
         "domain_before": state_before.current.letter(),
         "domain_after": state_after.current.letter(),
         "history_length": state_after.history.length(),
       }
       results.push(result)
+      driven += 1
     }
     let final_state = get_loop_state()
     let body : Json = {
       "results": [..results],
       "final_state": final_state.to_json(),
       "papers_processed": papers.length(),
+      "papers_driven": driven,
     }
     Response::json(body)
+  })
+  // The mapping table, as data a reader can edit and hand back.
+  //
+  // GET /api/research/config → the table, the file it came from, and
+  // whether it can be written back at all.
+  app.get("/api/research/config", _req => {
+    let config = current_research()
+    let body : Json = {
+      "config": config.to_json(),
+      "path": config.path,
+      // The built-in table has nowhere to be written, and saying so is
+      // better than accepting an edit and losing it.
+      "writable": config.path != "",
+    }
+    Response::json(body)
+  })
+  // PUT /api/research/config → replace the table.
+  //
+  // The body is the table itself, in the same shape GET hands back, so a
+  // client can read the table, change it and put it back without knowing
+  // anything about the format. A table that names a slot the model does
+  // not have is refused, with the reason, and the table that was running
+  // keeps running: half a table fires on the wrong documents.
+  app.put("/api/research/config", req => {
+    let payload = req.json().unwrap_or(Json::empty_object())
+    match
+      ResearchConfig::from_json(
+        current_model(),
+        current_research().path,
+        payload,
+      ) {
+      Accepted(config) => {
+        let saved = write_research_file(config) catch { _ => false }
+        install_research(config)
+        let body : Json = {
+          "config": config.to_json(),
+          "path": config.path,
+          "saved": saved,
+          "notice": if saved {
+            "The table is running, and it was written back to " +
+            config.path +
+            "."
+          } else if config.path == "" {
+            "The table is running. The built-in table is not written anywhere, so it lasts until the server stops."
+          } else {
+            "The table is running, but it could not be written back to " +
+            config.path +
+            "."
+          },
+        }
+        Response::json(body)
+      }
+      Rejected(reason) => {
+        let body : Json = { "error": "invalid_config", "reason": reason }
+        Response::json(body, status=400)
+      }
+    }
   })
   // Causal inference endpoint: estimate the causal effect of paper "novelty"
   // on a synthetic impact score using Double/Debiased Machine Learning.

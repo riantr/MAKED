@@ -142,14 +142,19 @@ mutate_and_test \
   'slot.gloss.to_lower() == needle'
 
 # ---------------------------------------------------------------------------
-# Mutation 5: Change paper_to_trigger priority
+# Mutation 5: Change the mapping table's first rule
 # ---------------------------------------------------------------------------
-echo "  Mutation: Paper trigger mapping"
+# The table is data now, so the thing worth mutating is the table: a rule
+# that says the wrong slot. The built-in table's first rule is the claim of
+# superiority, and it drives the feedback slot.
+echo "  Mutation: the mapping table's first rule"
 mutate_and_test \
-  "paper_to_trigger SOTA changed to return Sting" \
-  "backend/research.mbt" \
-  "return @sm.AbsorbGlory" \
-  "return @sm.Sting"
+  "the built-in table's first rule drives the wrong slot" \
+  "backend/research_config.mbt" \
+  '      keywords: ["state-of-the-art", "outperform", "sota"],
+      slot: "feedback",' \
+  '      keywords: ["state-of-the-art", "outperform", "sota"],
+      slot: "act",'
 
 # ---------------------------------------------------------------------------
 # Mutation 6: Change causal threshold

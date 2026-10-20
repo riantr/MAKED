@@ -595,6 +595,11 @@ fn bare_model() -> @frontend.Model {
     research_papers: [],
     research_triggers: [],
     research_error: "",
+    research_config: None,
+    research_config_path: "",
+    research_config_text: "",
+    research_config_error: "",
+    research_config_notice: "",
     causal_result: None,
     causal_error: "",
     entries: [],
@@ -1520,4 +1525,177 @@ test "a candidate list that holds a pair still offers the destination" {
   let status = @frontend.decode_loop_status(json)
   assert_eq(status.open_slots[0].targets.length(), 1)
   assert_eq(status.open_slots[0].targets[0], "Urgency")
+}
+
+///|
+/// A mapping table, shaped like the one the server sends.
+fn config_payload() -> Json {
+  {
+    "config": {
+      "format": "maked.research.v1",
+      "mapping": [
+        {
+          "keywords": ["reproduce", "replication"],
+          "label": "A reproduction",
+          "notes": "",
+          "slot": "hold",
+        },
+      ],
+      "fallback": { "label": "Anything else", "slot": "act" },
+    },
+    "path": "research/table.yaml",
+    "writable": true,
+  }
+}
+
+///|
+/// The table the reader edits is the table the server is running.
+///
+/// The editor starts from what is in force rather than from a blank box: a
+/// reader who opens the panel to change one rule should not have to retype
+/// the other four to find out what they are.
+test "the table the reader edits is the table the server is running" {
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::ResearchConfigLoaded(Ok(config_payload())),
+    silent_emit(),
+  )
+  assert_true(model.research_config_text.contains("A reproduction"))
+  assert_true(model.research_config_text.contains("replication"))
+  assert_eq(model.research_config_path, "research/table.yaml")
+  assert_eq(model.research_config_error, "")
+}
+
+///|
+/// The typed text is the text the reader typed.
+test "update on a table edit records the typed text" {
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::ResearchConfigTextChanged("{\"mapping\": []}"),
+    silent_emit(),
+  )
+  assert_eq(model.research_config_text, "{\"mapping\": []}")
+}
+
+///|
+/// A table that is not JSON is refused before it is sent.
+///
+/// The refusal has to say so: a save that cannot happen and says nothing
+/// is the failure this project exists to remove.
+test "a table that is not JSON is refused before it is sent" {
+  let (model, cmd) = @frontend.update(
+    { ..bare_model(), research_config_text: "not json at all", },
+    @frontend.Msg::ResearchConfigSaveClicked,
+    silent_emit(),
+  )
+  assert_true(model.research_config_error.contains("not JSON"))
+  assert_eq(model.research_config_notice, "")
+  // Nothing is sent: the request would have carried a table that is not one.
+  assert_true(!cmd.to_repr().to_string().contains("/api/research/config"))
+}
+
+///|
+/// The table reaches the server as a request to the config endpoint.
+///
+/// The verb matters as much as the path: a table that is *replaced* is
+/// put, and the server's route is a PUT. A POST to the same path would be
+/// answered with "not found" and no reason.
+test "the table reaches the server as a request to the config endpoint" {
+  let (_, cmd) = @frontend.update(
+    {
+      ..bare_model(),
+      research_config_text: "{\"format\": \"maked.research.v1\"}",
+    },
+    @frontend.Msg::ResearchConfigSaveClicked,
+    silent_emit(),
+  )
+  let request = cmd.to_repr().to_string()
+  assert_true(request.contains("/api/research/config"))
+  assert_true(request.contains("Put"))
+}
+
+///|
+/// The table is fetched from the server when the reader asks to see it.
+test "the table is fetched from the server when the reader asks to see it" {
+  let (_, cmd) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::ResearchConfigEditClicked,
+    silent_emit(),
+  )
+  let request = cmd.to_repr().to_string()
+  assert_true(request.contains("/api/research/config"))
+  assert_true(request.contains("Get"))
+}
+
+///|
+/// A refused table shows the reason the server gave.
+///
+/// The reason is the whole of the answer: "your table is wrong" is not
+/// something a reader can act on, and "rule 0 names the slot \"ship\",
+/// which this model does not have" is.
+test "a refused table shows the reason the server gave" {
+  let json : Json = {
+    "error": "invalid_config",
+    "reason": "rule 0 names the slot \"ship\", which this model does not have",
+  }
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::ResearchConfigSaved(Ok(json)),
+    silent_emit(),
+  )
+  assert_true(model.research_config_error.contains("ship"))
+  assert_eq(model.research_config_notice, "")
+}
+
+///|
+/// A saved table says what the server said about it.
+test "a saved table says what the server said about it" {
+  let json : Json = {
+    "config": {
+      "format": "maked.research.v1",
+      "mapping": [],
+      "fallback": { "label": "Anything else", "slot": "act" },
+    },
+    "path": "research/table.yaml",
+    "saved": true,
+    "notice": "The table is running, and it was written back to research/table.yaml.",
+  }
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::ResearchConfigSaved(Ok(json)),
+    silent_emit(),
+  )
+  assert_eq(model.research_config_error, "")
+  assert_true(model.research_config_notice.contains("research/table.yaml"))
+}
+
+///|
+/// The panel's button is the save the reader expects.
+test "the mapping table panel sends the save click" {
+  let seen : Array[@frontend.Msg] = []
+  let model = { ..bare_model(), research_config_text: "{}", }
+  let _ = @frontend.research_config_view(capturing_emit(seen), model)
+  let mut saves = 0
+  for msg in seen {
+    match msg {
+      @frontend.Msg::ResearchConfigSaveClicked => saves += 1
+      _ => ()
+    }
+  }
+  assert_eq(saves, 1)
+}
+
+///|
+/// The panel's other button fetches the table.
+test "the mapping table panel sends the fetch click" {
+  let seen : Array[@frontend.Msg] = []
+  let _ = @frontend.research_config_view(capturing_emit(seen), bare_model())
+  let mut fetches = 0
+  for msg in seen {
+    match msg {
+      @frontend.Msg::ResearchConfigEditClicked => fetches += 1
+      _ => ()
+    }
+  }
+  assert_eq(fetches, 1)
 }

@@ -64,6 +64,18 @@ pub fn App::post(self : App, path : String, handler : Handler) -> Unit {
 }
 
 ///|
+/// Register a handler for `PUT`.
+///
+/// `PUT` is here because a thing that can be replaced is not the same as a
+/// thing that can be created: the mapping table is read with `GET` and
+/// replaced with `PUT`, and a client that had to `POST` a replacement to a
+/// collection URL would be saying the same thing in a way that does not
+/// say it.
+pub fn App::put(self : App, path : String, handler : Handler) -> Unit {
+  self.route(@http.Put, path, handler)
+}
+
+///|
 pub fn App::delete(self : App, path : String, handler : Handler) -> Unit {
   self.route(@http.Delete, path, handler)
 }

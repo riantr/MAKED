@@ -55,6 +55,26 @@ pub fn get_int(json : Json, key : String, fallback : Int32) -> Int32 {
 }
 
 ///|
+/// The strings in a list field, or an empty list.
+///
+/// A field that is missing, or is not a list of strings, yields an empty
+/// list rather than raising: one malformed row cannot take down a page.
+pub fn get_strings(json : Json, key : String) -> Array[String] {
+  let out : Array[String] = []
+  match field(json, key) {
+    Some(Array(items)) =>
+      for item in items {
+        match item {
+          String(s) => out.push(s)
+          _ => ()
+        }
+      }
+    _ => ()
+  }
+  out
+}
+
+///|
 /// Public because `loop_state.mbt` decodes the backend's `blocked` /
 /// `undecided` flags with it.
 pub fn get_bool(json : Json, key : String, fallback : Bool) -> Bool {

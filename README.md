@@ -53,7 +53,7 @@ The ring order M → D → E → A → K → M is kept as the **presentation ord
 
 ### The Adversarial Knowledge Loop
 
-The key difference from a traditional data pipeline: the **Attack** domain. The model is not "fed" by data, it is "forged" by attack. Research papers are mapped onto pyroduct triggers by keyword heuristics, driving state machine transitions; DoubleML causal inference estimates the causal effect of a paper's "novelty" on its "influence".
+The key difference from a traditional data pipeline: the **Attack** domain. The model is not "fed" by data, it is "forged" by attack. Research papers are read through a **mapping table** — a list of rules, each one a set of words and the slot those words drive — and DoubleML causal inference estimates the causal effect of a paper's "novelty" on its "influence". The table is data, and it is the reader's to change: see [The Table That Says What A Document Means](#the-table-that-says-what-a-document-means).
 
 ## Quick Start
 
@@ -124,6 +124,7 @@ broken image is caught before it is ever tagged.
 | `MAKED_DB` | `maked.db` | SQLite file path |
 | `MAKED_DIST` | `frontend/dist` | frontend build output directory |
 | `MAKED_MODEL` | *(unset)* | a model file to run instead of the built-in one — see [Your Own Loop](#your-own-loop) |
+| `MAKED_RESEARCH` | *(unset)* | a mapping table that says what a document means — see [The Table That Says What A Document Means](#the-table-that-says-what-a-document-means) |
 
 ## API
 
@@ -302,9 +303,11 @@ Structured mode is the default. Free mode allows exploring transition paths thro
 
 | Route | Returns |
 |---|---|
-| `GET /api/research/papers` | arxiv SNN papers + trigger mapping |
+| `GET /api/research/papers` | arxiv SNN papers + the rule each one matched |
 | `POST /api/research/drive` | fetch papers and drive the loop |
 | `GET /api/research/causal` | DoubleML causal inference results |
+| `GET /api/research/config` | the mapping table, the file it came from, and whether it can be written back |
+| `PUT /api/research/config` | replace the table; a table naming a slot the model does not have is refused, with the reason |
 
 ## Project Structure
 
@@ -321,7 +324,9 @@ backend/          micro-framework, storage layer, API routes, state loop engine
   narration.mbt     the sentences: what a step did, and what a run of steps means
   metrics.mbt       the measures: new ground, settling, spread, drift, and the
                     comparison of the run's beginning with its end
-  research.mbt      arxiv research paper fetching and trigger mapping
+  research.mbt      arxiv research paper fetching, and the reading of one
+  research_config.mbt  the mapping table: what a document means, as data
+  datafile.mbt      reading a file written in JSON or in YAML, either way
   causal.mbt        DoubleML causal inference
   maked_app.mbt     assembly, static files, SPA fallback
 frontend/         rabbita single-page application
@@ -334,6 +339,8 @@ frontend/         rabbita single-page application
   page.mbt          typed accessors for the backend JSON
 cmd/server/       native entry point
 cmd/web/          js entry point (browser bundle)
+models/           the example machine, in both syntaxes
+research/         the example mapping table
 Dockerfile        container image: build stage, then a runtime stage with
                   no toolchain in it
 docker-compose.yml  the container with a volume for the records
@@ -367,7 +374,7 @@ image carries `pwsh`.
 Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be run separately:
 
 ```
-.\tools\mutate-backend.ps1     # 43 mutations, 0 survived, 1 expected-equivalent
+.\tools\mutate-backend.ps1     # 47 mutations, 0 survived, 1 expected-equivalent
 .\tools\mutate-frontend.ps1    # 23 mutations, 0 survived
 .\tools\mutate-loop.ps1        # 16 mutations, 0 survived
 ```
@@ -375,7 +382,7 @@ Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be 
 And the one that finds the rot before the suites do:
 
 ```
-.\tools\check-mutation-anchors.ps1   # 77 anchors, 0 dead
+.\tools\check-mutation-anchors.ps1   # 81 anchors, 0 dead
 ```
 
 Every mutation in those three suites is a text replacement, and a text
@@ -418,8 +425,8 @@ that cannot break is not a gate, and that one fails the build.
 | js-check | `moon check --target js` | frontend type safety |
 | fmt | `moon fmt --check` | code formatting |
 | tree | `moon tree` | dependency audit |
-| unit-native | `moon test --target native` | 265 backend tests (includes the BDD suite below) |
-| unit-js | `moon test --target js` | 69 frontend tests |
+| unit-native | `moon test --target native` | 278 backend tests (includes the BDD suite below) |
+| unit-js | `moon test --target js` | 78 frontend tests |
 | coverage | `moon test --enable-coverage` | coverage |
 | bench | `moon bench` | benchmarks |
 | prove | `moon prove` | formal verification (Why3) |
@@ -453,7 +460,7 @@ The cause was not root-caused — the same build works when the init issues a GE
 ## The Integration Tests Are The Net For That Class Of Bug
 
 ```powershell
-.\tools\integration-test.ps1              # builds the server, then runs 143 checks
+.\tools\integration-test.ps1              # builds the server, then runs 172 checks
 .\tools\integration-test.ps1 -SkipBuild   # reuse the binary that is already built
 ```
 
@@ -989,6 +996,76 @@ inventing a position to hold it. So is a file whose domain anchors nowhere,
 and a file in a format this version does not know. The server refuses to
 start rather than run a machine nobody can see: a server that answers every
 request confidently and wrongly is the worst thing a server can do.
+
+## The Table That Says What A Document Means
+
+The machine is a file. So is the table that says what reading a document
+*means*.
+
+It used to be a function — a chain of `contains` calls inside
+`paper_to_trigger`, ending in a default. That is a table written as code, and
+a table written as code can only be changed by changing the program: the
+reader who wanted "failure" to mean something else had no way to say so, and
+the only way to find out what the table said was to read the source of a web
+application.
+
+Now it is data. A rule is a set of words and the slot those words drive:
+
+```yaml
+format: maked.research.v1
+mapping:
+  - label: A question worth asking
+    keywords: [question, why, unclear, ask]
+    slot: ask
+  - label: A thing being built
+    keywords: [build, implement, code, prototype]
+    slot: build
+fallback:
+  label: Anything else
+  slot: scope
+```
+
+Four things about it are worth knowing.
+
+- **The order is the priority.** The table is read from the top and the first
+  rule that matches wins. A priority written as an order is a priority a
+  reader can see.
+- **The slot is the model's.** A rule names a slot by the id the model gives
+  it, so a model file with its own slots gets a table that fits it. The
+  built-in table is the *built-in* model's; with a different model running,
+  MAKED says so at start-up rather than skipping every document in silence.
+- **A rule that names a slot the model does not have is refused.** It is a
+  rule about nowhere, and reading it would mean inventing a slot to hold it.
+  So is a rule with no words (it can never fire) and a table with no rules.
+- **The file's name decides the syntax**, exactly as it does for a model
+  file: a `.yaml` file is read as YAML and written back as YAML, everything
+  else is JSON. The two syntaxes overlap — JSON is a subset of YAML — so
+  guessing would read a file with a typo as something its author did not
+  write.
+
+**It can be edited in the browser, and the edit survives.** The research panel
+shows every rule — its words, its slot, its name — and offers the whole table
+as text to change. Saving it puts the new table, and the file is written back
+in the syntax the file's name asks for, so the change is still there after the
+server stops. A table that came from no file — the built-in one — says so
+instead of accepting an edit and losing it.
+
+```powershell
+$env:MAKED_MODEL = 'models/product-iteration.json'
+$env:MAKED_RESEARCH = 'research/product-iteration.yaml'
+.\maked.exe
+```
+
+The example that ships is a table for the product-iteration model: the same
+machine, with the words that mean "a question" and the words that mean "a
+thing being built" written down where a reader can change them.
+
+**A table that cannot be read whole is refused**, for the same reason a model
+file is: a table that half-reads fires on the wrong documents, and a document
+driven through the wrong slot is a step in the timeline that nobody can
+explain afterwards. So `MAKED_RESEARCH` naming a file MAKED cannot read is a
+server that refuses to start, not a server that quietly runs the built-in
+table instead.
 
 ## Deep Links Need A `<base>` Tag
 

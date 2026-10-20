@@ -115,9 +115,18 @@ function Remove-Comments {
   # The string literals are blanked out first, so that a "//" inside a string
   # is not mistaken for the start of a comment, and so that a string cannot
   # hide a use of the thing being looked for. Then the comments go.
-  $withoutStrings = [regex]::Replace($Text, '"(?:[^"\\]|\\.)*"', '""')
-  $kept = foreach ($line in ($withoutStrings -split "`r?`n")) {
-    $line -replace '//.*$', ''
+  #
+  # The blanking is done a line at a time, and that is not a detail. A
+  # regex that runs over the whole file will happily match a quote in one
+  # line with a quote three hundred lines later, and the "string" it
+  # blanks out in between swallows the code the check is looking for. A
+  # quoted phrase in a comment -- the natural way to write prose -- was
+  # enough to do it, and the failure it caused was the check reporting
+  # that the init block could not be found when it was sitting right
+  # there. A line at a time, a stray quote can only affect its own line.
+  $kept = foreach ($line in ($Text -split "`r?`n")) {
+    $withoutStrings = [regex]::Replace($line, '"(?:[^"\\]|\\.)*"', '""')
+    $withoutStrings -replace '//.*$', ''
   }
   return ($kept -join "`n")
 }
@@ -262,6 +271,12 @@ function Post-Json {
   param([string]$Path, $Payload = $null)
   $body = if ($null -eq $Payload) { "{}" } else { ($Payload | ConvertTo-Json -Compress -Depth 6) }
   return Invoke-Api -Method POST -Path $Path -Body $body
+}
+
+function Put-Json {
+  param([string]$Path, $Payload = $null)
+  $body = if ($null -eq $Payload) { "{}" } else { ($Payload | ConvertTo-Json -Compress -Depth 6) }
+  return Invoke-Api -Method PUT -Path $Path -Body $body
 }
 
 function Field {
@@ -896,6 +911,131 @@ try {
   Write-Host ""
   Write-Host "-- the same model, written in YAML"
   Test-OwnModel (Join-Path $repo "models/product-iteration.yaml") "YAML" ($Port + 2)
+
+  # ── the mapping table ─────────────────────────────────────────────────────
+  # The table that says what a document means is data, and the check is that
+  # the server hands it over, takes a new one, and writes it back.
+  Write-Host ""
+  Write-Host "-- the mapping table"
+  $builtinTable = Get-Json "/api/research/config"
+  Assert-True "the built-in table is served" ($null -ne $builtinTable)
+  Assert-HasField "and it has a table" $builtinTable "config"
+  Assert-True "and the table has rules" (@((Field $builtinTable "config").mapping).Count -ge 1)
+  Assert-HasField "and it has a fallback" (Field $builtinTable "config") "fallback"
+  # The built-in table is not in a file, so it cannot be written back, and
+  # saying so is better than accepting an edit and losing it.
+  Assert-Field "and the built-in table has no file" $builtinTable "path" ""
+  Assert-Field "and it says it cannot be written back" $builtinTable "writable" $false
+
+  # A table that names a slot the running model does not have is a rule
+  # about nowhere, and it is refused with the reason.
+  $badTable = @'
+{
+  "format": "maked.research.v1",
+  "mapping": [
+    { "keywords": ["reproduce"], "label": "A reproduction", "slot": "not-a-slot" }
+  ],
+  "fallback": { "label": "Anything else", "slot": "act" }
+}
+'@
+  $refused = Invoke-Api -Method PUT -Path "/api/research/config" -Body $badTable
+  Assert-Status "a table naming a slot the model does not have is refused" 400 $refused
+  Assert-Contains "and the reason says which slot" $refused.Body "not-a-slot"
+  # The table that was running keeps running.
+  $afterRefusal = Get-Json "/api/research/config"
+  Assert-True "and the running table is unchanged" `
+    ((Field $afterRefusal "config").mapping[0].slot -ne "not-a-slot")
+
+  # ── a table of your own ────────────────────────────────────────────────────
+  # A third server, with a model file and a table file, is the only honest
+  # way to check that the table is read from the file: the table is global
+  # to a process, and the server already running has the built-in one.
+  #
+  # The table file is a copy in the temp directory, because the check writes
+  # back to it -- and the file in the repository is not a scratch pad.
+  function Test-ResearchTable {
+    param([string]$ModelFile, [string]$TableFile, [int]$TablePort)
+
+    Assert-True "the example table ships with the repository" (Test-Path $TableFile)
+    if (-not (Test-Path $TableFile)) { return }
+    $copy = Join-Path $tempDir ("maked_integration_table_{0}.yaml" -f $TablePort)
+    Copy-Item $TableFile $copy -Force
+
+    $tableArgs = @{
+      FilePath               = $exe
+      PassThru               = $true
+      RedirectStandardOutput = (Join-Path $tempDir ("maked_integration_table_{0}_out.log" -f $TablePort))
+      RedirectStandardError  = (Join-Path $tempDir ("maked_integration_table_{0}_err.log" -f $TablePort))
+    }
+    if ($IsWindows -or $PSVersionTable.PSVersion.Major -lt 6) {
+      $tableArgs["WindowStyle"] = "Hidden"
+    }
+    $savedModel = $env:MAKED_MODEL
+    $savedResearch = $env:MAKED_RESEARCH
+    $savedPort = $env:MAKED_PORT
+    $savedDb = $env:MAKED_DB
+    $savedBase = $script:base
+    $env:MAKED_MODEL = $ModelFile
+    $env:MAKED_RESEARCH = $copy
+    $env:MAKED_PORT = "$TablePort"
+    $env:MAKED_DB = (Join-Path $tempDir ("maked_integration_table_{0}.db" -f $TablePort))
+    $script:base = "http://127.0.0.1:$TablePort"
+    $tableServer = Start-Process @tableArgs
+    try {
+      $tableReady = $false
+      for ($i = 0; $i -lt 60; $i++) {
+        Start-Sleep -Milliseconds 250
+        $probe = Invoke-Api -Method GET -Path "/api/status" -TimeoutSec 2
+        if ($probe.Status -eq 200) { $tableReady = $true; break }
+      }
+      Assert-True "the server starts with a table file" $tableReady
+      if ($tableReady) {
+        $own = Get-Json "/api/research/config"
+        Assert-True "and the table is the one in the file" `
+          ((Field $own "config").mapping[0].label -eq "A question worth asking")
+        Assert-Field "and the file it came from is remembered" $own "path" $copy
+        Assert-Field "and it can be written back" $own "writable" $true
+
+        # A table of the reader's own replaces it, and the one that runs is
+        # the one that was just put.
+        $newTable = @'
+{
+  "format": "maked.research.v1",
+  "mapping": [
+    { "keywords": ["reproduce"], "label": "A reproduction", "slot": "build" }
+  ],
+  "fallback": { "label": "Anything else", "slot": "scope" }
+}
+'@
+        $put = Invoke-Api -Method PUT -Path "/api/research/config" -Body $newTable
+        Assert-Status "a new table is accepted" 200 $put
+        $after = Get-Json "/api/research/config"
+        Assert-Field "and the table that runs is the one that was put" `
+          (Field $after "config").mapping[0].label "A reproduction"
+        # And it was written back, so the edit survives the server stopping.
+        $written = Get-Content $copy -Raw
+        Assert-Contains "and it was written back to the file" $written "A reproduction"
+        Assert-Contains "and in the syntax the file's name asks for" $written "maked.research.v1"
+        # A YAML file written back as YAML, not as JSON: the braces would
+        # say otherwise.
+        Assert-True "and the file is still YAML" (-not $written.TrimStart().StartsWith("{"))
+      }
+    } finally {
+      if ($null -ne $tableServer -and -not $tableServer.HasExited) {
+        Stop-Process -Id $tableServer.Id -Force -ErrorAction SilentlyContinue
+      }
+      $env:MAKED_MODEL = $savedModel
+      $env:MAKED_RESEARCH = $savedResearch
+      $env:MAKED_PORT = $savedPort
+      $env:MAKED_DB = $savedDb
+      $script:base = $savedBase
+    }
+  }
+
+  Write-Host ""
+  Write-Host "-- a table of your own"
+  Test-ResearchTable (Join-Path $repo "models/product-iteration.json") `
+    (Join-Path $repo "research/product-iteration.yaml") ($Port + 3)
 } finally {
   Stop-Server
   Start-Sleep -Milliseconds 300

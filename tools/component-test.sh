@@ -54,9 +54,9 @@ fi
 # ---------------------------------------------------------------------------
 echo "  Component: Research Pipeline"
 
-# Verify that research_test.mbt passes (paper_to_trigger, trigger_to_slot)
+# Verify that research_test.mbt passes (paper -> the mapping table -> slot)
 if moon test --target native backend 2>/dev/null; then
-  assert_component "research pipeline (paper -> trigger -> slot) passes" "PASS"
+  assert_component "research pipeline (paper -> the mapping table -> slot) passes" "PASS"
 else
   assert_component "research pipeline (paper -> trigger -> slot) passes" "FAIL: tests failed"
 fi

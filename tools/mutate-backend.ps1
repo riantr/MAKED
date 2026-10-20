@@ -181,10 +181,13 @@ $mutations = @(
   },
   # A model file may be written in YAML as well as JSON. The extension says
   # which, because the two syntaxes overlap -- JSON is a subset of YAML --
-  # and a file read as the wrong syntax is a file that half-reads.
+  # and a file read as the wrong syntax is a file that half-reads. The rule
+  # itself lives in datafile.mbt now, because the research file follows it
+  # too and two rules written down twice are two rules that will one day
+  # disagree.
   @{
     name = 'a YAML model file is read as JSON'
-    file = 'backend/model.mbt'
+    file = 'backend/datafile.mbt'
     old  = '  lower.has_suffix(".yaml") || lower.has_suffix(".yml")'
     new  = '  lower.has_suffix(".yaml") && lower.has_suffix(".yml")'
   },
@@ -193,9 +196,51 @@ $mutations = @(
   # would be running a machine nobody chose.
   @{
     name = 'a model file with two machines in it is read anyway'
-    file = 'backend/model.mbt'
+    file = 'backend/datafile.mbt'
     old  = '    if documents.length() > 1 {'
     new  = '    if false {'
+  },
+  # The mapping table is data, and a table that never fires is a table that
+  # says nothing: every document would fall through to the fallback and the
+  # reader would be told the wrong thing about every paper they brought.
+  @{
+    name = 'the mapping table never fires'
+    file = 'backend/research_config.mbt'
+    old  = '      if lower.contains(word) {'
+    new  = '      if false {'
+  },
+  # A table is written back in the syntax its name asks for. A YAML file
+  # written as JSON is a file that is read as YAML and half-reads, and the
+  # reader's edit is lost in the failure.
+  @{
+    name = 'a YAML table is written back as JSON'
+    file = 'backend/datafile.mbt'
+    old  = '  if is_yaml_path(path) {
+    @yaml.Yaml::dump(json_to_yaml(json))'
+    new  = '  if false {
+    @yaml.Yaml::dump(json_to_yaml(json))'
+  },
+  # A table that names a slot the model does not have is a rule about
+  # nowhere. Accepting it would mean driving a document through a slot that
+  # is not there -- a step that goes nowhere while looking like a step.
+  @{
+    name = 'a table that names a slot the model does not have is accepted'
+    file = 'backend/research_config.mbt'
+    old  = '    if model.slot_from_name(rule.slot) is None {
+      return Some(rule.slot)
+    }'
+    new  = '    if false {
+      return Some(rule.slot)
+    }'
+  },
+  # The table that runs is the table that was installed. A server that read
+  # a file and then ran the built-in table anyway would answer every
+  # request confidently and about the wrong table.
+  @{
+    name = 'the table that was read is never installed'
+    file = 'backend/research_config.mbt'
+    old  = '  g_research[0] = config'
+    new  = '  g_research[0] = current_research()'
   },
   # The role of a domain is the model's word for it. MAKED used to carry its
   # own five roles and look them up by letter, so a model file's domains had

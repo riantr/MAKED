@@ -1,123 +1,145 @@
 ///| Research module tests.
 ///
-/// The research module parses arxiv Atom XML and maps papers to pyroduct
-/// triggers. These tests pin down the keyword heuristics and the public API
-/// that would silently break if the mapping logic changed.
+/// The research module parses arxiv Atom XML and reads papers through the
+/// mapping table. These tests pin down what the built-in table says, and
+/// that a table of the reader's own decides for itself.
 
 ///|
-/// paper_to_trigger maps SOTA keywords to AbsorbGlory.
-test "paper_to_trigger maps SOTA to AbsorbGlory" {
-  let paper : @backend.Paper = {
+/// A paper with the given words in it.
+fn paper_with(title : String, summary : String) -> @backend.Paper {
+  {
     id: "1",
-    title: "State-of-the-Art SNN",
-    summary: "We outperform all baselines",
+    title,
+    summary,
     authors: [],
     categories: [],
     published: "2024-01-01",
     link: "",
   }
-  assert_true(@backend.paper_to_trigger(paper) is @sm.AbsorbGlory)
 }
 
 ///|
-/// paper_to_trigger maps limitation keywords to Sting.
-test "paper_to_trigger maps limitation to Sting" {
-  let paper : @backend.Paper = {
-    id: "2",
-    title: "Challenges in SNN",
-    summary: "Current methods fail at scale",
-    authors: [],
-    categories: [],
-    published: "2024-01-01",
-    link: "",
+/// The slot the built-in table gives a paper, and the rule that said so.
+fn built_in_slot(paper : @backend.Paper) -> (String, String) {
+  @backend.paper_to_slot(@backend.ResearchConfig::builtin(), paper)
+}
+
+///|
+/// The built-in table maps SOTA to the feedback slot.
+test "the built-in table maps a claim of superiority to feedback" {
+  let (slot, _) = built_in_slot(
+    paper_with("State-of-the-Art SNN", "We outperform all baselines"),
+  )
+  assert_eq(slot, "feedback")
+}
+
+///|
+/// The built-in table maps limitation to the feedback slot.
+test "the built-in table maps a reported failure to feedback" {
+  let (slot, _) = built_in_slot(
+    paper_with("Challenges in SNN", "Current methods fail at scale"),
+  )
+  assert_eq(slot, "feedback")
+}
+
+///|
+/// The built-in table maps novel to the act slot.
+test "the built-in table maps a new method to act" {
+  let (slot, _) = built_in_slot(
+    paper_with("A Novel Approach to SNN", "We propose a new method"),
+  )
+  assert_eq(slot, "act")
+}
+
+///|
+/// The built-in table maps survey to the hold slot.
+test "the built-in table maps a survey to hold" {
+  let (slot, _) = built_in_slot(
+    paper_with("A Survey of SNN Methods", "Review of the field"),
+  )
+  assert_eq(slot, "hold")
+}
+
+///|
+/// The built-in table maps benchmark to the occasion slot.
+test "the built-in table maps an evaluation to occasion" {
+  let (slot, _) = built_in_slot(
+    paper_with("SNN Benchmark Dataset", "Evaluation framework"),
+  )
+  assert_eq(slot, "occasion")
+}
+
+///|
+/// The built-in table leaves a neutral paper to the fallback.
+test "the built-in table leaves a neutral paper to the fallback" {
+  let (slot, label) = built_in_slot(
+    paper_with(
+      "SNN Implementation Details", "Technical report on spiking networks",
+    ),
+  )
+  assert_eq(slot, "antecedent")
+  assert_eq(label, "Anything else")
+}
+
+///|
+/// The built-in table's order is the priority.
+test "the built-in table's order is the priority" {
+  let (slot, _) = built_in_slot(
+    paper_with(
+      "Novel SOTA SNN with Challenges", "We propose and outperform but also fail",
+    ),
+  )
+  assert_eq(slot, "feedback")
+}
+
+///|
+/// A table of the reader's own decides for itself.
+///
+/// The table is not asked what it "should" say: a rule that says "reproduce"
+/// drives the hold slot, and the built-in table's rules do not get a vote.
+test "a table of the reader's own decides for itself" {
+  let config = @backend.ResearchConfig::{
+    rules: [
+      {
+        keywords: ["reproduce", "replication"],
+        slot: "hold",
+        label: "A reproduction",
+        notes: "",
+      },
+    ],
+    fallback_slot: "act",
+    fallback_label: "Anything else",
+    path: "",
   }
-  assert_true(@backend.paper_to_trigger(paper) is @sm.Sting)
+  let (slot, label) = @backend.paper_to_slot(
+    config,
+    paper_with("A reproduction study", "We reproduce every result"),
+  )
+  assert_eq(slot, "hold")
+  assert_eq(label, "A reproduction")
 }
 
 ///|
-/// paper_to_trigger maps novel keywords to ActInFreedom.
-test "paper_to_trigger maps novel to ActInFreedom" {
-  let paper : @backend.Paper = {
-    id: "3",
-    title: "A Novel Approach to SNN",
-    summary: "We propose a new method",
-    authors: [],
-    categories: [],
-    published: "2024-01-01",
-    link: "",
+/// A table with no rule of its own falls back to what it says.
+test "a table falls back to what it says" {
+  let config = @backend.ResearchConfig::{
+    rules: [
+      {
+        keywords: ["reproduce"],
+        slot: "hold",
+        label: "A reproduction",
+        notes: "",
+      },
+    ],
+    fallback_slot: "act",
+    fallback_label: "Anything else",
+    path: "",
   }
-  assert_true(@backend.paper_to_trigger(paper) is @sm.ActInFreedom)
-}
-
-///|
-/// paper_to_trigger maps survey keywords to KeepContinuity.
-test "paper_to_trigger maps survey to KeepContinuity" {
-  let paper : @backend.Paper = {
-    id: "4",
-    title: "A Survey of SNN Methods",
-    summary: "Review of the field",
-    authors: [],
-    categories: [],
-    published: "2024-01-01",
-    link: "",
-  }
-  assert_true(@backend.paper_to_trigger(paper) is @sm.KeepContinuity)
-}
-
-///|
-/// paper_to_trigger maps benchmark keywords to FeelFinitude.
-test "paper_to_trigger maps benchmark to FeelFinitude" {
-  let paper : @backend.Paper = {
-    id: "5",
-    title: "SNN Benchmark Dataset",
-    summary: "Evaluation framework",
-    authors: [],
-    categories: [],
-    published: "2024-01-01",
-    link: "",
-  }
-  assert_true(@backend.paper_to_trigger(paper) is @sm.FeelFinitude)
-}
-
-///|
-/// paper_to_trigger defaults to TouchFuture for neutral papers.
-test "paper_to_trigger defaults to TouchFuture" {
-  let paper : @backend.Paper = {
-    id: "6",
-    title: "SNN Implementation Details",
-    summary: "Technical report on spiking networks",
-    authors: [],
-    categories: [],
-    published: "2024-01-01",
-    link: "",
-  }
-  assert_true(@backend.paper_to_trigger(paper) is @sm.TouchFuture)
-}
-
-///|
-/// paper_to_trigger priority: SOTA > limitation > novel > survey > benchmark.
-test "paper_to_trigger respects priority order" {
-  let paper : @backend.Paper = {
-    id: "7",
-    title: "Novel SOTA SNN with Challenges",
-    summary: "We propose and outperform but also fail",
-    authors: [],
-    categories: [],
-    published: "2024-01-01",
-    link: "",
-  }
-  assert_true(@backend.paper_to_trigger(paper) is @sm.AbsorbGlory)
-}
-
-///|
-/// trigger_to_slot returns the correct slot for each trigger.
-test "trigger_to_slot maps triggers to slots" {
-  assert_eq(@backend.trigger_to_slot(@sm.AbsorbGlory), @sm.Feedback)
-  assert_eq(@backend.trigger_to_slot(@sm.Sting), @sm.Feedback)
-  assert_eq(@backend.trigger_to_slot(@sm.ActInFreedom), @sm.Act)
-  assert_eq(@backend.trigger_to_slot(@sm.KeepContinuity), @sm.Hold)
-  assert_eq(@backend.trigger_to_slot(@sm.FeelFinitude), @sm.Occasion)
-  assert_eq(@backend.trigger_to_slot(@sm.TouchFuture), @sm.Antecedent)
+  let (slot, _) = @backend.paper_to_slot(
+    config,
+    paper_with("A new method", "We propose"),
+  )
+  assert_eq(slot, "act")
 }
 
 ///|

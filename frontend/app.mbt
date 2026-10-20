@@ -22,6 +22,12 @@ pub(all) enum Msg {
   ResetClicked
   ResearchLoaded(Result[Json, Error])
   ResearchDriven(Result[Json, Error])
+  /// The mapping table: the reader's own words for what a document means.
+  ResearchConfigLoaded(Result[Json, Error])
+  ResearchConfigSaved(Result[Json, Error])
+  ResearchConfigEditClicked
+  ResearchConfigTextChanged(String)
+  ResearchConfigSaveClicked
   CausalLoaded(Result[Json, Error])
   FetchPapersClicked
   DriveLoopClicked
@@ -74,6 +80,21 @@ pub(all) struct Model {
   research_papers : Array[Json]
   research_triggers : Array[Json]
   research_error : String
+  /// The mapping table the server is running: the rules, and the text the
+  /// reader is editing them in. The table is data, and this is where the
+  /// reader gets at it.
+  research_config : Json?
+  /// The file the table came from; empty when it is the built-in one, and
+  /// that is the difference between a table that can be saved and one that
+  /// cannot.
+  research_config_path : String
+  /// The table as text, which is what the reader edits.
+  research_config_text : String
+  /// What the table panel says after the last action. One of the two is
+  /// always empty, and between them they cover every outcome: a save either
+  /// lands, is refused with a reason, or fails to reach the server.
+  research_config_error : String
+  research_config_notice : String
   causal_result : Json?
   causal_error : String
   /// The user's own records, fetched with the pages so that the workspace
@@ -139,6 +160,11 @@ fn initial() -> Model {
     research_papers: [],
     research_triggers: [],
     research_error: "",
+    research_config: None,
+    research_config_path: "",
+    research_config_text: "",
+    research_config_error: "",
+    research_config_notice: "",
     causal_result: None,
     causal_error: "",
     entries: [],
@@ -362,6 +388,109 @@ pub fn update(
       )
     ResearchDriven(Err(_)) =>
       ({ ..model, loop_error: "research drive failed", }, @cmd.none)
+    // The mapping table.
+    ResearchConfigLoaded(Ok(json)) =>
+      (
+        {
+          ..model,
+          research_config: decode_research_config(json),
+          research_config_path: get_string(json, "path", ""),
+          research_config_text: config_text_of(json),
+          research_config_error: "",
+          research_config_notice: "",
+        },
+        @cmd.none,
+      )
+    ResearchConfigLoaded(Err(_)) =>
+      (
+        { ..model, research_config_error: "the mapping table is unavailable", },
+        @cmd.none,
+      )
+    ResearchConfigSaved(Ok(json)) =>
+      // The server refuses a table that names a slot the model does not
+      // have, and the reason is the whole of the answer: a table that is
+      // simply wrong is not something a reader can act on.
+      match field(json, "error") {
+        Some(String(_)) => {
+          let mut reason = ""
+          match field(json, "reason") {
+            Some(String(text)) => reason = text
+            _ => ()
+          }
+          (
+            {
+              ..model,
+              research_config_error: if reason == "" {
+                "the server refused the table"
+              } else {
+                reason
+              },
+              research_config_notice: "",
+            },
+            @cmd.none,
+          )
+        }
+        _ =>
+          (
+            {
+              ..model,
+              research_config: decode_research_config(json),
+              research_config_path: get_string(
+                json,
+                "path",
+                model.research_config_path,
+              ),
+              research_config_text: config_text_of(json),
+              research_config_error: "",
+              research_config_notice: get_string(
+                json, "notice", "The table is running.",
+              ),
+            },
+            @cmd.none,
+          )
+      }
+    ResearchConfigSaved(Err(_)) =>
+      (
+        { ..model, research_config_error: "the table could not be saved", },
+        @cmd.none,
+      )
+    ResearchConfigEditClicked =>
+      (
+        model,
+        @http.get("/api/research/config").expect_json(
+          emit.map(fn(result) { ResearchConfigLoaded(result) }),
+        ),
+      )
+    ResearchConfigTextChanged(text) =>
+      ({ ..model, research_config_text: text, }, @cmd.none)
+    ResearchConfigSaveClicked => {
+      // The text is parsed here rather than sent as text, so that a table
+      // that is not JSON at all is refused straight away instead of
+      // travelling to the server and being refused there. The server
+      // refuses a table that names a slot the model does not have, and
+      // says why; this only catches the text that is not a table at all.
+      let parsed = @json.parse(model.research_config_text) catch {
+        err =>
+          return (
+            {
+              ..model,
+              research_config_error: "that is not JSON: " + err.to_string(),
+              research_config_notice: "",
+            },
+            @cmd.none,
+          )
+      }
+      (
+        {
+          ..model,
+          research_config_error: "",
+          research_config_notice: "Saving…",
+        },
+        @http.put("/api/research/config")
+        .with_json(parsed)
+        .expect_json(emit.map(fn(result) { ResearchConfigSaved(result) })),
+      )
+    }
     FetchPapersClicked =>
       (
         model,
@@ -990,5 +1119,27 @@ fn decode_causal_result(json : Json) -> Json? {
   match field(json, "causal") {
     Some(obj) => Some(obj)
     _ => None
+  }
+}
+
+///|
+/// The mapping table out of the server's answer.
+fn decode_research_config(json : Json) -> Json? {
+  match field(json, "config") {
+    Some(obj) => Some(obj)
+    _ => None
+  }
+}
+
+///|
+/// The mapping table as text, which is what the reader edits.
+///
+/// Two spaces of indent, because a table written on one line is a table
+/// nobody edits. The text is the table the server is running, so the
+/// reader starts from what is in force rather than from a blank box.
+fn config_text_of(json : Json) -> String {
+  match decode_research_config(json) {
+    Some(config) => config.stringify(indent=2)
+    None => ""
   }
 }

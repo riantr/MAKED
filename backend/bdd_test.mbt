@@ -235,11 +235,11 @@ test "Scenario: domain ring order is MDEAK" {
 }
 
 ///|
-/// Scenario: Paper to trigger mapping follows priority.
+/// Scenario: the mapping table's order is the priority.
 /// Given a paper with multiple keyword categories
-/// When I map it to a trigger
+/// When I read it through the built-in table
 /// Then the highest-priority keyword wins
-test "Scenario: paper trigger mapping priority" {
+test "Scenario: the mapping table's order is the priority" {
   // Given a paper with SOTA and novel keywords
   let paper : @backend.Paper = {
     id: "1",
@@ -250,10 +250,13 @@ test "Scenario: paper trigger mapping priority" {
     published: "2024-01-01",
     link: "",
   }
-  // When I map it to a trigger
-  let trigger = @backend.paper_to_trigger(paper)
-  // Then SOTA (AbsorbGlory) wins over novel (ActInFreedom)
-  assert_true(trigger is @sm.AbsorbGlory)
+  // When I read it through the built-in table
+  let (slot, _) = @backend.paper_to_slot(
+    @backend.ResearchConfig::builtin(),
+    paper,
+  )
+  // Then the first rule that matches wins: the claim of superiority
+  assert_eq(slot, "feedback")
 }
 
 ///|
