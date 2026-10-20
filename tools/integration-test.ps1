@@ -1109,6 +1109,20 @@ try {
         Assert-True "and the document was driven" `
           ((Field $driveJson "documents_driven") -ge 1)
 
+        # A corpus of one document cannot support an estimate, and the
+        # endpoint says so in words rather than reporting a zero. A zero
+        # there reads as "no effect" rather than "not enough to say", and
+        # the refusal is a 200: the request was fine, the corpus was not
+        # big enough, and a person is owed the reason.
+        $smallCausal = Get-Json "/api/research/causal"
+        $smallBody = Field $smallCausal "causal"
+        Assert-True "a corpus too small to estimate is refused" `
+          ((Field $smallBody "refused") -ne "")
+        Assert-True "and the reason says what was needed" `
+          ((Field $smallBody "reason") -like "*10*")
+        Assert-True "and there is no effect to read" `
+          ($null -eq (Field $smallBody "theta"))
+
         # A corpus that names a source it cannot read is refused, with the
         # reason, and the corpus that was running keeps running.
         $bad = Put-Json "/api/research/corpus" `
@@ -1146,6 +1160,104 @@ try {
     }
   }
 
+  # --- what the causal estimate rests on ---------------------------------
+  #
+  # A causal number is the first thing a reader argues with, and the first
+  # question about it is "what did you control for?". These checks are over
+  # real HTTP: the endpoint has to answer with the named treatment and
+  # outcome, the named variables, the balance between the two groups, the
+  # overlap and the sensitivity interval -- and not with a bare number.
+  function Test-ResearchCausal {
+    param([int]$CausalPort)
+    if (-not (Test-Path $exe)) { return }
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    $notesDir = Join-Path $tempDir ("maked_integration_causal_{0}" -f $CausalPort)
+    New-Item -ItemType Directory -Path $notesDir -Force | Out-Null
+    # Sixteen notes, half of them claiming to be new. The two groups are
+    # given the same title lengths and the same abstract lengths on purpose:
+    # a corpus whose two groups can be told apart by nothing but the claim
+    # is a corpus that can support an estimate, and a corpus whose groups
+    # differ in every shape is refused -- which is a different check.
+    for ($i = 0; $i -lt 16; $i++) {
+      $target = 24 + ([int]($i / 2) % 2)
+      if ($i % 2 -eq 0) {
+        $raw = "A novel method for SNN $i"
+        $body = "We propose a new method and introduce it here."
+      } else {
+        $raw = "A plain report on SNN $i"
+        $body = "We measure a thing and report it plainly.."
+      }
+      $title = $raw.PadRight($target, ".")
+      $text = $body.PadRight(46, ".")
+      [System.IO.File]::WriteAllText(
+        (Join-Path $notesDir ("note_{0}.md" -f $i)),
+        ("# {0}`n`n{1}`n" -f $title, $text),
+        $utf8)
+    }
+    $corpusPath = Join-Path $tempDir ("maked_integration_causal_{0}.yaml" -f $CausalPort)
+    $notesPath = $notesDir -replace '\\', '/'
+    [System.IO.File]::WriteAllText(
+      $corpusPath,
+      ("format: maked.corpus.v1`nsource:`n  kind: local`n  path: {0}`n  max_results: 20`n" -f $notesPath),
+      $utf8)
+
+    $causalArgs = @{
+      FilePath               = $exe
+      PassThru               = $true
+      RedirectStandardOutput = (Join-Path $tempDir ("maked_integration_causal_{0}_out.log" -f $CausalPort))
+      RedirectStandardError  = (Join-Path $tempDir ("maked_integration_causal_{0}_err.log" -f $CausalPort))
+    }
+    if ($IsWindows -or $PSVersionTable.PSVersion.Major -lt 6) {
+      $causalArgs["WindowStyle"] = "Hidden"
+    }
+    $savedCorpus = $env:MAKED_CORPUS
+    $savedPort = $env:MAKED_PORT
+    $savedDb = $env:MAKED_DB
+    $savedBase = $script:base
+    $env:MAKED_CORPUS = $corpusPath
+    $env:MAKED_PORT = "$CausalPort"
+    $env:MAKED_DB = (Join-Path $tempDir ("maked_integration_causal_{0}.db" -f $CausalPort))
+    $script:base = "http://127.0.0.1:$CausalPort"
+    $causalServer = Start-Process @causalArgs
+    try {
+      $causalReady = $false
+      for ($i = 0; $i -lt 60; $i++) {
+        Start-Sleep -Milliseconds 250
+        $probe = Invoke-Api -Method GET -Path "/api/status" -TimeoutSec 2
+        if ($probe.Status -eq 200) { $causalReady = $true; break }
+      }
+      Assert-True "the server starts with a corpus for the estimate" $causalReady
+      if ($causalReady) {
+        $causal = Get-Json "/api/research/causal"
+        $body = Field $causal "causal"
+        Assert-True "the causal endpoint answers with an estimate" ($null -ne $body)
+        Assert-Field "and the treatment is named" $body "treatment" "claims to be new"
+        Assert-Field "and the outcome is named" $body "outcome" "impact score"
+        Assert-ArrayLength "and the controlled variables are named" $body "confounders" 4
+        Assert-ArrayLength "and each one has a balance row" $body "balance" 4
+        Assert-True "and the estimate was made" ((Field $body "refused") -eq "")
+        Assert-True "and the effect is a number and not a string" `
+          ((Field $body "theta") -isnot [string])
+        Assert-True "and the standard error is a number and not a string" `
+          ((Field $body "se") -isnot [string])
+        Assert-FieldNotEmpty "and the overlap is reported" `
+          (Field $body "overlap") "reading"
+        Assert-FieldNotEmpty "and the sensitivity is reported" `
+          (Field $body "sensitivity") "reading"
+        Assert-True "and the corpus that was read is said out loud" `
+          ((Field $causal "documents_analyzed") -eq 16)
+      }
+    } finally {
+      if ($null -ne $causalServer -and -not $causalServer.HasExited) {
+        Stop-Process -Id $causalServer.Id -Force -ErrorAction SilentlyContinue
+      }
+      $env:MAKED_CORPUS = $savedCorpus
+      $env:MAKED_PORT = $savedPort
+      $env:MAKED_DB = $savedDb
+      $script:base = $savedBase
+    }
+  }
+
   Write-Host ""
   Write-Host "-- a table of your own"
   Test-ResearchTable (Join-Path $repo "models/product-iteration.json") `
@@ -1154,6 +1266,10 @@ try {
   Write-Host ""
   Write-Host "-- a corpus of your own"
   Test-ResearchCorpus ($Port + 4)
+
+  Write-Host ""
+  Write-Host "-- what the causal estimate rests on"
+  Test-ResearchCausal ($Port + 5)
 } finally {
   Stop-Server
   Start-Sleep -Milliseconds 300

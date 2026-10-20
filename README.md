@@ -306,7 +306,7 @@ Structured mode is the default. Free mode allows exploring transition paths thro
 |---|---|
 | `GET /api/research/documents` | the documents the corpus holds + the rule each one matched + which corpus it is |
 | `POST /api/research/drive` | read the corpus and drive the loop with it |
-| `GET /api/research/causal` | DoubleML causal inference results |
+| `GET /api/research/causal` | the estimate, the variables it controlled for, the balance between the two groups, the overlap, and the sensitivity interval -- or a refusal with the reason and the evidence |
 | `GET /api/research/config` | the mapping table, the file it came from, and whether it can be written back |
 | `PUT /api/research/config` | replace the table; a table naming a slot the model does not have is refused, with the reason |
 | `GET /api/research/corpus` | the corpus, the file it came from, and whether it can be written back |
@@ -332,7 +332,7 @@ backend/          micro-framework, storage layer, API routes, state loop engine
   corpus.mbt        the corpus: where the documents come from, as data
   corpus_sources.mbt  the readers: arxiv, a feed, and the reader's own files
   datafile.mbt      reading a file written in JSON or in YAML, either way
-  causal.mbt        DoubleML causal inference
+  causal.mbt        DoubleML causal inference: the estimate, and what it rests on
   maked_app.mbt     assembly, static files, SPA fallback
 frontend/         rabbita single-page application
   app.mbt           state machine and router
@@ -342,6 +342,7 @@ frontend/         rabbita single-page application
   logo.mbt          five-ring mark (SVG)
   loop_state.mbt    loop state visualisation
   page.mbt          typed accessors for the backend JSON
+  causal.mbt        the causal panel: the estimate, and the diagnostics around it
 cmd/server/       native entry point
 cmd/web/          js entry point (browser bundle)
 models/           the example machine, in both syntaxes
@@ -379,15 +380,15 @@ image carries `pwsh`.
 Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be run separately:
 
 ```
-.\tools\mutate-backend.ps1     # 60 mutations, 0 survived, 1 expected-equivalent
-.\tools\mutate-frontend.ps1    # 23 mutations, 0 survived
+.\tools\mutate-backend.ps1     # 74 mutations, 0 survived, 1 expected-equivalent
+.\tools\mutate-frontend.ps1    # 31 mutations, 0 survived
 .\tools\mutate-loop.ps1        # 16 mutations, 0 survived
 ```
 
 And the one that finds the rot before the suites do:
 
 ```
-.\tools\check-mutation-anchors.ps1   # 99 anchors, 0 dead
+.\tools\check-mutation-anchors.ps1   # 121 anchors, 0 dead
 ```
 
 Every mutation in those three suites is a text replacement, and a text
@@ -430,8 +431,8 @@ that cannot break is not a gate, and that one fails the build.
 | js-check | `moon check --target js` | frontend type safety |
 | fmt | `moon fmt --check` | code formatting |
 | tree | `moon tree` | dependency audit |
-| unit-native | `moon test --target native` | 308 backend tests (includes the BDD suite below) |
-| unit-js | `moon test --target js` | 83 frontend tests |
+| unit-native | `moon test --target native` | 332 backend tests (includes the BDD suite below) |
+| unit-js | `moon test --target js` | 99 frontend tests |
 | coverage | `moon test --enable-coverage` | coverage |
 | bench | `moon bench` | benchmarks |
 | prove | `moon prove` | formal verification (Why3) |
@@ -465,7 +466,7 @@ The cause was not root-caused — the same build works when the init issues a GE
 ## The Integration Tests Are The Net For That Class Of Bug
 
 ```powershell
-.\tools\integration-test.ps1              # builds the server, then runs 187 checks
+.\tools\integration-test.ps1              # builds the server, then runs 202 checks
 .\tools\integration-test.ps1 -SkipBuild   # reuse the binary that is already built
 ```
 
@@ -1140,6 +1141,78 @@ documents, and it says so when the corpus held nothing: "the corpus held no
 documents" and "the fetch failed" are different facts, and an empty panel that
 does not say which one it is looks exactly like a broken button.
 
+## The Estimate Says What It Rests On
+
+A causal number is the first thing a reader argues with, and the first
+question about it is never "how big is it?" — it is **which variables did
+you control for?**
+
+The panel used to answer neither. It showed one number, read out of the
+server's JSON with a string accessor over a JSON number — so it showed the
+fallback `0.0` for every estimate the server ever produced. The panel
+looked right. It had never once shown a number.
+
+Underneath it, the estimate was hollow in three separate ways, and each of
+them was found by measuring rather than by reading:
+
+- **The outcome was a formula of the document's own features with no noise
+  in it.** A quantity that is exactly predictable has a standard error of
+  zero and an interval with no width; the old panel reported a standard
+  error of 0.00056 and a confidence interval 0.002 wide — an interval drawn
+  around a number that was really just the formula read back. The impact
+  score now carries a deterministic noise of its own, derived from the
+  document's text, so the same corpus always gives the same answer and a
+  different corpus gives a different one.
+- **A corpus whose two groups do not overlap was still estimated.** The fit
+  returns a number for such a corpus — a standard error of forty-five
+  million and a confidence interval three hundred and sixty billion wide —
+  and none of those is a measurement. They are the arithmetic saying there
+  is nothing to measure.
+- **The propensity was not a propensity.** DoubleML's default learner for
+  that slot is a linear regression, which predicts a number: on the corpus
+  this project ships it predicts −0.7 and 1.25, and neither of those is a
+  probability. The treatment here is binary, so its learner is now a
+  logistic regression, and the panel reports the range the propensity took
+  so the reader can see it stayed between zero and one.
+
+So the estimate now comes with the three things that make it arguable.
+
+**What was treated, what was measured, and what was controlled for** — by
+name, not as "Features: 4":
+
+| | |
+|---|---|
+| Treatment | claims to be new |
+| Outcome | impact score |
+| Controlled for | title length, abstract length, author count, category count |
+
+**The balance of the two groups**, one row per controlled variable: the
+mean among the treated, the mean among the untreated, the standardized
+difference, and what that difference means in words. A variable the two
+groups sit on different constants for — no spread to measure the gap
+against — is reported as *the two groups do not overlap on this*, never as a
+difference of zero, because a zero there says the groups are alike and
+they are not. A variable the groups agree on is reported as such too: a
+balance table that flags everything flags nothing.
+
+**The overlap**, measured on the treatment residual the estimator actually
+works with, and the **sensitivity interval**: how strong an unobserved
+confounder would have to be before the estimate's sign could flip
+(Cinelli & Hazlett's robustness value), widened by the worst-case bias.
+"How noisy is this?" and "how wrong could this be?" are two different
+questions, and the panel answers both.
+
+**And when the corpus cannot support an estimate, it says so, and shows
+why.** A corpus of five documents; a corpus where nothing claims to be
+new; a corpus where everything does; a corpus whose two groups do not
+overlap. Each is refused *with the reason in words and the balance table
+as the evidence* — and the refusal carries no theta, because a theta of
+zero next to no data is a finding nobody made.
+
+The outcome is still MAKED's own measure — a document's length, its
+authorship and its breadth — and the panel says so, because a reader who
+thinks MAKED measured impact will read the number as a fact about the
+world.
 ## Deep Links Need A `<base>` Tag
 
 `index.html` carries `<base href="/" />`, and it is load-bearing.

@@ -603,67 +603,6 @@ pub fn research_config_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html 
 }
 
 ///|
-/// Causal inference panel: estimate the causal effect of paper "novelty" on
-/// a synthetic impact score using Double/Debiased Machine Learning.
-pub fn causal_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
-  let button = @html.div(class="maked-causal-buttons", [
-    @html.button(
-      class="maked-btn maked-btn-causal",
-      on_click=emit(EstimateCausalClicked),
-      "Estimate Causal Effect (DoubleML)",
-    ),
-  ])
-  let result_view = match model.causal_result {
-    None =>
-      @html.p(
-        class="maked-causal-empty",
-        "Click the button to run causal inference on research papers.",
-      )
-    Some(causal) => {
-      let theta = get_string(causal, "theta", "0.0")
-      let se = get_string(causal, "se", "0.0")
-      let ci_lower = get_string(causal, "ci_lower", "0.0")
-      let ci_upper = get_string(causal, "ci_upper", "0.0")
-      let n_obs = get_string(causal, "n_obs", "0")
-      let n_treated = get_string(causal, "n_treated", "0")
-      let n_features = get_string(causal, "n_features", "0")
-      @html.div(class="maked-causal-results", [
-        @html.h3(class="maked-causal-subtitle", "Causal Effect Estimate"),
-        @html.dl(class="maked-causal-stats", [
-          @html.dt("Treatment Effect (θ)"),
-          @html.dd(class="maked-causal-value", theta),
-          @html.dt("Standard Error"),
-          @html.dd(se),
-          @html.dt("95% Confidence Interval"),
-          @html.dd("[\{ci_lower}, \{ci_upper}]"),
-          @html.dt("Observations"),
-          @html.dd(n_obs),
-          @html.dt("Treated"),
-          @html.dd(n_treated),
-          @html.dt("Features"),
-          @html.dd(n_features),
-        ]),
-        @html.p(
-          class="maked-causal-interpretation",
-          "The estimated causal effect of paper 'novelty' on impact, controlling for confounders via DoubleML.",
-        ),
-      ])
-    }
-  }
-  let error = if model.causal_error == "" {
-    @html.nothing
-  } else {
-    @html.p(class="maked-causal-error", model.causal_error)
-  }
-  @html.section(class="maked-causal", [
-    @html.h2(class="maked-causal-title", "Causal Inference"),
-    button,
-    result_view,
-    error,
-  ])
-}
-
-///|
 /// The sessions page: the named explorations, the timeline of the one in
 /// front of the user, and the two ways out of a step -- go back, or fork.
 ///

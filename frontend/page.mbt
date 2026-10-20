@@ -39,6 +39,19 @@ pub fn field(json : Json, key : String) -> Json? {
 }
 
 ///|
+/// A nested object, or an empty one.
+///
+/// A missing nested field is a backend change, not a reason for the page
+/// to die: a page that dies on a missing field shows the reader nothing
+/// at all, which is worse than showing a row without its number.
+pub fn sub(json : Json, key : String) -> Json {
+  match field(json, key) {
+    Some(value) => value
+    None => Json::object({})
+  }
+}
+
+///|
 pub fn get_string(json : Json, key : String, fallback : String) -> String {
   match field(json, key) {
     Some(String(s)) => s
@@ -50,6 +63,20 @@ pub fn get_string(json : Json, key : String, fallback : String) -> String {
 pub fn get_int(json : Json, key : String, fallback : Int32) -> Int32 {
   match field(json, key) {
     Some(Number(n, ..)) => n.to_int()
+    _ => fallback
+  }
+}
+
+///|
+/// The number in a field, or the fallback.
+///
+/// A JSON number is not a JSON string, so reading one with `get_string`
+/// always returns the fallback. The causal panel did exactly that, and so
+/// displayed the fallback "0.0" for every estimate it ever made -- a panel
+/// that looked right and had never once shown a number.
+pub fn get_double(json : Json, key : String, fallback : Double) -> Double {
+  match field(json, key) {
+    Some(Number(n, ..)) => n
     _ => fallback
   }
 }

@@ -835,10 +835,15 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       }
     }
   })
-  // Causal inference endpoint: estimate the causal effect of a document's
-  // "novelty" on a synthetic impact score using Double/Debiased Machine
-  // Learning.
+  // Causal inference endpoint: estimate the causal effect of a document
+  // claiming to be new on an impact score, using Double/Debiased Machine
+  // Learning, and report the diagnostics that make the estimate arguable.
+  //
   // GET /api/research/causal → read the corpus and run causal analysis
+  //
+  // A refusal is a 200 with a reason in it, not a 400: the request was
+  // fine, the corpus was not big enough, and a person is owed the reason
+  // rather than a status code they cannot act on.
   app.get("/api/research/causal", _req => {
     let corpus = current_corpus()
     let documents = fetch_corpus(corpus) catch { _ => [] }
@@ -846,6 +851,13 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     let body : Json = {
       "causal": causal_result.to_json(),
       "documents_analyzed": documents.length(),
+      // The same honesty as the documents panel: an empty corpus and a
+      // fetch that failed look identical when neither is said out loud.
+      "notice": if documents.length() == 0 {
+        "The corpus (" + corpus.describe() + ") held no documents."
+      } else {
+        ""
+      },
     }
     Response::json(body)
   })

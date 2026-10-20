@@ -207,6 +207,58 @@ $mutations = @(
     file = 'frontend/loop_state.mbt'
     old  = '    outcome_kind: get_string(json, "outcome_kind", ""),'
     new  = '    outcome_kind: "",'
+  },
+  # --- the causal panel -------------------------------------------------
+  # The panel used to read the estimate with the string accessor over a JSON
+  # number, and so showed the fallback "0.0" for every estimate the server
+  # ever made. These break the panel in the ways it can be broken.
+  @{
+    name = 'the estimate is read as a whole number'
+    file = 'frontend/causal.mbt'
+    old  = '    theta: get_double(json, "theta", 0.0),'
+    new  = '    theta: get_int(json, "theta", 0).to_double(),'
+  },
+  @{
+    name = 'a refusal is read as an estimate'
+    file = 'frontend/causal.mbt'
+    old  = '    refused: refusal != "",'
+    new  = '    refused: false,'
+  },
+  @{
+    name = 'the controlled variables are never read'
+    file = 'frontend/causal.mbt'
+    old  = '    confounders: get_strings(json, "confounders"),'
+    new  = '    confounders: [],'
+  },
+  @{
+    name = 'a group that does not overlap is reported as close'
+    file = 'frontend/causal.mbt'
+    old  = '  if row.separated {'
+    new  = '  if false {'
+  },
+  @{
+    name = 'the balance verdict loses the case where the groups agree'
+    file = 'frontend/causal.mbt'
+    old  = '  } else if row.balanced {'
+    new  = '  } else if false {'
+  },
+  @{
+    name = 'the estimate is not rounded for reading'
+    file = 'frontend/causal.mbt'
+    old  = '  let scaled = (n * 10000.0).round()'
+    new  = '  let scaled = (n * 10000.0)'
+  },
+  @{
+    name = 'the sensitivity interval is not read'
+    file = 'frontend/causal.mbt'
+    old  = '    sensitivity_lower: get_double(sub(json, "sensitivity"), "lower", 0.0),'
+    new  = '    sensitivity_lower: 0.0,'
+  },
+  @{
+    name = 'the overlap is not read'
+    file = 'frontend/causal.mbt'
+    old  = '    overlaps: get_bool(sub(json, "overlap"), "overlaps", false),'
+    new  = '    overlaps: true,'
   }
 )
 

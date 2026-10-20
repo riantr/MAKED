@@ -1820,3 +1820,279 @@ test "the corpus panel sends the read click" {
   }
   assert_eq(reads, 1)
 }
+
+///|
+/// A causal estimate, shaped like the one the server sends.
+fn causal_payload() -> Json {
+  {
+    "theta": 1.6893223918781355,
+    "se": 2.4319621882189364,
+    "ci_lower": -3.077232996401808,
+    "ci_upper": 6.45587778015808,
+    "n_obs": 24,
+    "n_treated": 12,
+    "n_features": 4,
+    "treatment": "claims to be new",
+    "outcome": "impact score",
+    "confounders": [
+      "title length", "abstract length", "author count", "category count",
+    ],
+    "balance": [
+      {
+        "name": "title length",
+        "treated_mean": 25.666666666666668,
+        "untreated_mean": 23.666666666666668,
+        "standardized_difference": 1.5352989471575018,
+        "balanced": false,
+        "separated": false,
+      },
+      {
+        "name": "abstract length",
+        "treated_mean": 46.0,
+        "untreated_mean": 46.0,
+        "standardized_difference": 0.0,
+        "balanced": true,
+        "separated": false,
+      },
+    ],
+    "overlap": {
+      "overlaps": true,
+      "residual_variance": 0.11325116455208885,
+      "reading": "The two groups overlap: there are documents that could have gone either way.",
+    },
+    "sensitivity": {
+      "robustness_value": 0.22853766183948285,
+      "lower": -10.469110458877376,
+      "upper": 13.847755242633646,
+      "reading": "A confounder only 0.2285 times as strong as the ones already controlled for would be enough to flip this estimate.",
+      "robust": false,
+    },
+    "refused": "",
+    "reason": "",
+  }
+}
+
+///|
+/// A refusal, shaped like the one the server sends when the corpus cannot
+/// support an estimate.
+fn causal_refusal_payload() -> Json {
+  {
+    "theta": Json::null(),
+    "se": Json::null(),
+    "ci_lower": Json::null(),
+    "ci_upper": Json::null(),
+    "n_obs": 0,
+    "n_treated": 0,
+    "n_features": 0,
+    "treatment": "claims to be new",
+    "outcome": "impact score",
+    "confounders": [
+      "title length", "abstract length", "author count", "category count",
+    ],
+    "balance": [
+      {
+        "name": "author count",
+        "treated_mean": 3.0,
+        "untreated_mean": 1.0,
+        "standardized_difference": 0.0,
+        "balanced": false,
+        "separated": true,
+      },
+    ],
+    "overlap": {
+      "overlaps": false,
+      "residual_variance": 0.0,
+      "reading": "The two groups do not overlap.",
+    },
+    "sensitivity": {
+      "robustness_value": 0.0,
+      "lower": 0.0,
+      "upper": 0.0,
+      "reading": "No estimate was made, so there is nothing to be sensitive to.",
+      "robust": false,
+    },
+    "refused": "the estimate was not made",
+    "reason": "Only 5 documents; a causal estimate needs at least 10 to mean anything.",
+  }
+}
+
+///|
+/// The panel reads the estimate as a number.
+///
+/// It used to read it with the string accessor over a JSON number, which
+/// always returned the fallback: the panel showed "0.0" for every estimate
+/// the server ever made, and looked perfectly plausible doing it.
+test "the causal panel reads the estimate as a number" {
+  let summary = @frontend.causal_summary(causal_payload())
+  assert_true(summary.theta == 1.6893223918781355)
+  assert_true(summary.se == 2.4319621882189364)
+  assert_true(summary.ci_lower == -3.077232996401808)
+  assert_true(summary.ci_upper == 6.45587778015808)
+}
+
+///|
+/// The panel names the treatment and the outcome.
+test "the causal panel names the treatment and the outcome" {
+  let summary = @frontend.causal_summary(causal_payload())
+  assert_eq(summary.treatment, "claims to be new")
+  assert_eq(summary.outcome, "impact score")
+}
+
+///|
+/// The panel names the variables the estimate controlled for.
+///
+/// "You controlled for four things" is not an answer a reader can check.
+test "the causal panel names the variables the estimate controlled for" {
+  let summary = @frontend.causal_summary(causal_payload())
+  assert_eq(summary.confounders.length(), 4)
+  assert_eq(summary.confounders[0], "title length")
+  assert_eq(summary.confounders[3], "category count")
+}
+
+///|
+/// The panel shows how far apart the two groups are on each variable.
+test "the causal panel shows the balance of the two groups" {
+  let summary = @frontend.causal_summary(causal_payload())
+  assert_eq(summary.balance.length(), 2)
+  assert_eq(summary.balance[0].name, "title length")
+  assert_true(summary.balance[0].treated_mean == 25.666666666666668)
+  assert_true(summary.balance[0].standardized_difference == 1.5352989471575018)
+}
+
+///|
+/// The balance verdict says which variables the groups differ on.
+///
+/// A difference without a verdict leaves the reader to decide what a
+/// standardized difference of 1.5 means, which is the work the panel is
+/// for.
+test "the balance verdict says which variables the groups differ on" {
+  let summary = @frontend.causal_summary(causal_payload())
+  let differs = @frontend.balance_verdict(summary.balance[0])
+  let agrees = @frontend.balance_verdict(summary.balance[1])
+  assert_true(differs.contains("differ"))
+  assert_true(agrees.contains("close"))
+}
+
+///|
+/// A group that does not overlap on a variable is not reported as close.
+test "a variable the groups do not overlap on is not reported as close" {
+  let separated = @frontend.BalanceSummary::{
+    name: "author count",
+    treated_mean: 3.0,
+    untreated_mean: 1.0,
+    standardized_difference: 0.0,
+    balanced: false,
+    separated: true,
+  }
+  let verdict = @frontend.balance_verdict(separated)
+  assert_true(verdict.contains("do not overlap"))
+}
+
+///|
+/// The panel shows the overlap, in the backend's own words.
+test "the causal panel shows the overlap" {
+  let summary = @frontend.causal_summary(causal_payload())
+  assert_true(summary.overlaps)
+  assert_true(summary.overlap_reading.contains("overlap"))
+}
+
+///|
+/// The overlap flag and the overlap reading agree.
+///
+/// The flag is what the panel shows and the reading is what the reader
+/// reads; a panel that says "yes" beside a sentence saying the two groups
+/// do not overlap is a panel arguing with itself.
+test "the overlap flag and the overlap reading agree" {
+  let refused = @frontend.causal_summary(causal_refusal_payload())
+  assert_false(refused.overlaps)
+  assert_true(refused.overlap_reading.contains("do not overlap"))
+  let estimated = @frontend.causal_summary(causal_payload())
+  assert_true(estimated.overlaps)
+  assert_true(estimated.overlap_reading.contains("overlap"))
+}
+
+///|
+/// The panel shows the sensitivity: the robustness value, the worst-case
+/// interval, and what the robustness value means.
+test "the causal panel shows the sensitivity interval" {
+  let summary = @frontend.causal_summary(causal_payload())
+  assert_true(summary.robustness_value == 0.22853766183948285)
+  assert_true(summary.sensitivity_lower == -10.469110458877376)
+  assert_true(summary.sensitivity_upper == 13.847755242633646)
+  assert_true(summary.sensitivity_reading.contains("flip"))
+  assert_false(summary.robust)
+}
+
+///|
+/// A refusal is shown as a refusal.
+///
+/// The numbers are null in a refusal, so a panel that read them anyway
+/// would show zeros: a finding nobody made.
+test "a refusal is shown as a refusal and not as a zero" {
+  let summary = @frontend.causal_summary(causal_refusal_payload())
+  assert_true(summary.refused)
+  assert_true(summary.reason.contains("at least 10"))
+}
+
+///|
+/// A refusal carries the balance that is the evidence for it.
+///
+/// "These two groups do not overlap" asks the reader to take the reason on
+/// faith. The balance says which variables do not overlap.
+test "a refusal carries the balance that is the evidence for it" {
+  let summary = @frontend.causal_summary(causal_refusal_payload())
+  assert_eq(summary.balance.length(), 1)
+  assert_eq(summary.balance[0].name, "author count")
+  assert_true(summary.balance[0].separated)
+  assert_false(summary.balance[0].balanced)
+}
+
+///|
+/// A group that does not overlap on a variable is not reported as close.
+test "a variable the groups do not overlap on is not reported as close" {
+  let summary = @frontend.causal_summary(causal_refusal_payload())
+  let verdict = @frontend.balance_verdict(summary.balance[0])
+  assert_true(verdict.contains("do not overlap"))
+}
+
+///|
+/// An estimate is not a refusal, however small it is.
+test "an estimate is not read as a refusal" {
+  let summary = @frontend.causal_summary(causal_payload())
+  assert_false(summary.refused)
+}
+
+///|
+/// The numbers are rounded for reading.
+///
+/// Fifteen decimals is not more precise than the corpus behind it, and it
+/// makes the interval beside it unreadable.
+test "the numbers are rounded to four places for reading" {
+  assert_eq(@frontend.format_estimate(1.6893223918781355), "1.6893")
+  assert_eq(@frontend.format_estimate(-3.077232996401808), "-3.0772")
+  assert_eq(@frontend.format_estimate(2.0), "2.0")
+}
+
+///|
+/// An interval reads as an interval.
+test "an interval reads as an interval" {
+  assert_eq(
+    @frontend.format_interval(-3.077232996401808, 6.45587778015808),
+    "[-3.0772, 6.4559]",
+  )
+}
+
+///|
+/// The causal panel's button sends the estimate click.
+test "the causal panel sends the estimate click" {
+  let seen : Array[@frontend.Msg] = []
+  let _ = @frontend.causal_view(capturing_emit(seen), bare_model())
+  let mut estimates = 0
+  for msg in seen {
+    match msg {
+      @frontend.Msg::EstimateCausalClicked => estimates += 1
+      _ => ()
+    }
+  }
+  assert_eq(estimates, 1)
+}

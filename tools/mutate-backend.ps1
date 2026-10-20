@@ -661,6 +661,94 @@ $mutations = @(
   ignore(reset_loop())'
     new  = '  g_model[0] = current_model()
   ignore(reset_loop())'
+  },
+  # --- the causal panel -------------------------------------------------
+  # A causal number is the first thing a reader argues with, and the first
+  # question about it is "what did you control for?". These break the answer
+  # to that question in each of the ways it can be broken.
+  @{
+    name = 'the propensity is not a probability'
+    file = 'backend/causal.mbt'
+    old  = '  @dml.LearnerDispatch::logistic_regression(@dml.LogisticRegression::new())'
+    new  = '  @dml.LearnerDispatch::linear_regression()'
+  },
+  @{
+    name = 'a corpus of ten documents is refused for its size'
+    file = 'backend/causal.mbt'
+    old  = '  if n < 10 {'
+    new  = '  if n < 5 {'
+  },
+  @{
+    name = 'the balance threshold is loosened until nothing differs'
+    file = 'backend/causal.mbt'
+    old  = 'const BALANCE_THRESHOLD : Double = 0.1'
+    new  = 'const BALANCE_THRESHOLD : Double = 2.0'
+  },
+  @{
+    name = 'a group that does not overlap is reported as alike'
+    file = 'backend/causal.mbt'
+    old  = '      balanced: !separated && standardized.abs() <= BALANCE_THRESHOLD,'
+    new  = '      balanced: standardized.abs() <= BALANCE_THRESHOLD,'
+  },
+  @{
+    name = 'the separation of two groups is never noticed'
+    file = 'backend/causal.mbt'
+    old  = '    let separated = pooled <= 1.0e-12 && gap.abs() > 1.0e-12'
+    new  = '    let separated = false'
+  },
+  @{
+    name = 'the overlap gate lets a corpus with no overlap through'
+    file = 'backend/causal.mbt'
+    old  = '  let overlaps = variance > 1.0e-8'
+    new  = '  let overlaps = variance > 0.0'
+  },
+  @{
+    name = 'the refusal is inverted, so a corpus is never refused'
+    file = 'backend/causal.mbt'
+    old  = '  if !overlap.overlaps {'
+    new  = '  if overlap.overlaps {'
+  },
+  @{
+    name = 'the noise ignores the document it came from'
+    file = 'backend/causal.mbt'
+    old  = '  let text = document.id + "|" + document.title + "|" + document.summary'
+    new  = '  let text = document.title + "|" + document.summary'
+  },
+  @{
+    name = 'the worst case is added to the interval instead of subtracted'
+    file = 'backend/causal.mbt'
+    old  = '  let lower = ci_lower - worst'
+    new  = '  let lower = ci_lower + worst'
+  },
+  @{
+    name = 'the robustness flag ignores the worst case'
+    file = 'backend/causal.mbt'
+    old  = '    theta - worst > 0.0'
+    new  = '    theta + worst > 0.0'
+  },
+  @{
+    name = 'a refusal carries a theta of zero'
+    file = 'backend/causal.mbt'
+    old  = '        "theta": Json::null(),'
+    new  = '        "theta": Json::number(0.0),'
+  },
+  @{
+    name = 'the treatment is never detected'
+    file = 'backend/causal.mbt'
+    old  = '    if text.contains(word) {'
+    new  = '    if false {'
+  },
+  @{
+    name = 'a controlled variable goes missing'
+    file = 'backend/causal.mbt'
+    old  = '  ["title length", "abstract length", "author count", "category count"]'
+    new  = '  ["title length", "abstract length", "author count"]'
+  },
+  @{
+    name = 'a refusal carries no balance'
+    file = 'backend/causal.mbt'
+    old  = '        "balance": [..refusal.balance.map(fn(row) { row.to_json() })],'
+    new  = '        "balance": [],'
   }
 )
 
