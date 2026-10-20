@@ -39,18 +39,18 @@ pub fn parse_data_text(kind : String, path : String, text : String) -> Json? {
   if is_yaml_path(path) {
     let documents = @yaml.Yaml::load_from_string(text) catch {
       err => {
-        println(
+        eprintln(
           "error: \{kind} file \{path} is not YAML: \{@debug.to_string(err)}",
         )
         return None
       }
     }
     if documents.length() == 0 {
-      println("error: \{kind} file \{path} is empty")
+      eprintln("error: \{kind} file \{path} is empty")
       return None
     }
     if documents.length() > 1 {
-      println(
+      eprintln(
         "error: \{kind} file \{path} holds \{documents.length()} documents; a \{kind} file holds one",
       )
       return None
@@ -59,7 +59,7 @@ pub fn parse_data_text(kind : String, path : String, text : String) -> Json? {
   } else {
     let json = @json.parse(text) catch {
       err => {
-        println("error: \{kind} file \{path} is not JSON: \{err}")
+        eprintln("error: \{kind} file \{path} is not JSON: \{err}")
         return None
       }
     }
@@ -77,7 +77,7 @@ pub fn parse_data_text(kind : String, path : String, text : String) -> Json? {
 pub async fn read_data_text(kind : String, path : String) -> Json? {
   let text = @fs.read_file(path).text() catch {
     err => {
-      println("error: \{kind} file \{path} unreadable: \{err}")
+      eprintln("error: \{kind} file \{path} unreadable: \{err}")
       return None
     }
   }

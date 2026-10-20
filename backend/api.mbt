@@ -468,66 +468,46 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     }
     Response::json(body)
   })
-  app.post("/api/loop/step", _req => {
+  app.post(
+    "/api/loop/step",
     // The two states are what the step is recorded from: `before` says where
     // the domain stood and `after` says where it landed, so the recording
     // never has to be told anything the step itself did not produce.
-    let before = get_loop_state()
-    let after = step_loop()
-    record_step(db, before, after, "drive")
+    //
     // The session state travels with the loop status, so that the panel's
     // step count and its summary of the run are the ones the step just
     // produced. Without it they were the ones from start-up, and the count
     // stopped moving after the first click.
-    Response::json(loop_payload(db))
-  })
+    _req => Response::json(take_drive_step(db)),
+  )
   app.post("/api/loop/step/:slot", req => {
     match req.param("slot") {
       Some(slot_name) => {
-        let parsed = match slot_from_english(slot_name) {
-          Some(s) => Some(s)
-          None => slot_from_designation(slot_name)
-        }
-        match parsed {
-          Some(slot) => {
-            // A "target" in the body means the reader chose one of the
-            // successors the table offered and declined to pick. It is the
-            // way out of a position the machine cannot decide for itself.
-            let payload = req.json().unwrap_or(Json::empty_object())
-            let target = json_string(payload, "target")
-            let before = get_loop_state()
-            if target == "" {
-              let after = step_loop_with_slot(slot)
-              record_step(db, before, after, "explicit")
-              Response::json(loop_payload(db))
-            } else {
-              let position = before.domain_state(before.current).position
-              let candidates = open_candidates_of(before.model, position, slot)
-              match candidate_named_of(before.model, candidates, target) {
-                Some(_) => {
-                  let after = step_loop_with_target(slot, target)
-                  record_step(db, before, after, "explicit")
-                  Response::json(loop_payload(db))
-                }
-                None => {
-                  // Not a silent failure. The answer names the targets the
-                  // table really offers, so a reader who asked for the wrong
-                  // one can see the right one instead of watching the page
-                  // do nothing.
-                  let body : Json = {
-                    "error": "unknown_target",
-                    "target": target,
-                    "targets": string_array_json(
-                      candidate_names_of(before.model, candidates),
-                    ),
-                  }
-                  Response::json(body, status=400)
-                }
-              }
-            }
+        // A "target" in the body means the reader chose one of the
+        // successors the table offered and declined to pick. It is the
+        // way out of a position the machine cannot decide for itself.
+        //
+        // The step itself is in `step.mbt`, because the agent's tools take
+        // the same one: two copies of "what a step does" is two things to
+        // keep in step with each other.
+        let payload = req.json().unwrap_or(Json::empty_object())
+        let asked = json_string(payload, "target")
+        match take_slot_step(db, slot_name, asked) {
+          Taken(body) => Response::json(body)
+          UnknownSlot(name) => {
+            let body : Json = { "error": "unknown_slot", "slot": name }
+            Response::json(body, status=400)
           }
-          None => {
-            let body : Json = { "error": "unknown_slot", "slot": slot_name }
+          UnknownTarget(target, targets) => {
+            // Not a silent failure. The answer names the targets the
+            // table really offers, so a reader who asked for the wrong
+            // one can see the right one instead of watching the page
+            // do nothing.
+            let body : Json = {
+              "error": "unknown_target",
+              "target": target,
+              "targets": string_array_json(targets),
+            }
             Response::json(body, status=400)
           }
         }

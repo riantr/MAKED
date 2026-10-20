@@ -368,14 +368,30 @@ pub fn research_path_from_env() -> String? {
 /// documents, and a document driven through the wrong slot is a step in the
 /// timeline that nobody can explain afterwards.
 pub async fn read_research_file(path : String) -> ResearchConfig? {
+  read_research_file_for(current_model(), path)
+}
+
+///|
+/// Read a research configuration from a file, checked against a named model.
+///
+/// The model is passed in rather than taken from the machine that happens to
+/// be running, because the table and the machine are two different things.
+/// A table is checked against the machine it will drive: the start-up reads
+/// the machine the operator named and then reads the table against *that*
+/// one, so the answer does not depend on what else was installed first, and
+/// does not change when two servers start at the same moment.
+pub async fn read_research_file_for(
+  model : Model,
+  path : String,
+) -> ResearchConfig? {
   let json = match read_data_text("research", path) {
     Some(json) => json
     None => return None
   }
-  match ResearchConfig::from_json(current_model(), path, json) {
+  match ResearchConfig::from_json(model, path, json) {
     Accepted(config) => Some(config)
     Rejected(reason) => {
-      println(
+      eprintln(
         "error: research file \{path} is not a table this version understands: \{reason}",
       )
       None
@@ -397,7 +413,7 @@ pub async fn read_research_file(path : String) -> ResearchConfig? {
 /// `notes`, which is a field of the table and does survive.
 pub async fn write_research_file(config : ResearchConfig) -> Bool {
   if config.path == "" {
-    println(
+    eprintln(
       "note: the built-in table is not written anywhere; it is the table MAKED starts with.",
     )
     return false
@@ -405,7 +421,7 @@ pub async fn write_research_file(config : ResearchConfig) -> Bool {
   let text = data_text_for(config.path, config.to_json())
   @fs.write_file(config.path, text) catch {
     err => {
-      println("error: research file \{config.path} unwritable: \{err}")
+      eprintln("error: research file \{config.path} unwritable: \{err}")
       return false
     }
   }

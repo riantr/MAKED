@@ -719,7 +719,7 @@ pub async fn read_society_file(path : String) -> SocietyVocabulary? {
   match SocietyVocabulary::from_json(path, json) {
     Accepted(vocabulary) => Some(vocabulary)
     Rejected(reason) => {
-      println(
+      eprintln(
         "error: society file \{path} is not a vocabulary this version understands: \{reason}",
       )
       None
@@ -736,7 +736,7 @@ pub async fn read_society_file(path : String) -> SocietyVocabulary? {
 /// not saved is a vocabulary the reader believes is saved and is not.
 pub async fn write_society_file(vocabulary : SocietyVocabulary) -> Bool {
   if vocabulary.path == "" {
-    println(
+    eprintln(
       "note: the built-in vocabulary is not written anywhere; it is the one MAKED starts with.",
     )
     return false
@@ -744,7 +744,7 @@ pub async fn write_society_file(vocabulary : SocietyVocabulary) -> Bool {
   let text = data_text_for(vocabulary.path, vocabulary.to_json())
   @fs.write_file(vocabulary.path, text) catch {
     err => {
-      println("error: society file \{vocabulary.path} unwritable: \{err}")
+      eprintln("error: society file \{vocabulary.path} unwritable: \{err}")
       return false
     }
   }

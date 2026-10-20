@@ -195,6 +195,39 @@ test "a rule about a position the model does not define is refused" {
 /// person, and the point of it is that nothing in the format assumes
 /// pyroproduct's sizes. A model with three positions is not a model with a
 /// missing domain.
+
+///|
+/// A machine the test needs, or the test fails.
+///
+/// `Model::from_json` answers with `None` when it refuses a machine, and a
+/// test that unwraps that turns the refusal into an **abort** -- which kills
+/// the whole test binary. The run then ends with no summary at all, so the
+/// failure is not a red test but a dead gate, and the mutation that caused
+/// it is reported as a mutation that "did not compile" when it compiled
+/// perfectly well.
+///
+/// A machine the test needs is a machine the test insists on, and the
+/// insistence is a message rather than a crash.
+fn model_or_fail(json : Json) -> @backend.Model raise {
+  match @backend.Model::from_json(json) {
+    Some(model) => model
+    None => fail("the machine the test needs was refused")
+  }
+}
+
+///|
+/// A machine written in YAML, read as a machine, or the test fails.
+///
+/// The same reason as `model_or_fail`, and the same insistence: a refusal is
+/// a message, not a crash.
+fn model_from_yaml_or_fail(text : String) -> @backend.Model raise {
+  match @backend.parse_model_text("model.yaml", text) {
+    Some(parsed) => model_or_fail(parsed)
+    None => fail("the machine in YAML was not read at all")
+  }
+}
+
+///|
 fn toy_model() -> Json {
   {
     "format": "maked.model.v1",
@@ -397,10 +430,8 @@ test "a model somebody else wrote is read" {
 /// The comparison is of the two models as MAKED writes them back out, so it
 /// covers every field rather than the handful somebody thought to check.
 test "a machine written in YAML is the machine written in JSON" {
-  let from_json = @backend.Model::from_json(toy_model()).unwrap()
-  let parsed = @backend.parse_model_text("model.yaml", toy_model_yaml())
-  assert_true(parsed is Some(_))
-  let from_yaml = @backend.Model::from_json(parsed.unwrap()).unwrap()
+  let from_json = model_or_fail(toy_model())
+  let from_yaml = model_from_yaml_or_fail(toy_model_yaml())
   // The same machine, down to the JSON it is written back out as.
   assert_eq(from_yaml.to_json(), from_json.to_json())
 }
@@ -453,7 +484,7 @@ test "a model file with two documents in it is refused" {
 /// "Build" are both slots, and which one drives depends on the rules. What
 /// matters is that the answer comes from the rules and not from the names.
 test "the drive slot comes from the model's rules" {
-  let model = @backend.Model::from_json(toy_model()).unwrap()
+  let model = model_or_fail(toy_model())
   assert_eq(model.drive_slot("raw"), Some("ask"))
   assert_eq(model.drive_slot("talked"), Some("ask"))
   // "built" has no slot that moves: "Build" holds it there.
@@ -480,7 +511,7 @@ test "a position with no way out has no drive slot" {
     ],
     "continuations": [],
   }
-  let blocked = @backend.Model::from_json(json).unwrap()
+  let blocked = model_or_fail(json)
   assert_eq(blocked.drive_slot("stuck"), None)
   assert_eq(blocked.exitable_slots("stuck").length(), 0)
   assert_false(blocked.is_undecided("stuck"))
@@ -515,7 +546,7 @@ test "a model can offer a choice it will not make" {
     ],
     "continuations": [],
   }
-  let model = @backend.Model::from_json(json).unwrap()
+  let model = model_or_fail(json)
   assert_true(model.is_undecided("here"))
   let candidates = model.candidates("here", "choose")
   assert_eq(candidates.length(), 2)
@@ -586,7 +617,7 @@ test "the candidates of an open branch are written as objects" {
 /// The continuations are the model's, and a successor reached twice is
 /// listed once at the shorter distance.
 test "the model's continuations are read back as they were written" {
-  let model = @backend.Model::from_json(toy_model()).unwrap()
+  let model = model_or_fail(toy_model())
   let out = model.continuations("raw", 3)
   assert_eq(out.length(), 2)
   assert_eq(out[0].0, "talked")
@@ -622,7 +653,7 @@ test "a pair the model leaves undefined has no way out" {
     ],
     "continuations": [],
   }
-  let model = @backend.Model::from_json(json).unwrap()
+  let model = model_or_fail(json)
   // The pair the model does define has a road out of it.
   assert_eq(model.exitable_slots("here"), ["act"])
   // The pair it leaves undefined has none -- and says so rather than
@@ -641,7 +672,7 @@ test "a pair the model leaves undefined has no way out" {
 test "the ring is as long as the model says" {
   let built_in = @backend.Model::pyroduct()
   assert_eq(built_in.domains.length(), 5)
-  let toy = @backend.Model::from_json(toy_model()).unwrap()
+  let toy = model_or_fail(toy_model())
   assert_eq(toy.domains.length(), 2)
   let idea = toy.domain_by_id("idea").unwrap()
   let ship = toy.domain_by_id("ship").unwrap()
@@ -657,7 +688,7 @@ test "the ring is as long as the model says" {
 /// the id is the stable name; the title is the one a reader sees. A model
 /// file may give a domain any title it likes, so all three are accepted.
 test "a domain is found by its letter, its id and its title" {
-  let toy = @backend.Model::from_json(toy_model()).unwrap()
+  let toy = model_or_fail(toy_model())
   assert_eq(toy.domain_by_letter("I").map(fn(d) { d.id }), Some("idea"))
   assert_eq(toy.domain_by_letter("i").map(fn(d) { d.id }), Some("idea"))
   assert_eq(toy.domain_by_name("Idea").map(fn(d) { d.id }), Some("idea"))
@@ -747,7 +778,7 @@ test "a model with no continuations has them worked out from its rules" {
     ],
     "continuations": [],
   }
-  let model = @backend.Model::from_json(json).unwrap()
+  let model = model_or_fail(json)
   let out = model.continuations("raw", 3)
   // Both successors are one step away, and nothing is listed twice.
   assert_eq(out.length(), 2)
@@ -786,7 +817,7 @@ test "a model with no continuations has them worked out from its rules" {
 /// every other test, and the race showed up as a crash in a test that had
 /// nothing to do with models.
 test "a model with two domains drives a two-domain loop" {
-  let toy = @backend.Model::from_json(toy_model()).unwrap()
+  let toy = model_or_fail(toy_model())
   // Two domains, and the loop starts on the model's first.
   assert_eq(toy.domains.length(), 2)
   let state = @backend.LoopState::new_for(toy)
@@ -917,7 +948,7 @@ test "the built-in model's words are the table's own" {
 /// The vocabulary is part of the model, so a file that renames an outcome
 /// renames it: the word a reader sees is the file's, not MAKED's.
 test "a model file's own words are the words" {
-  let toy = @backend.Model::from_json(toy_model_with_words()).unwrap()
+  let toy = model_or_fail(toy_model_with_words())
   assert_eq(toy.outcome_label("moved"), "Advanced")
   assert_eq(toy.outcome_label("open"), "Undecided")
   // And a kind the file says nothing about falls back to the kind itself.
@@ -930,8 +961,8 @@ test "a model file's own words are the words" {
 /// A file that was written down and read back has to say the same thing, and
 /// the words are part of what it says.
 test "the words survive a trip through JSON" {
-  let toy = @backend.Model::from_json(toy_model_with_words()).unwrap()
-  let back = @backend.Model::from_json(toy.to_json()).unwrap()
+  let toy = model_or_fail(toy_model_with_words())
+  let back = model_or_fail(toy.to_json())
   assert_eq(back.outcome_label("moved"), "Advanced")
   assert_eq(back.outcome_label("open"), "Undecided")
 }
@@ -947,7 +978,7 @@ test "the words survive a trip through JSON" {
 ///
 /// The installed model is left alone throughout, and the last line says so.
 test "a loop on a model of its own answers from that model" {
-  let toy = @backend.Model::from_json(toy_model_with_words()).unwrap()
+  let toy = model_or_fail(toy_model_with_words())
   let state = @backend.LoopState::new_for(toy)
   let after = state.step_with_slot("ask")
   let event = after.history[0]
@@ -1028,7 +1059,7 @@ test "every domain of the model has a state" {
     assert_true(state.domain_states.get(domain.id) is Some(_))
   }
   // And a model of somebody else's has the same shape.
-  let toy = @backend.Model::from_json(toy_model()).unwrap()
+  let toy = model_or_fail(toy_model())
   let toy_state = @backend.LoopState::new_for(toy)
   for domain in toy.domains {
     assert_true(toy_state.domain_states.get(domain.id) is Some(_))

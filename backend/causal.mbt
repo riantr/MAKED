@@ -312,14 +312,47 @@ pub(all) enum CausalOutcome {
 }
 
 ///|
+
+///|
+/// The features of one document: the numbers, or the name of the controlled
+/// variable that has no feature to read.
+pub(all) struct FeatureRow {
+  values : Array[Double]
+  unreadable : String?
+}
+
+///|
+/// The value of one controlled variable, read from a document.
+///
+/// The controlled variables are named by `confounders()`, and this is where
+/// each name says where its number comes from. One list and one count: the
+/// width of the feature vector is the number of names, and a name with no
+/// feature to read is a refusal rather than a silent zero -- a control that
+/// is always zero is not a control, and an estimate that says it controlled
+/// for something it did not is worse than no estimate at all.
+fn feature_of(document : Document, name : String) -> Double? {
+  match name {
+    "title length" => Some(document.title.length().to_double())
+    "abstract length" => Some(document.summary.length().to_double())
+    "author count" => Some(document.authors.length().to_double())
+    "category count" => Some(document.categories.length().to_double())
+    _ => None
+  }
+}
+
+///|
 /// Extract numerical features from a document for causal analysis.
 ///
 /// Returns the feature vector, the treatment indicator, the outcome, and the
-/// noise the outcome carries. The features are in the order `confounders()` names them
-/// names.
+/// noise the outcome carries. The features are in the order `confounders()`
+/// names them -- the width of the vector is the number of names, not a
+/// number written down here, because a width that is written down and a
+/// list that is written down are two things that can drift apart, and a
+/// feature vector that does not fit the matrix takes the server down.
 fn document_to_features(
   document : Document,
-) -> (Array[Double], Double, Double, Double) {
+  names : Array[String],
+) -> (FeatureRow, Double, Double, Double) {
   let title_len = document.title.length().to_double()
   let summary_len = document.summary.length().to_double()
   let n_authors = document.authors.length().to_double()
@@ -349,8 +382,21 @@ fn document_to_features(
   // that the same corpus always gives the same answer.
   let noise = document_noise(document)
 
-  let features = [title_len, summary_len, n_authors, n_cats]
-  (features, is_novel, impact + noise, noise)
+  // The features, in the order the names give.
+  let values : Array[Double] = []
+  for name in names {
+    match feature_of(document, name) {
+      Some(value) => values.push(value)
+      None =>
+        return (
+          { values: [], unreadable: Some(name), },
+          is_novel,
+          impact + noise,
+          noise,
+        )
+    }
+  }
+  ({ values, unreadable: None, }, is_novel, impact + noise, noise)
 }
 
 ///|
@@ -643,7 +689,15 @@ pub fn estimate_causal_effect(documents : Array[Document]) -> CausalOutcome {
     })
   }
 
-  let p = 4 // the number of controlled variables, as `confounders()` names them
+  // The number of controlled variables, read from the list that names them.
+  //
+  // It used to be a number written here as well, and the two could drift
+  // apart: a list of three names and a count of four made the balance read
+  // past the end of the list, and reading past the end of a list in MoonBit
+  // is not an error the reader sees -- it takes the server down with it.
+  // One list, one count.
+  let names = confounders()
+  let p = names.length()
 
   // Extract features from all documents.
   let x_flat : Array[Double] = []
@@ -652,8 +706,18 @@ pub fn estimate_causal_effect(documents : Array[Document]) -> CausalOutcome {
   let mut n_treated = 0
 
   for document in documents {
-    let (features, treatment, outcome, _) = document_to_features(document)
-    for f in features {
+    let (row, treatment, outcome, _) = document_to_features(document, names)
+    match row.unreadable {
+      Some(name) =>
+        return Refused({
+          reason: "The controlled variable \"" +
+          name +
+          "\" has no feature to read, so there is nothing to control for.",
+          balance: [],
+        })
+      None => ()
+    }
+    for f in row.values {
       x_flat.push(f)
     }
     d.push(treatment)

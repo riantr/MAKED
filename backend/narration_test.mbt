@@ -327,7 +327,7 @@ async test "the step record carries the sentence and the state carries the summa
 ///
 /// The facts are read from the model here, so the sentence is the model's.
 test "a step is described with the model's own words" {
-  let toy = @backend.Model::from_json(toy_model()).unwrap()
+  let toy = model_or_fail(toy_model())
   let facts = @backend.facts_of(toy, toy_step())
   // The role is the model's.
   assert_eq(facts.role, "the idea")
@@ -345,7 +345,7 @@ test "a step is described with the model's own words" {
 /// model with two of its own -- and would say so in the worst possible way,
 /// by listing no domains at all.
 test "the summary counts the model's own domains" {
-  let toy = @backend.Model::from_json(toy_model()).unwrap()
+  let toy = model_or_fail(toy_model())
   let facts = @backend.facts_of(toy, toy_step())
   let summary = @backend.phase_summary(toy, [facts], "Scattered")
   assert_true(summary.contains("The last step was in the idea."))
@@ -360,7 +360,7 @@ test "the summary counts the model's own domains" {
 /// the order is the model's too: the toy's idea comes before its shipping,
 /// whatever order the run happened to visit them in.
 test "the summary lists the domains in the model's own ring order" {
-  let toy = @backend.Model::from_json(toy_model()).unwrap()
+  let toy = model_or_fail(toy_model())
   let shipping = @backend.facts_of(toy, {
     ..toy_step(),
     domain: "S",

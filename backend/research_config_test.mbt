@@ -166,7 +166,7 @@ async test "a table written back is the table that was read" {
 /// like "feedback" and "act". Saying so is better than letting every
 /// document be skipped in silence.
 test "the built-in table does not fit a model with other slots" {
-  let model = @backend.Model::from_json(toy_model()).unwrap()
+  let model = model_or_fail(toy_model())
   let slot = @backend.ResearchConfig::builtin().first_unfitting_slot(model)
   // The *first* slot that does not fit, not just any of them: a check that
   // only asks whether the table fits somewhere would still pass when the

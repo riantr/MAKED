@@ -332,13 +332,13 @@ pub async fn read_model_file(path : String) -> Model? {
   match Model::from_json(json) {
     Some(model) => Some(model)
     None => {
-      println(
+      eprintln(
         "error: model file \{path} is not a model this version understands.",
       )
-      println(
+      eprintln(
         "  it has to say which format it is (\"{MODEL_FORMAT}\"), and every",
       )
-      println("  rule has to be about a position and a slot it defines.")
+      eprintln("  rule has to be about a position and a slot it defines.")
       None
     }
   }

@@ -54,4 +54,5 @@ import {
   "moonbitlang/x@0.5.5",
   "riantr/moonbit_doubleML@0.163.9",
   "riantr/pyroduct@0.1.32",
+  "colmugx/mcp@0.18.0",
 }

@@ -9,13 +9,9 @@
 
 ///|
 pub fn create_app(db_path : String) -> App raise {
-  let db = Database::open(db_path)
-  db.seed(seed_pages())
-  let home = home_page()
-  // The index is a page like any other; store it so it is served from the
-  // same table as the rest rather than special-cased in a handler.
-  db.seed([home, not_found_page()])
-  restore_session(db)
+  // The database, the seed pages and the restored session are in
+  // `bootstrap.mbt`, because the agent's server opens the same ones.
+  let db = prepare_database(db_path)
   let app = App::new()
   app.add_middleware(logging_middleware())
   build_api(app, db, db_path)
@@ -66,7 +62,7 @@ fn logging_middleware() -> Middleware {
   next => {
     req => {
       let response = next(req)
-      println("\{req.verb()} \{req.path()} -> \{response.status}")
+      eprintln("\{req.verb()} \{req.path()} -> \{response.status}")
       response
     }
   }
@@ -104,7 +100,7 @@ pub fn spa_fallback(dist : String) -> @moonback.Middleware {
         err => {
           // No bundle built yet. Let the router answer rather than invent a
           // blank page; the server already warns about this at start-up.
-          println("warning: \{index_path} unreadable: \{err}")
+          eprintln("warning: \{index_path} unreadable: \{err}")
           next(req, res)
           return
         }

@@ -1,92 +1,111 @@
 # MAKED on MoonBit
 
-**A recursively self-evolving modelling framework** — designed around an adversarial knowledge loop.
+**An adversarial knowledge loop that shows its working.**
 
 Current release: **v0.1.7** — published as [`riantr/MAKED`](https://mooncakes.io) on mooncakes.io.
 
-MAKED is a five-domain recursive cognitive architecture: Model → Data → Experience → Attack → Knowledge forms a closed ring, each domain being the adversarial overcoming of the one before it. The system drives state transitions through its own cycle — from arxiv research papers, to causal inference, to the pyroduct state machine — forming a self-driving closed loop of knowledge evolution.
+MAKED is a five-domain ring — **Model → Data → Experience → Attack → Knowledge** — in which
+each domain is the adversarial overcoming of the one before it. The loop is driven by a
+*transition table*: which slot can push a position is answered by the table, never by a
+hard-coded guess, and a position the table cannot move is reported as blocked rather than
+silently skipped.
 
-Technical implementation: [rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.16.5) single-page frontend + a Flask-style micro-framework backend on [moonback](https://mooncakes.io), with SQLite storage. The state machine is [riantr/pyroduct](https://mooncakes.io/docs/riantr/pyroduct@0.1.32)@0.1.32, which also supplies the English rendering (`en_label` / `en_gloss` / `en_designation`) that every user-visible string here comes from.
+Three layers sit on that ring:
 
-What a person can do with it: put their own model, dataset or recorded failure into the [workspace](#workspace); run an exploration as a named [session](#sessions) whose every step is recorded with the reason it was possible, which can be replayed, forked, and exported as Markdown or JSON; read the loop itself — which positions the transition table offers, and which it refuses — and read it in sentences: [what each step did, and what the last five steps mean together](#the-loop-says-what-it-did); and read the run's worth as numbers: [whether it is still finding ground, and whether it is doing better than it was at the start](#the-run-is-measured-so-it-can-be-wrong).
-
-## Core Concepts
-
-### The Five-Domain Ring (M → D → E → A → K)
-
-| Letter | Domain | Pyroduct Position | Drive Slot | Structural Relation |
-|---|---|---|---|---|
-| M | Model | Standing | derived from the table | the model stands, one foot in the past and one in the future |
-| D | Data | Encounter | derived from the table | the model's inescapable encounter with the other (data) |
-| E | Experience | Honor | derived from the table | experience absorbed as a reward bestowed by the idol |
-| A | Attack | Evil | derived from the table | attack as the hard, cold thing that contracts the horizon |
-| K | Knowledge | Discipline | derived from the table | knowledge distilled by enduring and clearing the reefs |
-
-The ring order M → D → E → A → K is the path the logo draws clockwise, not the alphabetical order of the names.
-
-### The Three-Layer State Machine
-
-1. **Subject layer**: every domain owns an independent pyroduct state machine (34 positions × 8 slots × 53 transitions)
-2. **Group layer**: group states that coordinate across domains (Scattered → Converging → Common Tongue → Settled, 20 states)
-3. **Society layer**: the collective as a communicative whole (13 positions × 8 phases × 28 transitions) — see [The Collective](#the-collective)
-
-**Flexible starting point**: the loop may start at any domain (Model by default); switch the starting domain with `POST /api/loop/reset/:domain`. Each domain's state machine initialises independently — only the `current` pointer changes.
-
-### Drive Slots Come from the Transition Table, Not from Semantics
-
-Which slots can actually push a given position is answered by the pyroduct transition table: `exitable_slots` lists the slots that have an outgoing edge from that position, and `drive_slot` prefers one among them that genuinely moves. Of the 272 = 34 × 8 combinations, 228 are `Block` — no way out.
-
-This rule was forced by measurement. Earlier, each domain hard-coded one "semantically corresponding" drive slot (Model meets data → Co-being); the five slots that came out of that had **not one outgoing edge** in the transition table: stepping the loop 18 times in a row left all five domains' positions completely unchanged, while the `next_domain` ring pointer rotated as usual and the page looked perfectly normal.
-
-The behaviour now:
-
-| Case | Behaviour |
+| Layer | What it is |
 |---|---|
-| The table has a `Moved` outgoing edge | Take it; `drive_slot` reports the concrete slot |
-| Only `Held` / `Same` outgoing edges | Record them faithfully; the position does not move and the cursor does not advance |
-| Only `Open` outgoing edges | `undecided: true`, listing the candidates, **does not choose for the subject** |
-| No outgoing edge at all | `blocked: true`, `drive_slot` is the empty string |
+| **Subject** | One state machine per domain — 34 positions × 8 slots × 272 rules |
+| **Group** | Group states computed across the domains — Scattered → Converging → Common Tongue → Settled (20 states) |
+| **Society** | The collective as a communicative whole — 13 positions × 8 phases × 28 transitions, from [riantr/pyroduct](https://mooncakes.io/docs/riantr/pyroduct@0.1.32) |
 
-The eight slot names are **pyroduct's**, not MAKED's: `Situation`, `Orientation`, `Antecedent`, `Action`, `Feedback`, `Holding`, `Co-being`, `Unveiling`. MAKED displays them verbatim and its own parser reads them back out of the dependency, so a rename upstream reaches the page instead of being papered over with a second copy. The words differ from the code identifiers on purpose — the code identifier is `Occasion` while the reading is `Situation`, because *occasion* is a particular ceremony and 处境 is the situation one finds oneself in.
+The state machine is `riantr/pyroduct@0.1.32`, which also supplies the English rendering
+every user-visible string comes from. The front end is
+[rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.16.5), the server is a
+Flask-style micro-framework on [moonback](https://mooncakes.io), and the storage is SQLite.
 
-The ring order M → D → E → A → K → M is kept as the **presentation order** — it is the order the logo draws and the way the site narrates itself; but it is no longer treated as evidence that the state machine moved.
+Everything a person would want to change is a **file**: the machine, the table that says what
+a document means, the words for the collective, and the corpus the documents come from.
+Everything another agent would want to drive is a **tool**: MAKED speaks the Model Context
+Protocol over stdio or HTTP.
 
-### The Adversarial Knowledge Loop
+## Features
 
-The key difference from a traditional data pipeline: the **Attack** domain. The model is not "fed" by data, it is "forged" by attack. Documents are read through a **mapping table** — a list of rules, each one a set of words and the slot those words drive — and DoubleML causal inference estimates the causal effect of a document's "novelty" on its "influence". Both the table and the corpus — where the documents come from: arxiv, a feed, or your own folder — are data, and they are the reader's to change: see [The Table That Says What A Document Means](#the-table-that-says-what-a-document-means) and [The Corpus Is Yours](#the-corpus-is-yours).
+- ✅ **A five-domain ring** — Model → Data → Experience → Attack → Knowledge, in that order,
+  each domain initialising independently; the starting domain is one request away
+- ✅ **Drive slots from the transition table** — of the 272 position/slot pairs, 228 are
+  `Block`; the loop reports "no way out" instead of pretending to move
+- ✅ **Undecided branches stay undecided** — when the table offers several successors and
+  none is preferred, MAKED lists them and lets the caller choose, and says which kind of
+  edge each one is
+- ✅ **The machine is a file** — a model file (JSON or YAML) with its own domains, positions,
+  slots and rules; `MAKED_MODEL` names it
+- ✅ **The mapping table is a file** — the rules that say what a document means, read top
+  down, first match wins; `MAKED_RESEARCH` names it
+- ✅ **The corpus is yours** — arxiv, an RSS feed, or your own folder of notes, PDFs and
+  Markdown; `MAKED_CORPUS` names it
+- ✅ **The collective** — the Society layer, with its 13 positions, 28 transitions and 8
+  phases; the English words are a file, so `MAKED_SOCIETY` can change them
+- ✅ **The collective's words are checked** — a vocabulary that names a position the machine
+  does not have is a gap, and the gaps are reported rather than papered over
+- ✅ **Causal estimates that say what they rest on** — DoubleML, with the treatment, the
+  outcome, the controlled variables, the balance table, the overlap and the sensitivity all
+  reported
+- ✅ **Explorations you can take away** — named sessions whose every step records why it was
+  possible; replay, branch, rename, and export as Markdown or JSON
+- ✅ **An agent's server** — the Model Context Protocol (2026-07-28) over stdio or HTTP,
+  seven tools, every answer in sentences
+- ✅ **A browser front end** — a rabbita single-page app served by the same process as the
+  API; no second web server, no CORS configuration
+- ✅ **A file that cannot be read stops the start-up** — a half-read machine answers every
+  request confidently and wrongly, which is the worst thing a server can do
 
-## Quick Start
+## Installation
 
-### Run it in a container
+### As a MoonBit package
 
-The first barrier in this project is not the code, it is the installation: a
-MoonBit toolchain, a C toolchain, and a build step. If you only want to *look*
-at MAKED, you should have to install none of that.
+```bash
+moon add riantr/MAKED
+```
+
+Then add the package you want to your `moon.mod`:
+
+```moonbit nocheck
+///|
+import {
+  "riantr/MAKED/backend@0.1.7" @maked,
+}
+```
+
+MAKED ships two packages: `riantr/MAKED/backend` (native — the loop, the API and the storage)
+and `riantr/MAKED/frontend` (js — the single-page app). The server and the agent's server are
+executables in this repository rather than packages, because they are applications: they
+open a database and they listen on a port.
+
+### As an application
+
+The first barrier in this project is not the code, it is the installation: a MoonBit
+toolchain, a C toolchain, and a build step. If you only want to *look* at MAKED, you should
+have to install none of that.
 
 ```bash
 docker compose up --build
 ```
 
-Then open <http://127.0.0.1:8080/>. The image holds the server and the browser
-files it serves; the database is created and seeded on first run, and lives in
-a named volume so your records survive the container being replaced.
+Then open <http://127.0.0.1:8080/>. The image holds the server and the browser files it
+serves; the database is created and seeded on first run and lives in a named volume, so your
+records survive the container being replaced.
 
-**From v0.1.7**, the image is also published, so the clone is not
-needed either:
+The image is also published, so the clone is not needed either:
 
 ```bash
 docker run --rm -p 8080:8080 -v maked-data:/data ghcr.io/riantr/maked:latest
 ```
 
-A package on ghcr.io is private until someone says otherwise, and only the
-owner can say it: **Settings → Package settings → Change visibility →
-Public**, once, for `riantr/maked`. Until that is done, the published image
-pulls only with a GitHub token that can read it.
+> A package on ghcr.io is private until someone says otherwise, and only the owner can say
+> it: **Settings → Package settings → Change visibility → Public**, once, for `riantr/maked`.
 
-### Or take a prebuilt binary
-
-**From v0.1.7**, every tag also carries a ready-to-run build for
-three platforms, with the browser files beside the executable:
+Every release also carries a ready-to-run build for three platforms, with the browser files
+beside the executable:
 
 | Platform | Asset |
 |---|---|
@@ -94,26 +113,170 @@ three platforms, with the browser files beside the executable:
 | macOS (Apple Silicon) | `maked-<version>-macos-arm64.tar.gz` |
 | Windows x64 | `maked-<version>-windows-x64.zip` |
 
-Unpack it, run the executable in that directory, and open
-<http://127.0.0.1:8080/>. `RUN.txt` inside the archive says the same thing.
-Downloads: <https://github.com/riantr/MAKED/releases>
+Unpack it, run the executable in that directory, and open <http://127.0.0.1:8080/>.
+`RUN.txt` inside the archive says the same thing. Downloads:
+<https://github.com/riantr/MAKED/releases>
 
-### Or build it from source
+## Command-Line Usage
 
 ```bash
+# The web server: the API and the browser app, one process.
+moon run --release --target native cmd/server
+
+# The agent's server, over stdio. Spawn this; speak MCP to it.
+moon run --release --target native cmd/mcp
+
+# The agent's server, over HTTP, on the port you name.
+MAKED_MCP_PORT=8735 moon run --release --target native cmd/mcp
+```
+
+From source, `build.ps1` builds the browser bundle, stages it where the server looks for it,
+type-checks the backend, runs every test, and builds the server:
+
+```powershell
 .\build.ps1
 moon run --release --target native cmd/server
 ```
 
-Open <http://127.0.0.1:8080/>.
-
-`build.ps1` builds the browser bundle, stages it to the backend's serving location, type-checks the backend, runs all tests, and builds the server. The backend serves both the JSON API and the frontend static files, so there is no second web server and no CORS configuration.
-
-The container image and the prebuilt binaries are produced by the same release
-run that publishes the package: `.github/workflows/publish.yml` builds all
-three platforms and the image, and attaches the archives to the GitHub
-release. The image is rebuilt and smoke-tested on every push by `ci.yml`, so a
+The container image and the prebuilt binaries are produced by the same release run that
+publishes the package. The image is rebuilt and smoke-tested on every push by CI, so a
 broken image is caught before it is ever tagged.
+
+## Quick Start
+
+### Run the loop
+
+```bash
+docker compose up --build
+```
+
+Open <http://127.0.0.1:8080/>. The panel shows where the loop stands, what the last move
+did in words, and which slots the table offers from here. Take a move, and the run is written
+down — every step with the reason it was possible.
+
+### Run it from another agent
+
+MAKED speaks the Model Context Protocol, version **2026-07-28**. Build the agent's server
+and point your agent at it:
+
+```bash
+moon build --release --target native cmd/mcp
+```
+
+```json
+{
+  "mcpServers": {
+    "maked": {
+      "command": "/path/to/MAKED_moonbit/_build/native/release/build/cmd/mcp/mcp.exe"
+    }
+  }
+}
+```
+
+The agent's server speaks stdio by default; set `MAKED_MCP_PORT` and it speaks HTTP
+instead, on the port you name.
+
+> The agent's server is **not** in the published release artifacts yet — those carry the
+> web server and the browser bundle. It is built from this repository, and it will join the
+> release when it is worth shipping.
+
+Two things about this protocol version are worth knowing before you wire it up:
+
+- **There is no handshake.** `initialize` is not a method in 2026-07-28; the server answers
+  it with `-32601 Method not found`. The entry point is `server/discover`.
+- **Every request carries its own version.** Each request's `params._meta` must contain
+  `io.modelcontextprotocol/protocolVersion` (a string) and
+  `io.modelcontextprotocol/clientCapabilities` (an object). A request without them is
+  refused with `-32602`.
+
+Over HTTP there are two more: the `MCP-Protocol-Version: 2026-07-28` header, and an
+`Mcp-Method: <method>` header naming the method the body carries.
+
+### Write a machine of your own
+
+```bash
+MAKED_MODEL=models/product-iteration.json \
+MAKED_RESEARCH=research/product-iteration.yaml \
+moon run --release --target native cmd/server
+```
+
+The loop now runs on *your* domains, positions and slots — and the table is read against
+*your* machine, so a rule that names a slot your machine does not have is refused at
+start-up rather than ignored.
+
+## API Reference
+
+### The HTTP API
+
+| Method | Path | What it does |
+|---|---|---|
+| `GET` | `/api/status` | is the server up, how many pages, which domains |
+| `GET` | `/api/pages` | the nine seeded pages |
+| `GET` | `/api/pages/:slug` | one page by slug |
+| `GET` | `/api/domains` | the five domains in ring order |
+| `GET` | `/api/bootstrap` | pages, workspace entries and session state in one call |
+| `GET` | `/api/entries` | the workspace entries |
+| `POST` | `/api/entries` | put your own record in the workspace |
+| `DELETE` | `/api/entries/:id` | remove one |
+| `GET` | `/api/sessions` | the named explorations |
+| `POST` | `/api/sessions` | start one |
+| `GET` | `/api/sessions/:id` | one exploration, with its timeline |
+| `POST` | `/api/sessions/:id/activate` | bring one to the front |
+| `POST` | `/api/sessions/:id/replay` | re-run a run |
+| `POST` | `/api/sessions/:id/branch` | fork an exploration |
+| `POST` | `/api/sessions/:id/rename` | rename one |
+| `DELETE` | `/api/sessions/:id` | delete one |
+| `GET` | `/api/sessions/:id/export` | one exploration as `markdown` or `json` |
+| `GET` | `/api/loop/status` | where the loop stands |
+| `GET` | `/api/loop/slots` | the eight-slot vocabulary |
+| `GET` | `/api/loop/continuations` | what the machine says could happen next |
+| `GET` | `/api/loop/mode` | the current mode |
+| `POST` | `/api/loop/mode/:mode` | change it |
+| `POST` | `/api/loop/step/:slot` | take a move with a named slot |
+| `POST` | `/api/loop/step` | take a move and let the table choose |
+| `POST` | `/api/loop/reset` | back to Model with an empty history |
+| `POST` | `/api/loop/reset/:domain` | back to a chosen domain |
+| `GET` | `/api/model` | the machine as data |
+| `GET` | `/api/research/documents` | the documents the corpus holds |
+| `POST` | `/api/research/drive` | drive a document through the loop |
+| `GET` | `/api/research/config` | the mapping table, and whether it can be written back |
+| `PUT` | `/api/research/config` | put a table of your own |
+| `GET` | `/api/research/corpus` | the corpus, and whether it can be written back |
+| `PUT` | `/api/research/corpus` | put a corpus of your own |
+| `GET` | `/api/research/causal` | the causal estimate, and what it rests on |
+| `GET` | `/api/society` | the collective: where it stands, what it can do |
+| `POST` | `/api/society/step` | take a move for the collective |
+
+### The agent's server
+
+Seven tools. Every answer is in sentences, with the ids beside them for when you want to be
+exact.
+
+| Tool | Arguments | What it answers |
+|---|---|---|
+| `maked_status` | — | where the loop stands, what the last move did, what the run adds up to, whether it is still finding ground |
+| `maked_options` | `depth` | the slots that can move, the slots that cannot and why, the successors the table declined to choose between |
+| `maked_step` | `slot`, `target` | take a move, and say what happened |
+| `maked_model` | — | the machine as data: domains, positions, slots, and the rule for every pair |
+| `maked_society` | `trigger` | where the collective stands; with a trigger, take that move |
+| `maked_sessions` | — | the named explorations, and which one is in front of us |
+| `maked_export` | `session_id`, `format` | one exploration as Markdown (to read) or JSON (to process) |
+
+The suggested order is: `maked_status` → `maked_options` → `maked_step`. `maked_step` with
+no slot lets the table choose; with a slot you choose; with a `target` you answer a question
+the table asked.
+
+### The four files
+
+| File | Format | Named by | What it decides |
+|---|---|---|---|
+| The machine | `maked.model.v1` (JSON or YAML) | `MAKED_MODEL` | the domains, positions, slots and rules the loop runs on |
+| The mapping table | `maked.research.v1` (JSON or YAML) | `MAKED_RESEARCH` | what a document means — which words make a rule fire, and which slot it drives |
+| The vocabulary | `maked.society.v1` (YAML) | `MAKED_SOCIETY` | the English words for the collective's positions and moves |
+| The corpus | `maked.corpus.v1` (YAML) | `MAKED_CORPUS` | where the documents come from: arxiv, an RSS feed, or your own folder |
+
+A `.yaml` or `.yml` file is read as YAML; every other file is read as JSON. The extension
+decides, because a file written in one and read as the other is a file that half-reads.
 
 ### Environment Variables
 
@@ -123,1232 +286,362 @@ broken image is caught before it is ever tagged.
 | `MAKED_HOST` | `127.0.0.1` | listen address — `0.0.0.0` to be reachable from other machines |
 | `MAKED_DB` | `maked.db` | SQLite file path |
 | `MAKED_DIST` | `frontend/dist` | frontend build output directory |
-| `MAKED_MODEL` | *(unset)* | a model file to run instead of the built-in one — see [Your Own Loop](#your-own-loop) |
-| `MAKED_RESEARCH` | *(unset)* | a mapping table that says what a document means — see [The Table That Says What A Document Means](#the-table-that-says-what-a-document-means) |
-| `MAKED_CORPUS` | *(unset)* | a corpus file: where the documents come from — see [The Corpus Is Yours](#the-corpus-is-yours) |
-| `MAKED_SOCIETY` | *(unset)* | a vocabulary file: the English words for the collective — see [The Collective](#the-collective) |
-
-## API
-
-### Pages and Domains
-
-| Route | Returns |
-|---|---|
-| `GET /api/status` | database path, page count, the five domains |
-| `GET /api/pages` | all pages (sorted by sort) |
-| `GET /api/pages/:slug` | a single page, or 404 |
-| `GET /api/domains` | the five domains (ring order) |
-
-### Workspace
-
-The user's own records. Until this existed the API was read-only: everything the
-site served was seed content written by the maintainer.
-
-| Route | Returns |
-|---|---|
-| `GET /api/entries` | every workspace record, oldest first, plus the five domain letters |
-| `POST /api/entries` | create one from `{domain, title, body}`; 201 with the stored record, or 400 with a reason |
-| `DELETE /api/entries/:id` | remove one; 200, or 404 if there was no such record |
-
-`domain` must be one of `M`, `D`, `E`, `A`, `K`; `title` must not be blank.
-Both limits are enforced server-side and the refusal names the field and the
-limit, so a rejected record says why rather than failing silently.
-
-**There is no auth.** Anyone who can reach the port can read and delete every
-record. That is acceptable while the server binds localhost and stores one
-person's working set, and it stops being acceptable the moment the server is
-published — see the entry-barrier work, which is what makes that reachable.
-
-#### The workspace screen
-
-`/workspace` is the route where those records are written and read. It is a
-client-side route, so it survives a cold load and a deep link alike.
-
-- The domain is chosen by **pressing its letter**, not by picking from a
-  dropdown. The five letters are the whole vocabulary, and a row of five
-  buttons says at a glance which one is in effect.
-- The form refuses locally what the server would refuse anyway — no domain, or
-  a blank title — and says which one it was, without a round trip.
-- Every outcome is stated in words in the same place: saved, refused, or the
-  server unreachable. A button that does nothing is the failure this project
-  exists to remove, so the screen never stays quiet about one.
-- The records already saved sit next to the form that made them, each with its
-  own delete button.
-
-The list arrives with the pages in one `/api/bootstrap` request. Two requests at
-start-up is the shape that used to lose responses: two GETs in flight at once
-meant the client sometimes never saw either answer, and the screen sat on
-"Loading…" with nothing in the console to say why. The chain is one request at
-a time, and `/api/bootstrap` and `/api/entries` are sent as `no-store` — a
-cached copy of the list would be a stale claim about what the server holds.
-
-### Sessions
-
-A named exploration, kept. The loop state used to be a module-level singleton:
-one exploration, no name, no history that outlived the process, and nothing to
-take away. A user who spent twenty steps working out why their model would not
-move had nowhere to put any of it, and restarting the server threw it away.
-
-| Route | Returns |
-|---|---|
-| `GET /api/sessions` | every session, most recently touched first, with the active one marked |
-| `POST /api/sessions` | create one from `{name}`; 201 with the session state, or 400 with a reason |
-| `GET /api/sessions/:id` | one session: its path, the branches off it, and the live loop status |
-| `POST /api/sessions/:id/activate` | make it the active session and replay it into the loop |
-| `POST /api/sessions/:id/replay` | rewind to `{step}`; the steps beyond it are kept, not deleted |
-| `POST /api/sessions/:id/branch` | fork a new session at `{step}`, named `{name}`; 201 |
-| `POST /api/sessions/:id/rename` | rename it from `{name}` |
-| `DELETE /api/sessions/:id` | forget it and its steps |
-| `GET /api/sessions/:id/export?format=md` | the session as Markdown, as a download, with the sentences and "The run so far" |
-| `GET /api/sessions/:id/export?format=json` | the session as JSON (`maked.session.v1`), with the `summary` |
-
-Every step taken through the loop is recorded in the active session, with the
-domain, the slot, the outcome, the positions before and after, and **why the
-step was possible**: which slots had an outgoing edge at that position, which
-had none, whether the table declined to choose, and what its own drive slot
-was. That snapshot is taken when the step is taken, not looked up afterwards, so
-it describes the moment rather than the table as it stands now.
-
-**A session's steps are a tree, not a list.** Each step records the step it
-came from, and the session records which step it is standing on. Rewinding moves
-the head back and leaves the steps beyond it in the table as the other
-branches; a list would have had to delete them, and "let me try the other road
-from step 7" is the whole reason to keep a history at all. A fork copies the
-path up to a step into a new session and leaves the original exactly as it was.
-
-**Replay re-derives, it does not restore.** A step records the domain and the
-slot, not a snapshot of the positions, so putting a session back together runs
-those steps through the transition table again. What comes back is the state the
-table really produces, so a record that had drifted from the table shows up as a
-different result rather than as a quiet lie.
-
-The server restores the most recently touched session on start-up, so a restart
-is not amnesia. The whole session state — the list, the active session, its
-path, the branches off it — rides along in `/api/bootstrap`, so the start-up
-chain stays two requests rather than three.
-
-**The state under `session` is the *active* session.** A route that acts on
-some other session names its subject as well, so the answer is about the
-session the caller asked about: `POST /api/sessions/:id/rename` returns the
-renamed session under `renamed`, next to the state it changed. Without that,
-renaming a session that is not the live one would answer with a session the
-caller never asked about — a response that looks right and is about the wrong
-thing.
-
-#### The sessions screen
-
-`/sessions` is the route where the history is read. Like `/workspace`, it is a
-client-side route, so it survives a cold load and a deep link alike.
-
-- The timeline is one entry per step: what moved, from where to where, what the
-  transition table said, and why that step was possible at all.
-- Each step offers **Go back to here** (rewind; the steps beyond it are kept and
-  become the roads not taken) and **Fork from here** (a new named session with a
-  copy of the path up to that step).
-- A session can be renamed, exported as Markdown or JSON, opened again later,
-  and deleted. A delete takes two presses, because a history is worth more than
-  the click that deletes it.
-- The "why" line is written by the server. A second copy of that rule in the
-  browser would be a second thing to keep in step with the first.
-- The [measures](#the-run-is-measured-so-it-can-be-wrong) are on the panel and
-  in the export: whether the run is still finding ground, how far it has
-  ranged, and whether its last five steps found less than its first five did.
-
-### State Loop
-
-| Route | Returns |
-|---|---|
-| `GET /api/loop/status` | current domain, position, history, domain states, group state, mode |
-| `GET /api/loop/slots` | the eight drive slots (URL-safe name + English designation + English gloss) |
-| `GET /api/loop/mode` | the current mode (structured/free) |
-| `POST /api/loop/step` | advance one ring step (using the current domain's default drive slot) |
-| `POST /api/loop/step/:slot` | advance one ring step (using a named slot: the URL-safe name or the English designation, case-insensitively); with `{"target": "..."}` in the body, take one of the successors the table offered and declined to choose |
-| `POST /api/loop/reset` | reset to the initial state |
-| `POST /api/loop/reset/:domain` | reset with the given domain as the starting point (accepts a letter or the English name) |
-| `POST /api/loop/mode/:mode` | switch mode (structured/free) |
-| `GET /api/loop/continuations?depth=N` | the model's own "all possible continuations" (`after_open`) |
-
-### The Model
-
-| Route | Returns |
-|---|---|
-| `GET /api/model` | the whole machine as JSON: the domains, the 34 positions, the 8 slots, the rule for every one of the 272 (position, slot) pairs, and the word each kind of outcome is called |
-
-The model is the machine written down, so it can be read, edited and handed
-back. See [The Machine Is Data, Not a Package](#the-machine-is-data-not-a-package).
-
-Besides the original fields, `GET /api/loop/status` also returns `drive_slot_name`, `blocked`, `undecided`,
-`open_slots` (the slots that really have an outgoing edge at the current position, with their outcomes),
-and `at_anchor` / `drivable` for each domain.
-
-Each open slot carries its outcome twice: `outcome` is the word a reader sees (`Moved`, `Undecided`,
-`No-way`) and `outcome_kind` is the word the machine matches on (`moved`, `open`, `block`). A client that
-has to recognise the *word* "Undecided" to know the model declined to choose is a client that breaks the
-first time somebody renames a model — and renaming a model is exactly what a model file is for. The slot
-names in `open_slots` are the model's own ids, so the name a button posts is the same name
-`GET /api/model` hands out.
-
-`/api/loop/continuations` is built on the model's own continuations — the transition table's answer to "all
-possible continuations", as distinct from `expand`, which requires the caller to name a slot sequence
-up front. It lists only edges that really exist and **does not choose for the subject**: when the same
-position is reachable by several routes it is listed once at the shortest distance, and the slot-grouped
-view is where the alternative routes become visible.
-
-### Loop Modes
-
-- **Structured mode**: follows the ring order M→D→E→A→K, uses the designated drive slot for each domain, and always advances to the next domain after a step
-- **Free mode**: driven by any slot, exploring the state space; it stays in the current domain when the outcome is `Block` ("no way out"), otherwise it advances
-
-Structured mode is the default. Free mode allows exploring transition paths through the pyroduct state space that do not follow the ring order.
-
-### Research Loop
-
-| Route | Returns |
-|---|---|
-| `GET /api/research/documents` | the documents the corpus holds + the rule each one matched + which corpus it is |
-| `POST /api/research/drive` | read the corpus and drive the loop with it |
-| `GET /api/research/causal` | the estimate, the variables it controlled for, the balance between the two groups, the overlap, and the sensitivity interval -- or a refusal with the reason and the evidence |
-| `GET /api/research/config` | the mapping table, the file it came from, and whether it can be written back |
-| `PUT /api/research/config` | replace the table; a table naming a slot the model does not have is refused, with the reason |
-| `GET /api/research/corpus` | the corpus, the file it came from, and whether it can be written back |
-| `PUT /api/research/corpus` | replace the corpus; a corpus naming a source it cannot read is refused, with the reason |
-
-### The Society Layer
-
-| Route | Returns |
-|---|---|
-| `GET /api/society` | the collective's position and name, the thirteen positions, the twenty-eight moves, the moves available from here, and the gaps in the vocabulary |
-| `POST /api/society/step` | take a move: `{ "trigger": "RaiseClaims" }` -- where the collective lands, or the reason there was no such move |
-
-Both answers have the same shape. A move that is refused still answers with the
-machine, the collective's position and the moves available from it, plus the
-reason. See [The Collective](#the-collective).
-
-## Project Structure
-
-```
-backend/          micro-framework, storage layer, API routes, state loop engine
-  app.mbt           App: route table + ordered middleware chain
-  request.mbt       Request wrapper
-  response.mbt      Response value and dispatch
-  database.mbt      SQLite storage layer
-  pages.mbt         content model + nine pages of seed data
-  api.mbt           JSON API routes
-  loop.mbt          five-domain ring loop engine (subject + group state machines)
-  session.mbt       named explorations: the step tree, replay, forking, export
-  narration.mbt     the sentences: what a step did, and what a run of steps means
-  metrics.mbt       the measures: new ground, settling, spread, drift, and the
-                    comparison of the run's beginning with its end
-  research.mbt      what a document means: the slot it drives, asked of the table
-  research_config.mbt  the mapping table: what a document means, as data
-  corpus.mbt        the corpus: where the documents come from, as data
-  corpus_sources.mbt  the readers: arxiv, a feed, and the reader's own files
-  datafile.mbt      reading a file written in JSON or in YAML, either way
-  causal.mbt        DoubleML causal inference: the estimate, and what it rests on
-  society.mbt       the society layer: pyroduct's collective machine, and the
-                    words for it
-  maked_app.mbt     assembly, static files, SPA fallback
-frontend/         rabbita single-page application
-  app.mbt           state machine and router
-  views.mbt         header, domain cards, page rendering
-  entries.mbt       workspace records and the draft that becomes one
-  session.mbt       sessions and the step timeline, decoded from the server
-  logo.mbt          five-ring mark (SVG)
-  loop_state.mbt    loop state visualisation
-  page.mbt          typed accessors for the backend JSON
-  causal.mbt        the causal panel: the estimate, and the diagnostics around it
-  society.mbt       the society panel: the collective, and the moves it can make
-cmd/server/       native entry point
-cmd/web/          js entry point (browser bundle)
-models/           the example machine, in both syntaxes
-research/         the example mapping table, the example corpus, and the
-                  vocabulary of the collective
-Dockerfile        container image: build stage, then a runtime stage with
-                  no toolchain in it
-docker-compose.yml  the container with a volume for the records
-packaging/RUN.txt what a user reads after unpacking a prebuilt binary
-tools/            CI and test tooling
-ci.sh             CI pipeline (15 gates)
-integration-test.ps1  the end-to-end tests over real HTTP
-```
-
-## CI Pipeline
-
-```bash
-bash ci.sh              # all 15 gates
-bash ci.sh --quick      # skip the slow gates
-bash ci.sh --unit-only  # type check + unit tests only
-```
-
-There is no bash on this Windows machine, so `ci.sh` cannot be run locally; the parts that can be reproduced
-locally are covered by `.\build.ps1`
-(bundle → check → backend tests → frontend tests → server build). Of the 15 gates, 9 exist only as a
-shell implementation and cannot be reproduced locally.
-
-`ci.yml` runs four jobs: the unit tests on both targets, the two builds, the
-container, and the **integration** job — the end-to-end suite over real HTTP,
-which `ci.yml` did not run at all before. The script is PowerShell rather than
-bash so that one file serves this machine and the runner: the runner's ubuntu
-image carries `pwsh`.
-
-### Mutation Checks
-
-Beyond the mutation gate inside `bash ci.sh`, there are three scans that can be run separately:
-
-```
-.\tools\mutate-backend.ps1     # 94 mutations, 0 survived, 1 expected-equivalent
-.\tools\mutate-frontend.ps1    # 44 mutations, 0 survived
-.\tools\mutate-loop.ps1        # 16 mutations, 0 survived
-```
-
-And the one that finds the rot before the suites do:
-
-```
-.\tools\check-mutation-anchors.ps1   # 152 anchors, 0 dead
-```
-
-Every mutation in those three suites is a text replacement, and a text
-replacement whose anchor no longer occurs changes nothing: the file is left
-alone, the suite stays green, and the mutation is reported as a survivor — a
-claim about the tests when the truth is that the mutation never happened.
-The suites report a missing anchor as an ERROR, so the rot is visible — but
-only after half an hour of running. The checker asks the same question in a
-second, and the answer is what you want before a half hour is spent: eleven
-of the anchors had rotted by the time the loop state started carrying its
-own model, and every one of them was a guard that could no longer fail.
-
-The one remaining EQUIV is in `mutate-backend` and is deliberate: `page_by_slug`
-prepares a *fresh* statement on every call, so it has no previous bindings and
-has never stepped, and the reset before the first bind is unobservable. It stays
-in the roster on purpose — the moment that function starts reusing one prepared
-statement, the same mutation becomes a real bug and flips to `KILLED`, which is
-exactly the signal we want.
-
-The loop suite used to have an EQUIV of its own, and it no longer does. It was
-the "drive slot invents a slot when nothing is exitable" guard, unobservable
-because all 34 positions of the built-in table **do** have outgoing edges. Now
-that a model can be a file somebody else wrote, a model with a genuinely dead
-position is a real thing, and `model_test.mbt` has one — so the guard kills.
-
-The bash gate inside `ci.sh` checks the same thing a different way, and it now
-says so when it cannot. `sed` exits 0 when its pattern matches nothing, so a
-mutation whose anchor has rotted leaves the file unchanged, the suite stays
-green, and the mutation gets reported as *survived* — a claim about the tests
-when the truth is that the mutation never happened. Five of that gate's ten
-anchors had rotted, in the same way, when the domains moved out of `loop.mbt`
-and into the model. It now checks each anchor before it mutates, reports a
-miss as an ERROR with its own exit code, and `ci.sh` fails on it. A surviving
-mutation is still advisory — a gap in the tests is a thing to work on. A gate
-that cannot break is not a gate, and that one fails the build.
-
-| Gate | Tool | What it checks |
-|---|---|---|
-| native-check | `moon check --target native` | backend type safety |
-| js-check | `moon check --target js` | frontend type safety |
-| fmt | `moon fmt --check` | code formatting |
-| tree | `moon tree` | dependency audit |
-| unit-native | `moon test --target native` | 355 backend tests (includes the BDD suite below) |
-| unit-js | `moon test --target js` | 112 frontend tests |
-| coverage | `moon test --enable-coverage` | coverage |
-| bench | `moon bench` | benchmarks |
-| prove | `moon prove` | formal verification (Why3) |
-| bdd | `bdd_test.mbt` | 13 Given/When/Then scenarios |
-| contract | `contract-test.sh` | 46 API contract assertions |
-| component | `component-test.sh` | 6 cross-module integration checks |
-| sast | `sast-check.sh` | 11 static security checks |
-| mutation | `mutation-test.sh` | 10 mutation tests (80% kill rate) |
-| dast | `dast-check.sh` | 5 dynamic security checks |
-
-## Request Handling
-
-Three layers, outside in:
-
-1. `static_files`: serves real files from `frontend/dist`
-2. `spa_fallback`: an unmatched browser navigation returns `index.html` (so `/about` cold-loads correctly)
-3. the router: serves `/api/...`, everything else returns a JSON 404
-
-The fallback excludes `/api/` paths. A final segment containing a dot is treated as an asset (a missing stylesheet returns 404 rather than HTML). A route conflict aborts startup (`fail`, not `raise`).
-
-## The Two Initial Fetches Are Chained, Not Batched
-
-`init` issues **one** request (`GET /api/bootstrap`). The loop status (`GET /api/loop/status`) is requested from the `Loaded` handler, after the first response has already arrived.
-
-The bootstrap carries everything else the app needs to start: the pages, the workspace entries, and the session state (the list of sessions, the active one, its path and the branches off it). Each of those rode along with the first response rather than needing a request of its own, because a third hop at start-up is where this chain used to die.
-
-Batching the two with `@cmd.batch` looks equivalent and is not. With the batch, every click-initiated POST still reached the server and still changed state, but **no response ever came back**: Step, Reset and the slot buttons all mutated the backend while the view stayed frozen on stale data, with no error shown anywhere. Chaining the second request restores them.
-
-The cause was not root-caused — the same build works when the init issues a GET and a POST, and fails when it issues two GETs, which points at how two concurrent requests are dispatched rather than at anything in the loop engine. The safe rule to preserve: **issue the two initial fetches one after the other.** Re-batching them is a silent regression that no unit test catches; the [integration tests](#the-integration-tests-are-the-net-for-that-class-of-bug) check the source for it.
-
-## The Integration Tests Are The Net For That Class Of Bug
-
-```powershell
-.\tools\integration-test.ps1              # builds the server, then runs 233 checks
-.\tools\integration-test.ps1 -SkipBuild   # reuse the binary that is already built
-```
-
-The unit tests cannot catch the bug described above: it is a property of the
-HTTP round-trip, not of any one function, and the container job only asks one
-question of a running image. So the whole route table is exercised over real
-HTTP, and the requests are fired **concurrently** with the assertions made on
-what the server ended up with, not only on what came back.
-
-That distinction is the whole point. A lost response and a lost write are the
-same bug seen from two ends, so there are two checks, and they are kept
-separately because they are kept in separate places:
-
-| Check | What it holds the server to |
-|---|---|
-| eight concurrent GETs all came back with a body | the answers are not lost |
-| eight concurrent POSTs all came back with a body | the answers are not lost |
-| the server ended up with all eight of them | the loop's in-memory history grew |
-| all eight of them were written down | the session's steps reached the disk |
-
-The third and the fourth are not the same check. A server that accepts a
-request and forgets to write it down passes the third — the loop's history is
-in memory and it did grow — and fails the fourth. A write lost on the way to
-the disk is lost for good: the screen would look right until the process
-ended, and then the walk would be gone.
-
-The script also checks the two ways a route can be useless while looking
-fine: a route that answers 200 with a body nobody can read, and a refusal
-that arrives as a 400 with an empty body — the "the button is broken but it
-does not say why" failure, in a different costume.
-
-**A test that has never failed is not known to work.** Each of the two halves
-of the failure class was proved by breaking the server on purpose and
-watching the suite go red:
-
-| The probe | What went red |
-|---|---|
-| the step route stops recording the step | "and all eight of them were written down" |
-| the step route answers with an empty body | "eight concurrent POSTs all came back with a body" |
-| the rename route answers about the active session | "the answer names the renamed session" |
-
-The third one matters because **the unit suite structurally cannot reach a
-route.** A handler is `async (Request) -> Response` over moonback's own
-request, and there is no way to build one in a test. Anything a route does is
-covered by the integration test alone — which is why it runs in CI, and why
-`ci.yml` grew an `integration` job.
-
-Two of the checks read the source rather than the server, because the
-regression they guard against *is* a source change:
-
-- the frontend does not use `@cmd.batch`. The comments are stripped before
-  the search, because a line that says "never with @cmd.batch" is the
-  opposite of a violation, and a plain substring search cannot tell the two
-  apart — it reads the comment as the crime.
-- the start-up issues exactly one request.
-
-### The First CI Run Of This Suite Failed, And It Was The Test
-
-The first time this suite ran on the runner, seven checks went red: every
-error response came back with the right status code and an **empty body**.
-The server was answering perfectly well.
-
-The cause was in the test. Windows PowerShell throws a `WebException` whose
-response is an `HttpWebResponse`, and the body of that is a stream.
-PowerShell 7 throws an `HttpResponseException` whose response is an
-`HttpResponseMessage`, whose body is in `Content` and which has no stream at
-all. A reader that knew only the first shape read every error on PowerShell 7
-as an empty body — and the suite then reported a server that was sending
-them correctly all along.
-
-Two things came out of that, and both are in the script now:
-
-- the reader understands both shapes, and the request asks for a 4xx not to
-  throw where the PowerShell in use can do that, so the body is where a body
-  always is;
-- **the reader is checked before anything relies on it.** Three mocks — one
-  per exception shape, and one for a response with no body at all — are read
-  first, so a reader that cannot read an error says so plainly instead of
-  turning seven refusals into seven empty ones.
-
-The lesson is the one this whole file is about: a test that has only ever
-run on one machine does not know what it does not know. The suite passed on
-Windows, and the runner was the first place it was asked the question.
-
-## The Loop Says What It Did
-
-A person looking at the loop used to see labels rotating: `M · Action · Moved`,
-then `D · Co-being · Moved`, then `E · Holding · Undecided`. The labels are
-true and they are the machine's own vocabulary, and they tell a reader nothing
-about what the machine is doing. "Self-evolution" read as a state machine
-enjoying itself.
-
-So the server now writes the sentences. Three of them, and they answer three
-questions a person actually has:
-
-| Question | Answer | Where it comes from |
-|---|---|---|
-| Why did it move? | "The model formulator moved from Standing to Freedom through Action. Action was the slot the table drives with here, and the cursor advanced to the data turbine." | `narration`, on the step |
-| What did this step change? | the same sentence: the position before, the position after, the slot, and where the cursor went | `narration`, on the step |
-| What do the last five steps mean together? | "The last 5 steps visited the model formulator once, the data turbine once, the experience absorber once, the attack generator once and the knowledge distiller once. Four of them moved a position. The group is Common Tongue." | `summary`, on the session state |
-
-**The sentences are written on the server.** The machine's words still come
-from the model 鈥?the position labels, the slot designations, the domain
-titles — but the sentences that tie them together are MAKED's, and they live
-in one place: `backend/narration.mbt`. A second copy in the browser would be a
-second thing to keep in step with the first, and the one in the browser would
-be the one that drifts. The same reason the "why" line is a sentence written
-by the server.
-
-**The slot's provenance is part of the sentence.** "The table drives with
-here" and "you chose this" are different claims, and the outcome alone does
-not tell them apart. A sentence that said the table chose a slot the reader
-picked would be the machine taking credit for a decision it did not make.
-
-**A summary is a summary.** Five steps, not the whole history: past five the
-sentence stops being about something a reader can hold in their head. The
-number is in the sentence itself — "The last 5 steps" — so it is a fact about
-the summary rather than a private choice inside it.
-
-**The document you take away says it too.** The sentences are not only on the
-screen: the Markdown export puts the sentence under each step's heading and
-opens with "The run so far", and the JSON export carries the summary as a
-`summary` field. An export that dropped them would be the list of labels
-again — the exact thing the sentences exist to replace — and the export is
-the artefact most likely to be read later, on its own, by someone who was not
-there. So the export is held to the same wording as the page: the integration
-test compares the exported document against the sentence the API served for
-that step, rather than against a phrase the test wrote itself.
-
-### A Step's Answer Carries The Session State
-`POST /api/loop/step` answers with the loop status *and* the session state,
-folded in under `session_state`. The panel needs both halves: what the
-machine is doing now, and the history the steps are being recorded into.
-They used to arrive on two requests, and the second was only made at
-start-up — so the panel's step count stopped moving after the first click,
-and its summary described a run one step out of date.
-
-## The Run Is Measured, So It Can Be Wrong
-
-A framework that cannot be measured cannot be falsified, and the question
-this answers is the one a person has after twenty clicks: **is this run
-better than the five steps I took before it?**
-
-Before, the only answer was the step count, and the step count always says
-yes. A run that has repeated the same ten positions for fifteen steps has a
-bigger number than the five steps that found ten new ones, and looks like
-progress on anything you can count.
-
-So the loop is measured, and the measures are written next to the reading
-they support.
-
-| Measure | What it counts | The question it answers |
-|---|---|---|
-| **New ground** | steps in the window that reached a position the run had not been on before | is it still finding anything? |
-| **Settling** | steps at the end of the window that reached nothing new | is it settling, or stuck? |
-| **Slots used** | distinct drive slots in the window, out of the eight | is it walking one line through the table? |
-| **Domains visited** | distinct domains in the window, out of the five | is the whole ring being used? |
-| **Positions covered** | positions the run has stood on, out of the thirty-four | how much of the space has it reached? |
-
-Each one is a number *and* a sentence, and the sentence is the part that
-matters: "The last 5 steps reached no position the run had not been on
-before: they added nothing to the map." is a claim that can be wrong, and a
-reader who disagrees with it can look at the path and say so.
-
-**Settling and stuck are not the same thing, and the measure says which one
-it is looking at.** A run whose steps moved into positions it already knew
-has *arrived* — that is the goal, and it reads "the run is settling rather
-than exploring". A run whose steps did not move at all has *stopped*, and it
-reads "the last 5 steps did not move the subject at all: the run is stuck,
-not settling". The recorded outcome tells the two apart: "Moved" is the only
-outcome that puts the subject somewhere else, and a reader told "settling"
-about a run that cannot move would sit there waiting for a convergence that
-is never coming.
-
-**The measures are taken over a window of the last five steps, not over the
-whole run.** This is the decision the whole design rests on. A number that
-grows with the length of the run answers "how much did I do" rather than "how
-good was it" — the length is the reader's own doing, so a measure that rose
-because the run was longer would make every run look like an improvement. Five
-is also the window the run summary already uses: one rule for "the last few
-steps" in the whole product.
-
-**And so the run is compared with itself.** The last five steps are measured
-against the first five:
-
-> The last 5 steps reached 0 new positions; the first 5 reached 5. The run is
-> finding less new ground than it did at the start.
-
-That sentence is the answer to "is twenty steps better than five". Often it
-is "no", and saying so is the point: a run that has stopped finding ground
-is a run whose remaining steps cost time and give nothing back.
-
-Two things the measures deliberately do **not** do:
-
-- **They are not combined into one score.** A single number out of five
-  measures would hide which of them fell, and a number nobody can argue with
-  is the thing this section exists to avoid. They are reported separately, and
-  a reader can see which one is bad.
-- **They are not derived in the browser.** The measures need the whole path
-  and the size of the state space to say anything true, so the server
-  computes them, in `backend/metrics.mbt`, and the client shows what it is
-  given. The denominators — eight slots, five domains, thirty-four positions
-  鈥?are read out of the model rather than written down in MAKED, so a table
-  that grows makes the numbers grow with it.
-
-The measures ride along with the session state, so they are current on the
-loop panel after every step, and they are in the export: a reader with the
-document and not the page has something to judge the run by.
-
-### The First Real Run Said The Machine Was Stuck
-
-The measures were written against hand-built paths, and the first run they
-were pointed at was a real one: twelve clicks of the Step button on a fresh
-server. The path says the ring went M → D → E → A → K, moved on every step,
-and then — from step six on — did nothing at all:
-
-```
-1. M Action    Moved      Standing -> Freedom     (cursor: D)
-2. D Co-being  Moved      Encounter -> Opening    (cursor: E)
-3. E Holding   Moved      Honor -> Habit          (cursor: A)
-4. A Unveiling Moved      Evil -> Shame           (cursor: K)
-5. K Feedback  Moved      Cultivation -> Tranquility (cursor: M)
-6. M Situation Undecided  Freedom -> Freedom      (cursor: M)
-7. M Situation Undecided  Freedom -> Freedom      (cursor: M)
-... and so on, for ever
-```
-
-The cursor comes back to the model formulator, the model formulator's drive
-slot at that position is the one the table declines to choose from, and the
-subject does not move — so the cursor does not advance, and the next step is
-the same step. Stepping by hand does not help: at that position seven of the
-eight slots have no edge at all, and the eighth is the undecided one.
-
-Before the measures, that run looked like a run of twelve steps. It was
-twelve steps of a machine that had stopped. The step counter cannot see the
-difference between "exploring" and "going round in circles", which is the
-whole reason the measures exist — and the first thing they did was say so:
-
-> The last 5 steps reached no position the run had not been on before: they
-> added nothing to the map.
->
-> The last 5 steps did not move the subject at all: the run is stuck, not
-> settling.
->
-> The last 5 steps reached 0 new positions; the first 5 reached 5. The run is
-> finding less new ground than it did at the start.
-
-The wedge is a defect in the loop's behaviour, and it is reported here
-rather than hidden: the machine is not allowed to invent a choice the
-transition table declined to make — that would be a worse lie — but a run
-that cannot move should say so, and there should be a way out. The next
-section is that way out.
-
-## A Position The Table Will Not Decide Has A Way Out
-
-The `Open` outcome means the transition table offered several successors
-from a position and declined to choose between them. MAKED does not make
-that choice: inventing one would be a claim the model does not support, and
-the whole point of reading the table rather than guessing at it is that the
-reader's trust in it survives.
-
-But "the machine will not choose" is not the same as "there is nothing to
-do", and the difference is the whole experience. When the table declines,
-the successors it offered are on the screen already —
-`Situation · Undecided → Urgency, Alienation` — and the panel turns them
-into buttons:
-
-> The table offered 2 ways out of here through Situation and would not
-> choose between them. Pick one:
-
-Clicking one steps the subject to that successor, by the trigger the table
-itself names for it. The machine is not making the choice; it is obeying
-one. `POST /api/loop/step/:slot` takes the choice in the body:
-
-```json
-{ "target": "Urgency" }
-```
-
-A target the table does not offer is refused with a `400` that names the
-ones it does, rather than a step that quietly lands nowhere:
-
-```json
-{ "error": "unknown_target", "target": "Nowhere", "targets": [["Urgency"], ["Alienation"]] }
-```
-
-This is what the wedge needed. The ring comes back to the model formulator
-after one lap, the model formulator's drive slot there is the one the table
-will not choose from, and before this the run could only repeat itself. Now
-the reader can take the run somewhere — and the measures can say so, because
-the run is moving again.
-
-The button is the whole feature, and a button is the one thing a test cannot
-reach: the browser cannot be driven from a test, so a button that renders the
-right words and sends the wrong thing would look exactly like one that works.
-So the click is checked where it is made. The view hands the message to the
-emitter as it builds the button, and the test keeps that message — which
-proves the button carries the candidate the table offered, not a slot the
-machine has to guess at. The message becomes a request in one named place,
-and the test reads the endpoint back out of it. The bytes that are actually
-served are checked too: a stale bundle is a silent failure, in which the
-server answers every request correctly while the page in front of the reader
-has no way out in it.
-
-## The Machine Is Data, Not a Package
-
-The state machine MAKED runs — 34 positions, 8 slots, 53 transitions — lived
-in the `pyroduct` package, and MAKED reached it through that package's own
-types. So MAKED could run exactly one loop: pyroproduct's. To run a
-different one — a product-iteration loop, a clinical path, a writing
-process — somebody would have to fork MAKED.
-
-`backend/model.mbt` makes the machine a value instead of a program. A model
-is the domains, the positions, the slots, and the rule for every
-(position, slot) pair, and it is written down in JSON:
+| `MAKED_MODEL` | *(unset)* | a machine to run instead of the built-in one |
+| `MAKED_RESEARCH` | *(unset)* | a mapping table that says what a document means |
+| `MAKED_CORPUS` | *(unset)* | a corpus file: where the documents come from |
+| `MAKED_SOCIETY` | *(unset)* | a vocabulary file: the English words for the collective |
+| `MAKED_MCP_PORT` | *(unset)* | a port: the agent's server speaks HTTP instead of stdio |
+
+An empty value counts as unset, because an empty environment variable is a mistake rather
+than a filename.
+
+### Error handling
+
+There is no auth. That is a real limitation rather than an oversight, and it is stated here
+because it is the first thing to change before this is exposed beyond a local process:
+anyone who can reach the port can read and delete every entry.
+
+Apart from that, the rules are these:
+
+- **A refused request is an answer, not a crash.** A slot that does not exist comes back as
+  `400` with the name of the slot that was asked for. A step that cannot move comes back
+  with the reason it cannot, in words.
+- **A file that cannot be read stops the start-up.** The reason is printed on stderr, and
+  the server does not serve. Unset the variable that names it to run the built-in one.
+- **A rule that names a slot the machine does not have is refused.** It is a rule about
+  nowhere, and reading it would mean inventing a slot to hold it.
+- **A vocabulary that names a position the collective does not have is a gap.** The gaps are
+  reported, in the panel and in the API.
+
+## Examples
+
+### A machine of your own
 
 ```json
 {
   "format": "maked.model.v1",
-  "name": "Product iteration",
+  "name": "One small machine",
   "domains": [
     { "id": "idea", "letter": "I", "title": "Idea", "role": "the idea", "anchor": "raw" }
   ],
   "positions": [
-    { "id": "raw", "label": "Raw idea", "gloss": "Nobody has built it yet.", "domain": "idea" }
+    { "id": "raw", "label": "Raw idea", "gloss": "Nobody has built it yet.", "domain": "idea" },
+    { "id": "asked", "label": "A question asked", "gloss": "Somebody was asked.", "domain": "idea" }
   ],
   "slots": [
-    { "id": "ask", "designation": "Ask", "gloss": "Talk to a customer." }
+    { "id": "ask", "designation": "Ask", "gloss": "Talk to somebody who would use it." }
   ],
   "rules": [
-    { "from": "raw", "slot": "ask", "outcome": { "kind": "moved", "edge": "A customer said no", "to": "talked" } }
-  ],
-  "continuations": []
-}
-```
-
-Nothing in that format assumes pyroproduct's sizes. Three positions is a
-model with three positions, not a model with two missing. The `outcome` is
-one of `moved`, `held`, `same`, `open` or `block`, and `open` is the one
-that declines to choose — it carries the candidates, and the candidate the
-reader picks is the way out of a position the table would not decide.
-
-The same machine in YAML:
-
-```yaml
-format: maked.model.v1
-name: Product iteration
-
-domains:
-  - id: idea
-    letter: "I"
-    title: Idea
-    role: the idea
-    anchor: raw
-
-positions:
-  - id: raw
-    label: Raw idea
-    gloss: Nobody has built it yet.
-    domain: idea
-
-slots:
-  - id: ask
-    designation: Ask
-    gloss: Talk to a customer.
-
-rules:
-  - from: raw
-    slot: ask
-    outcome:
-      kind: moved
-      edge: A customer said no
-      to: talked
-
-continuations: []
-```
-
-**The translation is proved, not assumed.** The built-in model is still
-pyroduct's: `Model::pyroduct` asks the package about all 272 combinations
-and writes the answers down in MAKED's own vocabulary. The test then asks
-the package the same 272 questions again and compares the two, pair by
-pair. A translation that is nearly right is the dangerous kind — it would
-be wrong in a place nobody looks, and the wrongness would look like the
-model rather than like a mistake.
-
-**A model can be wrong in a way a reader can act on.** A file that names a
-position it does not define is refused, because a rule about a position
-that is not there is a rule about nowhere, and reading it would mean
-inventing a position to hold it. A file in a format this version does not
-know is refused too, rather than half-read.
-
-**The loop now runs off the model, not off the package.** A position is an
-id (`standing`, `no-past`) rather than a package variant, a slot is an id
-(`occasion`) rather than a package variant, and every table lookup — which
-slots have an edge here, what happens when one is used, which successors are
-on offer, how far away they are — is a question asked of the model. The
-outcome of a step is the model's own `Move`, not the package's `Outcome`
-re-worded in MAKED's own copy of it. The names a reader sees are the model's
-too: MAKED keeps no list of the eight slot names or the 34 position names to
-fall out of step with.
-
-What that buys is the thing this was for. The word a reader sees and the word
-a client matches on are now two different things, and only the second one is
-load-bearing: an outcome travels as a label *and* a kind, and the panel finds
-the way out of a position the model declined to decide by the kind. A model
-can be renamed without breaking the panel — and renaming a model is exactly
-what a model file is for.
-
-This is the fourth step and not the whole road. The domains, their letters and
-where each one starts are the model's; `MAKED_MODEL` runs a file instead of
-the built-in machine; and the words an outcome is called are the model's too.
-A model file may rename them:
-
-```json
-  "outcomes": [
-    { "kind": "moved", "label": "Advanced" },
-    { "kind": "open",  "label": "Undecided" }
-  ]
-```
-
-The `kind` is the machine's — `moved`, `held`, `same`, `open`, `block` — and
-it does not change: a model file may call a move something else, but it is
-still a move. The `label` is the word a reader sees, and a file that says
-nothing about a kind falls back to the kind itself, which is honest — the
-outcome happened, and the file has no better name for it. The built-in
-model's words are the transition table's own English rendering, collected as
-the table is walked rather than written down a second time.
-
-**And the state carries the machine it was built for.** A loop state is not
-just a set of positions; it is a set of positions *on a model*, and every
-question asked of it — which slots have an edge here, what the outcome is
-called, where the cursor goes next — is asked of that model. A state whose
-domains came from one machine and whose lookups were answered by another is
-a state that cannot be read. So a state can be built on any model, and a
-step taken on somebody else's machine is recorded with that machine's words
-and re-derived against that machine when the session is replayed.
-
-**And the sentences are about the model's domains.** The role of a domain —
-"the model formulator", "the idea" — is the model's word for it, and the
-order a summary lists the domains in is the model's ring order. MAKED used
-to carry its own five roles and its own five letters and look them up by
-hand, so a model file's domains had no voice in the sentence about them: a
-domain called "I" got a sentence about the letter I, and a summary of a run
-in a two-domain model counted nothing and listed no domains at all.
-
-## Your Own Loop
-
-The machine is a file. Point MAKED at one and it runs that machine instead of
-the built-in one:
-
-```powershell
-$env:MAKED_MODEL = 'models/product-iteration.json'
-.\maked.exe
-```
-
-The example that ships with the repository is a **product-iteration loop** —
-three domains (Idea, Making, Shipped), seven positions, four slots and
-twenty-eight rules. It is not pyroproduct's machine with a new hat: it has
-its own positions, its own rules, its own way out of a position the model
-declines to decide, and its own lookahead. MAKED runs it, and the panel, the
-narration and the measures are all about that machine.
-
-**A model file may be written in YAML as well as JSON.** A `.yaml` or `.yml`
-file is read as YAML; every other model file is read as JSON. The extension
-decides, because the two syntaxes overlap — JSON is a subset of YAML — and
-a file that says one thing and is read as the other is a file that
-half-reads, and half a machine is worse than none.
-
-The same machine ships in both syntaxes —
-`models/product-iteration.json` and `models/product-iteration.yaml` — and a
-test reads both and compares them, so the two files cannot drift apart:
-
-```powershell
-$env:MAKED_MODEL = 'models/product-iteration.yaml'
-.\maked.exe
-```
-
-A model file says which format it is, and the file says so in whatever
-syntax it is written in:
-
-```json
-{
-  "format": "maked.model.v1",
-  "name": "Product iteration",
-  "domains": [
-    { "id": "idea", "letter": "I", "title": "Idea", "role": "the idea", "anchor": "raw" }
-  ],
-  "positions": [
-    { "id": "raw", "label": "Raw idea", "gloss": "Nobody has built it yet.", "domain": "idea" }
-  ],
-  "slots": [
-    { "id": "ask", "designation": "Ask", "gloss": "Talk to a customer." }
-  ],
-  "rules": [
-    { "from": "raw", "slot": "ask", "outcome": { "kind": "moved", "edge": "A customer said no", "to": "talked" } }
-  ],
-  "continuations": [],
-  "outcomes": [
-    { "kind": "moved", "label": "Advanced" },
-    { "kind": "open",  "label": "Undecided" }
+    {
+      "from": "raw",
+      "slot": "ask",
+      "outcome": { "kind": "moved", "edge": "A customer said no", "to": "asked" }
+    }
   ]
 }
 ```
 
-Nothing in that format assumes pyroproduct's sizes. Three positions is a
-model with three positions, not a model with two missing. The `outcome` is
-one of `moved`, `held`, `same`, `open` or `block`, and `open` is the one
-that declines to choose — it carries the candidates, and the candidate the
-reader picks is the way out of a position the model would not decide.
+The example that ships with the repository is `models/product-iteration.json`: three domains,
+seven positions, four slots. It is a complete machine, not a fragment. A rule that names a
+position or a slot the machine does not define is refused at start-up, and so is a domain
+whose anchor is not a defined position — such a domain starts nowhere.
 
-**Four things a model file does not have to write down.**
-
-- *Every pair.* A rule is only needed for the pairs that lead somewhere.
-  A pair with no rule is a position with no way out, and MAKED says so
-  rather than offering a slot the file does not describe.
-- *The continuations.* If `continuations` is empty, MAKED works the
-  lookahead out from the rules — the same question, asked of the machine
-  rather than read off a list.
-- *The five of MAKED's own domains.* The domains are the model's: the
-  letters, the titles, the roles and where each one starts.
-- *The words.* If `outcomes` is empty, the *kind* is the word — the panel
-  says "moved" where the built-in model says "Moved". A file that does name
-  them says them everywhere: in the panel, in the history, in the export,
-  and in the sentence the narration writes about the step.
-
-The sentences and the summary are about the file's domains too: the role of
-a domain — "the idea", "the shipping" — is the file's own phrase for it, and
-the order the summary lists the domains in is the file's ring order.
-
-**A model file that cannot be read whole is refused.** A file that names a
-position it does not define is refused, because a rule about a position
-that is not there is a rule about nowhere, and reading it would mean
-inventing a position to hold it. So is a file whose domain anchors nowhere,
-and a file in a format this version does not know. The server refuses to
-start rather than run a machine nobody can see: a server that answers every
-request confidently and wrongly is the worst thing a server can do.
-
-## The Table That Says What A Document Means
-
-The machine is a file. So is the table that says what reading a document
-*means*.
-
-It used to be a function — a chain of `contains` calls inside
-`paper_to_trigger`, ending in a default. That is a table written as code, and
-a table written as code can only be changed by changing the program: the
-reader who wanted "failure" to mean something else had no way to say so, and
-the only way to find out what the table said was to read the source of a web
-application.
-
-Now it is data. A rule is a set of words and the slot those words drive:
+### A mapping table of your own
 
 ```yaml
 format: maked.research.v1
 mapping:
   - label: A question worth asking
-    keywords: [question, why, unclear, ask]
+    keywords:
+      - question
+      - why
+      - unclear
     slot: ask
-  - label: A thing being built
-    keywords: [build, implement, code, prototype]
-    slot: build
+    notes: The document opens a question rather than answering one.
 fallback:
   label: Anything else
   slot: scope
 ```
 
-Four things about it are worth knowing.
+The order is the priority: the table is read from the top and the first rule that matches
+wins. A rule that names a slot the running machine does not have is refused at start-up.
 
-- **The order is the priority.** The table is read from the top and the first
-  rule that matches wins. A priority written as an order is a priority a
-  reader can see.
-- **The slot is the model's.** A rule names a slot by the id the model gives
-  it, so a model file with its own slots gets a table that fits it. The
-  built-in table is the *built-in* model's; with a different model running,
-  MAKED says so at start-up rather than skipping every document in silence.
-- **A rule that names a slot the model does not have is refused.** It is a
-  rule about nowhere, and reading it would mean inventing a slot to hold it.
-  So is a rule with no words (it can never fire) and a table with no rules.
-- **The file's name decides the syntax**, exactly as it does for a model
-  file: a `.yaml` file is read as YAML and written back as YAML, everything
-  else is JSON. The two syntaxes overlap — JSON is a subset of YAML — so
-  guessing would read a file with a typo as something its author did not
-  write.
-
-**It can be edited in the browser, and the edit survives.** The research panel
-shows every rule — its words, its slot, its name — and offers the whole table
-as text to change. Saving it puts the new table, and the file is written back
-in the syntax the file's name asks for, so the change is still there after the
-server stops. A table that came from no file — the built-in one — says so
-instead of accepting an edit and losing it.
-
-```powershell
-$env:MAKED_MODEL = 'models/product-iteration.json'
-$env:MAKED_RESEARCH = 'research/product-iteration.yaml'
-.\maked.exe
-```
-
-The example that ships is a table for the product-iteration model: the same
-machine, with the words that mean "a question" and the words that mean "a
-thing being built" written down where a reader can change them.
-
-**A table that cannot be read whole is refused**, for the same reason a model
-file is: a table that half-reads fires on the wrong documents, and a document
-driven through the wrong slot is a step in the timeline that nobody can
-explain afterwards. So `MAKED_RESEARCH` naming a file MAKED cannot read is a
-server that refuses to start, not a server that quietly runs the built-in
-table instead.
-
-## The Corpus Is Yours
-
-The table says what a document *means*. The corpus says where the documents
-*come from*.
-
-It used to be one thing: recent SNN papers from arxiv, with the query written
-into the program. The arxiv reader was also broken in a way nothing showed:
-it asked arxiv for a URL the HTTP client refused to build, the answer was an
-empty list, and the panel showed an empty list as if the reader had read
-nothing at all. A corpus written as code is a corpus a reader cannot change,
-and a corpus that fails silently is worse than no corpus at all.
-
-Now the corpus is a file:
+### A corpus of your own
 
 ```yaml
 format: maked.corpus.v1
 source:
-  kind: local        # arxiv | rss | local
-  path: ./notes      # a folder, or a single file
+  kind: local
+  path: ./notes
   max_results: 20
 ```
 
-Three kinds, and why there are three:
+`kind` is `arxiv`, `rss` or `local`. A local corpus is a folder of Markdown, text and PDF
+files; MAKED reads them, and the documents it read are the ones it drives.
 
-- **arxiv** asks a question of a public index and gets back a list of
-  abstracts. It is the corpus this project was built on.
-- **rss** reads a feed the reader already subscribes to, which is the corpus
-  most people actually have. Atom feeds are read too — a feed is a feed.
-- **local** reads the reader's own files. This is the corpus that makes the
-  loop theirs.
+### A vocabulary of your own
 
-**A local corpus is a folder, and the kind of a file says how to read it:**
+`research/society.yaml` names the collective's 13 positions and 28 moves in English. The ids
+are pyroduct's own names — an id the file names that pyroduct does not define is refused,
+and a position pyroduct defines that the file does not name is a gap the panel says out
+loud.
 
-| File | Read as |
-| --- | --- |
-| `.txt` | text; the title is its first line |
-| `.md`, `.markdown` | markdown; the title is its first heading |
-| `.pdf` | the markdown it holds, through a PDF reader |
-| `.json` | a Zotero CSL-JSON export — an array of items, or an object with `items` |
+### Driving it from another agent
 
-A file of a kind MAKED does not know is left alone rather than guessed at: a
-folder of notes that happens to sit next to a photo gives the notes. A folder
-is read in path order, so the same folder drives the same steps every time and
-a session replayed tomorrow comes back the way it was.
-
-```powershell
-$env:MAKED_CORPUS = 'research/corpus-local.yaml'
-.\maked.exe
+```bash
+$ MAKED_MCP_PORT=8735 moon run --release --target native cmd/mcp &
+$ curl -s http://127.0.0.1:8735/mcp \
+    -H 'MCP-Protocol-Version: 2026-07-28' \
+    -H 'Mcp-Method: tools/list' \
+    -H 'Content-Type: application/json' \
+    -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}'
 ```
 
-**The corpus can be replaced at runtime, and the file is written back.**
-`GET /api/research/corpus` says which corpus is running; `PUT` replaces it.
-A corpus that names a source it cannot read — an arxiv source with no query,
-a local source with no path — is refused *with the reason*, and the corpus
-that was running keeps running, because a corpus that reads nothing is a
-panel that shows nothing.
+## Project Structure
 
-**A corpus that cannot be read whole is refused**, for the third time and for
-the same reason: a server that quietly fell back to arxiv would show a panel
-full of papers while the reader's own documents went unread, and that is a lie
-told with a straight face. So `MAKED_CORPUS` naming a file MAKED cannot read
-is a server that refuses to start.
+```
+MAKED_moonbit/
+├── backend/                          # the loop, the API and the storage (native)
+│   ├── model.mbt                     # the machine: domains, positions, slots, rules
+│   ├── loop.mbt                      # the subject loop and the group states
+│   ├── society.mbt                   # the collective
+│   ├── step.mbt                      # one step, shared by the API and the agent
+│   ├── agent.mbt                     # the agent's payloads, in sentences
+│   ├── bootstrap.mbt                 # the start-up: plan → read → install
+│   ├── version.mbt                   # the version the agent reports
+│   ├── api.mbt                       # every HTTP route
+│   ├── maked_app.mbt                 # the Flask-style app
+│   ├── research_config.mbt           # the mapping table
+│   ├── corpus.mbt                    # the corpus
+│   ├── causal.mbt                    # the causal estimate
+│   ├── narration.mbt                 # the sentences
+│   ├── session.mbt                   # explorations, timelines, exports
+│   ├── database.mbt                  # SQLite
+│   └── *_test.mbt                    # 382 tests
+├── frontend/                         # the single-page app (js)
+│   ├── app.mbt  loop_state.mbt  society.mbt  views.mbt
+│   └── frontend_test.mbt             # 112 tests
+├── cmd/
+│   ├── server/main.mbt               # the web server
+│   ├── mcp/main.mbt                  # the agent's server
+│   └── web/main.mbt                  # the browser bundle
+├── models/                           # example machines
+│   ├── product-iteration.json
+│   └── product-iteration.yaml
+├── research/                         # example tables, corpora and vocabularies
+│   ├── product-iteration.yaml
+│   ├── society.yaml
+│   ├── corpus-arxiv.yaml
+│   └── corpus-local.yaml
+├── tools/
+│   ├── integration-test.ps1          # 264 checks against a running server
+│   ├── mutate-backend.ps1            # 116 mutations of the backend
+│   ├── mutate-frontend.ps1           # 44 mutations of the frontend
+│   ├── mutate-loop.ps1               # 16 mutations of the loop
+│   └── check-mutation-anchors.ps1    # 176 anchors, and whether any is dead
+├── moon.mod  moon.pkg
+├── build.ps1                         # build the bundle, check, test, build the server
+├── ci.sh                             # 15 gates
+└── Dockerfile  docker-compose.yml
+```
 
-The panel says which corpus it is reading before it says anything about the
-documents, and it says so when the corpus held nothing: "the corpus held no
-documents" and "the fetch failed" are different facts, and an empty panel that
-does not say which one it is looks exactly like a broken button.
+### Key Components
 
-## The Estimate Says What It Rests On
+- **The machine** (`backend/model.mbt`) — the whole machine, as data. A model file with its
+  own slots gets a mapping that fits it, and every rule is about a position and a slot the
+  model defines.
+- **The transition table** (`backend/loop.mbt`) — the rule for every (position, slot) pair,
+  and the `exitable_slots` that decide what can actually move. 228 of the 272 pairs are
+  `Block`.
+- **The mapping table** (`backend/research_config.mbt`) — a priority list of keyword rules.
+  The first rule that matches wins.
+- **The collective** (`backend/society.mbt`) — the Society layer's machine, its phases and
+  its transitions, with the words coming from a file rather than from the code.
+- **The agent's payloads** (`backend/agent.mbt`) — one place where every answer the agent
+  gets is written, so the HTTP route and the MCP tool cannot drift apart.
+- **The start-up** (`backend/bootstrap.mbt`) — the plan of files to read, the reading of
+  them, and the installing of them, as three separate steps.
 
-A causal number is the first thing a reader argues with, and the first
-question about it is never "how big is it?" — it is **which variables did
-you control for?**
+## Usage Tips
 
-The panel used to answer neither. It showed one number, read out of the
-server's JSON with a string accessor over a JSON number — so it showed the
-fallback `0.0` for every estimate the server ever produced. The panel
-looked right. It had never once shown a number.
+### Start the loop anywhere
 
-Underneath it, the estimate was hollow in three separate ways, and each of
-them was found by measuring rather than by reading:
+The loop may start at any domain; the starting domain is one request away:
 
-- **The outcome was a formula of the document's own features with no noise
-  in it.** A quantity that is exactly predictable has a standard error of
-  zero and an interval with no width; the old panel reported a standard
-  error of 0.00056 and a confidence interval 0.002 wide — an interval drawn
-  around a number that was really just the formula read back. The impact
-  score now carries a deterministic noise of its own, derived from the
-  document's text, so the same corpus always gives the same answer and a
-  different corpus gives a different one.
-- **A corpus whose two groups do not overlap was still estimated.** The fit
-  returns a number for such a corpus — a standard error of forty-five
-  million and a confidence interval three hundred and sixty billion wide —
-  and none of those is a measurement. They are the arithmetic saying there
-  is nothing to measure.
-- **The propensity was not a propensity.** DoubleML's default learner for
-  that slot is a linear regression, which predicts a number: on the corpus
-  this project ships it predicts −0.7 and 1.25, and neither of those is a
-  probability. The treatment here is binary, so its learner is now a
-  logistic regression, and the panel reports the range the propensity took
-  so the reader can see it stayed between zero and one.
+```bash
+curl -X POST http://127.0.0.1:8080/api/loop/reset/knowledge
+```
 
-So the estimate now comes with the three things that make it arguable.
+The five domains are `model`, `data`, `experience`, `attack` and `knowledge`. Each domain's
+state machine initialises independently — only the pointer moves.
 
-**What was treated, what was measured, and what was controlled for** — by
-name, not as "Features: 4":
+### Ask before you move
 
-| | |
-|---|---|
-| Treatment | claims to be new |
-| Outcome | impact score |
-| Controlled for | title length, abstract length, author count, category count |
+`GET /api/loop/status` carries the slots that are open from where the loop stands, and
+`GET /api/loop/continuations` tells you what the machine says could happen next and how
+far away it is. The same information in one place, with the reason each slot cannot move,
+is what the agent gets from `maked_options`.
 
-**The balance of the two groups**, one row per controlled variable: the
-mean among the treated, the mean among the untreated, the standardized
-difference, and what that difference means in words. A variable the two
-groups sit on different constants for — no spread to measure the gap
-against — is reported as *the two groups do not overlap on this*, never as a
-difference of zero, because a zero there says the groups are alike and
-they are not. A variable the groups agree on is reported as such too: a
-balance table that flags everything flags nothing.
+### Read the run as numbers
 
-**The overlap**, measured on the treatment residual the estimator actually
-works with, and the **sensitivity interval**: how strong an unobserved
-confounder would have to be before the estimate's sign could flip
-(Cinelli & Hazlett's robustness value), widened by the worst-case bias.
-"How noisy is this?" and "how wrong could this be?" are two different
-questions, and the panel answers both.
+Every session carries two measures: whether the run is still finding new ground, and whether
+it is doing better than it was at the start. They are reported together with the comparison
+that produced them, so a measure can be checked rather than believed.
 
-**And when the corpus cannot support an estimate, it says so, and shows
-why.** A corpus of five documents; a corpus where nothing claims to be
-new; a corpus where everything does; a corpus whose two groups do not
-overlap. Each is refused *with the reason in words and the balance table
-as the evidence* — and the refusal carries no theta, because a theta of
-zero next to no data is a finding nobody made.
+### Keep the table and the machine together
 
-The outcome is still MAKED's own measure — a document's length, its
-authorship and its breadth — and the panel says so, because a reader who
-thinks MAKED measured impact will read the number as a fact about the
-world.
+A machine of your own has slots of your own, and the built-in table names slots it does not
+have. MAKED says so at start-up — but the panel stays quiet until you give it a table that
+fits. Keep the two files next to each other, and set both variables.
 
-## The Collective
+## Development Status
 
-MAKED had two layers and now has three. The **subject** layer is the ring of
-five domains: the one you drive, with its 34 positions and 8 drive slots. The
-**society** layer is the collective — a lifeworld, a claim, a consensus, a
-norm — and the moves that take it from one to another.
+**Current release**: v0.1.7 · **Repository**: <https://github.com/riantr/MAKED>
 
-The machine is **pyroduct's**, and MAKED does not restate it. Thirteen
-positions, eight phases, twenty-eight transitions, read from the authority at
-run time. The `society_position_id` and `society_trigger_id` matches are
-exhaustive on purpose: if pyroduct adds a position, MAKED stops compiling
-rather than quietly calling the new position one of the old ones.
+### Test and gate counts
 
-What MAKED adds is the **English**, because pyroduct keeps the society
-machine's own wording in Chinese — the way it keeps the subject machine's —
-and MAKED is an English surface.
+| What | How many | How it is checked |
+|---|---|---|
+| Backend tests | 382 | `moon test --target native backend` |
+| Frontend tests | 112 | `moon test --target js frontend` |
+| Integration checks | 264 | `tools/integration-test.ps1` — against a server that is really running |
+| Backend mutations | 116 | `tools/mutate-backend.ps1` |
+| Frontend mutations | 44 | `tools/mutate-frontend.ps1` |
+| Loop mutations | 16 | `tools/mutate-loop.ps1` |
+| Mutation anchors | 176 | `tools/check-mutation-anchors.ps1` — and whether any is dead |
+| CI gates | 15 | `ci.sh` |
 
-That English is a **file** (`research/society.yaml`), not code, for the same
-reason the mapping table and the corpus are files: a word the reader wants to
-change should not need a release to change. The file's ids are pyroduct's own
-names, so the two cannot drift apart silently, and MAKED keeps two
-invariants:
+### Running the tests
 
-- A name in the file that the machine does not have is **refused**. It is a
-  word about nowhere, and a vocabulary carrying one is a vocabulary that has
-  drifted away from the machine it names.
-- A name the machine has and the file does not name is a **gap**, and the
-  panel says so in as many words. The alternative is a position that renders
-  as a blank, and a blank in a list of positions reads as "the machine has an
-  unnamed state" rather than "the file is behind the machine".
+```bash
+moon check --target native          # type-check the backend
+moon fmt --check                    # the formatter is a gate
+moon test --target native backend   # the backend
+moon test --target js frontend      # the frontend
+bash ci.sh                          # everything, including the slow gates
+```
 
-Set `MAKED_SOCIETY` to run a vocabulary of your own. Unset means the built-in
-words; a file that cannot be read is refused at startup, the same way the
-model, the table and the corpus are.
+### What the mutation harness actually means
 
-### There are no slots here
+A green test is not evidence. Each mutation deliberately breaks one behaviour and asserts
+the suite goes red. The harness distinguishes three outcomes:
 
-The subject machine has eight drive slots, and 228 of the 272
-position-slot combinations are `Block` — which is why the loop panel has to
-explain *why* nothing happened. The collective has **no slots at all**. There
-is nothing for the machine to choose for it, so the reader picks the move and
-the machine answers with one of the same four shapes the rest of MAKED uses:
+- **KILLED** — the tests ran and went red. The behaviour is guarded.
+- **SURVIVED** — the tests ran and stayed green. The behaviour is not guarded, and the
+  guard has to be written.
+- **BROKE** — the mutation did not compile, or the test binary aborted. Nothing was proved.
+  This is not a kill, and it is counted as a survivor.
 
-| The machine answers | What it means |
-|---|---|
-| `moved` | the collective went somewhere |
-| `held` | the move leads back where it came from |
-| `open` | the move left more than one place to be |
-| `block` | there was no such move from here |
+The third one is the trap: a mutation that fails to compile used to be reported as a kill,
+because the harness only asked whether the exit code was non-zero. Four of this project's
+mutations were false kills for exactly that reason. Now a mutation has to show that it ran
+the tests before it counts.
 
-### One shape for every answer
+### CI
 
-`GET /api/society` and `POST /api/society/step` answer with the same body:
-where the collective stands, its thirteen positions, its twenty-eight moves,
-the moves available from where it is, the gaps in the vocabulary, and what
-the last move did.
+Five jobs, all of which have to be green: **Test**, **Build (native)**, **Build (js)**,
+**Integration**, **Container**.
 
-That is a deliberate choice, and it was made because of the failure this
-project keeps running into. A refusal used to answer with a different body —
-a reason, and nothing else — so a move that did not land left the panel
-holding a payload it could not read. A collective that goes blank when it
-refuses a move is exactly the failure this project exists to remove. Now the
-refusal arrives *with* the machine, and the panel keeps showing where the
-collective stands and what it can do next.
+## Common Pitfalls and Best Practices
 
-A move that lands also says where the collective came from. "The collective is
-now at a validity claim" is a fact with no history in it; a reader watching
-the collective move cannot tell a first step from a return without knowing
-where the move started.
+### ✅ DO:
 
-### What this does not do yet
+1. **Give the machine and the table together.** A table whose rules name slots the running
+   machine does not have is refused at start-up, on purpose.
 
-- The collective's position lives in the loop state, so it travels with a
-  session's value. It is **not** written to the `session_steps` table, so
-  replaying a session from its history does not replay the collective. That
-  is a schema migration, and it is not done.
-- The collective is one machine, not two arguing. pyroduct's `multi` package
-  models two subjects meeting and judging each other (R1–R14), and that is
-  the natural next step here — but MAKED's subject positions are its own, so
-  the mapping from a MAKED model onto a pyroduct subject has to be solved
-  before the two can be put in a room together.
+   ```bash
+   MAKED_MODEL=models/product-iteration.json \
+   MAKED_RESEARCH=research/product-iteration.yaml \
+   moon run --release --target native cmd/server
+   ```
 
-## Deep Links Need A `<base>` Tag
+2. **Ask what the table offers before taking a move.** `maked_options` lists the slots that
+   can move and the ones that cannot, and says why. A slot with no road out of a position is
+   not a failure of the caller.
 
-`index.html` carries `<base href="/" />`, and it is load-bearing.
+3. **Let an undecided branch stay undecided.** When the table offers several successors and
+   none is preferred, take the target as an argument rather than picking one for the
+   subject.
 
-rabbita resolves a relative request URL against `document.baseURI`, which
-without that tag is the *document's* URL. At `/` that happens to be the origin
-and everything works, but on `/about` the app asked the server for
-`/about/api/pages`; the SPA fallback answered it with `index.html`, the JSON
-parse failed, and the page said "Server unavailable" with nothing logged.
+4. **Read a refusal as an answer.** A refused request comes back with the reason, in words,
+   and names the thing that was asked for.
 
-Client-side navigation hid this completely: `push_url` changes the URL without
-reloading, so the document stayed at `/` and the bug was invisible until
-anything forced a real load of a sub-path — a refresh, a shared link, a cold
-open of `/about`.
+### ❌ DON'T:
 
-## SQLite Storage Layer
+1. **Don't hard-code a drive slot.** Which slot can push a position is a property of the
+   transition table. Five semantically "corresponding" slots, hard-coded, turned out to have
+   no outgoing edge at all: stepping the loop eighteen times left every position unchanged
+   while the page looked perfectly normal.
 
-Three key behaviours (verified, not assumed):
+   ```moonbit nocheck
+   // ❌ a slot chosen by meaning
+   let slot = if domain == "model" { "co-being" } else { "action" }
 
-1. `prepare` only compiles, it does not execute. A statement that was never `step`ped is silently dropped by `finalize` — DDL goes through `exec`
-2. A finished statement must be `reset` before it can be reused. `bind` overwrites the bindings in place
-3. `finalize` reports the error code of the most recent evaluation — a failed `step` poisons the following `finalize`
+   // ✅ a slot the table says has a way out
+   let slot = model.drive_slot(position)
+   ```
 
-Four tables: `pages` (the site's own content), `entries` (the user's workspace
-records), and `sessions` + `session_steps` (the named explorations and the
-tree of steps inside them). The last two are what make the history outlive the
-process: the steps are rows, not memory.
+2. **Don't treat the ring order as evidence that anything moved.** The ring order
+   M → D → E → A → K is the order the logo draws. It is presentation, not state.
 
-## Release Conventions
+3. **Don't mix the protocols on one stream.** The agent's server speaks MCP on stdout.
+   Diagnostics belong on stderr — a line of prose in the middle of a protocol stream is a
+   line the client cannot parse, and the reason MAKED refused to start is lost in the noise.
 
-- Patch version progression: v0.1.x (no minor releases unless specified)
-- Gitee for day-to-day storage, GitHub for releases
-- Run `bash ci.sh` and get an all-green result before releasing
-- On this machine that means `.\build.ps1`, the three mutation scans, and
-  `.\tools\integration-test.ps1` — the last one is the only gate that
-  exercises a route, and a route is where a release can break
+4. **Don't read a file you cannot read whole.** MAKED refuses a file it cannot read rather
+   than half-reading it, and the start-up stops. Keep that: a half-read machine answers
+   every request confidently and wrongly.
+
+5. **Don't hand a table to a machine it does not fit.** A rule that names a slot the
+   machine does not have is a rule about nowhere, and reading it would mean inventing a slot
+   to hold it.
+
+## Roadmap
+
+- [x] The five-domain ring, with the drive slots taken from the transition table
+- [x] The machine as a file
+- [x] The mapping table as a file
+- [x] The corpus as a file
+- [x] The collective, and its words as a file
+- [x] Causal estimates that report what they rest on
+- [x] Explorations: replay, branch, rename, export
+- [x] The agent's server — Model Context Protocol over stdio and HTTP
+- [ ] A discovery document at `GET /api/agent`, for agents that do not speak MCP
+- [ ] A Chinese front end
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new behaviour
+4. Ensure all gates pass with `bash ci.sh`
+5. Submit a pull request
+
+The gates that matter most are the two that check the tests themselves: `moon fmt --check`
+(the formatter rewrites the source, and a mutation anchor that pointed at a line the
+formatter has since re-wrapped stops matching — the mutation then never happens and the
+suite reports a survivor that is really a claim about nothing), and
+`tools/check-mutation-anchors.ps1` (an anchor that does not occur in the file is a guard
+that cannot fail).
+
+Contributions should keep the three rules that the rest of the project rests on: a file that
+cannot be read is refused rather than half-read; a rule that names a slot the machine does
+not have is refused; and an answer that is a refusal says why, in words.
 
 ## License
 
-Apache-2.0
+Apache-2.0 License. See [LICENSE](LICENSE) for details.
+
+## References
+
+- [pyroduct](https://mooncakes.io/docs/riantr/pyroduct@0.1.32) — the state machine, the
+  group states and the collective
+- [rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.16.5) — the single-page
+  front end
+- [moonback](https://mooncakes.io/docs/moonbitlang/moonback@0.8.9) — the HTTP server the
+  micro-framework sits on
+- [moonbit_doubleML](https://mooncakes.io/docs/riantr/moonbit_doubleML@0.163.9) — the
+  causal estimate
+- [Model Context Protocol](https://modelcontextprotocol.io) — the agent's server, version
+  2026-07-28
+- [MoonBit Language Guide](https://www.moonbitlang.com/docs/)

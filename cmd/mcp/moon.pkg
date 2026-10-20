@@ -1,0 +1,46 @@
+// MAKED as an MCP server: another agent can drive the loop.
+//
+// This is an executable, not a library: the agent that wants to drive MAKED
+// spawns it as a subprocess (stdio) or connects to one already running
+// (Streamable HTTP).
+//
+// The tools are the loop, and the payloads they return are the ones in
+// `backend/agent.mbt`: sentences where a sentence helps, ids where an id
+// is needed. The web panel and the agent read the same machine.
+//
+// `colmugx/mcp` is the Model Context Protocol SDK. The server part is
+// `@mcp`; the protocol types are `@mcp_types`; the tool result is
+// `@tool`; and the request context the handlers are given is `@runtime`.
+pkgtype(kind: "executable")
+
+import {
+  "riantr/MAKED/backend" @maked,
+  "colmugx/mcp",
+  "colmugx/mcp/protocol/tool",
+  "colmugx/mcp/protocol/types" @mcp_types,
+  "colmugx/mcp/runtime",
+  "moonbitlang/async",
+  "moonbitlang/async/io",
+  "moonbitlang/async/stdio",
+  "moonbitlang/core/debug",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/core/string",
+}
+
+supported_targets = "native"
+
+// The SDK fixes the shape of a tool handler: it takes a request context and
+// the arguments, and answers with a `Result` of a tool result or an MCP
+// error. Two warnings follow from that shape and not from this code:
+//
+//   - `result_error_return`: the handler answers with a Result because the
+//     SDK's type says so. A tool failure is ordinary data in MCP -- a tool
+//     result with `isError` set -- so the Result is not a smell here; it is
+//     the protocol's own way of saying a call failed.
+//   - `unused_async`: the handler has no await point, because everything it
+//     does is a synchronous read of the loop. The `async` is still needed:
+//     the SDK's type asks for an async function, and a plain one does not
+//     match it.
+
+warnings = "-result_error_return-unused_async"

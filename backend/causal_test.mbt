@@ -316,6 +316,20 @@ test "a corpus where everything claims to be new is refused" {
 }
 
 ///|
+/// A balance row, by its name.
+fn row_named(
+  rows : Array[@backend.BalanceRow],
+  name : String,
+) -> @backend.BalanceRow? {
+  for row in rows {
+    if row.name == name {
+      return Some(row)
+    }
+  }
+  None
+}
+
+///|
 /// A corpus whose two groups do not overlap is refused.
 ///
 /// The fit still returns a number for such a corpus, and the number is
@@ -371,7 +385,14 @@ test "a refusal carries the balance that is the evidence for it" {
 test "a variable the two groups do not overlap on is flagged, not reported as a difference of zero" {
   match @backend.estimate_causal_effect(separated_corpus()) {
     @backend.Refused(refusal) => {
-      let author_row = refusal.balance[2]
+      // The row is looked up by its name rather than counted at, because a
+      // balance with fewer rows than the test expects would otherwise be
+      // read out of the middle of a shorter list -- and reading past the end
+      // of a list is not a failed test, it is a dead test binary.
+      let author_row = match row_named(refusal.balance, "author count") {
+        Some(row) => row
+        None => fail("the balance did not carry the author count")
+      }
       assert_true(author_row.separated)
       assert_false(author_row.balanced)
       assert_eq(author_row.standardized_difference, 0.0)

@@ -546,7 +546,7 @@ async test "a step that could not move is recorded as one" {
 async test "a renamed model still says what happened" {
   let db = open_session_db("renamed")
   let session = fresh_session(db, "Renamed")
-  let toy = @backend.Model::from_json(toy_model_with_words()).unwrap()
+  let toy = model_or_fail(toy_model_with_words())
   let before = @backend.LoopState::new_for(toy)
   let after = before.step_with_slot("ask")
   @backend.record_step(db, before, after, "explicit")
@@ -581,7 +581,7 @@ async test "a renamed model still says what happened" {
 async test "a session recorded on another model replays on that model" {
   let db = open_session_db("replaymodel")
   let session = fresh_session(db, "Replayed")
-  let toy = @backend.Model::from_json(toy_model_with_words()).unwrap()
+  let toy = model_or_fail(toy_model_with_words())
   // A step on somebody else's machine, recorded with that machine's words.
   let before = @backend.LoopState::new_for(toy)
   let after = before.step_with_slot("ask")

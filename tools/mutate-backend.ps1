@@ -863,6 +863,172 @@ $mutations = @(
     file = 'backend/api.mbt'
     old  = '"phase": society_phase_id(state.phase()),'
     new  = '"phase": "",'
+  },
+  # The agent's view of the loop: the payload an agent reads rather than the
+  # payload the browser renders.
+  @{
+    name = 'the names an agent reads are nested instead of flat'
+    file = 'backend/agent.mbt'
+    old  = '    items.push(Json::string(name))'
+    new  = '    items.push(Json::array([Json::string(name)]))'
+  },
+  @{
+    name = 'a slot the model blocks is put in the list of the ones that can move'
+    file = 'backend/agent.mbt'
+    old  = '    if kind == "block" {'
+    new  = '    if kind == "blocked" {'
+  },
+  @{
+    name = 'the outcome a slot will have is always reported as held'
+    file = 'backend/agent.mbt'
+    old  = '        "outcome_kind": kind,'
+    new  = '        "outcome_kind": "held",'
+  },
+  @{
+    name = 'the reason a slot cannot move does not name the slot'
+    file = 'backend/agent.mbt'
+    old  = '        designation +'
+    new  = '        "" +'
+  },
+  @{
+    name = 'the slot the table declined to choose is never named'
+    file = 'backend/agent.mbt'
+    old  = '      if kind == "open" {'
+    new  = '      if kind == "never" {'
+  },
+  @{
+    name = 'the moves of the collective are never served'
+    file = 'backend/agent.mbt'
+    old  = '    moves.push({'
+    new  = '    ignore({'
+  },
+  @{
+    name = 'the collective does not actually move'
+    file = 'backend/agent.mbt'
+    old  = '          set_loop_state(before.with_society_state(state))'
+    new  = '          ignore(state)'
+  },
+  @{
+    name = 'what the last move did is never carried'
+    file = 'backend/agent.mbt'
+    old  = '    "the_last_move": last_move,'
+    new  = '    "the_last_move": "",'
+  },
+  @{
+    name = 'the number of steps taken is always zero'
+    file = 'backend/agent.mbt'
+    old  = '    "steps_taken": path.length(),'
+    new  = '    "steps_taken": 0,'
+  },
+  @{
+    name = 'the json export is labelled as markdown'
+    file = 'backend/agent.mbt'
+    old  = '    { "format": "json", "the_exploration": export_json(db, session) }'
+    new  = '    { "format": "markdown", "the_exploration": export_json(db, session) }'
+  },
+  @{
+    name = 'an exploration that does not exist is not refused'
+    file = 'backend/agent.mbt'
+    old  = '        "error": "there is no exploration with that id",'
+    new  = '        "error": "",'
+  },
+  # The step, which the panel and the agent's tools share.
+  @{
+    name = 'a slot the model does not have is taken anyway'
+    file = 'backend/step.mbt'
+    old  = '    None => UnknownSlot(slot_name)'
+    new  = '    None => Taken(Json::empty_object())'
+  },
+  @{
+    # A slot may be named by the id the machine uses ("act") or by the name a
+    # reader saw ("Action"), and the two are not the same string. Accepting
+    # one and not the other refuses a client that read the name the panel
+    # showed them -- which is the name the panel shows.
+    #
+    # The guard is in the model, where the names are read: `slot_from_english`
+    # and `slot_from_designation` are two names for the same lookup, so
+    # mutating either of them changes nothing at all.
+    name = 'a slot named by the label a reader saw is not recognised'
+    file = 'backend/model.mbt'
+    old  = '    if slot.id.to_lower() == needle || slot.designation.to_lower() == needle {'
+    new  = '    if slot.id.to_lower() == needle {'
+  },
+  @{
+    name = 'the step is taken but never recorded'
+    file = 'backend/step.mbt'
+    old  = '  record_step(db, before, after, "drive")'
+    new  = '  ignore(after)'
+  },
+  @{
+    name = 'the refusal of a bad target names no candidates'
+    file = 'backend/step.mbt'
+    old  = '            UnknownTarget(target, candidate_names_of(before.model, candidates))'
+    new  = '            UnknownTarget(target, [])'
+  },
+  # The start-up, and the version the agent's server reports.
+  #
+  # The start-up is guarded on the *reading* half: the plan names a file,
+  # the file is read, and a file that cannot be read is refused. The
+  # installing half is not guarded here, because installing changes what
+  # MAKED is running, and the test driver runs these tests side by side in
+  # one process -- a test that installs would be a test whose answer
+  # depends on its neighbours. The binding from the environment to the file
+  # that is actually running is guarded where it can be seen from outside
+  # the process instead: the integration suite starts a server with the
+  # variables set and asks the server what it is running.
+  @{
+    name = 'the machine the plan names is never read'
+    file = 'backend/bootstrap.mbt'
+    old  = '        Some(read_machine) => Some(read_machine)'
+    new  = '        Some(read_machine) => None'
+  },
+  @{
+    name = 'the table the plan names is never read'
+    file = 'backend/bootstrap.mbt'
+    old  = '        Some(read_table) => Some(read_table)'
+    new  = '        Some(read_table) => None'
+  },
+  @{
+    name = 'the vocabulary the plan names is never read'
+    file = 'backend/bootstrap.mbt'
+    old  = '        Some(read_words) => Some(read_words)'
+    new  = '        Some(read_words) => None'
+  },
+  @{
+    name = 'the corpus the plan names is never read'
+    file = 'backend/bootstrap.mbt'
+    old  = '        Some(read_corpus) => Some(read_corpus)'
+    new  = '        Some(read_corpus) => None'
+  },
+  @{
+    name = 'the table is checked against the machine that happens to be running'
+    file = 'backend/bootstrap.mbt'
+    old  = 'read_research_file_for(machine, path)'
+    new  = 'read_research_file_for(current_model(), path)'
+  },
+  @{
+    name = 'a machine that cannot be read is not refused'
+    file = 'backend/bootstrap.mbt'
+    old  = '        None => return refusing("model", path)'
+    new  = '        None => None'
+  },
+  @{
+    name = 'a table that cannot be read is not refused'
+    file = 'backend/bootstrap.mbt'
+    old  = '        None => return refusing("research", path)'
+    new  = '        None => None'
+  },
+  @{
+    name = 'the built-in table that does not fit the machine is not said'
+    file = 'backend/bootstrap.mbt'
+    old  = '        Some(slot) => Some(slot)'
+    new  = '        Some(slot) => None'
+  },
+  @{
+    name = 'the version the agent reports drifts from the module'
+    file = 'backend/version.mbt'
+    old  = 'pub const MAKED_VERSION : String = "0.1.7"'
+    new  = 'pub const MAKED_VERSION : String = "0.1.8"'
   }
 )
 
@@ -886,8 +1052,25 @@ foreach ($m in $mutations) {
     }
     [System.IO.File]::WriteAllText($full, $original.Replace($m.old, $m.new), $enc)
     $out = & moon test --target native backend 2>&1 | Out-String
-    $killed = ($LASTEXITCODE -ne 0) -or ($out -match 'failed: [1-9]')
-    if ($killed) {
+    # A mutation that does not compile is a mistake in the mutation, not a
+    # kill of the test: the suite never ran, so nothing was proved. The
+    # summary line is how the two are told apart -- a run that reports how
+    # many tests passed actually ran them.
+    $ran = $out -match 'Total tests:'
+    $red = $out -match 'failed: [1-9]'
+    if (-not $ran) {
+      # Say why it did not compile: a mutation that cannot be built is a
+      # mistake in the mutation, and the mistake is the thing worth looking
+      # at. Reporting it as a kill was how four of these sat in the roster
+      # looking like guards when no test had ever run against them.
+      $why = ""
+      foreach ($line in ($out -split "`n")) {
+        if ($line -match 'Error: \[|error: failed when') { $why = $line.Trim(); break }
+      }
+      if ($why.Length -gt 160) { $why = $why.Substring(0, 160) + "..." }
+      Write-Output ("BROKE    {0} :: the mutation did not compile: {1}" -f $m.name, $why)
+      $survivors += $m.name
+    } elseif ($red) {
       Write-Output ("KILLED   {0}" -f $m.name)
     } elseif ($m.equivalent) {
       Write-Output ("EQUIV    {0}" -f $m.name)

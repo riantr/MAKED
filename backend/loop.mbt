@@ -546,7 +546,7 @@ fn domain_state_at(
   match states.get(domain.id) {
     Some(state) => state
     None => {
-      println(
+      eprintln(
         "loop: no state for domain '\{domain.id}' at \{site}: the state and the model disagree",
       )
       DomainState::new(domain)

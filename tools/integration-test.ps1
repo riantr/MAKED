@@ -304,12 +304,103 @@ function ArrayCount {
   return @($property.Value).Count
 }
 
+# The text of a tool's answer.
+#
+# A tool answers with the payload twice: as structured content and as text.
+# The text is the payload as a JSON string, and it is the one an agent that
+# only reads text can see, so it is the one checked here.
+function ToolText {
+  param($Answer)
+  $content = Field (Field $Answer "result") "content"
+  if ($null -eq $content) { return "" }
+  $first = @($content) | Select-Object -First 1
+  return (Field $first "text")
+}
+
+# --- the agent's server over stdio -------------------------------------------
+#
+# The agent that spawns MAKED as a subprocess talks to it over pipes, and the
+# conversation is one JSON-RPC message per line. Two things about that are
+# worth a test of their own.
+#
+# The first is that the *first* message has to be answered. A Windows client
+# writes its stdin through .NET, and .NET writes a byte order mark in front of
+# the first line. A mark in front of a JSON-RPC message is not JSON, so a
+# server that does not drop it answers the first request with a parse error
+# and every later one properly -- which reads like a server that only
+# understands the second question.
+#
+# The second is that the answers have to come back *before* the next question
+# is asked. The client is waiting, and a buffered answer that has not left
+# the process looks like a server that has stopped answering.
+function Invoke-StdioSession {
+  param(
+    [string]$Exe,
+    [string]$DbPath,
+    [string[]]$Lines,
+    [int]$Expect,
+    [int]$TimeoutSec = 30
+  )
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $Exe
+  $psi.UseShellExecute = $false
+  $psi.RedirectStandardInput = $true
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $psi.CreateNoWindow = $true
+  $psi.EnvironmentVariables["MAKED_DB"] = $DbPath
+  $process = [System.Diagnostics.Process]::Start($psi)
+  $errors = $process.StandardError.ReadToEndAsync()
+  # The bytes go in raw. The writer that `StandardInput` hands out puts an
+  # encoding preamble in front of its first line, and the bytes written here
+  # land after it -- so the first message carries a byte order mark whether
+  # we like it or not. One more is added on purpose: the server has to
+  # answer a message with a mark in front of it, and how many marks are in
+  # front of it is the client's business, not the server's.
+  $utf8 = New-Object System.Text.UTF8Encoding($false)
+  for ($i = 0; $i -lt $Lines.Count; $i++) {
+    $bytes = $utf8.GetBytes($Lines[$i] + "`n")
+    if ($i -eq 0) {
+      $mark = $utf8.GetBytes([string][char]0xFEFF)
+      $marked = New-Object byte[] ($mark.Length + $bytes.Length)
+      [Array]::Copy($mark, 0, $marked, 0, $mark.Length)
+      [Array]::Copy($bytes, 0, $marked, $mark.Length, $bytes.Length)
+      $bytes = $marked
+    }
+    $process.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
+  }
+  $process.StandardInput.BaseStream.Flush()
+  # The answers are read one at a time, and the pipe is left open while they
+  # come: a client that closes its end first is in a race the server should
+  # not lose.
+  $answers = New-Object System.Collections.Generic.List[string]
+  $deadline = (Get-Date).AddSeconds($TimeoutSec)
+  $pending = $null
+  while ($answers.Count -lt $Expect -and (Get-Date) -lt $deadline) {
+    if ($null -eq $pending) { $pending = $process.StandardOutput.ReadLineAsync() }
+    $done = [System.Threading.Tasks.Task]::WaitAny(@($pending), 1000)
+    if ($done -eq 0) {
+      $line = $pending.Result
+      $pending = $null
+      if ($null -ne $line) { $answers.Add($line) }
+    }
+  }
+  try { $process.StandardInput.Close() } catch { }
+  try { if (-not $process.HasExited) { $process.Kill() } } catch { }
+  $err = ""
+  try { $err = $errors.Result } catch { }
+  return @{ Answers = $answers; Errors = $err }
+}
+
 # --- build and start --------------------------------------------------------
 $exe = $null
 if (-not $SkipBuild) {
   Write-Host "==> building the server"
   & moon build --release --target native cmd/server 2>&1 | Out-Null
   if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: the server did not build"; exit 1 }
+  Write-Host "==> building the agent's server"
+  & moon build --release --target native cmd/mcp 2>&1 | Out-Null
+  if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: the agent's server did not build"; exit 1 }
 }
 foreach ($candidate in @(
     "_build/native/release/build/cmd/server/server.exe",
@@ -319,6 +410,14 @@ foreach ($candidate in @(
   if ($null -eq $exe -and (Test-Path $candidate)) { $exe = (Resolve-Path $candidate).Path }
 }
 if ($null -eq $exe) { Write-Host "FAIL: no server binary found -- run without -SkipBuild"; exit 1 }
+$mcpExe = $null
+foreach ($candidate in @(
+    "_build/native/release/build/cmd/mcp/mcp.exe",
+    "_build/native/release/build/cmd/mcp/mcp",
+    "_build/native/debug/build/cmd/mcp/mcp.exe",
+    "_build/native/debug/build/cmd/mcp/mcp")) {
+  if ($null -eq $mcpExe -and (Test-Path $candidate)) { $mcpExe = (Resolve-Path $candidate).Path }
+}
 
 # The temporary directory is asked of the runtime rather than of the
 # environment: PowerShell Core on a Linux runner has no TEMP at all, and
@@ -1383,6 +1482,204 @@ try {
     }
   }
 
+  # The agent's server: the loop as tools, over the Model Context Protocol.
+  #
+  # This is the check that the agent's server is not a program that starts.
+  # The two transports are checked separately because they fail separately: a
+  # server that answers over stdio and not over HTTP is half a server, and
+  # one that answers over HTTP and not over stdio is the half that an agent
+  # which spawns the server as a subprocess will get.
+  #
+  # The protocol version is 2026-07-28, and it is asked for on every message:
+  # that revision has no handshake, so the version travels in the message
+  # rather than in a negotiation that happens once.
+  function Test-AgentServer {
+    param([int]$AgentPort)
+    if ($null -eq $mcpExe) {
+      Assert-True "the agent's server binary was found" $false "run the test without -SkipBuild"
+      return
+    }
+    $meta = '{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}'
+    $discover = '{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":' + $meta + '}}'
+    $list = '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"_meta":' + $meta + '}}'
+    $status = '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"_meta":' + $meta + ',"name":"maked_status","arguments":{}}}'
+    $step = '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"_meta":' + $meta + ',"name":"maked_step","arguments":{}}}'
+    $badSlot = '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"_meta":' + $meta + ',"name":"maked_step","arguments":{"slot":"no-such-slot"}}}'
+
+    # --- over stdio ---------------------------------------------------------
+    $stdioDb = Join-Path $tempDir ("maked_integration_agent_stdio_{0}.db" -f $AgentPort)
+    if (Test-Path $stdioDb) { Remove-Item $stdioDb -Force }
+    $session = Invoke-StdioSession -Exe $mcpExe -DbPath $stdioDb `
+      -Lines @($discover, $list, $status, $step, $badSlot) -Expect 5
+    Assert-True "the agent's server answers every question over stdio" `
+      ($session.Answers.Count -eq 5) `
+      ("expected 5 answers, got {0} -- stderr: {1}" -f $session.Answers.Count, (Limit $session.Errors))
+    if ($session.Answers.Count -lt 5) { return }
+
+    $answers = @()
+    foreach ($line in $session.Answers) {
+      try { $answers += ($line | ConvertFrom-Json) } catch { $answers += $null }
+    }
+    # The first answer is the one that carries the byte order mark, so it is
+    # the one that says whether the mark is survived.
+    Assert-True "the first question is answered" ($null -ne $answers[0]) `
+      ("the first answer was not JSON: {0}" -f (Limit $session.Answers[0]))
+    if ($null -ne $answers[0]) {
+      Assert-Field "and it is the discovery document" (Field $answers[0] "result") "supportedVersions" "2026-07-28"
+    }
+    Assert-ArrayLength "and the loop is offered as seven tools" (Field $answers[1] "result") "tools" 7
+    $names = @()
+    foreach ($tool in @(Field (Field $answers[1] "result") "tools")) { $names += (Field $tool "name") }
+    foreach ($wanted in @("maked_status", "maked_options", "maked_step", "maked_model", "maked_society", "maked_sessions", "maked_export")) {
+      Assert-True ("and the '{0}' tool is there" -f $wanted) ($names -contains $wanted)
+    }
+    $where = ToolText $answers[2]
+    Assert-Contains "and the status says where the loop stands" $where '"domain"'
+    Assert-Contains "and it says it in words" $where 'position_label'
+    $happened = ToolText $answers[3]
+    Assert-Contains "and a step says what it did" $happened 'what_happened'
+    Assert-True "and a step that names no slot is refused with a reason" `
+      ($null -ne (Field $answers[4] "error")) `
+      ("expected an error for a slot that does not exist, got: {0}" -f (Limit $session.Answers[4]))
+    if ($null -ne (Field $answers[4] "error")) {
+      Assert-Contains "and the refusal names the slot that was asked for" `
+        (Field (Field $answers[4] "error") "message") "no-such-slot"
+    }
+
+    # --- over HTTP ----------------------------------------------------------
+    $httpDb = Join-Path $tempDir ("maked_integration_agent_http_{0}.db" -f $AgentPort)
+    if (Test-Path $httpDb) { Remove-Item $httpDb -Force }
+    $savedMcpPort = $env:MAKED_MCP_PORT
+    $savedDb = $env:MAKED_DB
+    $env:MAKED_MCP_PORT = "$AgentPort"
+    $env:MAKED_DB = $httpDb
+    $mcpArgs = @{
+      FilePath               = $mcpExe
+      PassThru               = $true
+      RedirectStandardOutput = (Join-Path $tempDir "maked_integration_mcp_out.log")
+      RedirectStandardError  = (Join-Path $tempDir "maked_integration_mcp_err.log")
+    }
+    if ($IsWindows -or $PSVersionTable.PSVersion.Major -lt 6) {
+      $mcpArgs["WindowStyle"] = "Hidden"
+    }
+    $mcpServer = Start-Process @mcpArgs
+    try {
+      $httpArgs = @{
+        Uri             = "http://127.0.0.1:$AgentPort/mcp"
+        Method          = "POST"
+        Body            = $list
+        ContentType     = "application/json"
+        Headers         = @{
+          "MCP-Protocol-Version" = "2026-07-28"
+          "Mcp-Method"            = "tools/list"
+          "Accept"               = "application/json, text/event-stream"
+        }
+        UseBasicParsing = $true
+        TimeoutSec      = 20
+      }
+      $httpBody = $null
+      $ready = $false
+      for ($i = 0; $i -lt 60; $i++) {
+        Start-Sleep -Milliseconds 250
+        try {
+          $probe = Invoke-WebRequest @httpArgs -ErrorAction Stop
+          if ([int]$probe.StatusCode -eq 200) { $httpBody = $probe.Content; $ready = $true; break }
+        } catch { }
+      }
+      Assert-True "the agent's server answers over HTTP" $ready
+      if ($ready) {
+        $httpJson = $null
+        try { $httpJson = $httpBody | ConvertFrom-Json } catch { }
+        Assert-True "and the answer is a JSON-RPC result" ($null -ne (Field $httpJson "result")) `
+          ("the answer was not a result: {0}" -f (Limit $httpBody))
+        if ($null -ne (Field $httpJson "result")) {
+          Assert-ArrayLength "and the same seven tools are offered" (Field $httpJson "result") "tools" 7
+        }
+      }
+    } finally {
+      if ($null -ne $mcpServer -and -not $mcpServer.HasExited) {
+        Stop-Process -Id $mcpServer.Id -Force -ErrorAction SilentlyContinue
+      }
+      $env:MAKED_MCP_PORT = $savedMcpPort
+      $env:MAKED_DB = $savedDb
+    }
+  }
+
+  # --- a file that cannot be read --------------------------------------------
+  #
+  # A server that starts with half a machine answers every request
+  # confidently and wrongly, which is the worst thing a server can do. So a
+  # file that cannot be read stops the server before it serves anything,
+  # and the reason is on stderr where the operator will see it.
+  #
+  # This is checked here rather than in the backend tests for one reason: the
+  # start-up reads the environment, the environment is process-wide, and the
+  # backend tests run side by side in one process. A server of its own is
+  # the only place where "the environment named a file" can be checked
+  # without changing what the other tests are running.
+  function Test-RefusesBrokenFiles {
+    param([int]$RefusePort)
+
+    $cases = @(
+      @{ Name = "the machine"; Var = "MAKED_MODEL"; File = "broken_model.json"; Text = "this is not a machine" },
+      @{ Name = "the mapping table"; Var = "MAKED_RESEARCH"; File = "broken_table.yaml"; Text = "[unclosed" },
+      @{ Name = "the society vocabulary"; Var = "MAKED_SOCIETY"; File = "broken_society.yaml"; Text = "[unclosed" },
+      @{ Name = "the corpus"; Var = "MAKED_CORPUS"; File = "broken_corpus.yaml"; Text = "[unclosed" }
+    )
+    $vars = @("MAKED_MODEL", "MAKED_RESEARCH", "MAKED_SOCIETY", "MAKED_CORPUS")
+    $saved = @{}
+    foreach ($name in $vars) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+    $savedPort = $env:MAKED_PORT
+    $savedDb = $env:MAKED_DB
+    try {
+      $port = $RefusePort
+      foreach ($case in $cases) {
+        foreach ($name in $vars) {
+          [Environment]::SetEnvironmentVariable($name, $null)
+        }
+        $broken = Join-Path $tempDir $case.File
+        # Written as bytes: `Set-Content -Encoding UTF8` writes a byte order
+        # mark on PowerShell 5, and a mark in front of the file is a mark in
+        # front of the file the server reads.
+        [System.IO.File]::WriteAllText($broken, $case.Text, (New-Object System.Text.UTF8Encoding($false)))
+        [Environment]::SetEnvironmentVariable($case.Var, $broken)
+        $env:MAKED_PORT = "$port"
+        $env:MAKED_DB = (Join-Path $tempDir ("maked_integration_refuse_{0}.db" -f $port))
+        $errLog = Join-Path $tempDir ("maked_integration_refuse_{0}_err.log" -f $port)
+        $args = @{
+          FilePath               = $exe
+          PassThru               = $true
+          RedirectStandardOutput = (Join-Path $tempDir ("maked_integration_refuse_{0}_out.log" -f $port))
+          RedirectStandardError  = $errLog
+        }
+        if ($IsWindows -or $PSVersionTable.PSVersion.Major -lt 6) {
+          $args["WindowStyle"] = "Hidden"
+        }
+        $server = Start-Process @args
+        $exited = $false
+        for ($i = 0; $i -lt 60; $i++) {
+          Start-Sleep -Milliseconds 250
+          if ($server.HasExited) { $exited = $true; break }
+        }
+        if (-not $exited) {
+          Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+        }
+        Assert-True ("the server refuses to start with {0} it could not read" -f $case.Name) $exited
+        $said = ""
+        if (Test-Path $errLog) { $said = (Get-Content $errLog -Raw) }
+        Assert-Contains ("and it says why {0} could not be read" -f $case.Name) $said "will not start"
+        Assert-Contains ("and it names the file it could not read" -f $case.Name) $said $case.File
+        $port = $port + 1
+      }
+    } finally {
+      foreach ($name in $vars) {
+        [Environment]::SetEnvironmentVariable($name, $saved[$name])
+      }
+      $env:MAKED_PORT = $savedPort
+      $env:MAKED_DB = $savedDb
+    }
+  }
+
   Write-Host ""
   Write-Host "-- a table of your own"
   Test-ResearchTable (Join-Path $repo "models/product-iteration.json") `
@@ -1399,6 +1696,14 @@ try {
   Write-Host ""
   Write-Host "-- the collective"
   Test-Society ($Port + 6)
+
+  Write-Host ""
+  Write-Host "-- the agent's server"
+  Test-AgentServer ($Port + 7)
+
+  Write-Host ""
+  Write-Host "-- a file that cannot be read"
+  Test-RefusesBrokenFiles ($Port + 8)
 } finally {
   Stop-Server
   Start-Sleep -Milliseconds 300

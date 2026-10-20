@@ -23,113 +23,22 @@ fn parse_port(text : String) -> UInt16 {
 
 ///|
 async fn main {
-  // The machine MAKED runs. `MAKED_MODEL` names a model file, and a file
-  // that cannot be read whole is refused rather than half-read: a server
-  // running a machine nobody can see would answer every request
-  // confidently and wrongly, which is the worst thing a server can do.
-  let model_path = @maked.model_path_from_env()
-  let model_name = match model_path {
-    Some(path) =>
-      match @maked.read_model_file(path) {
-        Some(model) => {
-          @maked.install_model(model)
-          model.name
-        }
-        None => {
-          println("")
-          println("MAKED will not start with a model it could not read.")
-          println("  unset MAKED_MODEL to run the built-in model instead")
-          return
-        }
-      }
-    None => @maked.current_model().name
-  }
-  // The table that says what a document means. `MAKED_RESEARCH` names a
-  // research file, and a file that cannot be read whole is refused for the
-  // same reason the model file is: a table that half-reads fires on the
-  // wrong documents, and a step in the timeline that nobody can explain is
-  // worse than a server that says it is not running.
+  // The machine MAKED runs, the table that says what a document means, the
+  // words for the Society layer and the corpus the documents come from.
   //
-  // The model is installed first, because the table names slots and the
-  // model is what has the slots.
-  let research_path = @maked.research_path_from_env()
-  match research_path {
-    Some(path) =>
-      match @maked.read_research_file(path) {
-        Some(config) => @maked.install_research(config)
-        None => {
-          println("")
-          println(
-            "MAKED will not start with a mapping table it could not read.",
-          )
-          println("  unset MAKED_RESEARCH to run the built-in table instead")
-          return
-        }
-      }
-    None => {
-      // The built-in table is the built-in model's: it names slots like
-      // "feedback" and "act". A model file has slots of its own, and a
-      // table that names a slot the running model does not have is a rule
-      // about nowhere. Saying so at start-up is better than letting every
-      // document be skipped in silence.
-      let config = @maked.current_research()
-      match config.first_unfitting_slot(@maked.current_model()) {
-        Some(slot) => {
-          println("")
-          println(
-            "WARNING: the built-in mapping table names the slot \"\{slot}\", which this model does not have.",
-          )
-          println(
-            "  the research panel will not drive the loop until MAKED_RESEARCH names a table for this model",
-          )
-        }
-        None => ()
-      }
-    }
+  // The rules are in `bootstrap.mbt`, because the agent's server starts the
+  // same way and a second copy of "which files does MAKED run" is a second
+  // thing to keep in step with the first. A file that cannot be read whole
+  // is refused rather than half-read: a server running a machine nobody can
+  // see would answer every request confidently and wrongly, which is the
+  // worst thing a server can do.
+  if !@maked.install_from_environment() {
+    return
   }
-  // The words for the Society layer. `MAKED_SOCIETY` names a vocabulary
-  // file, and a file that cannot be read whole is refused for the same
-  // reason the model file is: the society machine is pyroduct's, and a
-  // vocabulary that half-reads leaves the collective's positions unnamed --
-  // a panel that shows a collective and cannot say where it is.
-  let society_path = @maked.society_path_from_env()
-  match society_path {
-    Some(path) =>
-      match @maked.read_society_file(path) {
-        Some(vocabulary) => @maked.install_society_vocabulary(vocabulary)
-        None => {
-          println("")
-          println(
-            "MAKED will not start with a society vocabulary it could not read.",
-          )
-          println(
-            "  unset MAKED_SOCIETY to run the built-in vocabulary instead",
-          )
-          return
-        }
-      }
-    None => ()
-  }
-  // The corpus the documents come from. `MAKED_CORPUS` names a corpus
-  // file, and a file that cannot be read whole is refused for the same
-  // reason the model file is: a server that quietly fell back to arxiv
-  // would show the reader a panel full of papers while their own documents
-  // went unread, and a panel full of the wrong documents is a lie told
-  // with a straight face.
-  let corpus_path = @maked.corpus_path_from_env()
-  match corpus_path {
-    Some(path) =>
-      match @maked.read_corpus_file(path) {
-        Some(config) => @maked.install_corpus(config)
-        None => {
-          println("")
-          println("MAKED will not start with a corpus it could not read.")
-          println("  unset MAKED_CORPUS to run the built-in corpus instead")
-          return
-        }
-      }
-    None => ()
-  }
+  let model_name = @maked.current_model().name
+  // The table that says what a document means, the words for the Society
+  // layer and the corpus the documents come from are installed with the
+  // model, above.
   let port = parse_port(env_or("MAKED_PORT", "8080"))
   let host = env_or("MAKED_HOST", "127.0.0.1")
   let db_path = env_or("MAKED_DB", "maked.db")

@@ -312,7 +312,7 @@ pub async fn read_corpus_file(path : String) -> CorpusConfig? {
   match CorpusConfig::from_json(path, json) {
     Accepted(config) => Some(config)
     Rejected(reason) => {
-      println(
+      eprintln(
         "error: corpus file \{path} is not a corpus this version understands: \{reason}",
       )
       None
@@ -333,7 +333,7 @@ pub async fn read_corpus_file(path : String) -> CorpusConfig? {
 /// not kept: the corpus is data, and data is written back as data.
 pub async fn write_corpus_file(config : CorpusConfig) -> Bool {
   if config.path == "" {
-    println(
+    eprintln(
       "note: the built-in corpus is not written anywhere; it is the corpus MAKED starts with.",
     )
     return false
@@ -341,7 +341,7 @@ pub async fn write_corpus_file(config : CorpusConfig) -> Bool {
   let text = data_text_for(config.path, config.to_json())
   @fs.write_file(config.path, text) catch {
     err => {
-      println("error: corpus file \{config.path} unwritable: \{err}")
+      eprintln("error: corpus file \{config.path} unwritable: \{err}")
       return false
     }
   }

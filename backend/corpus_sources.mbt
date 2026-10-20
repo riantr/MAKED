@@ -108,7 +108,7 @@ pub async fn read_local_documents(
   max_results : Int32,
 ) -> Array[Document] {
   if !@fs.exists(path) {
-    println("error: the local corpus \{path} does not exist")
+    eprintln("error: the local corpus \{path} does not exist")
     return []
   }
   let kind = @fs.kind(path)
@@ -231,14 +231,14 @@ pub async fn read_local_file(path : String) -> Document? {
   }
   let text = @fs.read_file(path).text() catch {
     err => {
-      println("error: \{path} unreadable: \{err}")
+      eprintln("error: \{path} unreadable: \{err}")
       return None
     }
   }
   if is_json_path(path) {
     let documents = parse_csl_json(text)
     if documents.length() == 0 {
-      println(
+      eprintln(
         "note: \{path} holds no Zotero CSL-JSON items, so it was left alone",
       )
       return None
@@ -257,13 +257,13 @@ pub async fn read_local_file(path : String) -> Document? {
 pub async fn read_pdf_file(path : String) -> Document? {
   let data = @fs.read_file(path) catch {
     err => {
-      println("error: \{path} unreadable: \{err}")
+      eprintln("error: \{path} unreadable: \{err}")
       return None
     }
   }
   let text = @pdflite_md.pdf_bytes_to_markdown(data.binary()) catch {
     err => {
-      println("error: \{path} is not a PDF MAKED can read: \{err}")
+      eprintln("error: \{path} is not a PDF MAKED can read: \{err}")
       return None
     }
   }
@@ -904,17 +904,17 @@ fn unescape_entities(text : String) -> String {
 async fn fetch_text(url : String) -> String {
   let (response, data) = @http.get(url) catch {
     err => {
-      println("error: cannot read \{url}: \{err}")
+      eprintln("error: cannot read \{url}: \{err}")
       return ""
     }
   }
   if response.code != 200 {
-    println("error: \{url} answered \{response.code}")
+    eprintln("error: \{url} answered \{response.code}")
     return ""
   }
   data.text() catch {
     err => {
-      println("error: \{url} sent a body that is not text: \{err}")
+      eprintln("error: \{url} sent a body that is not text: \{err}")
       return ""
     }
   }
