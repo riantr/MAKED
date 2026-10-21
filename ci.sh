@@ -5,9 +5,10 @@
 # a CI pipeline: type-check, format, dependency audit, unit tests, coverage,
 # benchmarks, formal verification, contract tests, component tests, SAST, DAST.
 #
-# The GitHub workflow runs the five of them that a push is checked against --
+# The GitHub workflow runs the 7 of them that a push is checked against --
 # the contract tests, the component tests, the static analysis, the dynamic
-# analysis and the dependency check -- and this script runs all eighteen.
+# analysis, the dependency check and the two document gates -- and this
+# script runs all 18 of them.
 # The rest are the slow half: the mutation batteries rewrite the source and
 # re-run the suites two hundred and twenty-nine times, the coverage report
 # runs the native suite again, and the benchmarks and the formal

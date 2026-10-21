@@ -760,6 +760,122 @@ function Get-DocHookCommands {
 
 Test-Sets 'hook commands' (Get-CodeHookCommands) (Get-DocHookCommands)
 
+# --- AGENTS.md and ci.sh: the counts an agent reads before it touches the tree
+#
+# AGENTS.md is the first file an agent opens in this repository, and it tells
+# that agent how the project is verified: how many gates there are, and how
+# many of them a push is checked against. Those are counts, and a count in the
+# first document an agent reads is the one that sends it down the wrong road.
+#
+# The gate count comes from ci.sh's own gate list -- the `gate "name"` calls
+# in its full mode -- and the workflow count from the steps the CI workflow's
+# gates job runs. ci.sh's own header states both, and so does AGENTS.md, and
+# both have to state the tree's.
+#
+# The scripts the workflow runs also have to be a subset of the scripts a
+# ci.sh gate runs. A step in the workflow that runs something ci.sh does not
+# run is a check the local run does not have, and an agent that has run ci.sh
+# believes it has run everything the pipeline runs.
+
+# The gates in ci.sh's full run: the `gate "name"` calls in its default arm.
+function Get-CiGateCount {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'ci.sh'), $enc)
+  $lines = $text -split "`n"
+  $start = -1
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($lines[$i] -match '^[ \t]*\*\)[ \t]*$') { $start = $i }
+  }
+  if ($start -lt 0) { return -1 }
+  $count = 0
+  for ($i = $start; $i -lt $lines.Count; $i++) {
+    if ($lines[$i] -match '^[ \t]*esac[ \t]*$') { break }
+    if ($lines[$i] -match '^[ \t]*gate "') { $count++ }
+  }
+  $count
+}
+
+# The scripts a ci.sh gate runs.
+function Get-CiScripts {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'ci.sh'), $enc)
+  $out = @()
+  foreach ($m in [regex]::Matches($text, 'bash tools/([A-Za-z0-9_.-]+\.sh)')) { $out += $m.Groups[1].Value }
+  Sort-Set $out
+}
+
+# The scripts the CI workflow's gates job runs.
+function Get-WorkflowScripts {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD '.github/workflows/ci.yml'), $enc)
+  $lines = $text -split "`n"
+  $inside = $false
+  $out = @()
+  foreach ($line in $lines) {
+    if (-not $inside) {
+      if ($line -match '^  gates:[ \t]*$') { $inside = $true }
+      continue
+    }
+    if ($line -match '^  [A-Za-z0-9_-]+:[ \t]*$') { break }
+    foreach ($m in [regex]::Matches($line, 'bash tools/([A-Za-z0-9_.-]+\.sh)')) { $out += $m.Groups[1].Value }
+  }
+  Sort-Set $out
+}
+
+# The number a document states next to a phrase. The document is flattened
+# first, because a sentence the editor wrapped is one sentence to a reader
+# and two to a matcher.
+function Get-FlatNumber($text, $pattern) {
+  $m = [regex]::Match($text, $pattern)
+  if (-not $m.Success) { return '' }
+  $digits = [regex]::Match($m.Value, '[0-9]+')
+  if (-not $digits.Success) { return '' }
+  $digits.Value
+}
+
+# A number a document states, against the tree's.
+function Test-StatedNumber($label, $actual, $stated, $document) {
+  if ([string]::IsNullOrEmpty($stated)) {
+    Write-Fail ("{0,-22} {1} does not state it" -f $label, $document)
+    return
+  }
+  if ("$stated" -ne "$actual") {
+    Write-Fail ("{0,-22} the tree has {1}, {2} says {3}" -f $label, $actual, $document, $stated)
+    return
+  }
+  Write-Ok $label $actual
+}
+
+# The scripts the workflow runs have to be a subset of the scripts a ci.sh
+# gate runs. A step the local run does not have is a check the reader
+# believes they have.
+function Test-WorkflowScripts($label, $subset, $superset) {
+  $sub = Get-NonEmpty $subset
+  $sup = Get-NonEmpty $superset
+  $missing = @($sub | Where-Object { $sup -cnotcontains $_ })
+  if ($missing.Count -eq 0) {
+    Write-Ok $label $sub.Count
+    return
+  }
+  Write-Fail ("{0,-22} the workflow runs [{1}], which ci.sh does not run" -f $label, ($missing -join ' '))
+}
+
+$ciGates = Get-CiGateCount
+$ciScripts = @(Get-CiScripts)
+$workflowScripts = @(Get-WorkflowScripts)
+$ciFlat = (([System.IO.File]::ReadAllText((Join-Path $PWD 'ci.sh'), $enc)) -replace "`n", ' ') -replace ' +', ' '
+$agentsFlat = (([System.IO.File]::ReadAllText((Join-Path $PWD 'AGENTS.md'), $enc)) -replace "`n", ' ') -replace ' +', ' '
+
+Test-StatedNumber 'ci.sh header gates' $ciGates `
+  (Get-FlatNumber $ciFlat 'runs all ([0-9]+) of them') "ci.sh's header"
+Test-StatedNumber 'agent guide gates' $ciGates `
+  (Get-FlatNumber $agentsFlat 'holds ([0-9]+) gates') 'AGENTS.md'
+Test-StatedNumber 'ci.sh header workflow' $workflowScripts.Count `
+  (Get-FlatNumber $ciFlat 'runs the ([0-9]+) of them that a push is checked against') `
+  "ci.sh's header"
+Test-StatedNumber 'agent guide workflow' $workflowScripts.Count `
+  (Get-FlatNumber $agentsFlat 'runs the ([0-9]+) that a push is checked against') `
+  'AGENTS.md'
+
+Test-WorkflowScripts 'workflow scripts' $workflowScripts $ciScripts
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

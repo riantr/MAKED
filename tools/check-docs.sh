@@ -837,6 +837,132 @@ doc_hook_commands() {
 
 check_sets "hook commands" "$(code_hook_commands)" "$(doc_hook_commands)"
 
+# --- AGENTS.md and ci.sh: the counts an agent reads before it touches the tree
+#
+# AGENTS.md is the first file an agent opens in this repository, and it tells
+# that agent how the project is verified: how many gates there are, and how
+# many of them a push is checked against. Those are counts, and a count in the
+# first document an agent reads is the one that sends it down the wrong road.
+#
+# The gate count comes from ci.sh's own gate list -- the `gate "name"` calls
+# in its full mode -- and the workflow count from the steps the CI workflow's
+# gates job runs. ci.sh's own header states both, and so does AGENTS.md, and
+# both have to state the tree's.
+#
+# The scripts the workflow runs also have to be a subset of the scripts a
+# ci.sh gate runs. A step in the workflow that runs something ci.sh does not
+# run is a check the local run does not have, and an agent that has run ci.sh
+# believes it has run everything the pipeline runs.
+
+# The gates in ci.sh's full run: the `gate "name"` calls in its default arm.
+count_ci_gates() {
+  awk '
+    { lines[NR] = $0 }
+    /^[ \t]*\*\)[ \t]*$/ { start = NR }
+    END {
+      if (start == 0) { print 0; exit }
+      n = 0
+      for (i = start; i <= NR; i++) {
+        if (lines[i] ~ /^[ \t]*esac[ \t]*$/) break
+        if (lines[i] ~ /^[ \t]*gate "/) n++
+      }
+      print n
+    }
+  ' ci.sh
+}
+
+# The scripts a ci.sh gate runs.
+ci_scripts() {
+  awk '
+    {
+      line = $0
+      while (match(line, /bash tools\/[A-Za-z0-9_.-]+\.sh/)) {
+        print substr(line, RSTART + 11, RLENGTH - 11)
+        line = substr(line, RSTART + RLENGTH)
+      }
+    }
+  ' ci.sh | LC_ALL=C sort -u || true
+}
+
+# The scripts the CI workflow's gates job runs.
+workflow_scripts() {
+  awk '
+    /^  gates:[ \t]*$/ { inside = 1; next }
+    inside && /^  [A-Za-z0-9_-]+:[ \t]*$/ { exit }
+    inside {
+      line = $0
+      while (match(line, /bash tools\/[A-Za-z0-9_.-]+\.sh/)) {
+        print substr(line, RSTART + 11, RLENGTH - 11)
+        line = substr(line, RSTART + RLENGTH)
+      }
+    }
+  ' .github/workflows/ci.yml | LC_ALL=C sort -u || true
+}
+
+# The number a document states next to a phrase. The document is flattened
+# first, because a sentence the editor wrapped is one sentence to a reader
+# and two to a matcher.
+flat_number() {
+  local text="$1" pattern="$2" fragment
+  if [[ "$text" =~ $pattern ]]; then
+    fragment="${BASH_REMATCH[0]}"
+    if [[ "$fragment" =~ [0-9]+ ]]; then
+      printf '%s\n' "${BASH_REMATCH[0]}"
+    fi
+  fi
+}
+
+# A number a document states, against the tree's.
+check_stated() {
+  local label="$1" actual="$2" stated="$3" document="$4"
+  if [ -z "$stated" ]; then
+    fail "$(printf '%-22s %s does not state it' "$label" "$document")"
+    return
+  fi
+  if [ "$stated" != "$actual" ]; then
+    fail "$(printf '%-22s the tree has %s, %s says %s' \
+      "$label" "$actual" "$document" "$stated")"
+    return
+  fi
+  ok "$label" "$actual"
+}
+
+# The scripts the workflow runs have to be a subset of the scripts a ci.sh
+# gate runs. A step the local run does not have is a check the reader
+# believes they have.
+check_workflow_scripts() {
+  local label="$1" subset="$2" superset="$3" missing
+  not_in "$subset" "$superset"; missing=$NOT_IN
+  if [ -z "$missing" ]; then
+    count_lines "$subset"
+    ok "$label" "$COUNT_LINES"
+    return
+  fi
+  fail "$(printf '%-22s the workflow runs [%s], which ci.sh does not run' \
+    "$label" "$missing")"
+}
+
+CI_GATES=$(count_ci_gates)
+CI_SCRIPTS=$(ci_scripts)
+WORKFLOW_SCRIPTS=$(workflow_scripts)
+count_lines "$WORKFLOW_SCRIPTS"; WORKFLOW_GATES=$COUNT_LINES
+
+CI_FLAT=$(tr '\n' ' ' < ci.sh | tr -s ' ')
+AGENTS_FLAT=$(tr '\n' ' ' < AGENTS.md | tr -s ' ')
+
+check_stated "ci.sh header gates" "$CI_GATES" \
+  "$(flat_number "$CI_FLAT" 'runs all ([0-9]+) of them')" "ci.sh's header"
+check_stated "agent guide gates" "$CI_GATES" \
+  "$(flat_number "$AGENTS_FLAT" 'holds ([0-9]+) gates')" "AGENTS.md"
+check_stated "ci.sh header workflow" "$WORKFLOW_GATES" \
+  "$(flat_number "$CI_FLAT" 'runs the ([0-9]+) of them that a push is checked against')" \
+  "ci.sh's header"
+check_stated "agent guide workflow" "$WORKFLOW_GATES" \
+  "$(flat_number "$AGENTS_FLAT" 'runs the ([0-9]+) that a push is checked against')" \
+  "AGENTS.md"
+
+check_workflow_scripts "workflow scripts" "$WORKFLOW_SCRIPTS" "$CI_SCRIPTS"
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

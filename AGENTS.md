@@ -160,10 +160,10 @@ Model Context Protocol details.
   word once, where it belongs, and let the other side ask for it.
 
 - **The bash gates are real now, and they run on the runner.** `ci.sh` holds
-  seventeen gates; the GitHub workflow runs the five that a push is checked
-  against (contract, component, SAST, DAST, dependency versions), and
-  `ci.sh` runs all seventeen. The mutation batteries are the slow half and
-  are local: they rewrite the source and re-run the suites 229 times, which
+  18 gates; the GitHub workflow runs the 7 that a push is checked against
+  (contract, component, SAST, DAST, dependency versions, documents, README),
+  and `ci.sh` runs all 18. The mutation batteries are the slow half and are
+  local: they rewrite the source and re-run the suites 229 times, which
   is an hour of CI for a check a push does not change.
 
 - **A gate that skips is a gate that does not run.** The DAST gate used to
