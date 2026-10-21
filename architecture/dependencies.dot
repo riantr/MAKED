@@ -3,6 +3,17 @@
 //
 // Shows package-level dependencies with change-impact annotations.
 // Node size reflects blast radius (larger = more downstream impact).
+//
+// The packages, the external imports and the versions are the tree's: the
+// gate (tools/check-docs.sh) says so out loud. A dependency graph that names
+// a package the tree does not import sends the reader looking for something
+// that is not there, and one that forgets the model the whole loop runs on
+// hides the most important edge in the picture.
+//
+// Every external node names its import path on the FIRST line of its label,
+// because that is the line the gate reads. The lines under it say what the
+// package is for.
+//
 // Render: dot -Tsvg dependencies.dot -o dependencies.svg
 
 digraph maked_dependencies {
@@ -17,54 +28,84 @@ digraph maked_dependencies {
     color="#333333"
 
     backend [
-      label="backend/\n──────────\napp.mbt (Handler, Middleware, App)\napi.mbt (37 routes)\ndatabase.mbt (SQLite)\npages.mbt (Page, seed)\nrequest.mbt, response.mbt\nmaked_app.mbt (assembly)",
+      label="backend/\nThe API, the pages, the loop,\nthe collective and the\nagent's tools",
       fillcolor="#d4e6f1"
       width=3.5
     ]
 
     frontend [
-      label="frontend/\n──────────\napp.mbt (Model, Msg, TEA)\npage.mbt (JSON decode)\nviews.mbt (rendering)\nlogo.mbt (SVG ring)",
+      label="frontend/\nThe pages, the loop panel,\nthe sessions and the\nsociety",
       fillcolor="#d9ead3"
       width=3
     ]
 
     cmd_server [
-      label="cmd/server/\n──────────\nmain.mbt (native entry)",
+      label="cmd/server/\nThe native entry point",
       fillcolor="#fde8cd"
       width=2
     ]
 
     cmd_web [
-      label="cmd/web/\n──────────\nmain.mbt (js entry)",
+      label="cmd/web/\nThe browser entry point",
+      fillcolor="#fde8cd"
+      width=2
+    ]
+
+    cmd_mcp [
+      label="cmd/mcp/\nThe agent's server",
       fillcolor="#fde8cd"
       width=2
     ]
   }
 
+  // --- The manifest: what the tree pins ---
+  manifest [
+    label="moon.mod\nWhat the tree pins,\nand the versions it pins them at",
+    shape=note
+    fillcolor="#fce5cd"
+  ]
+
   // --- External dependencies ---
   subgraph cluster_external {
-    label="External dependencies"
+    label="External MoonBit packages"
     style=dashed
     color="#999999"
     node [shape=component, fillcolor="#e8e8e8"]
 
-    moonback [label="moonback@0.8.9\nHTTP server + router"]
-    moonback_static [label="unstable_static\nstatic file middleware"]
-    sqlite3 [label="sqlite3@0.2.3\nSQLite FFI"]
-    async [label="async@0.22.5\nruntime + fs + http"]
-    rabbita [label="rabbita@0.16.6\nElm-style SPA"]
-    rabbita_html [label="rabbita/html\nvirtual DOM"]
-    rabbita_nav [label="rabbita/nav\nHistory API"]
-    rabbita_sub [label="rabbita/sub\nsubscriptions"]
-    rabbita_cmd [label="rabbita/cmd\nCmd + Emit"]
-    rabbita_http [label="rabbita/http\nHTTP client"]
-    rabbita_svg [label="rabbita/svg\nSVG elements"]
-    rabbita_url [label="rabbita/url\nURL parsing"]
+    moonback [label="moonbitlang/moonback@0.8.9\nHTTP server + router"]
+    moonback_static [label="moonbitlang/moonback/middlewares/unstable_static\nStatic file middleware"]
+    sqlite3 [label="moonbit-community/sqlite3@0.2.3\nSQLite FFI"]
+    yaml [label="moonbit-community/yaml@0.0.8\nThe machine files"]
+    async [label="moonbitlang/async@0.22.5\nThe async runtime"]
+    async_fs [label="moonbitlang/async/fs\nFilesystem ops"]
+    async_http [label="moonbitlang/async/http\nHTTP types"]
+    async_io [label="moonbitlang/async/io\nByte streams"]
+    async_stdio [label="moonbitlang/async/stdio\nStandard streams"]
+    rabbita [label="moonbit-community/rabbita@0.16.6\nThe SPA runtime"]
+    rabbita_cmd [label="moonbit-community/rabbita/cmd\nCommands and Emit"]
+    rabbita_html [label="moonbit-community/rabbita/html\nVirtual DOM"]
+    rabbita_http [label="moonbit-community/rabbita/http\nHTTP client"]
+    rabbita_nav [label="moonbit-community/rabbita/nav\nHistory API routing"]
+    rabbita_sub [label="moonbit-community/rabbita/sub\nSubscriptions"]
+    rabbita_svg [label="moonbit-community/rabbita/svg\nSVG elements"]
+    rabbita_url [label="moonbit-community/rabbita/url\nURL parsing"]
+    pdflite [label="moonbitlang/pdflite@0.4.0\nPDF and markdown"]
+    pdflite_markdown [label="moonbitlang/pdflite/markdown\nThe export"]
+    xpkg [label="moonbitlang/x@0.5.6\nPaths and files"]
+    doubleml [label="riantr/moonbit_doubleML@0.164.15\nThe regression the\nloop reports"]
+    pyroduct [label="riantr/pyroduct@0.1.32\nThe model MAKED runs"]
+    pyroduct_group [label="riantr/pyroduct/group\nThe group layer"]
+    pyroduct_society [label="riantr/pyroduct/society\nThe society layer"]
+    pyroduct_src [label="riantr/pyroduct/src\nThe state machine"]
+    mcp [label="colmugx/mcp@0.18.1\nThe agent's protocol"]
+    mcp_tool [label="colmugx/mcp/protocol/tool\nTool results"]
+    mcp_types [label="colmugx/mcp/protocol/types\nProtocol types"]
+    mcp_runtime [label="colmugx/mcp/runtime\nThe request context"]
   }
 
-  // --- JSON contract (the only backend↔frontend link) ---
+  // --- JSON contract (the only backend-frontend link) ---
   json_contract [
-    label="JSON API contract\n──────────\nGET /api/status\nGET /api/pages\nGET /api/bootstrap\nGET /api/pages/:slug\nGET /api/domains\nGET|POST /api/entries\nGET|POST /api/sessions\nGET|POST /api/loop/*\nGET|POST /api/research/*\nGET|POST /api/society/*\nGET /api/agent",
+    label="JSON API contract\nGET /api/status\nGET /api/pages\nGET /api/bootstrap\nGET /api/pages/:slug\nGET /api/domains\nGET /api/model\nGET|POST /api/entries\nGET|POST /api/sessions\nGET|POST /api/loop/*\nGET|POST /api/research/*\nGET|POST /api/society/*\nGET /api/agent",
     shape=note
     fillcolor="#fce5cd"
     style=dashed
@@ -73,23 +114,56 @@ digraph maked_dependencies {
   // --- Internal edges ---
   cmd_server -> backend [label="imports @maked", penwidth=2, color="#4a7c9e"]
   cmd_web -> frontend [label="imports @frontend", penwidth=2, color="#7c9e4a"]
+  cmd_mcp -> backend [label="imports @maked", penwidth=2, color="#4a7c9e"]
   backend -> json_contract [style=dashed, label="produces", color="#9e7c4a"]
   frontend -> json_contract [style=dashed, label="consumes", color="#9e7c4a"]
 
+  // --- What the manifest pins ---
+  manifest -> moonback [label="pins", style=dashed, color="#999999"]
+  manifest -> sqlite3 [label="pins", style=dashed, color="#999999"]
+  manifest -> yaml [label="pins", style=dashed, color="#999999"]
+  manifest -> async [label="pins", style=dashed, color="#999999"]
+  manifest -> rabbita [label="pins", style=dashed, color="#999999"]
+  manifest -> pdflite [label="pins", style=dashed, color="#999999"]
+  manifest -> xpkg [label="pins", style=dashed, color="#999999"]
+  manifest -> doubleml [label="pins", style=dashed, color="#999999"]
+  manifest -> pyroduct [label="pins", style=dashed, color="#999999"]
+  manifest -> mcp [label="pins", style=dashed, color="#999999"]
+
   // --- Backend external edges ---
-  backend -> moonback [label="adapts to\nModule/Handler/Responder"]
+  backend -> moonback [label="adapts to\nModule and Handler"]
   backend -> moonback_static [label="static_files()"]
-  backend -> sqlite3 [label="prepare/reset/bind/\nstep/finalize"]
-  backend -> async [label="async runtime"]
-  backend -> async [label="fs.read_file\n(index.html)", style=dashed]
+  backend -> sqlite3 [label="prepare, reset,\nbind, step, finalize"]
+  backend -> yaml [label="the machine files"]
+  backend -> async [label="the async runtime"]
+  backend -> async_fs [label="read_file"]
+  backend -> async_http [label="HTTP types"]
+  backend -> pdflite_markdown [label="the export"]
+  backend -> doubleml [label="the regression"]
+  backend -> pyroduct_group [label="the group layer"]
+  backend -> pyroduct_society [label="the society layer"]
+  backend -> pyroduct_src [label="the state machine"]
 
   // --- Frontend external edges ---
   frontend -> rabbita [label="create_state_with_init\nnew().mount()"]
-  frontend -> rabbita_html [label="Html builders\n(div, header, article...)"]
+  frontend -> rabbita_cmd [label="Emit, Cmd"]
+  frontend -> rabbita_html [label="Html builders"]
+  frontend -> rabbita_http [label="GET /api/bootstrap"]
   frontend -> rabbita_nav [label="push_url()"]
   frontend -> rabbita_sub [label="on_url_changed"]
-  frontend -> rabbita_cmd [label="Emit, Cmd"]
-  frontend -> rabbita_http [label="GET /api/bootstrap\nexpect_json"]
-  frontend -> rabbita_svg [label="svg primitives\n(path, circle...)"]
+  frontend -> rabbita_svg [label="svg primitives"]
   frontend -> rabbita_url [label="Url type"]
+
+  // --- Entry point external edges ---
+  cmd_server -> async [label="the async runtime"]
+  cmd_server -> async_fs [label="exists()"]
+  cmd_server -> moonback [label="App + listen +\nserve"]
+  cmd_web -> rabbita [label="new().mount()"]
+  cmd_mcp -> mcp [label="the protocol"]
+  cmd_mcp -> mcp_tool [label="tool results"]
+  cmd_mcp -> mcp_types [label="protocol types"]
+  cmd_mcp -> mcp_runtime [label="the request context"]
+  cmd_mcp -> async [label="the async runtime"]
+  cmd_mcp -> async_io [label="the stdio transport"]
+  cmd_mcp -> async_stdio [label="standard streams"]
 }

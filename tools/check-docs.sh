@@ -1207,6 +1207,95 @@ check_graph_routes() {
 
 check_graph_routes "$(graph_route_claims)" "$(count_routes)"
 
+# --- architecture/dependencies.dot: the dependency graph against the tree -----
+#
+# The dependency graph says what depends on what. It was a picture of the
+# project on the first day: seven backend modules, a frontend of four, no
+# agent's server, and none of the packages the tree actually leans on -- not
+# the model the whole loop runs on, not the regression it reports, not the
+# protocol the agent speaks.
+#
+# Three claims are checked. The PACKAGES are the tree's: every package the
+# tree has is named, and every package named is one the tree has. The
+# IMPORTS are the tree's: every external import path the tree declares is
+# named, and every path named is one the tree declares. The PINS are the
+# tree's: every version the graph states is the version the manifest pins.
+#
+# A claim is read off the FIRST line of a label, because that is where the
+# import path is written. The lines under it say what the package is for,
+# and a line that happens to mention a path is a sentence, not a claim.
+
+DEPENDENCIES_DOT="architecture/dependencies.dot"
+
+# The first line of every label in the graph.
+graph_label_heads() {
+  grep -oE 'label="[^"]*"' "$DEPENDENCIES_DOT" \
+    | sed -E 's/^label="//; s/\\n.*$//; s/"$//'
+}
+
+# The packages the graph names: a first line that is a package name.
+graph_packages() {
+  graph_label_heads | grep -E '^[a-z]+(/[a-z]+)?/$' | LC_ALL=C sort -u
+}
+
+# The packages the tree has: the directories that hold a moon.pkg.
+tree_packages() {
+  find backend frontend cmd -name moon.pkg 2>/dev/null \
+    | sed -E 's|/moon\.pkg$||; s|$|/|' | LC_ALL=C sort -u
+}
+
+check_sets "graph packages" "$(tree_packages)" "$(graph_packages)"
+
+# The external imports the graph names: a first line that is an import path.
+graph_imports() {
+  graph_label_heads \
+    | grep -E '^[A-Za-z][A-Za-z0-9_-]*(/[A-Za-z0-9_.-]+)+(@[0-9]+\.[0-9]+\.[0-9]+)?$' \
+    | sed -E 's/@[0-9]+\.[0-9]+\.[0-9]+$//' | LC_ALL=C sort -u
+}
+
+# The import blocks of the manifests, without their comments.
+manifest_blocks() {
+  local file
+  for file in moon.mod backend/moon.pkg frontend/moon.pkg \
+              cmd/server/moon.pkg cmd/web/moon.pkg cmd/mcp/moon.pkg; do
+    awk '
+      /^import \{/ { inside = 1; next }
+      inside && /^\}/ { inside = 0; next }
+      inside { print }
+    ' "$file"
+  done
+}
+
+# The external imports the tree declares. The core packages and the
+# project's own packages are left out: they are not dependencies on anything
+# outside the tree.
+tree_imports() {
+  manifest_blocks \
+    | grep -oE '"[A-Za-z][A-Za-z0-9_-]*/[A-Za-z0-9_./-]+(@[0-9][0-9.]*)?"' \
+    | tr -d '"' | sed -E 's/@[0-9][0-9.]*$//' \
+    | grep -vE '^moonbitlang/core/' | grep -vE '^riantr/MAKED(/|$)' \
+    | LC_ALL=C sort -u
+}
+
+check_sets "graph imports" "$(tree_imports)" "$(graph_imports)"
+
+# The versions the graph states: name@version.
+graph_pins() {
+  graph_label_heads | grep -oE '[A-Za-z0-9_-]+@[0-9]+\.[0-9]+\.[0-9]+' \
+    | LC_ALL=C sort -u
+}
+
+# The versions the manifests pin: the last segment of the path, and the
+# version.
+tree_pins() {
+  manifest_blocks \
+    | grep -oE '"[A-Za-z][A-Za-z0-9_-]*/[A-Za-z0-9_./-]+@[0-9][0-9.]*"' \
+    | tr -d '"' | awk -F'@' '{ n = split($1, parts, "/"); print parts[n] "@" $2 }' \
+    | LC_ALL=C sort -u
+}
+
+check_sets "graph pins" "$(tree_pins)" "$(graph_pins)"
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

@@ -1132,6 +1132,132 @@ function Test-GraphRoutes($claims, $actual) {
 
 Test-GraphRoutes (Get-GraphRouteClaims) ("$(Count-Routes)")
 
+# --- architecture/dependencies.dot: the dependency graph against the tree ---
+#
+# The dependency graph says what depends on what. It was a picture of the
+# project on the first day: seven backend modules, a frontend of four, no
+# agent's server, and none of the packages the tree actually leans on -- not
+# the model the whole loop runs on, not the regression it reports, not the
+# protocol the agent speaks.
+#
+# Three claims are checked. The PACKAGES are the tree's: every package the
+# tree has is named, and every package named is one the tree has. The
+# IMPORTS are the tree's: every external import path the tree declares is
+# named, and every path named is one the tree declares. The PINS are the
+# tree's: every version the graph states is the version the manifest pins.
+#
+# A claim is read off the FIRST line of a label, because that is where the
+# import path is written. The lines under it say what the package is for,
+# and a line that happens to mention a path is a sentence, not a claim.
+
+$dependenciesDot = 'architecture/dependencies.dot'
+
+# The first line of every label in the graph.
+function Get-GraphLabelHeads {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $dependenciesDot), $enc)
+  $out = @()
+  foreach ($m in [regex]::Matches($text, 'label="([^"]*)"')) {
+    $value = $m.Groups[1].Value
+    $cut = $value.IndexOf('\n')
+    if ($cut -ge 0) { $value = $value.Substring(0, $cut) }
+    $out += $value
+  }
+  $out
+}
+
+# The packages the graph names: a first line that is a package name.
+function Get-GraphPackages {
+  $out = @()
+  foreach ($head in (Get-GraphLabelHeads)) {
+    if ($head -cmatch '^[a-z]+(/[a-z]+)?/$') { $out += $head }
+  }
+  Sort-Set $out
+}
+
+# The packages the tree has: the directories that hold a moon.pkg.
+function Get-TreePackages {
+  $out = @()
+  foreach ($root in @('backend', 'frontend', 'cmd')) {
+    foreach ($f in (Get-ChildItem (Join-Path $PWD $root) -Recurse -Filter 'moon.pkg' -File)) {
+      $rel = $f.FullName.Substring($PWD.Path.Length + 1).Replace('\', '/')
+      $dir = $rel.Substring(0, $rel.Length - '/moon.pkg'.Length)
+      $out += ($dir + '/')
+    }
+  }
+  Sort-Set $out
+}
+
+Test-Sets 'graph packages' (Get-TreePackages) (Get-GraphPackages)
+
+# The external imports the graph names: a first line that is an import path.
+function Get-GraphImports {
+  $out = @()
+  foreach ($head in (Get-GraphLabelHeads)) {
+    if ($head -cmatch '^[A-Za-z][A-Za-z0-9_-]*(/[A-Za-z0-9_.-]+)+(@[0-9]+\.[0-9]+\.[0-9]+)?$') {
+      $out += ($head -replace '@[0-9]+\.[0-9]+\.[0-9]+$', '')
+    }
+  }
+  Sort-Set $out
+}
+
+# The import blocks of the manifests, without their comments.
+function Get-ManifestBlocks {
+  $out = @()
+  foreach ($file in @('moon.mod', 'backend/moon.pkg', 'frontend/moon.pkg',
+                      'cmd/server/moon.pkg', 'cmd/web/moon.pkg', 'cmd/mcp/moon.pkg')) {
+    $text = [System.IO.File]::ReadAllText((Join-Path $PWD $file), $enc)
+    $text = [regex]::Replace($text, '(?m)^\s*//.*$', '')
+    foreach ($m in [regex]::Matches($text, '(?s)import\s*\{(.*?)\}')) {
+      $out += $m.Groups[1].Value
+    }
+  }
+  $out
+}
+
+# The external imports the tree declares. The core packages and the
+# project's own packages are left out: they are not dependencies on anything
+# outside the tree.
+function Get-TreeImports {
+  $out = @()
+  foreach ($block in (Get-ManifestBlocks)) {
+    foreach ($p in [regex]::Matches($block, '"([A-Za-z][A-Za-z0-9_-]*/[A-Za-z0-9_./-]+(@[0-9][0-9.]*)?)"')) {
+      $path = $p.Groups[1].Value
+      if ($path -match '^moonbitlang/core/') { continue }
+      if ($path -match '^riantr/MAKED(/|$)') { continue }
+      $out += ($path -replace '@[0-9][0-9.]*$', '')
+    }
+  }
+  Sort-Set $out
+}
+
+Test-Sets 'graph imports' (Get-TreeImports) (Get-GraphImports)
+
+# The versions the graph states: name@version.
+function Get-GraphPins {
+  $out = @()
+  foreach ($head in (Get-GraphLabelHeads)) {
+    foreach ($m in [regex]::Matches($head, '[A-Za-z0-9_-]+@[0-9]+\.[0-9]+\.[0-9]+')) {
+      $out += $m.Value
+    }
+  }
+  Sort-Set $out
+}
+
+# The versions the manifests pin: the last segment of the path, and the
+# version.
+function Get-TreePins {
+  $out = @()
+  foreach ($block in (Get-ManifestBlocks)) {
+    foreach ($p in [regex]::Matches($block, '"([A-Za-z][A-Za-z0-9_-]*/[A-Za-z0-9_./-]+)@([0-9][0-9.]*)"')) {
+      $parts = $p.Groups[1].Value.Split('/')
+      $out += ($parts[$parts.Length - 1] + '@' + $p.Groups[2].Value)
+    }
+  }
+  Sort-Set $out
+}
+
+Test-Sets 'graph pins' (Get-TreePins) (Get-GraphPins)
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)
