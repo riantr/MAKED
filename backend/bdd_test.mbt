@@ -122,6 +122,11 @@ test "Scenario: step_with_slot uses specified drive" {
   // When I step with slot Situation
   let stepped = state.step_with_slot("occasion")
   // Then the history records the Situation slot
+  // The count is checked before the event is read: an empty history read at
+  // index zero takes the whole test binary down, and a binary that dies
+  // prints no summary -- which reads as "the mutation did not compile"
+  // rather than as the failure it is.
+  assert_eq(stepped.history.length(), 1)
   assert_eq(stepped.history[0].slot, "occasion")
 }
 
@@ -138,6 +143,7 @@ test "Scenario: Block outcome keeps domain in place" {
   // Then the current domain stays at Model
   assert_eq(stepped.current, @backend.domain_from_id("model").unwrap())
   // And the outcome is Block
+  assert_eq(stepped.history.length(), 1)
   assert_eq(stepped.history[0].outcome_label, "No-way")
 }
 

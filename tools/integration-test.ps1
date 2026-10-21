@@ -1412,6 +1412,35 @@ try {
     Assert-ArrayLength "and the built-in vocabulary has no gaps" $body "gaps" 0
     Assert-Field "and no move has been taken yet" $body "kind" ""
 
+    # The collective in the other language.
+    #
+    # The vocabulary file is the reader's own words and it is written in
+    # English; the Chinese is pyroduct's. A reader who asks for Chinese must
+    # get the machine's own names rather than the file's, and a reader who
+    # asks for nothing must get the file's.
+    $chinese = Invoke-Api -Method GET -Path "/api/society?lang=zh"
+    Assert-Status "the society endpoint answers in Chinese" 200 $chinese
+    $zh = $chinese.Body | ConvertFrom-Json
+    # The expected words are written as code points rather than as characters.
+    #
+    # This file is read by Windows PowerShell as ANSI, and a non-ASCII
+    # literal in it comes out mangled -- which would make the assertion
+    # compare mojibake with mojibake and pass. The code points are the same
+    # characters, and they cannot be misread.
+    $zhWorld = [string]([char]0x4E16) + [char]0x754C
+    $zhLifeworld = [string]([char]0x751F) + [char]0x6D3B + [char]0x4E16 + [char]0x754C
+    Assert-Field "and the collective is named in the table's own Chinese" `
+      $zh "state_label" $zhWorld
+    Assert-Contains "and the gloss is Chinese as well" `
+      (Field $zh "state_gloss") $zhLifeworld
+    $zhMoves = @(Field $zh "moves")
+    Assert-True "and the moves from here are served in Chinese" `
+      ($zhMoves.Count -gt 0)
+    Assert-True "and the first move is not the English one" `
+      ($zhMoves[0].trigger_label -ne "Raise a validity claim")
+    Assert-Field "and the English is still the English" `
+      $body "state_label" "Lifeworld"
+
     $moved = Post-Json "/api/society/step" @{ trigger = "RaiseClaims" }
     Assert-Status "a move for the collective is accepted" 200 $moved
     $after = $moved.Body | ConvertFrom-Json

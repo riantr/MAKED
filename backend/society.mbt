@@ -413,8 +413,15 @@ pub fn society_phase_id(phase : @society.Phase) -> String {
 ///
 /// The order is pyroduct's, so the panel reads the machine in the order the
 /// authority writes it down.
+///
+/// The words are the vocabulary file's in English and pyroduct's own in
+/// Chinese: a position is called 世界 because pyroduct calls it that, and the
+/// gloss is the one the authority writes. The file is the reader's own words
+/// for the English reading, and the Chinese is the table's own -- the same
+/// split the subject machine makes.
 pub fn society_positions(
   vocabulary : SocietyVocabulary,
+  lang : Lang,
 ) -> Array[SocietyPosition] {
   let out : Array[SocietyPosition] = []
   for state in @society.all_states() {
@@ -422,8 +429,8 @@ pub fn society_positions(
     let word = society_word(vocabulary.positions, id)
     out.push({
       id,
-      label: word.label,
-      gloss: word.gloss,
+      label: lang.pick(word.label, state.designation()),
+      gloss: lang.pick(word.gloss, state.gloss()),
       phase: society_phase_id(state.phase()),
     })
   }
@@ -508,13 +515,21 @@ pub fn society_step(
   vocabulary : SocietyVocabulary,
   state : @society.State,
   trigger_id : String,
+  lang : Lang,
 ) -> SocietyStep {
   let trigger = match society_trigger_from_id(trigger_id) {
     Some(t) => t
     None =>
       return Refused(
         trigger_id,
-        "There is no move called \"" + trigger_id + "\" in the society machine.",
+        match lang {
+          English =>
+            "There is no move called \"" +
+            trigger_id +
+            "\" in the society machine."
+          Chinese =>
+            "社会机器里没有叫作“" + trigger_id + "”的迁移。"
+        },
       )
   }
   let outcome = @society.step(state, trigger)
@@ -532,7 +547,7 @@ pub fn society_step(
     @society.Block(reason) =>
       Refused(
         society_trigger_id(trigger),
-        society_reason(vocabulary, state, trigger_id, reason),
+        society_reason(vocabulary, state, trigger_id, reason, lang),
       )
   }
 }
@@ -777,20 +792,38 @@ fn words_to_json(words : Map[String, SocietyWord]) -> Array[Json] {
 
 ///|
 /// The name of a society position, as the reader should see it.
+///
+/// The English is the vocabulary file's, and the Chinese is pyroduct's own
+/// two-character name. A position the machine does not have has no name in
+/// either language, and the caller has already refused it by then.
 pub fn society_position_label(
   vocabulary : SocietyVocabulary,
   id : String,
+  lang : Lang,
 ) -> String {
-  society_word(vocabulary.positions, id).label
+  let word = society_word(vocabulary.positions, id)
+  match society_position_from_id(id) {
+    Some(state) => lang.pick(word.label, state.designation())
+    None => word.label
+  }
 }
 
 ///|
 /// The name of a society trigger, as the reader should see it.
+///
+/// The Chinese is pyroduct's own wording for the move, which is a sentence
+/// rather than a name: that is the wording the authority uses for it, and
+/// shortening it would be a translation rather than a rendering.
 pub fn society_trigger_label(
   vocabulary : SocietyVocabulary,
   id : String,
+  lang : Lang,
 ) -> String {
-  society_word(vocabulary.triggers, id).label
+  let word = society_word(vocabulary.triggers, id)
+  match society_trigger_from_id(id) {
+    Some(trigger) => lang.pick(word.label, trigger.label())
+    None => word.label
+  }
 }
 
 ///|
@@ -798,8 +831,13 @@ pub fn society_trigger_label(
 pub fn society_phase_label(
   vocabulary : SocietyVocabulary,
   id : String,
+  lang : Lang,
 ) -> String {
-  society_word(vocabulary.phases, id).label
+  let word = society_word(vocabulary.phases, id)
+  match society_phase_from_id(id) {
+    Some(phase) => lang.pick(word.label, phase.label())
+    None => word.label
+  }
 }
 
 ///|
@@ -807,14 +845,36 @@ pub fn society_phase_label(
 ///
 /// pyroduct's own reason names the position and the move in its own
 /// wording, which is Chinese. The reason is rebuilt here from the words
-/// MAKED has, because the reader has to be able to read it.
+/// MAKED has, because the reader has to be able to read it -- and because a
+/// reader who asked for English must not be handed a Chinese sentence.
 fn society_reason(
   vocabulary : SocietyVocabulary,
   state : @society.State,
   trigger_id : String,
   _reason : String,
+  lang : Lang,
 ) -> String {
   let position = society_word(vocabulary.positions, society_position_id(state))
   let trigger = society_word(vocabulary.triggers, trigger_id)
-  "From " + position.label + " there is no \"" + trigger.label + "\" to take."
+  let place = lang.pick(position.label, state.designation())
+  let the_move = lang.pick(trigger.label, society_trigger_chinese(trigger_id))
+  match lang {
+    English => "From " + place + " there is no \"" + the_move + "\" to take."
+    Chinese =>
+      "从" + place + "出发，没有可以走的“" + the_move + "”。"
+  }
+}
+
+///|
+/// The Chinese wording of a move, when the machine has one.
+///
+/// The refusal is built before the trigger is looked up, so the trigger is
+/// looked up twice: once here for the Chinese and once above for the
+/// English. A trigger the machine does not have is a trigger the caller has
+/// already refused.
+fn society_trigger_chinese(id : String) -> String {
+  match society_trigger_from_id(id) {
+    Some(trigger) => trigger.label()
+    None => ""
+  }
 }

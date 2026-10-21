@@ -220,10 +220,11 @@ async fn society_tool(
   args : Json,
 ) -> Result[@tool.ToolResult, @mcp_types.MCPError] {
   let trigger = string_of(args, "trigger")
+  let lang = lang_of(args)
   if trigger == "" {
-    Ok(result_of(@maked.agent_society()))
+    Ok(result_of(@maked.agent_society(lang)))
   } else {
-    Ok(result_of(@maked.agent_society_step(trigger)))
+    Ok(result_of(@maked.agent_society_step(trigger, lang)))
   }
 }
 

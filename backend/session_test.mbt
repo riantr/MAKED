@@ -201,7 +201,13 @@ async test "the why accounts for all eight slots" {
   let before = @backend.get_loop_state()
   let after = @backend.step_loop()
   @backend.record_step(db, before, after, "drive")
-  let step = db.steps_of_session(session.id)[0]
+  let steps = db.steps_of_session(session.id)
+  // The count is checked before the first step is read: reading a step of a
+  // list that turned out to be empty takes the whole test binary down, and a
+  // binary that dies prints no summary -- which reads as "the mutation did
+  // not compile" rather than as the failure it is.
+  assert_eq(steps.length(), 1)
+  let step = steps[0]
   // Available plus blocked is the whole vocabulary: a slot that is in
   // neither was never asked about.
   assert_eq(count_slots(step.available) + count_slots(step.blocked), 8)
@@ -520,7 +526,9 @@ async test "a step that could not move is recorded as one" {
       let before = @backend.get_loop_state()
       let after = @backend.step_loop_with_slot(slot)
       @backend.record_step(db, before, after, "explicit")
-      let step = db.steps_of_session(session.id)[0]
+      let steps = db.steps_of_session(session.id)
+      assert_eq(steps.length(), 1)
+      let step = steps[0]
       assert_eq(step.outcome, "No-way")
       assert_eq(step.source, "explicit")
       // The cursor did not move, and the record says where it stayed.
@@ -555,7 +563,9 @@ async test "a renamed model still says what happened" {
   let before = @backend.LoopState::new_for(toy)
   let after = before.step_with_slot("ask")
   @backend.record_step(db, before, after, "explicit")
-  let step = db.steps_of_session(session.id)[0]
+  let steps = db.steps_of_session(session.id)
+  assert_eq(steps.length(), 1)
+  let step = steps[0]
   // The word is the model's.
   assert_eq(step.outcome, "Advanced")
   // And the kind is the kind, whatever the model calls it.

@@ -794,14 +794,16 @@ $mutations = @(
   @{
     name = 'the reason for a move that does not exist does not name it'
     file = 'backend/society.mbt'
-    old  = '"There is no move called \"" + trigger_id + "\" in the society machine."'
-    new  = '"There is no move."'
+    old  = '            "There is no move called \"" +
+            trigger_id +
+            "\" in the society machine."'
+    new  = '            "There is no move."'
   },
   @{
     name = 'the reason for a blocked move does not name the move'
     file = 'backend/society.mbt'
-    old  = 'trigger.label +'
-    new  = 'trigger.gloss +'
+    old  = '  let the_move = lang.pick(trigger.label, society_trigger_chinese(trigger_id))'
+    new  = '  let the_move = lang.pick(trigger.gloss, society_trigger_chinese(trigger_id))'
   },
   @{
     name = 'a landed move is reported as a hold'
@@ -866,8 +868,8 @@ $mutations = @(
   @{
     name = 'the collective''s name is never served'
     file = 'backend/api.mbt'
-    old  = '"state_label": position.label,'
-    new  = '"state_label": "",'
+    old  = '    "state_label": society_position_label(vocabulary, id, lang),'
+    new  = '    "state_label": "",'
   },
   @{
     name = 'the phase the collective is in is never served'
@@ -1131,6 +1133,69 @@ $mutations = @(
     file = 'backend/model.mbt'
     old  = '          label_zh: outcome.label(),'
     new  = '          label_zh: "",'
+  },
+  # --- the collective in Chinese --------------------------------------------
+  #
+  # The vocabulary file is the reader's own words and it is written in
+  # English; the Chinese is pyroduct's. These mutations are about the two
+  # ways that can go wrong: the Chinese can quietly be the English, and the
+  # request can quietly stop asking for it.
+  @{
+    name = 'the collective keeps the vocabulary name in Chinese'
+    file = 'backend/society.mbt'
+    old  = '      label: lang.pick(word.label, state.designation()),'
+    new  = '      label: lang.pick(word.label, word.label),'
+  },
+  @{
+    name = 'the collective keeps the vocabulary gloss in Chinese'
+    file = 'backend/society.mbt'
+    old  = '      gloss: lang.pick(word.gloss, state.gloss()),'
+    new  = '      gloss: lang.pick(word.gloss, word.gloss),'
+  },
+  @{
+    name = 'a position keeps the vocabulary name in Chinese'
+    file = 'backend/society.mbt'
+    old  = '    Some(state) => lang.pick(word.label, state.designation())'
+    new  = '    Some(state) => lang.pick(word.label, word.label)'
+  },
+  @{
+    name = 'a move keeps the vocabulary name in Chinese'
+    file = 'backend/society.mbt'
+    old  = '    Some(trigger) => lang.pick(word.label, trigger.label())'
+    new  = '    Some(trigger) => lang.pick(word.label, word.label)'
+  },
+  @{
+    name = 'a phase keeps the vocabulary name in Chinese'
+    file = 'backend/society.mbt'
+    old  = '    Some(phase) => lang.pick(word.label, phase.label())'
+    new  = '    Some(phase) => lang.pick(word.label, word.label)'
+  },
+  @{
+    name = 'the refusal keeps the vocabulary words in Chinese'
+    file = 'backend/society.mbt'
+    old  = '  let place = lang.pick(position.label, state.designation())'
+    new  = '  let place = lang.pick(position.label, position.label)'
+  },
+  # The request's language reaching the endpoint is pinned by the integration
+  # suite, which asks the running server over HTTP. A unit test cannot see a
+  # route -- the oracle of this battery is `moon test --target native backend`
+  # -- so a mutation at the route itself is a mutation nothing can catch, and
+  # a guard that cannot fail is not a guard. What a unit test can see is the
+  # payload the route builds, so that is the seam this guards: the payload
+  # has to follow the language it was handed.
+  @{
+    name = 'the society payload names the collective in English'
+    file = 'backend/api.mbt'
+    old  = '    "state_label": society_position_label(vocabulary, id, lang),'
+    new  = '    "state_label": society_position_label(vocabulary, id, Lang::english()),'
+  },
+  @{
+    name = 'the loop status names the collective in English'
+    file = 'backend/loop.mbt'
+    old  = '      society_position_id(self.society_state),
+      lang,'
+    new  = '      society_position_id(self.society_state),
+      Lang::english(),'
   }
 )
 
@@ -1161,16 +1226,47 @@ foreach ($m in $mutations) {
     $ran = $out -match 'Total tests:'
     $red = $out -match 'failed: [1-9]'
     if (-not $ran) {
-      # Say why it did not compile: a mutation that cannot be built is a
-      # mistake in the mutation, and the mistake is the thing worth looking
-      # at. Reporting it as a kill was how four of these sat in the roster
-      # looking like guards when no test had ever run against them.
-      $why = ""
-      foreach ($line in ($out -split "`n")) {
-        if ($line -match 'Error: \[|error: failed when') { $why = $line.Trim(); break }
+      # A run that reports no summary is one of two things, and they are
+      # told apart by the output rather than by the summary line, because
+      # both are a run with no "Total tests:" in it:
+      #
+      #   * the mutation does not build -- a mistake in the mutation;
+      #   * the test binary died -- a test took the process down with it.
+      #
+      # Reporting the second as the first is a lie that costs a whole cycle:
+      # the reader goes looking for a syntax error that is not there, and
+      # never learns which test died and why. The runner says which test was
+      # active when the process went, so that is what gets reported, and the
+      # whole output is written out so the panic can be read.
+      $panicked = $out -match 'PanicError|Failed to run the test'
+      if ($panicked) {
+        $active = ""
+        foreach ($line in ($out -split "`n")) {
+          if ($line -match 'Active test at executable exit') {
+            $active = $line.Trim()
+            break
+          }
+        }
+        $dump = Join-Path $env:TEMP (
+          "maked_broke_" + ($m.name -replace '[^A-Za-z0-9]', '_') + ".txt"
+        )
+        [System.IO.File]::WriteAllText($dump, $out)
+        Write-Output (
+          "BROKE    {0} :: the test binary died: {1} (full output: {2})" -f
+          $m.name, $active, $dump
+        )
+      } else {
+        # Say why it did not compile: a mutation that cannot be built is a
+        # mistake in the mutation, and the mistake is the thing worth looking
+        # at. Reporting it as a kill was how four of these sat in the roster
+        # looking like guards when no test had ever run against them.
+        $why = ""
+        foreach ($line in ($out -split "`n")) {
+          if ($line -match 'Error: \[|error: failed when') { $why = $line.Trim(); break }
+        }
+        if ($why.Length -gt 160) { $why = $why.Substring(0, 160) + "..." }
+        Write-Output ("BROKE    {0} :: the mutation did not compile: {1}" -f $m.name, $why)
       }
-      if ($why.Length -gt 160) { $why = $why.Substring(0, 160) + "..." }
-      Write-Output ("BROKE    {0} :: the mutation did not compile: {1}" -f $m.name, $why)
       $survivors += $m.name
     } elseif ($red) {
       Write-Output ("KILLED   {0}" -f $m.name)

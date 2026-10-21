@@ -412,7 +412,7 @@ async test "the options name the slot the table declined to choose" {
 /// The collective says where it stands, and what it can do from there.
 test "the collective says where it stands and what it can do from there" {
   ignore(@backend.reset_loop())
-  let society = @backend.agent_society()
+  let society = @backend.agent_society(@backend.Lang::english())
   assert_true(json_str(society, "the_collective") != "")
   assert_true(json_str(society, "the_collective_position") != "")
   let moves = json_array(society, "what_it_can_do_from_here")
@@ -428,11 +428,20 @@ test "the collective says where it stands and what it can do from there" {
 /// A move of the collective is taken, and said to have been taken.
 test "a move of the collective is taken and said to have been taken" {
   ignore(@backend.reset_loop())
-  let before = json_str(@backend.agent_society(), "the_collective_position")
-  let result = @backend.agent_society_step("RaiseClaims")
+  let before = json_str(
+    @backend.agent_society(@backend.Lang::english()),
+    "the_collective_position",
+  )
+  let result = @backend.agent_society_step(
+    "RaiseClaims",
+    @backend.Lang::english(),
+  )
   let what = json_str(result, "what_happened")
   assert_true(what != "")
-  let after = json_str(@backend.agent_society(), "the_collective_position")
+  let after = json_str(
+    @backend.agent_society(@backend.Lang::english()),
+    "the_collective_position",
+  )
   // The move the collective took is the one it says it took: the position
   // moved, and the sentence says so.
   assert_true(after != before)

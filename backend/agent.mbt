@@ -75,7 +75,7 @@ pub fn agent_where(lang : Lang) -> Json {
     "mode": state.mode.designation_in(lang),
     "the_group": group_state_in(state.group_state.en_designation(), lang),
     "the_group_gloss": group_gloss_in(state.group_state.en_gloss(), lang),
-    "the_collective": society_position_label(vocabulary, society_id),
+    "the_collective": society_position_label(vocabulary, society_id, lang),
     "the_collective_position": society_id,
   }
 }
@@ -202,7 +202,7 @@ pub fn agent_model() -> Json {
 
 ///|
 /// The collective, as the agent sees it.
-pub fn agent_society() -> Json {
+pub fn agent_society(lang : Lang) -> Json {
   let vocabulary = current_society_vocabulary()
   let state = get_loop_state()
   let id = society_position_id(state.society_state)
@@ -210,12 +210,12 @@ pub fn agent_society() -> Json {
   for edge in society_moves(state.society_state) {
     moves.push({
       "trigger": edge.trigger,
-      "the_move": society_trigger_label(vocabulary, edge.trigger),
-      "lands_at": society_position_label(vocabulary, edge.to),
+      "the_move": society_trigger_label(vocabulary, edge.trigger, lang),
+      "lands_at": society_position_label(vocabulary, edge.to, lang),
     })
   }
   {
-    "the_collective": society_position_label(vocabulary, id),
+    "the_collective": society_position_label(vocabulary, id, lang),
     "the_collective_position": id,
     "what_it_can_do_from_here": moves,
     "note": "The collective has no drive slots. It answers with the same four shapes the subject machine does: moved, held, open, block.",
@@ -229,43 +229,65 @@ pub fn agent_society() -> Json {
 /// for it: the caller names the move and the machine answers. A move that
 /// does not exist is refused with the reason, in the same words the panel
 /// uses.
-pub fn agent_society_step(trigger : String) -> Json {
+pub fn agent_society_step(trigger : String, lang : Lang) -> Json {
   let vocabulary = current_society_vocabulary()
   let before = get_loop_state()
   let from = society_position_id(before.society_state)
-  let step = society_step(vocabulary, before.society_state, trigger)
+  let step = society_step(vocabulary, before.society_state, trigger, lang)
   let what_happened = match step {
     Advanced(_, to) => {
       let landing = society_position_from_id(to)
       match landing {
         Some(state) => {
           set_loop_state(before.with_society_state(state))
-          "The collective moved from " +
-          society_position_label(vocabulary, from) +
-          " to " +
-          society_position_label(vocabulary, to) +
-          "."
+          let was = society_position_label(vocabulary, from, lang)
+          let now = society_position_label(vocabulary, to, lang)
+          match lang {
+            English => "The collective moved from " + was + " to " + now + "."
+            Chinese => "集体从" + was + "移到了" + now + "。"
+          }
         }
         None =>
-          "The collective did not move: the machine named a place that is not one of its positions."
+          match lang {
+            English =>
+              "The collective did not move: the machine named a place that is not one of its positions."
+            Chinese =>
+              "集体没有移动：机器给出了一个不属于它的位置。"
+          }
       }
     }
-    Kept(_, place) =>
-      "The collective stayed where it was: " +
-      society_position_label(vocabulary, place) +
-      " is where that move leads."
+    Kept(_, place) => {
+      let where_ = society_position_label(vocabulary, place, lang)
+      match lang {
+        English =>
+          "The collective stayed where it was: " +
+          where_ +
+          " is where that move leads."
+        Chinese =>
+          "集体停在原地：" +
+          where_ +
+          " 正是那一步通往的地方。"
+      }
+    }
     Undecided(_, places) => {
       let names : Array[String] = []
       for place in places {
-        names.push(society_position_label(vocabulary, place))
+        names.push(society_position_label(vocabulary, place, lang))
       }
-      "That move leaves the collective more than one place to be: " +
-      names.join(", ") +
-      "."
+      match lang {
+        English =>
+          "That move leaves the collective more than one place to be: " +
+          names.join(", ") +
+          "."
+        Chinese =>
+          "那一步让集体同时身处不止一处：" +
+          names.join("、") +
+          "。"
+      }
     }
     Refused(_, reason) => reason
   }
-  { "what_happened": what_happened, "the_collective": agent_society() }
+  { "what_happened": what_happened, "the_collective": agent_society(lang) }
 }
 
 ///|
@@ -395,6 +417,10 @@ fn agent_society_schema() -> Json {
       "trigger": {
         "type": "string",
         "description": "The move to take, by the machine's own name (\"RaiseClaims\"). Leave it out to look without moving.",
+      },
+      "lang": {
+        "type": "string",
+        "description": "The language to answer in: \"en\" or \"zh\". Default \"en\".",
       },
     },
     "required": [],

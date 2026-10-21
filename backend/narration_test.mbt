@@ -313,6 +313,11 @@ async test "the export carries the sentences and the summary too" {
   let session = fresh_session(db, "Taken away")
   ignore(take_steps(db, 3))
   let steps = db.steps_of_session(session.id)
+  // The count is checked before the first step is read: reading a step of a
+  // list that turned out to be empty takes the whole test binary down, and a
+  // binary that dies prints no summary -- which reads as "the mutation did
+  // not compile" rather than as the failure it is.
+  assert_eq(steps.length(), 3)
   let markdown = @backend.export_markdown(db, reload(db, session.id))
   // The sentence is in the document, not only on the screen: the document is
   // the thing the user takes away, and it should say what happened in the

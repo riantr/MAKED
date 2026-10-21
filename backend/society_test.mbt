@@ -48,11 +48,19 @@ test "a society vocabulary is read out of a file" {
     @backend.Accepted(vocabulary) => {
       assert_eq(vocabulary.path, "society.yaml")
       assert_eq(
-        @backend.society_position_label(vocabulary, "World"),
+        @backend.society_position_label(
+          vocabulary,
+          "World",
+          @backend.Lang::english(),
+        ),
         "Lifeworld",
       )
       assert_eq(
-        @backend.society_trigger_label(vocabulary, "RaiseClaims"),
+        @backend.society_trigger_label(
+          vocabulary,
+          "RaiseClaims",
+          @backend.Lang::english(),
+        ),
         "Raise a validity claim",
       )
     }
@@ -144,7 +152,10 @@ test "a vocabulary that is behind the machine reports the gap" {
 ///|
 /// The machine's positions are served, in pyroduct's order.
 test "the society machine's positions are served" {
-  let positions = @backend.society_positions(builtin())
+  let positions = @backend.society_positions(
+    builtin(),
+    @backend.Lang::english(),
+  )
   assert_eq(positions.length(), 13)
   assert_eq(positions[0].id, "World")
   assert_eq(positions[0].label, "Lifeworld")
@@ -181,7 +192,12 @@ test "the collective starts where the machine starts" {
 ///|
 /// A move the machine has takes the collective there.
 test "a move the machine has takes the collective there" {
-  let step = @backend.society_step(builtin(), @society.World, "RaiseClaims")
+  let step = @backend.society_step(
+    builtin(),
+    @society.World,
+    "RaiseClaims",
+    @backend.Lang::english(),
+  )
   match step {
     @backend.Advanced(trigger, to) => {
       assert_eq(trigger, "RaiseClaims")
@@ -196,7 +212,12 @@ test "a move the machine has takes the collective there" {
 ///
 /// A refusal that says nothing looks exactly like a move that did nothing.
 test "a move the machine does not have is refused with a reason" {
-  let step = @backend.society_step(builtin(), @society.World, "NotAMove")
+  let step = @backend.society_step(
+    builtin(),
+    @society.World,
+    "NotAMove",
+    @backend.Lang::english(),
+  )
   match step {
     @backend.Refused(trigger, reason) => {
       assert_eq(trigger, "NotAMove")
@@ -213,7 +234,12 @@ test "a move the machine does not have is refused with a reason" {
 /// The reason names the position and the move the way the reader can read
 /// them, because pyroduct's own reason is in Chinese.
 test "a move that is not out of this position is refused in the reader's words" {
-  let step = @backend.society_step(builtin(), @society.World, "Distort")
+  let step = @backend.society_step(
+    builtin(),
+    @society.World,
+    "Distort",
+    @backend.Lang::english(),
+  )
   match step {
     @backend.Refused(_, reason) => {
       assert_true(reason.contains("Lifeworld"))
@@ -240,9 +266,19 @@ test "the moves available from a position are the ones the machine offers" {
 /// The subject machine and the society machine answer with the same four
 /// shapes, and the frontend reads one vocabulary for both.
 test "the outcome kind is the vocabulary the whole of MAKED uses" {
-  let moved = @backend.society_step(builtin(), @society.World, "RaiseClaims")
+  let moved = @backend.society_step(
+    builtin(),
+    @society.World,
+    "RaiseClaims",
+    @backend.Lang::english(),
+  )
   assert_eq(moved.society_step_kind(), "moved")
-  let refused = @backend.society_step(builtin(), @society.World, "NotAMove")
+  let refused = @backend.society_step(
+    builtin(),
+    @society.World,
+    "NotAMove",
+    @backend.Lang::english(),
+  )
   assert_eq(refused.society_step_kind(), "block")
 }
 
@@ -310,6 +346,7 @@ test "the society payload carries the collective's position and the moves from i
     builtin(),
     @society.World,
     @backend.SocietyOutcome::none(),
+    @backend.Lang::english(),
   )
   assert_eq(text_of(payload, "state"), "World")
   assert_eq(text_of(payload, "state_label"), "Lifeworld")
@@ -338,6 +375,7 @@ test "the payload carries the gaps in the vocabulary" {
     behind,
     @society.World,
     @backend.SocietyOutcome::none(),
+    @backend.Lang::english(),
   )
   assert_eq(list_length(payload, "gaps"), 13)
 }
@@ -356,7 +394,12 @@ test "a refused move still carries the machine and the reason" {
     reason: "there is no such move",
     from: "World",
   }
-  let payload = @backend.society_payload(builtin(), @society.World, outcome)
+  let payload = @backend.society_payload(
+    builtin(),
+    @society.World,
+    outcome,
+    @backend.Lang::english(),
+  )
   assert_eq(text_of(payload, "kind"), "block")
   assert_eq(text_of(payload, "reason"), "there is no such move")
   assert_eq(text_of(payload, "from"), "World")
@@ -377,7 +420,12 @@ test "a landed move says where the collective came from" {
     reason: "",
     from: "World",
   }
-  let payload = @backend.society_payload(builtin(), @society.Claim, outcome)
+  let payload = @backend.society_payload(
+    builtin(),
+    @society.Claim,
+    outcome,
+    @backend.Lang::english(),
+  )
   assert_eq(text_of(payload, "state"), "Claim")
   assert_eq(text_of(payload, "from"), "World")
   assert_eq(text_of(payload, "from_label"), "Lifeworld")
@@ -395,8 +443,208 @@ test "a collective that has not moved yet has no outcome kind" {
     builtin(),
     @society.World,
     @backend.SocietyOutcome::none(),
+    @backend.Lang::english(),
   )
   assert_eq(text_of(payload, "kind"), "")
   assert_eq(text_of(payload, "reason"), "")
   assert_eq(text_of(payload, "from"), "")
+}
+
+///|
+/// The collective's Chinese is the table's own.
+///
+/// The vocabulary file is the reader's own words, and it is written in
+/// English. The Chinese is pyroduct's: a position is called 世界 because
+/// pyroduct calls it that, and the gloss is the authority's own. The split is
+/// the same one the subject machine makes, and the reason for it is the same
+/// too -- a reader who wants to know what the machine calls something should
+/// not have to take MAKED's word for it.
+test "the collective is named in the table's own Chinese" {
+  let payload = @backend.society_payload(
+    builtin(),
+    @society.World,
+    @backend.SocietyOutcome::none(),
+    @backend.Lang::chinese(),
+  )
+  // The position: 世界, and the authority's own gloss rather than a blank.
+  assert_eq(text_of(payload, "state_label"), "世界")
+  assert_true(text_of(payload, "state_gloss").contains("生活世界"))
+  // The phase: 生活, the two-character name the authority gives it.
+  assert_eq(text_of(payload, "phase"), "Life")
+  let positions = match field(payload, "positions") {
+    Some(Array(items)) => items
+    _ => []
+  }
+  assert_eq(positions.length(), 13)
+  assert_eq(json_str(positions[0], "label"), "世界")
+  assert_eq(json_str(positions[0], "phase_label"), "生活")
+  // The gloss in the list is the authority's own as well, not the vocabulary
+  // file's English one. A Chinese reader is owed a Chinese sentence about
+  // the place, not an English one with a Chinese name beside it -- and the
+  // two are separate words in the payload, so the name being right says
+  // nothing about the sentence.
+  assert_true(json_str(positions[0], "gloss").contains("生活世界"))
+}
+
+///|
+/// The English is the English it was.
+///
+/// The Chinese was written beside the English rather than over it, so the
+/// vocabulary file still says what it said.
+test "the collective is still named in the vocabulary's English" {
+  let payload = @backend.society_payload(
+    builtin(),
+    @society.World,
+    @backend.SocietyOutcome::none(),
+    @backend.Lang::english(),
+  )
+  assert_eq(text_of(payload, "state_label"), "Lifeworld")
+  assert_eq(
+    text_of(payload, "state_gloss"),
+    "The prior place where speakers and listeners meet, organised by language.",
+  )
+  let positions = match field(payload, "positions") {
+    Some(Array(items)) => items
+    _ => []
+  }
+  // The count is checked before the first position is read, and the order
+  // matters: reading an element of a list that turned out to be empty takes
+  // the whole test binary down, and a test binary that dies prints no
+  // summary at all -- which reads as "the mutation did not compile" rather
+  // than as the failure it is.
+  assert_eq(positions.length(), 13)
+  assert_eq(json_str(positions[0], "label"), "Lifeworld")
+  assert_eq(json_str(positions[0], "phase_label"), "Life")
+}
+
+///|
+/// The moves are named in the table's own Chinese too.
+///
+/// A move is a sentence the authority writes about what the move does, and
+/// the Chinese is that sentence rather than a shortened version of it.
+test "the moves are named in the table's own Chinese" {
+  let payload = @backend.society_payload(
+    builtin(),
+    @society.World,
+    @backend.SocietyOutcome::none(),
+    @backend.Lang::chinese(),
+  )
+  let moves = match field(payload, "moves") {
+    Some(Array(items)) => items
+    _ => []
+  }
+  assert_true(moves.length() > 0)
+  let first = json_str(moves[0], "trigger_label")
+  assert_true(first != "")
+  assert_true(first != json_str(moves[0], "to_label"))
+  // The move names the authority's own words, and the landing place is one
+  // of the authority's two-character names.
+  assert_true(json_str(moves[0], "to_label").length() <= 4)
+  // Every move is named in Chinese rather than in the English the vocabulary
+  // file carries. The two are different sentences -- the file's is a label
+  // and the authority's is a claim about what the move does -- so a Chinese
+  // reader handed the file's English has been handed the wrong language, and
+  // a check that only asked "is it different from the landing place" would
+  // have said yes.
+  let vocabulary = builtin()
+  for m in moves {
+    let id = json_str(m, "trigger")
+    let english = @backend.society_trigger_label(
+      vocabulary,
+      id,
+      @backend.Lang::english(),
+    )
+    assert_true(json_str(m, "trigger_label") != english)
+  }
+}
+
+///|
+/// A refused move is refused in the language that was asked for.
+///
+/// The reason names the position and the move, and a reader who asked for
+/// Chinese must not be handed an English sentence.
+test "a refused move says so in the language" {
+  let step = @backend.society_step(
+    builtin(),
+    @society.World,
+    "Distort",
+    @backend.Lang::chinese(),
+  )
+  let reason = @backend.society_step_reason(
+    builtin(),
+    step,
+    @backend.Lang::chinese(),
+  )
+  assert_true(reason.contains("没有可以走的"))
+  // The place the refusal starts from is named in Chinese as well. A Chinese
+  // sentence with an English place in it is a half-written sentence, and the
+  // name of the place is a separate word in the reason, so the frame being
+  // Chinese says nothing about it.
+  assert_true(reason.contains("世界"))
+  assert_false(reason.contains("Lifeworld"))
+  // The reason is written when the move is taken, so the same refusal in
+  // English is a different move taken in English.
+  let english_step = @backend.society_step(
+    builtin(),
+    @society.World,
+    "Distort",
+    @backend.Lang::english(),
+  )
+  let english = @backend.society_step_reason(
+    builtin(),
+    english_step,
+    @backend.Lang::english(),
+  )
+  assert_true(english.contains("there is no"))
+}
+
+///|
+/// A move that does not exist is refused in the language too.
+test "a move that is not in the machine is refused in the language" {
+  let step = @backend.society_step(
+    builtin(),
+    @society.World,
+    "NotAMove",
+    @backend.Lang::chinese(),
+  )
+  let reason = @backend.society_step_reason(
+    builtin(),
+    step,
+    @backend.Lang::chinese(),
+  )
+  assert_true(reason.contains("没有叫作"))
+  assert_true(reason.contains("NotAMove"))
+}
+
+///|
+/// The collective that stayed says so in the language.
+///
+/// The move that leads back where it came from is the machine's own
+/// self-loop, and the sentence that says so names the place it leads to.
+test "a collective that stayed says so in the language" {
+  let step = @backend.society_step(
+    builtin(),
+    @society.Suprasubjective,
+    "SpeakLanguage",
+    @backend.Lang::chinese(),
+  )
+  let reason = @backend.society_step_reason(
+    builtin(),
+    step,
+    @backend.Lang::chinese(),
+  )
+  assert_true(reason.contains("集体停在原地"))
+  assert_true(reason.contains("超体"))
+}
+
+///|
+/// The agent's collective is in the language as well.
+///
+/// The agent's server is the same surface as the panel, and a caller that
+/// asked for Chinese must not get the English names of the same machine.
+test "the agent's collective is in the language" {
+  let chinese = @backend.agent_society(@backend.Lang::chinese())
+  assert_eq(json_str(chinese, "the_collective"), "世界")
+  let english = @backend.agent_society(@backend.Lang::english())
+  assert_eq(json_str(english, "the_collective"), "Lifeworld")
 }

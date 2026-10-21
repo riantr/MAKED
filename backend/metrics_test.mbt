@@ -411,6 +411,12 @@ async test "the sentences do not stumble" {
       // allowed: "3 of the last 5 steps reached a position the run had not
       // been on before." leads with its count, which is the point of the
       // sentence.
+      // The sentence is read at its first character, and the count is
+      // checked before it is: reading the first character of a sentence that
+      // turned out to be empty takes the whole test binary down, and a binary
+      // that dies prints no summary -- which reads as "the mutation did not
+      // compile" rather than as the failure it is.
+      assert_true(metric.sentence.length() > 0)
       let first = metric.sentence[0]
       assert_true(
         (first >= 65 && first <= 90) || (first >= 48 && first <= 57),

@@ -2347,10 +2347,33 @@ test "the collective's move reaches the society step endpoint" {
 
 ///|
 /// The request names the move the reader picked.
+///
+/// The path carries the language as well: the names of the collective's
+/// positions and moves come back in the language the request asked for.
 test "the request names the move the reader picked" {
-  let (path, body) = @frontend.society_step_request("EnterDiscourse")
-  assert_eq(path, "/api/society/step")
+  let (path, body) = @frontend.society_step_request(
+    "EnterDiscourse",
+    @frontend.UiLang::chinese(),
+  )
+  assert_eq(path, "/api/society/step?lang=zh")
   assert_eq(@frontend.get_string(body, "trigger", ""), "EnterDiscourse")
+}
+
+///|
+/// The request for the collective itself carries the language.
+///
+/// The names of the collective's positions and moves come back in the
+/// language the request asked for, so a reader who has switched the interface
+/// to Chinese is not handed the English names of the same machine.
+test "the request for the collective carries the language" {
+  assert_eq(
+    @frontend.society_request(@frontend.UiLang::chinese()),
+    "/api/society?lang=zh",
+  )
+  assert_eq(
+    @frontend.society_request(@frontend.UiLang::english()),
+    "/api/society?lang=en",
+  )
 }
 
 ///|

@@ -296,8 +296,21 @@ pub fn target_step_request(
 /// Public for the same reason `update` is public -- the request is the only
 /// thing the server ever sees, and a test that cannot read it can only
 /// trust that the click arrives.
-pub fn society_step_request(trigger : String) -> (String, Json) {
-  ("/api/society/step", { "trigger": trigger })
+pub fn society_step_request(trigger : String, lang : UiLang) -> (String, Json) {
+  ("/api/society/step" + lang_query(lang), { "trigger": trigger })
+}
+
+///|
+/// The request that asks the server for the collective itself.
+///
+/// The language travels with the request, so the names of the collective's
+/// positions and moves come back in the language the reader asked for.
+///
+/// Public for the same reason `society_step_request` is: the request is the
+/// only thing the server ever sees, and a test that cannot read it can only
+/// trust that the click arrives.
+pub fn society_request(lang : UiLang) -> String {
+  "/api/society" + lang_query(lang)
 }
 
 ///|
@@ -618,7 +631,7 @@ pub fn update(
     SocietyReadClicked =>
       (
         model,
-        @http.get("/api/society").expect_json(
+        @http.get(society_request(model.lang)).expect_json(
           emit.map(fn(result) { SocietyLoaded(result) }),
         ),
       )
@@ -633,7 +646,7 @@ pub fn update(
     // file -- so the name is what travels, and the server looks the move up
     // by the name the machine gave it.
     SocietyStepClicked(trigger) => {
-      let (path, body) = society_step_request(trigger)
+      let (path, body) = society_step_request(trigger, model.lang)
       (
         model,
         @http.post(path)

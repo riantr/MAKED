@@ -194,6 +194,11 @@ async test "navigation and lookup see seeded content" {
   db.seed([@backend.home_page(), @backend.not_found_page()])
   let all = db.all_pages()
   // index sorts first, then the five domains in ring order, then utilities.
+  // The count is checked before the first page is read: reading a page of a
+  // list that turned out to be empty takes the whole test binary down, and a
+  // binary that dies prints no summary -- which reads as "the mutation did
+  // not compile" rather than as the failure it is.
+  assert_true(all.length() > 0)
   assert_eq(all[0].slug, "index")
   assert_eq(all.length(), 10)
   match db.page_by_slug("about") {

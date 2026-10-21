@@ -189,6 +189,11 @@ test "a blocked step leaves the cursor where it was" {
   // Standing x Co-being is a real gap in the table.
   let blocked = state.step_with_slot("cobeing")
   assert_eq(blocked.current, @backend.domain_from_id("model").unwrap())
+  // The count is checked before the event is read: reading the first event of
+  // a history that turned out to be empty takes the whole test binary down,
+  // and a binary that dies prints no summary -- which reads as "the mutation
+  // did not compile" rather than as the failure it is.
+  assert_eq(blocked.history.length(), 1)
   assert_eq(blocked.history[0].outcome_label, "No-way")
 }
 
@@ -744,6 +749,11 @@ test "history records the departing domain" {
   let state = @backend.LoopState::new()
   let stepped = state.step()
   // We started at Model and stepped to Data; the history records Model.
+  // The count is checked before the event is read: reading the first event of
+  // a history that turned out to be empty takes the whole test binary down,
+  // and a binary that dies prints no summary -- which reads as "the mutation
+  // did not compile" rather than as the failure it is.
+  assert_eq(stepped.history.length(), 1)
   assert_eq(
     stepped.history[0].domain,
     @backend.domain_from_id("model").unwrap(),
@@ -879,6 +889,11 @@ test "Block outcome_detail mentions the position" {
   let state = @backend.LoopState::new()
   // Standing has no Co-being edge; asking for it must report the gap, not move.
   let stepped = state.step_with_slot("cobeing")
+  // The count is checked before the event is read: reading the first event of
+  // a history that turned out to be empty takes the whole test binary down,
+  // and a binary that dies prints no summary -- which reads as "the mutation
+  // did not compile" rather than as the failure it is.
+  assert_eq(stepped.history.length(), 1)
   let event = stepped.history[0]
   assert_eq(event.outcome_label, "No-way")
   assert_true(event.outcome_detail.contains("Standing"))

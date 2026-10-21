@@ -981,6 +981,11 @@ test "a loop on a model of its own answers from that model" {
   let toy = model_or_fail(toy_model_with_words())
   let state = @backend.LoopState::new_for(toy)
   let after = state.step_with_slot("ask")
+  // The count is checked before the event is read: reading the first event of
+  // a history that turned out to be empty takes the whole test binary down,
+  // and a binary that dies prints no summary -- which reads as "the mutation
+  // did not compile" rather than as the failure it is.
+  assert_eq(after.history.length(), 1)
   let event = after.history[0]
   // The word is the model's.
   assert_eq(event.outcome_label, "Advanced")

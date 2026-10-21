@@ -1491,13 +1491,15 @@ pub fn LoopState::to_json(self : LoopState, lang : Lang) -> Json {
       English => self.group_state.en_gloss()
       Chinese => self.group_state.gloss()
     },
-    // The third layer, named in the vocabulary's words rather than in
-    // pyroduct's Chinese: the reader has to be able to read where the
-    // collective is.
+    // The third layer. In English the name is the vocabulary file's, and in
+    // Chinese it is pyroduct's own -- the same split the positions and the
+    // slots make: the file is the reader's words, the Chinese is the
+    // table's.
     "society_state": society_position_id(self.society_state),
     "society_state_label": society_position_label(
       current_society_vocabulary(),
       society_position_id(self.society_state),
+      lang,
     ),
     "mode": match self.mode {
       Structured =>

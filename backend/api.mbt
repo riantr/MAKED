@@ -880,11 +880,16 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   // the moves available from it, plus the reason the move did not happen.
   // A response that carried only a reason on refusal would leave the panel
   // holding two different shapes and no way to tell which one it had.
-  app.get("/api/society", _req => {
+  app.get("/api/society", req => {
     let vocabulary = current_society_vocabulary()
     let state = get_loop_state()
     Response::json(
-      society_payload(vocabulary, state.society_state, SocietyOutcome::none()),
+      society_payload(
+        vocabulary,
+        state.society_state,
+        SocietyOutcome::none(),
+        lang_of(req),
+      ),
     )
   })
   app.post("/api/society/step", req => {
@@ -893,7 +898,8 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     let vocabulary = current_society_vocabulary()
     let before = get_loop_state()
     let from = society_position_id(before.society_state)
-    let step = society_step(vocabulary, before.society_state, trigger)
+    let lang = lang_of(req)
+    let step = society_step(vocabulary, before.society_state, trigger, lang)
     match step {
       Advanced(_, to) => {
         let landing = society_position_from_id(to)
@@ -901,11 +907,12 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
           Some(state) => {
             set_loop_state(before.with_society_state(state))
             Response::json(
-              society_payload(vocabulary, state, {
-                kind: "moved",
-                reason: "",
-                from,
-              }),
+              society_payload(
+                vocabulary,
+                state,
+                { kind: "moved", reason: "", from, },
+                lang,
+              ),
             )
           }
           // The machine named a landing place that is not one of its
@@ -918,7 +925,8 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
               society_payload(
                 vocabulary,
                 before.society_state,
-                society_outcome_of(vocabulary, step, from),
+                society_outcome_of(vocabulary, step, from, lang),
+                lang,
               ),
             )
         }
@@ -928,7 +936,8 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
           society_payload(
             vocabulary,
             before.society_state,
-            society_outcome_of(vocabulary, step, from),
+            society_outcome_of(vocabulary, step, from, lang),
+            lang,
           ),
         )
       Undecided(_, _) =>
@@ -936,7 +945,8 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
           society_payload(
             vocabulary,
             before.society_state,
-            society_outcome_of(vocabulary, step, from),
+            society_outcome_of(vocabulary, step, from, lang),
+            lang,
           ),
         )
       Refused(_, _) =>
@@ -944,7 +954,8 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
           society_payload(
             vocabulary,
             before.society_state,
-            society_outcome_of(vocabulary, step, from),
+            society_outcome_of(vocabulary, step, from, lang),
+            lang,
           ),
         )
     }
@@ -957,10 +968,11 @@ fn society_outcome_of(
   vocabulary : SocietyVocabulary,
   step : SocietyStep,
   from : String,
+  lang : Lang,
 ) -> SocietyOutcome {
   {
     kind: step.society_step_kind(),
-    reason: society_step_reason(vocabulary, step),
+    reason: society_step_reason(vocabulary, step, lang),
     from,
   }
 }
@@ -975,17 +987,18 @@ pub fn society_payload(
   vocabulary : SocietyVocabulary,
   state : @society.State,
   outcome : SocietyOutcome,
+  lang : Lang,
 ) -> Json {
   let id = society_position_id(state)
   let position = society_word(vocabulary.positions, id)
   let positions : Array[Json] = []
-  for p in society_positions(vocabulary) {
+  for p in society_positions(vocabulary, lang) {
     positions.push({
       "id": p.id,
       "label": p.label,
       "gloss": p.gloss,
       "phase": p.phase,
-      "phase_label": society_phase_label(vocabulary, p.phase),
+      "phase_label": society_phase_label(vocabulary, p.phase, lang),
     })
   }
   let transitions : Array[Json] = []
@@ -993,24 +1006,24 @@ pub fn society_payload(
     transitions.push({
       "from": t.from,
       "trigger": t.trigger,
-      "trigger_label": society_trigger_label(vocabulary, t.trigger),
+      "trigger_label": society_trigger_label(vocabulary, t.trigger, lang),
       "to": t.to,
-      "to_label": society_position_label(vocabulary, t.to),
+      "to_label": society_position_label(vocabulary, t.to, lang),
     })
   }
   let moves : Array[Json] = []
   for m in society_moves(state) {
     moves.push({
       "trigger": m.trigger,
-      "trigger_label": society_trigger_label(vocabulary, m.trigger),
+      "trigger_label": society_trigger_label(vocabulary, m.trigger, lang),
       "to": m.to,
-      "to_label": society_position_label(vocabulary, m.to),
+      "to_label": society_position_label(vocabulary, m.to, lang),
     })
   }
   {
     "state": id,
-    "state_label": position.label,
-    "state_gloss": position.gloss,
+    "state_label": society_position_label(vocabulary, id, lang),
+    "state_gloss": lang.pick(position.gloss, state.gloss()),
     "phase": society_phase_id(state.phase()),
     "positions": positions,
     "transitions": transitions,
@@ -1025,7 +1038,7 @@ pub fn society_payload(
     "from_label": if outcome.from == "" {
       ""
     } else {
-      society_position_label(vocabulary, outcome.from)
+      society_position_label(vocabulary, outcome.from, lang)
     },
   }
 }
@@ -1035,21 +1048,38 @@ pub fn society_payload(
 pub fn society_step_reason(
   vocabulary : SocietyVocabulary,
   step : SocietyStep,
+  lang : Lang,
 ) -> String {
   match step {
     Advanced(_, _) => ""
-    Kept(_, place) =>
-      "The collective stayed where it was: " +
-      society_position_label(vocabulary, place) +
-      " is where that move leads."
+    Kept(_, place) => {
+      let where_ = society_position_label(vocabulary, place, lang)
+      match lang {
+        English =>
+          "The collective stayed where it was: " +
+          where_ +
+          " is where that move leads."
+        Chinese =>
+          "集体停在原地：" +
+          where_ +
+          " 正是那一步通往的地方。"
+      }
+    }
     Undecided(_, places) => {
       let names : Array[String] = []
       for place in places {
-        names.push(society_position_label(vocabulary, place))
+        names.push(society_position_label(vocabulary, place, lang))
       }
-      "That move leaves the collective more than one place to be: " +
-      names.join(", ") +
-      "."
+      match lang {
+        English =>
+          "That move leaves the collective more than one place to be: " +
+          names.join(", ") +
+          "."
+        Chinese =>
+          "那一步让集体同时身处不止一处：" +
+          names.join("、") +
+          "。"
+      }
     }
     Refused(_, reason) => reason
   }

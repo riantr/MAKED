@@ -216,6 +216,11 @@ test "the domain names are in both languages" {
 ///|
 test "the edge names are looked up by the name the transition carries" {
   let model = @backend.current_model()
+  // The count is checked before the first edge is read: reading an edge of a
+  // list that turned out to be empty takes the whole test binary down, and a
+  // binary that dies prints no summary -- which reads as "the mutation did
+  // not compile" rather than as the failure it is.
+  assert_true(model.edges.length() > 0)
   let edge = model.edges[0]
   assert_eq(model.edge_label_in(edge.en, en()), edge.en)
   assert_eq(model.edge_label_in(edge.en, zh()), edge.zh)
@@ -330,4 +335,25 @@ fn chinese_facts() -> @backend.StepFacts {
     position_after_zh: "自由",
     cursor_zh: "数据涡轮",
   }
+}
+
+///|
+/// The collective is named in Chinese on the loop status as well.
+///
+/// The loop panel carries the collective's position beside the subject's, so
+/// a panel that shows the subject in Chinese and the collective in English
+/// is a panel that is half a translation.
+test "the collective is named in Chinese on the loop status" {
+  let state = @backend.get_loop_state()
+  let chinese = state.to_json(zh())
+  let english = state.to_json(en())
+  let zh_label = json_str(chinese, "society_state_label")
+  let en_label = json_str(english, "society_state_label")
+  assert_true(zh_label != "")
+  assert_true(zh_label != en_label)
+  // The id is the machine's own, and it does not change with the language.
+  assert_eq(
+    json_str(chinese, "society_state"),
+    json_str(english, "society_state"),
+  )
 }

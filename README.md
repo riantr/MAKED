@@ -290,7 +290,10 @@ A model file with no Chinese in it is still read, and a reader who asks for
 Chinese gets the English names rather than a blank. That is the only rule
 about the fallback.
 
-The collective (`/api/society`) and the exports are still English for now.
+The collective (`/api/society`) answers in Chinese as well: its position
+names, its glosses and its phases are pyroduct's own, because the
+vocabulary file — the reader's own words — is written in English. The
+exports are still English for now.
 
 The agent's server takes the same switch as an argument: `maked_status`,
 `maked_options` and `maked_step` all accept `lang`.
@@ -311,8 +314,7 @@ about it:
 
 - the prose of the five domain pages, which is the project's own writing and
   lives in the database;
-- the metrics, the exports, and the collective's own vocabulary, which are
-  the next piece of work.
+- the metrics and the exports, which are the next piece of work.
 
 ### The agent's server
 

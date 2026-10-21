@@ -333,14 +333,14 @@ $mutations = @(
   @{
     name = 'the request names no move at all'
     file = 'frontend/app.mbt'
-    old  = '("/api/society/step", { "trigger": trigger })'
-    new  = '("/api/society/step", { "trigger": "" })'
+    old  = '("/api/society/step" + lang_query(lang), { "trigger": trigger })'
+    new  = '("/api/society/step" + lang_query(lang), { "trigger": "" })'
   },
   @{
     name = 'the move goes to an endpoint that does not exist'
     file = 'frontend/app.mbt'
-    old  = '("/api/society/step", { "trigger": trigger })'
-    new  = '("/api/society/read", { "trigger": trigger })'
+    old  = '("/api/society/step" + lang_query(lang), { "trigger": trigger })'
+    new  = '("/api/society/read" + lang_query(lang), { "trigger": trigger })'
   },
   # --- the language ---------------------------------------------------------
   #
@@ -452,6 +452,18 @@ $mutations = @(
     file = 'frontend/views.mbt'
     old  = 'on_click=emit(LangToggled),'
     new  = 'on_click=emit(ResetClicked),'
+  },
+  @{
+    name = 'the society request does not carry the language'
+    file = 'frontend/app.mbt'
+    old  = '  "/api/society" + lang_query(lang)'
+    new  = '  "/api/society"'
+  },
+  @{
+    name = 'the collective request does not carry the language'
+    file = 'frontend/app.mbt'
+    old  = '("/api/society/step" + lang_query(lang), { "trigger": trigger })'
+    new  = '("/api/society/step", { "trigger": trigger })'
   }
 )
 
