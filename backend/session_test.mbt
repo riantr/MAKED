@@ -428,7 +428,7 @@ async test "the markdown export names the session and every step" {
   let db = open_session_db("markdown")
   let session = fresh_session(db, "Export me")
   ignore(take_steps(db, 2))
-  let markdown = @backend.export_markdown(db, reload(db, session.id))
+  let markdown = @backend.export_markdown(db, reload(db, session.id), en())
   assert_true(markdown.contains("# MAKED session: Export me"))
   assert_true(markdown.contains("## Timeline"))
   assert_true(markdown.contains("**Why:**"))
@@ -456,7 +456,7 @@ async test "the json export carries the format, the path and the branches" {
     @backend.Done(_) => ()
     _ => fail("branch should have succeeded")
   }
-  let exported = @backend.export_json(db, reload(db, session.id))
+  let exported = @backend.export_json(db, reload(db, session.id), en())
   match json_field(exported, "format") {
     Some(String(text)) => assert_eq(text, "maked.session.v1")
     _ => fail("the export must say what format it is")
@@ -471,6 +471,102 @@ async test "the json export carries the format, the path and the branches" {
   }
   db.close()
   drop_db(session_db_path("json"))
+}
+
+///|
+/// The document is in the language that was asked for.
+///
+/// The export is the one thing the reader takes away, and a document that
+/// says "## Timeline" to a reader who asked for Chinese is a document they
+/// cannot read on their own.
+async test "the export is in the language that was asked for" {
+  let db = open_session_db("markdown_zh")
+  let session = fresh_session(db, "Export me")
+  ignore(take_steps(db, 2))
+  let markdown = @backend.export_markdown(db, reload(db, session.id), zh())
+  assert_true(markdown.contains("# MAKED 会话：Export me"))
+  assert_true(markdown.contains("## 时间线"))
+  assert_true(markdown.contains("**原因：**"))
+  assert_true(markdown.contains("**位置：**"))
+  // And none of the English furniture is left showing.
+  assert_false(markdown.contains("## Timeline"))
+  assert_false(markdown.contains("**Why:**"))
+  assert_false(markdown.contains("**Position:**"))
+  // The steps are narrated in Chinese as well. The sentence is the part of
+  // the document a reader actually reads, and a Chinese document whose
+  // sentences are English is a Chinese document with one English paragraph
+  // in the middle of it.
+  let steps = db.steps_of_session(session.id)
+  assert_true(steps.length() > 0)
+  let last = steps[steps.length() - 1]
+  let sentence = @backend.step_sentence(
+    @backend.facts_of(@backend.current_model(), last),
+    zh(),
+  )
+  assert_true(markdown.contains(sentence))
+  // The same document in English is the English one, unchanged.
+  let english = @backend.export_markdown(db, reload(db, session.id), en())
+  assert_true(english.contains("# MAKED session: Export me"))
+  assert_true(english.contains("## Timeline"))
+  assert_true(english.contains("**Why:**"))
+  db.close()
+  drop_db(session_db_path("markdown_zh"))
+}
+
+///|
+/// The measures in the exported document are in its language too.
+///
+/// The document opens with the run and carries the measures, and a reader who
+/// reads the opening in Chinese and the measures in English has a document
+/// that is half of each.
+async test "the measures in the export are in its language" {
+  let db = open_session_db("markdown_zh_measures")
+  let session = fresh_session(db, "Export me")
+  ignore(take_steps(db, 3))
+  let markdown = @backend.export_markdown(db, reload(db, session.id), zh())
+  assert_true(markdown.contains("新增地盘"))
+  assert_true(markdown.contains("用过的槽位"))
+  assert_false(markdown.contains("New ground"))
+  assert_false(markdown.contains("Slots used"))
+  db.close()
+  drop_db(session_db_path("markdown_zh_measures"))
+}
+
+///|
+/// The json export is in the language too.
+///
+/// The machine form is read by a program, but the sentences inside it are
+/// read by a person, and a person reading a Chinese run should not have to
+/// switch to English to find out what it said.
+async test "the json export is in the language" {
+  let db = open_session_db("json_zh")
+  let session = fresh_session(db, "Export me")
+  ignore(take_steps(db, 2))
+  let exported = @backend.export_json(db, reload(db, session.id), zh())
+  match json_field(exported, "summary") {
+    Some(String(text)) => assert_true(text.contains("步"))
+    _ => fail("the export must carry the summary")
+  }
+  match json_field(exported, "metrics") {
+    Some(Object(fields)) => {
+      let labels = match fields.get("metrics") {
+        Some(Array(items)) => items
+        _ => []
+      }
+      assert_true(labels.length() > 0)
+      match labels[0] {
+        Object(one) =>
+          match one.get("label") {
+            Some(String(text)) => assert_eq(text, "新增地盘")
+            _ => fail("a measure must carry its label")
+          }
+        _ => fail("a measure must be an object")
+      }
+    }
+    _ => fail("the export must carry the measures")
+  }
+  db.close()
+  drop_db(session_db_path("json_zh"))
 }
 
 ///|

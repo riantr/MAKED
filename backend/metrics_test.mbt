@@ -126,13 +126,87 @@ fn metric_named(
 }
 
 ///|
+/// The measures are in the language that was asked for.
+///
+/// A measure is a sentence, and a sentence in the wrong language is not a
+/// measure: "3 of the last 5 steps reached a position the run had not been on
+/// before" tells a Chinese reader nothing, and a reader who cannot read the
+/// reading cannot trust the number beside it.
+test "the measures are in the language that was asked for" {
+  let path = metric_path(["M", "D", "E"], [
+    "Raw idea", "Talked about", "Planned",
+  ])
+  let chinese = @backend.measure(path, zh())
+  let ground = metric_named(chinese, "new_ground")
+  assert_eq(ground.label, "新增地盘")
+  assert_true(ground.sentence.contains("未曾站过的位置"))
+  let settling = metric_named(chinese, "settling")
+  assert_eq(settling.label, "沉降")
+  let slots = metric_named(chinese, "slot_spread")
+  assert_eq(slots.label, "用过的槽位")
+  let domains = metric_named(chinese, "domain_spread")
+  assert_eq(domains.label, "走过的域")
+  let drift = metric_named(chinese, "position_drift")
+  assert_eq(drift.label, "覆盖的位置")
+  // And the comparison, which is the sentence the whole block hangs on.
+  assert_true(chinese.comparison.contains("步"))
+  assert_false(chinese.comparison.contains("The run"))
+}
+
+///|
+/// The English measures are the English ones.
+///
+/// The Chinese was written beside the English rather than over it, so the
+/// English reading is the one that was there before, word for word.
+test "the English measures are the English ones" {
+  let path = metric_path(["M", "D", "E"], [
+    "Raw idea", "Talked about", "Planned",
+  ])
+  let english = @backend.measure(path, en())
+  let ground = metric_named(english, "new_ground")
+  assert_eq(ground.label, "New ground")
+  assert_true(
+    ground.sentence.contains(
+      "reached a position the run had not been on before",
+    ),
+  )
+  let settling = metric_named(english, "settling")
+  assert_eq(settling.label, "Settling")
+  let slots = metric_named(english, "slot_spread")
+  assert_eq(slots.label, "Slots used")
+  let domains = metric_named(english, "domain_spread")
+  assert_eq(domains.label, "Domains visited")
+  let drift = metric_named(english, "position_drift")
+  assert_eq(drift.label, "Positions covered")
+}
+
+///|
+/// The two readings are two readings, not one reading twice.
+///
+/// The numbers are the same in both -- the measures read the run, and the run
+/// does not change with the language -- and the words are not. A Chinese
+/// measure that said the English sentence would be a document with a Chinese
+/// name on it.
+test "the two readings are two readings" {
+  let path = metric_path(["M", "D", "E"], [
+    "Raw idea", "Talked about", "Planned",
+  ])
+  let chinese = metric_named(@backend.measure(path, zh()), "new_ground")
+  let english = metric_named(@backend.measure(path, en()), "new_ground")
+  assert_eq(chinese.value, english.value)
+  assert_eq(chinese.of, english.of)
+  assert_true(chinese.sentence != english.sentence)
+  assert_true(chinese.label != english.label)
+}
+
+///|
 /// A run with no steps in it has nothing to measure.
 ///
 /// The report says so by having no measures in it, the same way the run
 /// summary is empty for an empty run. A client can then leave the block out
 /// rather than print zeroes at someone.
 async test "an empty run has nothing to measure" {
-  let report = @backend.measure([])
+  let report = @backend.measure([], en())
   assert_eq(report.metrics.length(), 0)
   assert_eq(report.comparison, "")
 }
@@ -143,7 +217,7 @@ async test "a run that reaches new ground says so" {
   let path = metric_path(["M", "D", "E"], [
     "Standing", "Freedom", "Opening", "Habit",
   ])
-  let report = @backend.measure(path)
+  let report = @backend.measure(path, en())
   let ground = metric_named(report, "new_ground")
   assert_eq(ground.value, 3)
   assert_eq(ground.of, 3)
@@ -165,7 +239,7 @@ async test "a run that repeats itself reaches no new ground" {
   let path = metric_path(["M", "M", "M"], [
     "Standing", "Freedom", "Freedom", "Standing",
   ])
-  let report = @backend.measure(path)
+  let report = @backend.measure(path, en())
   let ground = metric_named(report, "new_ground")
   // The first step reached Freedom, which was new. The second came back to
   // Standing and the third left it for Freedom again: both of those
@@ -178,7 +252,7 @@ async test "a run that repeats itself reaches no new ground" {
 /// A step that did not move is not new ground.
 async test "a step that did not move reaches no new ground" {
   let path = metric_path(["M", "M"], ["Standing", "Standing", "Freedom"])
-  let report = @backend.measure(path)
+  let report = @backend.measure(path, en())
   let ground = metric_named(report, "new_ground")
   assert_eq(ground.value, 1)
   assert_true(ground.sentence.contains("1 of the last 2 steps"))
@@ -194,7 +268,7 @@ async test "the settling measure counts the trailing steps that found nothing" {
   let path = metric_path(["M", "M", "M", "M"], [
     "A0", "A1", "A2", "A1", "A2", "A1",
   ])
-  let report = @backend.measure(path)
+  let report = @backend.measure(path, en())
   let settling = metric_named(report, "settling")
   // The run reached A1, then A2, and then went back and forth between the
   // two for three steps without reaching anything it had not been on.
@@ -208,7 +282,7 @@ async test "the settling measure counts the trailing steps that found nothing" {
 /// A run whose last step found something is not settling.
 async test "a run still finding ground is not settling" {
   let path = metric_path(["M", "M"], ["A0", "A1", "A2"])
-  let report = @backend.measure(path)
+  let report = @backend.measure(path, en())
   let settling = metric_named(report, "settling")
   assert_eq(settling.value, 0)
   assert_true(settling.sentence.contains("still finding new ground"))
@@ -220,7 +294,7 @@ async test "a run still finding ground is not settling" {
 /// be wrong.
 async test "a run that moved into known ground is settling, not stuck" {
   let path = metric_path(["M", "M", "M"], ["A0", "A1", "A2", "A1", "A2"])
-  let settling = metric_named(@backend.measure(path), "settling")
+  let settling = metric_named(@backend.measure(path, en()), "settling")
   assert_eq(settling.value, 2)
   assert_true(
     settling.sentence.contains("the run is settling rather than exploring"),
@@ -243,7 +317,7 @@ async test "a run that did not move at all is stuck, not settling" {
     metric_step_outcome("M", "Situation", "A1", "A1", "open"),
     metric_step_outcome("M", "Situation", "A1", "A1", "open"),
   ]
-  let settling = metric_named(@backend.measure(path), "settling")
+  let settling = metric_named(@backend.measure(path, en()), "settling")
   assert_eq(settling.value, 2)
   assert_true(settling.sentence.contains("did not move the subject at all"))
   assert_true(settling.sentence.contains("stuck, not settling"))
@@ -256,7 +330,7 @@ async test "a run that did not move at all is stuck, not settling" {
 /// table, and the step counter cannot see the difference.
 async test "the slot spread counts the slots the window used" {
   let path = metric_path(["M", "M", "M"], ["A0", "A1", "A2", "A3"])
-  let spread = metric_named(@backend.measure(path), "slot_spread")
+  let spread = metric_named(@backend.measure(path, en()), "slot_spread")
   assert_eq(spread.value, 1)
   assert_eq(spread.of, 8)
   assert_true(spread.sentence.contains("used 1 of the 8 slots"))
@@ -271,7 +345,7 @@ async test "a slot used twice is named in the spread" {
     metric_step("M", "Holding", "A1", "A2"),
     metric_step("M", "Action", "A2", "A3"),
   ]
-  let spread = metric_named(@backend.measure(path), "slot_spread")
+  let spread = metric_named(@backend.measure(path, en()), "slot_spread")
   assert_eq(spread.value, 2)
   assert_true(spread.sentence.contains("Action was used 2 times"))
 }
@@ -280,7 +354,7 @@ async test "a slot used twice is named in the spread" {
 /// The second half of the diversity: how many domains the window visited.
 async test "the domain spread counts the domains the window visited" {
   let path = metric_path(["M", "D", "E", "A"], ["A0", "A1", "A2", "A3", "A4"])
-  let spread = metric_named(@backend.measure(path), "domain_spread")
+  let spread = metric_named(@backend.measure(path, en()), "domain_spread")
   assert_eq(spread.value, 4)
   assert_eq(spread.of, 5)
   assert_true(spread.sentence.contains("visited 4 of the 5 domains"))
@@ -296,7 +370,7 @@ async test "the position drift counts the positions the run has stood on" {
   let path = metric_path(["M", "D", "E"], [
     "Standing", "Freedom", "Opening", "Habit",
   ])
-  let drift = metric_named(@backend.measure(path), "position_drift")
+  let drift = metric_named(@backend.measure(path, en()), "position_drift")
   assert_eq(drift.value, 4)
   assert_eq(drift.of, @sm.all_states().length())
   assert_true(drift.sentence.contains("stood on 4 of the 34 positions"))
@@ -313,7 +387,7 @@ async test "the drift names how far each domain ranged" {
     metric_step("M", "Action", "Standing", "Freedom"),
     metric_step("D", "Action", "Standing", "Honor"),
   ]
-  let drift = metric_named(@backend.measure(path), "position_drift")
+  let drift = metric_named(@backend.measure(path, en()), "position_drift")
   assert_eq(drift.value, 3)
   assert_true(drift.sentence.contains("The model formulator has ranged over 2"))
   assert_true(drift.sentence.contains("the data turbine has ranged over 2"))
@@ -327,7 +401,7 @@ async test "a short run cannot be compared with itself yet" {
   let path = metric_path(["M", "M", "M"], [
     "A0", "A1", "A2", "A3", "A4", "A5", "A6",
   ])
-  let report = @backend.measure(path)
+  let report = @backend.measure(path, en())
   assert_true(report.comparison.contains("cannot be compared yet"))
 }
 
@@ -344,7 +418,7 @@ async test "the new ground measure is taken over the window, not the whole run" 
   let path = metric_path(["M", "M", "M", "M", "M", "M", "M", "M", "M", "M"], [
     "A0", "A1", "A2", "A3", "A4", "A5", "A1", "A2", "A3", "A4", "A5",
   ])
-  let report = @backend.measure(path)
+  let report = @backend.measure(path, en())
   let ground = metric_named(report, "new_ground")
   // The whole run found five new positions; the last five steps found none.
   assert_eq(ground.value, 0)
@@ -362,7 +436,7 @@ async test "a run that is finding less than it started with says so" {
   let path = metric_path(["M", "M", "M", "M", "M", "M", "M", "M", "M", "M"], [
     "A0", "A1", "A2", "A3", "A4", "A5", "A1", "A2", "A3", "A4", "A5",
   ])
-  let report = @backend.measure(path)
+  let report = @backend.measure(path, en())
   assert_true(
     report.comparison.contains("The last 5 steps reached 0 new positions"),
   )
@@ -377,7 +451,7 @@ async test "a run holding its rate says so" {
   let path = metric_path(["M", "M", "M", "M", "M", "M", "M", "M", "M", "M"], [
     "A0", "A1", "A2", "A1", "A2", "A3", "A4", "A5", "A4", "A5", "A6",
   ])
-  let report = @backend.measure(path)
+  let report = @backend.measure(path, en())
   assert_true(report.comparison.contains("holding its rate"))
 }
 
@@ -399,7 +473,7 @@ async test "the sentences do not stumble" {
     metric_path(["M"], ["A0", "A1"]),
   ]
   for path in paths {
-    let report = @backend.measure(path)
+    let report = @backend.measure(path, en())
     for metric in report.metrics {
       assert_true(
         !metric.sentence.contains(" the the ") &&
@@ -433,7 +507,7 @@ async test "the sentences do not stumble" {
 /// client can show either without re-deriving anything.
 async test "the report is reported as json" {
   let path = metric_path(["M", "D"], ["Standing", "Freedom", "Opening"])
-  let json = @backend.measure(path).to_json()
+  let json = @backend.measure(path, en()).to_json()
   let metrics = match json {
     Object(fields) =>
       match fields.get("metrics") {
@@ -465,7 +539,7 @@ async test "the export carries the measures" {
   let db = open_session_db("export_metrics")
   let session = fresh_session(db, "Measured")
   ignore(take_steps(db, 3))
-  let json = @backend.export_json(db, reload(db, session.id))
+  let json = @backend.export_json(db, reload(db, session.id), en())
   match json_field(json, "metrics") {
     Some(Object(fields)) =>
       match fields.get("metrics") {
@@ -474,7 +548,7 @@ async test "the export carries the measures" {
       }
     _ => fail("the json export should carry the measures")
   }
-  let markdown = @backend.export_markdown(db, reload(db, session.id))
+  let markdown = @backend.export_markdown(db, reload(db, session.id), en())
   assert_true(markdown.contains("## How the run is doing"))
   assert_true(markdown.contains("New ground"))
   db.close()

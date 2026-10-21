@@ -370,11 +370,12 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
           let body : Json = { "error": "not_found", "id": id }
           Response::json(body, status=404)
         }
-        Some(session) =>
+        Some(session) => {
+          let lang = lang_of(req)
           match req.query("format") {
-            Some("json") => Response::json(export_json(db, session))
+            Some("json") => Response::json(export_json(db, session, lang))
             Some("md") | Some("markdown") =>
-              Response::text(export_markdown(db, session))
+              Response::text(export_markdown(db, session, lang))
               .with_header("Content-Type", "text/markdown; charset=utf-8")
               .with_header(
                 "Content-Disposition",
@@ -391,6 +392,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
               Response::json(body, status=400)
             }
           }
+        }
       }
     }
   })

@@ -845,6 +845,16 @@ pub fn lang_query(lang : UiLang) -> String {
   "?lang=" + lang.code()
 }
 
+///|
+/// The language as a query parameter that follows another one.
+///
+/// A link that already carries a query cannot carry a second `?`, so the
+/// language joins the first with an `&`: the export link asks for a format
+/// and a language at once, and the format comes first.
+pub fn lang_param(lang : UiLang) -> String {
+  "&lang=" + lang.code()
+}
+
 // --- the sentences with a hole in them ------------------------------------
 //
 // Each of these writes itself in the language it is asked for. The English

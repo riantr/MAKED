@@ -453,7 +453,7 @@ test "a move of the collective is taken and said to have been taken" {
 async test "the explorations are listed and the active one is marked" {
   let db = open_session_db("agent_sessions")
   let session = fresh_session(db, "First exploration")
-  let payload = @backend.agent_sessions(db)
+  let payload = @backend.agent_sessions(db, en())
   assert_eq(json_str(payload, "the_active_one"), session.id.to_string())
   let items = json_array(payload, "the_explorations")
   assert_eq(items.length(), 1)
@@ -468,11 +468,11 @@ async test "an exploration can be taken away as Markdown and as JSON" {
   let db = open_session_db("agent_export")
   let session = fresh_session(db, "First exploration")
   let _ = @backend.take_drive_step(db, @backend.Lang::english())
-  let markdown = @backend.agent_export(db, session.id, "markdown")
+  let markdown = @backend.agent_export(db, session.id, "markdown", en())
   assert_eq(json_str(markdown, "format"), "markdown")
   let text = json_str(markdown, "the_exploration")
   assert_true(text.contains("First exploration"))
-  let json = @backend.agent_export(db, session.id, "json")
+  let json = @backend.agent_export(db, session.id, "json", en())
   assert_eq(json_str(json, "format"), "json")
   // The machine form is an object, not a string: an agent that wants to
   // process it must not have to read prose.
@@ -485,11 +485,31 @@ async test "an exploration can be taken away as Markdown and as JSON" {
 }
 
 ///|
+/// The agent's export is in the language that was asked for.
+///
+/// The agent's server is the same surface as the panel, and the document it
+/// hands over is the same document the panel would hand over: an agent that
+/// asked for Chinese must not be given an English document to read.
+async test "the agent's export is in the language" {
+  let db = open_session_db("agent_export_zh")
+  let session = fresh_session(db, "First exploration")
+  let _ = @backend.take_drive_step(db, @backend.Lang::english())
+  let markdown = @backend.agent_export(db, session.id, "markdown", zh())
+  let text = json_str(markdown, "the_exploration")
+  assert_true(text.contains("会话"))
+  assert_false(text.contains("MAKED session:"))
+  let json = @backend.agent_export(db, session.id, "json", zh())
+  assert_true(json.stringify().contains("新增地盘"))
+  db.close()
+  drop_db(session_db_path("agent_export_zh"))
+}
+
+///|
 /// An exploration that does not exist is refused, not answered with nothing.
 async test "an exploration that does not exist is refused" {
   let db = open_session_db("agent_export_missing")
   let _ = fresh_session(db, "First exploration")
-  let payload = @backend.agent_export(db, 999999L, "markdown")
+  let payload = @backend.agent_export(db, 999999L, "markdown", en())
   assert_eq(json_str(payload, "error"), "there is no exploration with that id")
 }
 

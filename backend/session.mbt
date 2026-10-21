@@ -916,7 +916,7 @@ pub fn session_state_json(db : Database, lang : Lang) -> Json raise {
         // And whether the run is still finding ground, or going round in
         // circles. The summary says what happened; these say what it is
         // worth, which is the question after the twentieth click.
-        "metrics": measure(path).to_json(),
+        "metrics": measure(path, lang).to_json(),
       }
     }
   }
@@ -1151,49 +1151,53 @@ fn why_line_in(step : SessionStep, lang : Lang) -> String {
 /// per step, and the reason under each one. The branch points are named, so
 /// a reader can see where the exploration forked rather than being shown a
 /// single path and left to guess that others existed.
-pub fn export_markdown(db : Database, session : Session) -> String raise {
+pub fn export_markdown(
+  db : Database,
+  session : Session,
+  lang : Lang,
+) -> String raise {
   let all = db.steps_of_session(session.id)
   let path = chain_to_step(all, session.head_step_id)
   let others = off_path_steps(all, path)
-  let mut out = "# MAKED session: " + session.name + "\n\n"
-  out = out + "- **Session id:** " + session.id.to_string() + "\n"
-  out = out + "- **Created:** " + session.created_at + "\n"
-  out = out + "- **Last updated:** " + session.updated_at + "\n"
-  out = out + "- **Mode:** " + session.mode + "\n"
-  out = out + "- **Started on:** " + session.start_cursor + "\n"
-  out = out + "- **Steps on this path:** " + path.length().to_string() + "\n"
-  out = out +
-    "- **Other steps recorded in this session:** " +
-    others.length().to_string() +
-    "\n"
+  let model = current_model()
+  let w = export_words(lang)
+  let mut out = w.title + session.name + "\n\n"
+  out = out + w.session_id + session.id.to_string() + "\n"
+  out = out + w.created + session.created_at + "\n"
+  out = out + w.updated + session.updated_at + "\n"
+  out = out + w.mode + mode_word(session.mode, w) + "\n"
+  out = out + w.started_on + session.start_cursor + "\n"
+  out = out + w.steps_on_path + path.length().to_string() + "\n"
+  out = out + w.other_steps + others.length().to_string() + "\n"
   if session.parent_id != 0L {
     out = out +
-      "- **Forked from session:** " +
+      w.forked_from +
       session.parent_id.to_string() +
-      " at step " +
+      w.at_step +
       session.forked_step_id.to_string() +
+      w.step_suffix +
       "\n"
   }
   // What the last few steps add up to. A document that opens with a
   // timeline and no account of it is a list; this is the account.
-  let summary = summary_of(path, English)
+  let summary = summary_of(path, lang)
   if summary != "" {
-    out = out + "\n## The run so far\n\n" + summary + "\n"
+    out = out + "\n" + w.run_heading + "\n\n" + summary + "\n"
   }
   // And whether the run is worth continuing: the measures, and the
   // comparison of its beginning with its end. A document that lists the
   // steps without saying whether the run was getting anywhere is the
   // timeline again, and the timeline is the part nobody wants.
-  let metrics = measure(path)
+  let metrics = measure(path, lang)
   if metrics.metrics.length() > 0 {
-    out = out + "\n## How the run is doing\n\n"
+    out = out + "\n" + w.doing_heading + "\n\n"
     for metric in metrics.metrics {
       out = out +
         "- **" +
         metric.label +
         ":** " +
         metric.value.to_string() +
-        (if metric.of > 0 { " of " + metric.of.to_string() } else { "" }) +
+        (if metric.of > 0 { w.of + metric.of.to_string() } else { "" }) +
         " — " +
         metric.sentence +
         "\n"
@@ -1202,7 +1206,7 @@ pub fn export_markdown(db : Database, session : Session) -> String raise {
       out = out + "\n" + metrics.comparison + "\n"
     }
   }
-  out = out + "\n## Timeline\n"
+  out = out + "\n" + w.timeline_heading + "\n"
   let mut index = 0
   for step in path {
     index += 1
@@ -1212,53 +1216,74 @@ pub fn export_markdown(db : Database, session : Session) -> String raise {
       ". " +
       step.domain +
       " · " +
-      step.slot_designation +
+      slot_name_in(model, step.slot, step.slot_designation, lang) +
       " · " +
-      step.outcome +
+      model.outcome_label_in(step.outcome_kind, lang) +
       "\n\n"
     // The sentence first, for the same reason the timeline on screen leads
     // with it: a document that a person reads later should say what
     // happened, not only list the labels.
-    out = out + step_sentence(facts_of(current_model(), step), English) + "\n\n"
+    out = out + step_sentence(facts_of(model, step), lang) + "\n\n"
     out = out +
-      "- **Position:** " +
-      step.position_before +
+      w.position +
+      position_name_in(model, step.position_before, lang) +
       " → " +
-      step.position_after +
+      position_name_in(model, step.position_after, lang) +
       "\n"
-    out = out + "- **Detail:** " + step.detail + "\n"
-    out = out + "- **Why:** " + why_line_in(step, English) + "\n"
+    out = out + w.detail + step_detail_in(model, step, lang) + "\n"
+    out = out + w.why + why_line_in(step, lang) + "\n"
     out = out +
-      "- **Cursor after:** " +
+      w.cursor +
       step.cursor_after +
-      " · **group:** " +
-      step.group_state +
-      " · **taken by:** " +
-      step.source +
+      w.group +
+      group_state_in(step.group_state, lang) +
+      w.taken_by +
+      source_word(step.source, w) +
       "\n"
   }
   if others.length() > 0 {
-    out = out + "\n## Other roads taken\n"
-    out = out +
-      "\nThese steps are recorded in the session but are not on its current " +
-      "path: they are the branches that were walked and then walked back " +
-      "from.\n"
+    out = out + "\n" + w.other_roads + "\n"
+    out = out + "\n" + w.other_prose + "\n"
     for step in others {
       out = out +
-        "\n- **Step " +
+        "\n" +
+        w.step_bullet +
         depth_of(all, step).to_string() +
         "** · " +
         step.domain +
         " · " +
-        step.slot_designation +
+        slot_name_in(model, step.slot, step.slot_designation, lang) +
         " · " +
-        step.outcome +
+        model.outcome_label_in(step.outcome_kind, lang) +
         " — " +
-        step.detail +
+        step_detail_in(model, step, lang) +
         "\n"
     }
   }
   out
+}
+
+///|
+/// The mode a session was run in, as the document names it.
+///
+/// The session records the mode by its own name, and the document names it
+/// the way the machine does: "structured" in English, 结构化 in Chinese.
+fn mode_word(mode : String, w : ExportWords) -> String {
+  if mode == "free" {
+    w.mode_free
+  } else {
+    w.mode_structured
+  }
+}
+
+///|
+/// How a step was taken, as the document names it.
+fn source_word(source : String, w : ExportWords) -> String {
+  match source {
+    "explicit" => w.source_explicit
+    "research" => w.source_research
+    _ => w.source_drive
+  }
 }
 
 ///|
@@ -1268,7 +1293,7 @@ pub fn export_markdown(db : Database, session : Session) -> String raise {
 /// read: the session, the path, and the branches that are not on it. The
 /// `format` field is the version of this shape, so a consumer can tell what
 /// it is holding.
-pub fn export_json(db : Database, session : Session) -> Json raise {
+pub fn export_json(db : Database, session : Session, lang : Lang) -> Json raise {
   let all = db.steps_of_session(session.id)
   let path = chain_to_step(all, session.head_step_id)
   let others = off_path_steps(all, path)
@@ -1276,16 +1301,16 @@ pub fn export_json(db : Database, session : Session) -> Json raise {
   let mut index = 0
   for step in path {
     index += 1
-    path_json.push(step.to_json(index, English))
+    path_json.push(step.to_json(index, lang))
   }
   let others_json = []
   for step in others {
-    others_json.push(step.to_json(depth_of(all, step), English))
+    others_json.push(step.to_json(depth_of(all, step), lang))
   }
   // The account of the run, kept in a name of its own so that the document
   // and the live state say the same thing by the same route.
-  let run_summary = summary_of(path, English)
-  let run_metrics = measure(path)
+  let run_summary = summary_of(path, lang)
+  let run_metrics = measure(path, lang)
   {
     "format": "maked.session.v1",
     "session": session.to_json(),

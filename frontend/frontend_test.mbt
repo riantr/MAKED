@@ -2377,6 +2377,23 @@ test "the request for the collective carries the language" {
 }
 
 ///|
+/// The link that takes an exploration away carries the language.
+///
+/// The document the server sends is in the language the request asked for, so
+/// a link that left the language off would hand a reader who had turned the
+/// page into Chinese an English document -- with the download still working.
+test "the export link carries the language" {
+  assert_eq(
+    @frontend.export_link(3, "md", @frontend.UiLang::chinese()),
+    "/api/sessions/3/export?format=md&lang=zh",
+  )
+  assert_eq(
+    @frontend.export_link(3, "json", @frontend.UiLang::english()),
+    "/api/sessions/3/export?format=json&lang=en",
+  )
+}
+
+///|
 /// The collective's fields are distinguished by Eq.
 ///
 /// rabbita drops an update whose new model compares equal to the old one,

@@ -113,7 +113,7 @@ pub(all) struct MetricReport {
 /// by having no measures in it -- the same way the run summary is empty for
 /// an empty run, so a client can leave the block out rather than print
 /// zeroes at someone.
-pub fn measure(path : Array[SessionStep]) -> MetricReport {
+pub fn measure(path : Array[SessionStep], lang : Lang) -> MetricReport {
   let n = path.length()
   let window = METRIC_WINDOW
   if n == 0 {
@@ -123,17 +123,17 @@ pub fn measure(path : Array[SessionStep]) -> MetricReport {
   let recent = slice_from(path, start)
   let fresh = new_ground_flags(path)
   let metrics : Array[Metric] = [
-    new_ground_metric(recent, fresh, start),
-    settling_metric(recent, fresh, start),
-    slot_spread_metric(recent),
-    domain_spread_metric(recent),
-    position_drift_metric(path),
+    new_ground_metric(recent, fresh, start, lang),
+    settling_metric(recent, fresh, start, lang),
+    slot_spread_metric(recent, lang),
+    domain_spread_metric(recent, lang),
+    position_drift_metric(path, lang),
   ]
   {
     window,
     window_steps: recent.length(),
     metrics,
-    comparison: comparison_sentence(path, fresh),
+    comparison: comparison_sentence(path, fresh, lang),
   }
 }
 
@@ -206,11 +206,20 @@ fn count_fresh(fresh : Array[Bool], from : Int32, to : Int32) -> Int32 {
 ///
 /// A sentence that says "the last 1 steps" is a machine talking to itself,
 /// and the window is one step long at the start of every run.
-fn last_steps_clause(count : Int32) -> String {
-  if count == 1 {
-    "The last step"
-  } else {
-    "The last " + count.to_string() + " steps"
+fn last_steps_clause(count : Int32, lang : Lang) -> String {
+  match lang {
+    English =>
+      if count == 1 {
+        "The last step"
+      } else {
+        "The last " + count.to_string() + " steps"
+      }
+    Chinese =>
+      if count == 1 {
+        "最后一步"
+      } else {
+        "最后" + count_word_zh(count) + "步"
+      }
   }
 }
 
@@ -224,26 +233,54 @@ fn new_ground_metric(
   recent : Array[SessionStep],
   fresh : Array[Bool],
   start : Int32,
+  lang : Lang,
 ) -> Metric {
   let count = count_fresh(fresh, start, fresh.length())
   let w = recent.length()
-  let sentence = if w == 1 {
-    if count == 0 {
-      "The last step reached no position the run had not been on before: it added nothing to the map."
-    } else {
-      "The last step reached a position the run had not been on before."
-    }
-  } else if count == 0 {
-    "The last " +
-    w.to_string() +
-    " steps reached no position the run had not been on before: they added nothing to the map."
-  } else {
-    count.to_string() +
-    " of the last " +
-    w.to_string() +
-    " steps reached a position the run had not been on before."
+  let sentence = match lang {
+    English =>
+      if w == 1 {
+        if count == 0 {
+          "The last step reached no position the run had not been on before: it added nothing to the map."
+        } else {
+          "The last step reached a position the run had not been on before."
+        }
+      } else if count == 0 {
+        "The last " +
+        w.to_string() +
+        " steps reached no position the run had not been on before: they added nothing to the map."
+      } else {
+        count.to_string() +
+        " of the last " +
+        w.to_string() +
+        " steps reached a position the run had not been on before."
+      }
+    Chinese =>
+      if w == 1 {
+        if count == 0 {
+          "最后一步没有到达本次运行此前未曾站过的位置：它没有为地图增添任何东西。"
+        } else {
+          "最后一步到达了本次运行此前未曾站过的位置。"
+        }
+      } else if count == 0 {
+        "最后" +
+        count_word_zh(w) +
+        "步没有到达本次运行此前未曾站过的位置：它们没有为地图增添任何东西。"
+      } else {
+        "最后" +
+        count_word_zh(w) +
+        "步中有" +
+        count_word_zh(count) +
+        "步到达了本次运行此前未曾站过的位置。"
+      }
   }
-  { key: "new_ground", label: "New ground", value: count, of: w, sentence, }
+  {
+    key: "new_ground",
+    label: lang.pick("New ground", "新增地盘"),
+    value: count,
+    of: w,
+    sentence,
+  }
 }
 
 ///|
@@ -265,6 +302,7 @@ fn settling_metric(
   recent : Array[SessionStep],
   fresh : Array[Bool],
   start : Int32,
+  lang : Lang,
 ) -> Metric {
   let mut settling = 0
   let mut stuck = 0
@@ -282,24 +320,51 @@ fn settling_metric(
     }
     i -= 1
   }
-  let sentence = if settling == 0 {
-    "The last step reached a position the run had not been on before, so the run is still finding new ground."
-  } else if stuck == settling {
-    if settling == 1 {
-      "The last step did not move the subject at all: the run is stuck, not settling."
-    } else {
-      "The last " +
-      settling.to_string() +
-      " steps did not move the subject at all: the run is stuck, not settling."
-    }
-  } else if settling == 1 {
-    "The last step reached nothing new: the run has just stopped finding new ground."
-  } else {
-    "The last " +
-    settling.to_string() +
-    " steps reached nothing new: the run is settling rather than exploring."
+  let sentence = match lang {
+    English =>
+      if settling == 0 {
+        "The last step reached a position the run had not been on before, so the run is still finding new ground."
+      } else if stuck == settling {
+        if settling == 1 {
+          "The last step did not move the subject at all: the run is stuck, not settling."
+        } else {
+          "The last " +
+          settling.to_string() +
+          " steps did not move the subject at all: the run is stuck, not settling."
+        }
+      } else if settling == 1 {
+        "The last step reached nothing new: the run has just stopped finding new ground."
+      } else {
+        "The last " +
+        settling.to_string() +
+        " steps reached nothing new: the run is settling rather than exploring."
+      }
+    Chinese =>
+      if settling == 0 {
+        "最后一步到达了本次运行此前未曾站过的位置，因此运行仍在开辟新地盘。"
+      } else if stuck == settling {
+        if settling == 1 {
+          "最后一步根本没有移动主体：这是卡住了，而不是在沉降。"
+        } else {
+          "最后" +
+          count_word_zh(settling) +
+          "步根本没有移动主体：这是卡住了，而不是在沉降。"
+        }
+      } else if settling == 1 {
+        "最后一步没有开辟任何新东西：运行刚刚停止了开辟新地盘。"
+      } else {
+        "最后" +
+        count_word_zh(settling) +
+        "步没有开辟任何新东西：运行正在沉降，而不是在探索。"
+      }
   }
-  { key: "settling", label: "Settling", value: settling, of: 0, sentence, }
+  {
+    key: "settling",
+    label: lang.pick("Settling", "沉降"),
+    value: settling,
+    of: 0,
+    sentence,
+  }
 }
 
 ///|
@@ -325,44 +390,83 @@ fn moved_outcome(outcome_kind : String) -> Bool {
 /// This is the path diversity. A run that always drives the same slot is
 /// walking one line through the table, and the step counter cannot see the
 /// difference.
-fn slot_spread_metric(recent : Array[SessionStep]) -> Metric {
+fn slot_spread_metric(recent : Array[SessionStep], lang : Lang) -> Metric {
+  let model = current_model()
   let names : Array[String] = []
   for step in recent {
-    names.push(step.slot_designation)
+    // The English is the designation the step recorded, because that is what
+    // the reader saw when the step was taken. The Chinese is the model's own
+    // name for the slot, read out of the model rather than carried on the
+    // step.
+    names.push(
+      match lang {
+        English => step.slot_designation
+        Chinese => model.slot_designation_in(step.slot, Chinese)
+      },
+    )
   }
   let counts = tally(names)
   let distinct = counts.length()
   let total = current_model().slots.length()
   let (top, top_count) = most_used(counts)
   let w = recent.length()
-  let sentence = if top_count > 1 {
-    last_steps_clause(w) +
-    " used " +
-    distinct.to_string() +
-    " of the " +
-    total.to_string() +
-    " slots, and " +
-    top +
-    " was used " +
-    top_count.to_string() +
-    " times."
-  } else if w == 1 {
-    "The last step used " +
-    distinct.to_string() +
-    " of the " +
-    total.to_string() +
-    " slots."
-  } else {
-    last_steps_clause(w) +
-    " used " +
-    distinct.to_string() +
-    " of the " +
-    total.to_string() +
-    " slots, each of them once."
+  let sentence = match lang {
+    English =>
+      if top_count > 1 {
+        last_steps_clause(w, English) +
+        " used " +
+        distinct.to_string() +
+        " of the " +
+        total.to_string() +
+        " slots, and " +
+        top +
+        " was used " +
+        top_count.to_string() +
+        " times."
+      } else if w == 1 {
+        "The last step used " +
+        distinct.to_string() +
+        " of the " +
+        total.to_string() +
+        " slots."
+      } else {
+        last_steps_clause(w, English) +
+        " used " +
+        distinct.to_string() +
+        " of the " +
+        total.to_string() +
+        " slots, each of them once."
+      }
+    Chinese =>
+      if top_count > 1 {
+        last_steps_clause(w, Chinese) +
+        "用了" +
+        total.to_string() +
+        "个槽位中的" +
+        count_word_zh(distinct) +
+        "个，其中「" +
+        top +
+        "」用了" +
+        count_phrase_zh(top_count) +
+        "。"
+      } else if w == 1 {
+        "最后一步用了" +
+        total.to_string() +
+        "个槽位中的" +
+        count_word_zh(distinct) +
+        "个。"
+      } else {
+        last_steps_clause(w, Chinese) +
+        "用了" +
+        total.to_string() +
+        "个槽位中的" +
+        count_word_zh(distinct) +
+        "个，每个各用一次。"
+      }
   }
   {
     key: "slot_spread",
-    label: "Slots used",
+    label: lang.pick("Slots used", "用过的槽位"),
     value: distinct,
     of: total,
     sentence,
@@ -371,21 +475,31 @@ fn slot_spread_metric(recent : Array[SessionStep]) -> Metric {
 
 ///|
 /// Domain spread: how many of the five domains the window visited.
-fn domain_spread_metric(recent : Array[SessionStep]) -> Metric {
+fn domain_spread_metric(recent : Array[SessionStep], lang : Lang) -> Metric {
   let letters : Array[String] = []
   for step in recent {
     letters.push(step.domain)
   }
   let distinct = tally(letters).length()
-  let sentence = last_steps_clause(recent.length()) +
-    " visited " +
-    distinct.to_string() +
-    " of the " +
-    domain_count().to_string() +
-    " domains."
+  let sentence = match lang {
+    English =>
+      last_steps_clause(recent.length(), English) +
+      " visited " +
+      distinct.to_string() +
+      " of the " +
+      domain_count().to_string() +
+      " domains."
+    Chinese =>
+      last_steps_clause(recent.length(), Chinese) +
+      "走过" +
+      domain_count().to_string() +
+      "个域中的" +
+      count_word_zh(distinct) +
+      "个。"
+  }
   {
     key: "domain_spread",
-    label: "Domains visited",
+    label: lang.pick("Domains visited", "走过的域"),
     value: distinct,
     of: domain_count(),
     sentence,
@@ -399,7 +513,7 @@ fn domain_spread_metric(recent : Array[SessionStep]) -> Metric {
 /// The denominator is read out of the model rather than written down here:
 /// the size of the state space is the machine's business, and a number
 /// copied into MAKED would be wrong the day the table grew.
-fn position_drift_metric(path : Array[SessionStep]) -> Metric {
+fn position_drift_metric(path : Array[SessionStep], lang : Lang) -> Metric {
   let model = current_model()
   let total = model.positions.length()
   let all : Array[String] = []
@@ -420,16 +534,27 @@ fn position_drift_metric(path : Array[SessionStep]) -> Metric {
     }
   }
   let covered = all.length()
-  let sentence = "So far the run has stood on " +
-    covered.to_string() +
-    " of the " +
-    total.to_string() +
-    " positions. " +
-    drift_clause(model, per_domain) +
-    "."
+  let sentence = match lang {
+    English =>
+      "So far the run has stood on " +
+      covered.to_string() +
+      " of the " +
+      total.to_string() +
+      " positions. " +
+      drift_clause(model, per_domain, English) +
+      "."
+    Chinese =>
+      "到目前为止，本次运行在" +
+      total.to_string() +
+      "个位置中站过" +
+      count_word_zh(covered) +
+      "个。" +
+      drift_clause(model, per_domain, Chinese) +
+      "。"
+  }
   {
     key: "position_drift",
-    label: "Positions covered",
+    label: lang.pick("Positions covered", "覆盖的位置"),
     value: covered,
     of: total,
     sentence,
@@ -447,16 +572,35 @@ fn position_drift_metric(path : Array[SessionStep]) -> Metric {
 /// The first part is capitalised, because it follows a full stop: the total
 /// and the parts are two sentences, and a sentence that starts in the
 /// middle of the alphabet reads as a typo.
-fn drift_clause(model : Model, per_domain : Array[(String, Int32)]) -> String {
+fn drift_clause(
+  model : Model,
+  per_domain : Array[(String, Int32)],
+  lang : Lang,
+) -> String {
   let parts : Array[String] = []
   for (letter, count) in per_domain {
-    parts.push(role_of(model, letter) + " has ranged over " + count.to_string())
+    parts.push(
+      match lang {
+        English =>
+          role_of(model, letter) + " has ranged over " + count.to_string()
+        Chinese =>
+          role_of_in(model, letter, Chinese) +
+          "走过了" +
+          count_word_zh(count) +
+          "个位置"
+      },
+    )
   }
   if parts.length() == 0 {
     return ""
   }
-  parts[0] = capitalize(parts[0])
-  join_parts(parts)
+  match lang {
+    English => {
+      parts[0] = capitalize(parts[0])
+      join_parts(parts)
+    }
+    Chinese => join_list_zh(parts)
+  }
 }
 
 ///|
@@ -474,37 +618,75 @@ fn drift_clause(model : Model, per_domain : Array[(String, Int32)]) -> String {
 fn comparison_sentence(
   path : Array[SessionStep],
   fresh : Array[Bool],
+  lang : Lang,
 ) -> String {
   let n = path.length()
   let window = METRIC_WINDOW
   if n < window * 2 {
-    let steps = if n == 1 {
-      "The run has 1 step"
-    } else {
-      "The run has " + n.to_string() + " steps"
+    return match lang {
+      English => {
+        let steps = if n == 1 {
+          "The run has 1 step"
+        } else {
+          "The run has " + n.to_string() + " steps"
+        }
+        steps +
+        ", so its beginning and its end cannot be compared yet: the comparison needs " +
+        (window * 2).to_string() +
+        "."
+      }
+      Chinese => {
+        let steps = if n == 1 {
+          "本次运行有一步"
+        } else {
+          "本次运行有" + count_word_zh(n) + "步"
+        }
+        steps +
+        "，因此它的开头与结尾暂时还无法比较：比较需要" +
+        (window * 2).to_string() +
+        "步。"
+      }
     }
-    return steps +
-      ", so its beginning and its end cannot be compared yet: the comparison needs " +
-      (window * 2).to_string() +
-      "."
   }
   let first = count_fresh(fresh, 0, window)
   let last = count_fresh(fresh, n - window, n)
-  let head = "The last " +
-    window.to_string() +
-    " steps reached " +
-    last.to_string() +
-    " new positions; the first " +
-    window.to_string() +
-    " reached " +
-    first.to_string() +
-    "."
-  if last > first {
-    head + " The run is finding more new ground than it did at the start."
-  } else if last < first {
-    head + " The run is finding less new ground than it did at the start."
-  } else {
-    head + " The run is holding its rate."
+  match lang {
+    English => {
+      let head = "The last " +
+        window.to_string() +
+        " steps reached " +
+        last.to_string() +
+        " new positions; the first " +
+        window.to_string() +
+        " reached " +
+        first.to_string() +
+        "."
+      if last > first {
+        head + " The run is finding more new ground than it did at the start."
+      } else if last < first {
+        head + " The run is finding less new ground than it did at the start."
+      } else {
+        head + " The run is holding its rate."
+      }
+    }
+    Chinese => {
+      let head = "最后" +
+        count_word_zh(window) +
+        "步到达了" +
+        count_word_zh(last) +
+        "个新位置；最初的" +
+        count_word_zh(window) +
+        "步到达了" +
+        count_word_zh(first) +
+        "个。"
+      if last > first {
+        head + "本次运行开辟的新地盘比开始时更多。"
+      } else if last < first {
+        head + "本次运行开辟的新地盘比开始时更少。"
+      } else {
+        head + "本次运行保持住了它的速率。"
+      }
+    }
   }
 }
 

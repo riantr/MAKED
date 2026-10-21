@@ -318,7 +318,7 @@ async test "the export carries the sentences and the summary too" {
   // binary that dies prints no summary -- which reads as "the mutation did
   // not compile" rather than as the failure it is.
   assert_eq(steps.length(), 3)
-  let markdown = @backend.export_markdown(db, reload(db, session.id))
+  let markdown = @backend.export_markdown(db, reload(db, session.id), en())
   // The sentence is in the document, not only on the screen: the document is
   // the thing the user takes away, and it should say what happened in the
   // same words the page did.
@@ -331,7 +331,7 @@ async test "the export carries the sentences and the summary too" {
   assert_true(markdown.contains("## The run so far"))
   // The JSON export carries the summary as well, so a consumer does not
   // have to work it out from the path.
-  let json = @backend.export_json(db, reload(db, session.id))
+  let json = @backend.export_json(db, reload(db, session.id), en())
   match json_field(json, "summary") {
     Some(Json::String(summary)) => assert_true(summary != "")
     _ => fail("the json export should carry the summary")

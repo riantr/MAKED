@@ -32,6 +32,36 @@ $scripts = @(
   'tools\mutate-loop.ps1'
 )
 
+# Expand \u{XXXX} into the character it names.
+#
+# An anchor in a mutation suite is pure ASCII, because the suites are read by
+# Windows PowerShell as ANSI: a Chinese literal in one is mojibake before the
+# script has run, and an anchor made of one never matches the UTF-8 source it
+# is looking for. A character is named by its code point instead, and both the
+# suites and this checker expand it the same way -- so an anchor written this
+# way is still checked, rather than being an anchor nobody can see.
+function Expand-CodePoints($text) {
+  $out = ''
+  $i = 0
+  while ($i -lt $text.Length) {
+    if ($text[$i] -eq '\' -and
+        $i + 2 -lt $text.Length -and
+        $text[$i + 1] -eq 'u' -and
+        $text[$i + 2] -eq '{') {
+      $end = $text.IndexOf('}', $i + 3)
+      if ($end -gt 0) {
+        $hex = $text.Substring($i + 3, $end - $i - 3)
+        $out += [char][Convert]::ToInt32($hex, 16)
+        $i = $end + 1
+        continue
+      }
+    }
+    $out += $text[$i]
+    $i++
+  }
+  $out
+}
+
 # One mutation's anchor, in the two forms the suites use:
 #
 #   old  = 'single quoted'
@@ -148,6 +178,7 @@ foreach ($s in $scripts) {
       continue
     }
     $src = [System.IO.File]::ReadAllText($full)
+    $anchor = Expand-CodePoints $anchor
     if ($src.Contains($anchor)) {
       Write-Output ("  ok      {0}" -f $name)
     } else {

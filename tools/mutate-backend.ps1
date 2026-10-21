@@ -55,6 +55,36 @@ Set-Location (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
 $ErrorActionPreference = 'Continue'
 $enc = New-Object System.Text.UTF8Encoding($false)
 
+# Expand \u{XXXX} into the character it names.
+#
+# The anchors have to be pure ASCII, because this file is read by Windows
+# PowerShell as ANSI: a Chinese literal in here is mojibake before the
+# script has run, and an anchor made of one never matches the UTF-8 source
+# it is looking for. A character is named by its code point instead, and
+# `check-mutation-anchors.ps1` expands the same way -- so an anchor written
+# this way is still checked, rather than being an anchor nobody can see.
+function Expand-CodePoints($text) {
+  $out = ''
+  $i = 0
+  while ($i -lt $text.Length) {
+    if ($text[$i] -eq '\' -and
+        $i + 2 -lt $text.Length -and
+        $text[$i + 1] -eq 'u' -and
+        $text[$i + 2] -eq '{') {
+      $end = $text.IndexOf('}', $i + 3)
+      if ($end -gt 0) {
+        $hex = $text.Substring($i + 3, $end - $i - 3)
+        $out += [char][Convert]::ToInt32($hex, 16)
+        $i = $end + 1
+        continue
+      }
+    }
+    $out += $text[$i]
+    $i++
+  }
+  $out
+}
+
 # --- mutations ------------------------------------------------------------
 # name; file; old text; new text
 $mutations = @(
@@ -425,7 +455,7 @@ $mutations = @(
   @{
     name = 'the exported document drops the sentence for each step'
     file = 'backend/session.mbt'
-    old  = '    out = out + step_sentence(facts_of(current_model(), step), English) + "\n\n"'
+    old  = '    out = out + step_sentence(facts_of(model, step), lang) + "\n\n"'
     new  = '    out = out + "\n\n"'
   },
   # The json export carries the summary so that a consumer does not have to
@@ -936,8 +966,8 @@ $mutations = @(
   @{
     name = 'the json export is labelled as markdown'
     file = 'backend/agent.mbt'
-    old  = '    { "format": "json", "the_exploration": export_json(db, session) }'
-    new  = '    { "format": "markdown", "the_exploration": export_json(db, session) }'
+    old  = '    { "format": "json", "the_exploration": export_json(db, session, lang) }'
+    new  = '    { "format": "markdown", "the_exploration": export_json(db, session, lang) }'
   },
   @{
     name = 'an exploration that does not exist is not refused'
@@ -1196,6 +1226,49 @@ $mutations = @(
       lang,'
     new  = '      society_position_id(self.society_state),
       Lang::english(),'
+  },
+  # --- the measures and the document ----------------------------------------
+  #
+  # A measure is a sentence and the export is a document, so the question in
+  # this whole block is the same one: does the reading follow the language it
+  # was asked for, or does it quietly stay in English? A number is the same
+  # number in both, and a reader who cannot read the sentence cannot trust the
+  # number beside it.
+  @{
+    name = 'the new ground measure has no Chinese name'
+    file = 'backend/metrics.mbt'
+    old  = '    label: lang.pick("New ground", "\u{65B0}\u{589E}\u{5730}\u{76D8}"),'
+    new  = '    label: lang.pick("New ground", "New ground"),'
+  },
+  @{
+    name = 'the exported measures are in English'
+    file = 'backend/session.mbt'
+    old  = '  let run_metrics = measure(path, lang)'
+    new  = '  let run_metrics = measure(path, Lang::english())'
+  },
+  @{
+    name = 'the exported summary is in English'
+    file = 'backend/session.mbt'
+    old  = '  let run_summary = summary_of(path, lang)'
+    new  = '  let run_summary = summary_of(path, English)'
+  },
+  @{
+    name = 'the exported steps are in English'
+    file = 'backend/session.mbt'
+    old  = '    out = out + step_sentence(facts_of(model, step), lang) + "\n\n"'
+    new  = '    out = out + step_sentence(facts_of(model, step), English) + "\n\n"'
+  },
+  @{
+    name = 'the exported document is in English'
+    file = 'backend/export_words.mbt'
+    old  = '    title: "# MAKED \u{4F1A}\u{8BDD}\u{FF1A}",'
+    new  = '    title: "# MAKED session: ",'
+  },
+  @{
+    name = 'the agent''s export is in English'
+    file = 'backend/agent.mbt'
+    old  = '    { "format": "json", "the_exploration": export_json(db, session, lang) }'
+    new  = '    { "format": "json", "the_exploration": export_json(db, session, Lang::english()) }'
   }
 )
 
@@ -1210,14 +1283,18 @@ foreach ($m in $mutations) {
   }
   $full = Join-Path $PWD $m.file
   $original = [System.IO.File]::ReadAllText($full)
+  # The anchor is expanded before it is looked for, so an anchor that names a
+  # Chinese character by its code point is the same anchor the checker sees.
+  $old = Expand-CodePoints $m.old
+  $new = Expand-CodePoints $m.new
   try {
     # A silent no-op Replace reports a mutation that never happened as a
     # surviving test, which reads as a test weakness and is not one. Make an
     # unmatched anchor an error instead.
-    if (-not $original.Contains($m.old)) {
+    if (-not $original.Contains($old)) {
       throw "anchor not present in $($m.file) -- mutation never applied"
     }
-    [System.IO.File]::WriteAllText($full, $original.Replace($m.old, $m.new), $enc)
+    [System.IO.File]::WriteAllText($full, $original.Replace($old, $new), $enc)
     $out = & moon test --target native backend 2>&1 | Out-String
     # A mutation that does not compile is a mistake in the mutation, not a
     # kill of the test: the suite never ran, so nothing was proved. The

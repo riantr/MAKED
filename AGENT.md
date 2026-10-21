@@ -68,9 +68,9 @@ and an `Mcp-Method: <method>` header naming the method the body carries.
 | `maked_options` | `depth`, `lang` | the slots that can move, the slots that cannot and why, the successors the table declined to choose between |
 | `maked_step` | `slot`, `target`, `lang` | take a move, and say what happened |
 | `maked_model` | — | the machine as data: domains, positions, slots, and the rule for every pair |
-| `maked_society` | `trigger` | where the collective stands; with a trigger, take that move |
-| `maked_sessions` | — | the named explorations, and which one is in front of us |
-| `maked_export` | `session_id`, `format` | one exploration as Markdown (to read) or JSON (to process) |
+| `maked_society` | `trigger`, `lang` | where the collective stands; with a trigger, take that move |
+| `maked_sessions` | `lang` | the named explorations, and which one is in front of us |
+| `maked_export` | `session_id`, `format`, `lang` | one exploration as Markdown (to read) or JSON (to process) |
 
 The order that works: **`maked_status` → `maked_options` → `maked_step`**.
 
@@ -98,8 +98,10 @@ rather than translated from the English ones.
 | `GET` | `/api/sessions/:id/export` | `maked_export` |
 
 The loop, the timeline and the research endpoints take `?lang=zh` as well:
-`GET /api/loop/status?lang=zh`. `GET /api/model` does not need it — the model
-carries both vocabularies, so a client can choose for itself.
+`GET /api/loop/status?lang=zh`. The export takes it too:
+`GET /api/sessions/1/export?format=md&lang=zh`. `GET /api/model` does not
+need it — the model carries both vocabularies, so a client can choose for
+itself.
 
 ## The four files
 

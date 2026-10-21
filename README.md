@@ -292,11 +292,28 @@ about the fallback.
 
 The collective (`/api/society`) answers in Chinese as well: its position
 names, its glosses and its phases are pyroduct's own, because the
-vocabulary file — the reader's own words — is written in English. The
-exports are still English for now.
+vocabulary file — the reader's own words — is written in English.
+
+The measures and the export answer in Chinese as well, and the export is
+the one that matters most: it is the thing the reader takes away, and a
+document that stayed in English would be the last English surface a reader
+meets. The document is written twice rather than translated — a translation
+keeps the shape of the original, and the shape of an English report is not
+the shape a Chinese reader expects.
+
+```
+GET  /api/sessions/1/export?format=md&lang=zh
+GET  /api/sessions/1/export?format=json&lang=zh
+```
+
+The measures are the same numbers in both languages — the measures read the
+run, and the run does not change with the language — and the sentences
+beside them are not. A reader who cannot read the sentence cannot trust the
+number next to it.
 
 The agent's server takes the same switch as an argument: `maked_status`,
-`maked_options` and `maked_step` all accept `lang`.
+`maked_options`, `maked_step`, `maked_society`, `maked_sessions` and
+`maked_export` all accept `lang`.
 
 ### The language in the browser
 
@@ -309,12 +326,12 @@ owns come back from the server in the language that was asked for.
 The choice is not remembered across a reload. It is a question the reader
 asks of the page, and a page that has just been opened has not been asked.
 
-Two things are still English in a Chinese interface, and both are honest
-about it:
+The export links carry the language with them, so the document a reader
+downloads is in the language the page is in.
 
-- the prose of the five domain pages, which is the project's own writing and
-  lives in the database;
-- the metrics and the exports, which are the next piece of work.
+One thing is still English in a Chinese interface, and it is honest about
+it: the prose of the five domain pages, which is the project's own writing
+and lives in the database.
 
 ### The agent's server
 

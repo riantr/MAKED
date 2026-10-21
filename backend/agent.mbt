@@ -87,15 +87,26 @@ pub fn agent_status(db : Database, lang : Lang) -> Json raise {
   let path = active_path(db)
   let last_move = match last_step(path) {
     Some(step) => step_sentence(facts_of(model, step), lang)
-    None => "No step has been taken yet. The loop is standing where it starts."
+    None =>
+      match lang {
+        English =>
+          "No step has been taken yet. The loop is standing where it starts."
+        Chinese =>
+          "还没有走过任何一步。循环停在它出发的地方。"
+      }
   }
   {
     "where": agent_where(lang),
     "the_last_move": last_move,
     "the_run_so_far": summary_of(path, lang),
     "steps_taken": path.length(),
-    "the_measures": measure(path).to_json(),
-    "note": "Call maked_options to see what the table offers from here, and maked_step to take one of them.",
+    "the_measures": measure(path, lang).to_json(),
+    "note": match lang {
+      English =>
+        "Call maked_options to see what the table offers from here, and maked_step to take one of them."
+      Chinese =>
+        "调用 maked_options 看这里表格提供了什么，再用 maked_step 走其中一步。"
+    },
   }
 }
 
@@ -120,11 +131,20 @@ pub fn agent_options(depth : Int32, lang : Lang) -> Json {
         "slot": name,
         "slot_name": designation,
         "what_the_slot_is": gloss,
-        "why": "There is no \"" +
-        designation +
-        "\" out of " +
-        model.position_label_in(position, lang) +
-        ".",
+        "why": match lang {
+          English =>
+            "There is no \"" +
+            designation +
+            "\" out of " +
+            model.position_label_in(position, lang) +
+            "."
+          Chinese =>
+            "从" +
+            model.position_label_in(position, lang) +
+            "出发，没有可以走的“" +
+            designation +
+            "”。"
+        },
       })
     } else {
       let lands : Array[String] = []
@@ -151,7 +171,12 @@ pub fn agent_options(depth : Int32, lang : Lang) -> Json {
           "slot": name,
           "slot_name": designation,
           "the_candidates": agent_strings(lands),
-          "note": "The table offers several successors here and will not choose between them. Pass one of them to maked_step as the target.",
+          "note": match lang {
+            English =>
+              "The table offers several successors here and will not choose between them. Pass one of them to maked_step as the target."
+            Chinese =>
+              "这里的表格给出了好几个后继，不肯在其中挑选。把其中一个作为 target 传给 maked_step。"
+          },
         })
       }
     }
@@ -169,7 +194,12 @@ pub fn agent_options(depth : Int32, lang : Lang) -> Json {
     "cannot_move": cannot_move,
     "the_table_declined_to_choose": declined,
     "the_machine_says_could_happen_next": ahead,
-    "note": "The machine does not choose for you. Take one of the moves that can_move names, with maked_step.",
+    "note": match lang {
+      English =>
+        "The machine does not choose for you. Take one of the moves that can_move names, with maked_step."
+      Chinese =>
+        "机器不替你选择。用 maked_step 走 can_move 中列出的某一步。"
+    },
   }
 }
 
@@ -182,14 +212,19 @@ pub fn agent_step_result(db : Database, lang : Lang) -> Json raise {
   let path = active_path(db)
   let what_happened = match last_step(path) {
     Some(step) => step_sentence(facts_of(model, step), lang)
-    None => "The step did not land anywhere the history can describe."
+    None =>
+      match lang {
+        English => "The step did not land anywhere the history can describe."
+        Chinese =>
+          "这一步没有落在历史能够描述的任何一个地方。"
+      }
   }
   {
     "what_happened": what_happened,
     "where_now": agent_where(lang),
     "the_run_so_far": summary_of(path, lang),
     "steps_taken": path.length(),
-    "the_measures": measure(path).to_json(),
+    "the_measures": measure(path, lang).to_json(),
   }
 }
 
@@ -292,7 +327,7 @@ pub fn agent_society_step(trigger : String, lang : Lang) -> Json {
 
 ///|
 /// The named explorations, and which one is in front of us.
-pub fn agent_sessions(db : Database) -> Json raise {
+pub fn agent_sessions(db : Database, lang : Lang) -> Json raise {
   let active = active_session_id()
   let items : Array[Json] = []
   for session in db.all_sessions() {
@@ -306,7 +341,12 @@ pub fn agent_sessions(db : Database) -> Json raise {
   {
     "the_active_one": active,
     "the_explorations": items,
-    "note": "An exploration is a named run of steps. maked_export takes one away as Markdown or JSON.",
+    "note": match lang {
+      English =>
+        "An exploration is a named run of steps. maked_export takes one away as Markdown or JSON."
+      Chinese =>
+        "一次探索就是一串有名字的步。maked_export 可以把它作为 Markdown 或 JSON 带走。"
+    },
   }
 }
 
@@ -320,6 +360,7 @@ pub fn agent_export(
   db : Database,
   session_id : Int64,
   format : String,
+  lang : Lang,
 ) -> Json raise {
   let session = match db.session_by_id(session_id) {
     Some(s) => s
@@ -330,11 +371,11 @@ pub fn agent_export(
       }
   }
   if format == "json" {
-    { "format": "json", "the_exploration": export_json(db, session) }
+    { "format": "json", "the_exploration": export_json(db, session, lang) }
   } else {
     {
       "format": "markdown",
-      "the_exploration": Json::string(export_markdown(db, session)),
+      "the_exploration": Json::string(export_markdown(db, session, lang)),
     }
   }
 }
@@ -441,6 +482,10 @@ fn agent_export_schema() -> Json {
         "type": "string",
         "description": "markdown or json. Default markdown, which is the reading form.",
       },
+      "lang": {
+        "type": "string",
+        "description": "The language to answer in: \"en\" or \"zh\". Default \"en\".",
+      },
     },
     "required": [],
   }
@@ -503,7 +548,7 @@ pub fn agent_tool_specs() -> Array[AgentTool] {
     {
       name: "maked_sessions",
       description: "The named explorations, and which one is in front of us.",
-      arguments: agent_no_arguments(),
+      arguments: agent_lang_schema(),
     },
     {
       name: "maked_export",

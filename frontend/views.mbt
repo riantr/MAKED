@@ -680,15 +680,14 @@ pub fn sessions_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
   // The exports are plain links to the API rather than fetches: the server
   // sends them as attachments, and a link is what a browser knows how to
   // download.
-  let export_base = "/api/sessions/" + active.id.to_string() + "/export"
   let exports = @html.div(class="maked-ss-exports", [
     @html.a(
-      href=export_base + "?format=md",
+      href=export_link(active.id, "md", model.lang),
       class="maked-ss-btn maked-ss-btn--link",
       c.sessions.export_md,
     ),
     @html.a(
-      href=export_base + "?format=json",
+      href=export_link(active.id, "json", model.lang),
       class="maked-ss-btn maked-ss-btn--link",
       c.sessions.export_json,
     ),

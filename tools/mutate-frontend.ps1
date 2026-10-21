@@ -464,6 +464,19 @@ $mutations = @(
     file = 'frontend/app.mbt'
     old  = '("/api/society/step" + lang_query(lang), { "trigger": trigger })'
     new  = '("/api/society/step", { "trigger": trigger })'
+  },
+  # The document the reader takes away is in the language the page is in, and
+  # the link that takes it away is what says so: a link that left the
+  # language off would hand a reader who had turned the page into Chinese an
+  # English document, with the download working perfectly.
+  @{
+    name = 'the export link does not carry the language'
+    file = 'frontend/app.mbt'
+    old  = '  "/export?format=" +
+  format +
+  lang_param(lang)'
+    new  = '  "/export?format=" +
+  format'
   }
 )
 

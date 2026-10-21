@@ -828,6 +828,37 @@ try {
   Assert-HasField "and carries the measures" $exportedMeasures "metrics"
   Assert-True "and the measures are there to read" (@(Field $exportedMeasures "metrics")).Count -eq 5
 
+  # The document in the other language. The export is the one thing the
+  # reader takes away, so a document that stayed in English would be the
+  # last English surface a reader meets -- and a reader who turned the page
+  # into Chinese would be handed an English document at the very end.
+  #
+  # The expectations are written as code points, because this file is read
+  # by Windows PowerShell as ANSI: a Chinese literal in here is mojibake
+  # before the script has run, and the assertion would compare mojibake
+  # with Chinese and fail against a server that was right all along.
+  $zhHuiHua = [string]([char]0x4F1A) + [char]0x8BDD
+  $zhTimeline = [string]([char]0x65F6) + [char]0x95F4 + [char]0x7EBF
+  $zhWhy = [string]([char]0x539F) + [char]0x56E0
+  $zhPosition = [string]([char]0x4F4D) + [char]0x7F6E
+  $zhNewGround = [string]([char]0x65B0) + [char]0x589E + [char]0x5730 + [char]0x76D8
+  # The full-width colon. The document is Chinese, and a Chinese document
+  # writes a full-width colon; an ASCII one in the middle of it would be a
+  # piece of English furniture the size of a single character.
+  $zhColon = [string]([char]0xFF1A)
+  $chinese = Invoke-Api -Method GET -Path "/api/sessions/$sessionId/export?format=md&lang=zh"
+  Assert-Status "the Chinese export is a 200" 200 $chinese
+  Assert-Contains "and it is named in Chinese" $chinese.Body ("# MAKED " + $zhHuiHua + $zhColon)
+  Assert-Contains "and it has a Chinese timeline" $chinese.Body ("## " + $zhTimeline)
+  Assert-Contains "and the steps say why in Chinese" $chinese.Body ("**" + $zhWhy + $zhColon + "**")
+  Assert-Contains "and the positions are named in Chinese" $chinese.Body ("**" + $zhPosition + $zhColon + "**")
+  Assert-Contains "and its measures are in Chinese" $chinese.Body $zhNewGround
+  Assert-True "and no English furniture is left" (-not $chinese.Body.Contains("## Timeline"))
+  $chineseJson = Get-Json "/api/sessions/$sessionId/export?format=json&lang=zh"
+  Assert-Field "the Chinese json export says what it is" $chineseJson "format" "maked.session.v1"
+  $chineseMeasures = Field $chineseJson "metrics"
+  Assert-Contains "and its measures are in Chinese too" (@(Field $chineseMeasures "metrics"))[0].label $zhNewGround
+
   $badFormat = Invoke-Api -Method GET -Path "/api/sessions/$sessionId/export?format=xml"
   Assert-Status "an export in an unknown format is a 400" 400 $badFormat
 

@@ -232,13 +232,13 @@ async fn society_tool(
 /// The named explorations.
 async fn sessions_tool(
   _context : @runtime.RequestContext,
-  _args : Json,
+  args : Json,
 ) -> Result[@tool.ToolResult, @mcp_types.MCPError] {
   let db = match database_or_error() {
     Ok(db) => db
     Err(err) => return Err(err)
   }
-  let payload = @maked.agent_sessions(db) catch {
+  let payload = @maked.agent_sessions(db, lang_of(args)) catch {
     err =>
       return Err(
         @mcp_types.MCPError::InternalError(
@@ -267,7 +267,7 @@ async fn export_tool(
   }
   let format = string_of(args, "format")
   let wanted = if format == "" { "markdown" } else { format }
-  let payload = @maked.agent_export(db, id, wanted) catch {
+  let payload = @maked.agent_export(db, id, wanted, lang_of(args)) catch {
     err =>
       return Err(
         @mcp_types.MCPError::InternalError(

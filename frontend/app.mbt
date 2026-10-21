@@ -314,6 +314,29 @@ pub fn society_request(lang : UiLang) -> String {
 }
 
 ///|
+/// The link that takes an exploration away.
+///
+/// The link carries the format and the language, because the document the
+/// server sends is in the language the request asked for: a link that left
+/// the language off would hand a reader who had turned the page into Chinese
+/// an English document, with the download still working perfectly.
+///
+/// Public for the same reason `society_request` is: the link is the whole of
+/// what the server ever sees, and a test that cannot read it can only trust
+/// that the button points somewhere.
+pub fn export_link(
+  session_id : Int32,
+  format : String,
+  lang : UiLang,
+) -> String {
+  "/api/sessions/" +
+  session_id.to_string() +
+  "/export?format=" +
+  format +
+  lang_param(lang)
+}
+
+///|
 /// `update` takes the emitter as the first parameter. The signature is fixed by
 /// `@rabbita.cell`, which passes the emitter so the view can issue commands.
 ///
