@@ -1367,16 +1367,21 @@ function Get-DslRoutes {
 
 # Every route the model names has to be a route the server registers.
 function Test-DslRoutes($named, $actual) {
+  # The list is walked by hand, because a function that returns an empty
+  # array hands its caller a null, and a null is not a route.
   $missing = @()
-  foreach ($route in $named) {
+  $count = 0
+  foreach ($route in @($named)) {
+    if ($null -eq $route) { continue }
     if ($route -eq '') { continue }
+    $count++
     if ($actual -cnotcontains $route) { $missing += $route }
   }
   if ($missing.Count -gt 0) {
     Write-Fail ("{0,-22} the model names [{1}], the server does not register them" -f 'dsl routes', ($missing -join ' '))
     return
   }
-  Write-Ok 'dsl routes' (@($named | Where-Object { $_ -ne '' }).Count)
+  Write-Ok 'dsl routes' $count
 }
 
 Test-DslRoutes (Get-DslRoutes) (Get-TreeRoutes)
@@ -1412,6 +1417,96 @@ function Test-DslDomains($words, $expected) {
 }
 
 Test-DslDomains (Get-DslDomainWords) $ringDomains
+
+# --- models/product-iteration.yaml: the machine file states its own size -----
+#
+# The example machine says in its header how big it is: three domains, seven
+# positions, four slots, twenty-eight rules. Those numbers were true when
+# they were written, and nothing checked them, so the day the machine grew
+# a slot the header would have kept saying four and the reader would have
+# believed it.
+#
+# The numbers are now checked against the file they describe. The header
+# says them in digits, because a header that a gate can read is a header
+# that a gate can keep right.
+
+$modelYaml = 'models/product-iteration.yaml'
+
+# The number of entries in one section of the machine file. The sections are
+# the top-level keys, and an entry is a line that starts with a dash.
+function Get-ModelSectionCount($section) {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $modelYaml), $enc)
+  $count = 0
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^[a-z_]+:') {
+      $inside = ($line -eq ($section + ':'))
+      continue
+    }
+    if ($inside -and $line -match '^  - ') { $count++ }
+  }
+  $count
+}
+
+# The number the header states next to a phrase. The header is the comment
+# at the top of the file, so only the comments are read.
+function Get-ModelClaim($phrase) {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $modelYaml), $enc)
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -notmatch '^\s*#') { continue }
+    $m = [regex]::Match($line, '([0-9]+) ' + [regex]::Escape($phrase))
+    if ($m.Success) { return $m.Groups[1].Value }
+  }
+  ''
+}
+
+function Test-ModelClaim($label, $phrase, $section) {
+  Test-StatedNumber $label (Get-ModelSectionCount $section) (Get-ModelClaim $phrase) 'the machine file'
+}
+
+Test-ModelClaim 'model domains' 'domains' 'domains'
+Test-ModelClaim 'model positions' 'positions' 'positions'
+Test-ModelClaim 'model slots' 'slots' 'slots'
+Test-ModelClaim 'model rules' 'rules' 'rules'
+Test-ModelClaim 'model outcomes' 'outcomes' 'outcomes'
+
+# The files the header names. A header that points at a file that is not
+# there sends the reader to nothing, and the file it names is the machine's
+# twin -- the one the header says is the same machine.
+function Get-ModelNamedFiles {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $modelYaml), $enc)
+  $out = @()
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -notmatch '^\s*#') { continue }
+    foreach ($m in [regex]::Matches($line, '[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+\.[A-Za-z0-9]+')) {
+      $out += $m.Value
+    }
+  }
+  Sort-Set $out
+}
+
+function Test-ModelFiles($named) {
+  # The list is walked by hand, because a function that returns an empty
+  # array hands its caller a null, and a null counted as a file is a file
+  # that is not there. The bash twin counts empty lines as nothing.
+  $files = @()
+  foreach ($file in @($named)) {
+    if ($null -eq $file) { continue }
+    if ($file -eq '') { continue }
+    $files += $file
+  }
+  $missing = @()
+  foreach ($file in $files) {
+    if (-not (Test-Path (Join-Path $PWD $file))) { $missing += $file }
+  }
+  if ($missing.Count -gt 0) {
+    Write-Fail ("{0,-22} the machine file names [{1}], which are not there" -f 'model files', ($missing -join ' '))
+    return
+  }
+  Write-Ok 'model files' $files.Count
+}
+
+Test-ModelFiles (Get-ModelNamedFiles)
 
 Write-Output ""
 if ($failures -gt 0) {

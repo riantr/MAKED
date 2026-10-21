@@ -1,9 +1,11 @@
 # The product-iteration loop, written in YAML.
 #
-# This is the same machine as models/product-iteration.json: three domains,
-# seven positions, four slots, twenty-eight rules, and the same five words
-# for the five kinds of outcome. The two files are kept honest by a test --
-# the one that says a machine written in either syntax is the same machine.
+# This is the same machine as models/product-iteration.json: 3 domains,
+# 7 positions, 4 slots, 28 rules, and 5 outcomes, each with the word that
+# says it. The two files are kept honest by a test -- the one that says a
+# machine written in either syntax is the same machine -- and the numbers in
+# this header are checked against this file, so a machine that grows says
+# so.
 #
 # A `.yaml` or `.yml` file is read as YAML; every other model file is read
 # as JSON. The extension decides, because a file read as the wrong syntax

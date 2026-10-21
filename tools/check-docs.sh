@@ -1426,6 +1426,78 @@ check_dsl_domains() {
 
 check_dsl_domains "$(dsl_domain_words)" "$RING_DOMAINS"
 
+# --- models/product-iteration.yaml: the machine file states its own size -----
+#
+# The example machine says in its header how big it is: three domains, seven
+# positions, four slots, twenty-eight rules. Those numbers were true when
+# they were written, and nothing checked them, so the day the machine grew
+# a slot the header would have kept saying four and the reader would have
+# believed it.
+#
+# The numbers are now checked against the file they describe. The header
+# says them in digits, because a header that a gate can read is a header
+# that a gate can keep right.
+
+MODEL_YAML="models/product-iteration.yaml"
+
+# The number of entries in one section of the machine file. The sections are
+# the top-level keys, and an entry is a line that starts with a dash.
+model_section_count() {
+  local section="$1"
+  awk -v want="$section" '
+    /^[a-z_]+:/ { inside = ($0 == want ":") ? 1 : 0; next }
+    inside && /^  - / { n++ }
+    END { print n + 0 }
+  ' "$MODEL_YAML"
+}
+
+# The number the header states next to a phrase. The header is the comment
+# at the top of the file, so only the comments are read.
+model_claim() {
+  grep -E '^[[:space:]]*#' "$MODEL_YAML" \
+    | grep -oE "[0-9]+ $1" | grep -oE '[0-9]+' | head -1 || true
+}
+
+check_model_claim() {
+  local label="$1" phrase="$2" section="$3"
+  check_stated "$label" "$(model_section_count "$section")" \
+    "$(model_claim "$phrase")" "the machine file"
+}
+
+check_model_claim "model domains" "domains" "domains"
+check_model_claim "model positions" "positions" "positions"
+check_model_claim "model slots" "slots" "slots"
+check_model_claim "model rules" "rules" "rules"
+check_model_claim "model outcomes" "outcomes" "outcomes"
+
+# The files the header names. A header that points at a file that is not
+# there sends the reader to nothing, and the file it names is the machine's
+# twin -- the one the header says is the same machine.
+model_named_files() {
+  grep -E '^[[:space:]]*#' "$MODEL_YAML" \
+    | grep -oE '[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+\.[A-Za-z0-9]+' \
+    | LC_ALL=C sort -u
+}
+
+check_model_files() {
+  local named="$1" file missing=""
+  while IFS= read -r file; do
+    [ -n "$file" ] || continue
+    if [ ! -f "$file" ]; then
+      missing="$missing $file"
+    fi
+  done <<< "$named"
+  if [ -n "$missing" ]; then
+    fail "$(printf '%-22s the machine file names [%s], which are not there' \
+      'model files' "$(printf '%s' "$missing" | sed -e 's/^ *//')")"
+    return
+  fi
+  count_lines "$named"
+  ok "model files" "$COUNT_LINES"
+}
+
+check_model_files "$(model_named_files)"
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."
