@@ -162,12 +162,29 @@ fi
 # ---------------------------------------------------------------------------
 # Check 11: moon prove (formal verification, if Why3 available)
 # ---------------------------------------------------------------------------
+#
+# `moon prove` needs Why3, which the MoonBit toolchain carries -- so it is
+# normally there, and the check is a real one. It is not always there: a
+# machine with a different toolchain install has no Why3, and then the
+# check cannot run.
+#
+# A check that cannot run is a skip and not a failure: there is nothing in
+# the project to fix, and calling it a failure would train the reader to
+# ignore the gate. It is also not a pass -- the check did not happen, and
+# saying it did is a claim nothing backs. The old wording ("PASS (Why3 not
+# available, skipped)") was the worst of both: the result did not match the
+# word the gate compared against, so the check was counted as a failure and
+# printed as one, and the run was red on a machine with nothing wrong with
+# it.
 echo "  Check: Formal verification (moon prove)"
-if moon prove 2>/dev/null; then
-  assert_sast "formal verification (moon prove)" "PASS"
+if command -v why3 > /dev/null 2>&1; then
+  if moon prove 2>/dev/null; then
+    assert_sast "formal verification (moon prove)" "PASS"
+  else
+    assert_sast "formal verification (moon prove)" "FAIL: moon prove failed"
+  fi
 else
-  # moon prove may fail if Why3 is not installed; treat as warning
-  assert_sast "formal verification (moon prove)" "PASS (Why3 not available, skipped)"
+  echo "  SKIP  formal verification (moon prove) -- Why3 is not installed"
 fi
 
 # ---------------------------------------------------------------------------

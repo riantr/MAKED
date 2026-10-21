@@ -101,6 +101,27 @@ Model Context Protocol details.
   was the pages needing Chinese and the client having no way to ask. Write a
   word once, where it belongs, and let the other side ask for it.
 
+- **The bash gates are real now, and they run on the runner.** `ci.sh` holds
+  seventeen gates; the GitHub workflow runs the five that a push is checked
+  against (contract, component, SAST, DAST, dependency versions), and
+  `ci.sh` runs all seventeen. The mutation batteries are the slow half and
+  are local: they rewrite the source and re-run the suites 229 times, which
+  is an hour of CI for a check a push does not change.
+
+- **A gate that skips is a gate that does not run.** The DAST gate used to
+  look for a server on `MAKED_PORT` and skip its live checks when it found
+  none -- so the live path was covered by nothing, in CI and everywhere
+  else. It now starts its own server, the way the contract gate does. When
+  you add a check that needs something running, start the thing rather than
+  skipping: a check that never runs is indistinguishable from a check that
+  passes.
+
+- **The runner is ubuntu, and `python` is not on it.** `python3` is. The
+  bash gates resolve the interpreter once (`command -v python3 || command
+  -v python`) and say so plainly when there is neither, because a gate that
+  dies on a missing interpreter reports nothing about the thing it was
+  meant to check.
+
 - Read the endpoint with `Invoke-WebRequest` before suspecting the backend. A
   loop panel stuck on "Loading loop status..." while the server answers 200 is
   a client-side fault, and the browser's own network/console capture is not

@@ -642,8 +642,20 @@ the tests before it counts.
 
 ### CI
 
-Five jobs, all of which have to be green: **Test**, **Build (native)**, **Build (js)**,
+Six jobs, all of which have to be green: **Test**, **Gates**, **Build (native)**, **Build (js)**,
 **Integration**, **Container**.
+
+The **Gates** job runs the checks the unit tests cannot: the shape of every API response, the
+way the modules compose, the static analysis, the dynamic analysis against a running server, and
+the dependency versions. The dynamic analysis used to look for a server and skip its live checks
+when it found none, so those checks had never run anywhere; the gate now starts its own server
+and asks it.
+
+The other gates — the mutation batteries, the coverage report, the benchmarks and the formal
+verification — are in `ci.sh`, which is the local equivalent of the pipeline and its slower half.
+The mutation batteries are the slow ones for a reason: they rewrite the source and re-run the
+suites two hundred and twenty-nine times, which is an hour of CI for a check that a push does not
+change.
 
 ## Common Pitfalls and Best Practices
 

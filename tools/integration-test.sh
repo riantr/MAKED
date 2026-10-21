@@ -22,6 +22,17 @@ PASS=0
 FAIL=0
 TOTAL=0
 
+# The interpreter, whichever name this machine gives it.
+#
+# `python` is not on the PATH of a current ubuntu runner -- `python3` is --
+# and a gate that dies on a missing interpreter says nothing about the thing
+# it was meant to check.
+PYTHON="$(command -v python3 || command -v python || true)"
+if [ -z "$PYTHON" ]; then
+  echo "  ERROR  no python on this machine, so the integration checks cannot run"
+  exit 1
+fi
+
 cleanup() {
   if [ -n "$SERVER_PID" ]; then
     kill "$SERVER_PID" 2>/dev/null || true
@@ -47,7 +58,7 @@ assert_json_field() {
   local desc="$1" json="$2" pyexpr="$3" expected="$4"
   TOTAL=$((TOTAL + 1))
   local actual
-  actual=$(echo "$json" | python -c "import sys,json; d=json.load(sys.stdin); print($pyexpr)" 2>/dev/null) || actual="__ERROR__"
+  actual=$(echo "$json" | "$PYTHON" -c "import sys,json; d=json.load(sys.stdin); print($pyexpr)" 2>/dev/null) || actual="__ERROR__"
   if [ "$actual" = "$expected" ]; then
     PASS=$((PASS + 1))
     echo "  PASS  $desc"
@@ -61,7 +72,7 @@ assert_json_array_length() {
   local desc="$1" json="$2" field="$3" expected="$4"
   TOTAL=$((TOTAL + 1))
   local actual
-  actual=$(echo "$json" | python -c "import sys,json; d=json.load(sys.stdin); print(len($field))" 2>/dev/null) || actual="-1"
+  actual=$(echo "$json" | "$PYTHON" -c "import sys,json; d=json.load(sys.stdin); print(len($field))" 2>/dev/null) || actual="-1"
   if [ "$actual" = "$expected" ]; then
     PASS=$((PASS + 1))
     echo "  PASS  $desc"
@@ -75,7 +86,7 @@ assert_json_has_field() {
   local desc="$1" json="$2" field="$3"
   TOTAL=$((TOTAL + 1))
   local has
-  has=$(echo "$json" | python -c "import sys,json; d=json.load(sys.stdin); print('yes' if '$field' in d else 'no')" 2>/dev/null) || has="no"
+  has=$(echo "$json" | "$PYTHON" -c "import sys,json; d=json.load(sys.stdin); print('yes' if '$field' in d else 'no')" 2>/dev/null) || has="no"
   if [ "$has" = "yes" ]; then
     PASS=$((PASS + 1))
     echo "  PASS  $desc"
@@ -89,7 +100,7 @@ assert_json_field_not_empty() {
   local desc="$1" json="$2" field="$3"
   TOTAL=$((TOTAL + 1))
   local actual
-  actual=$(echo "$json" | python -c "import sys,json; d=json.load(sys.stdin); v=d.get('$field',''); print('nonempty' if v else 'empty')" 2>/dev/null) || actual="error"
+  actual=$(echo "$json" | "$PYTHON" -c "import sys,json; d=json.load(sys.stdin); v=d.get('$field',''); print('nonempty' if v else 'empty')" 2>/dev/null) || actual="error"
   if [ "$actual" = "nonempty" ]; then
     PASS=$((PASS + 1))
     echo "  PASS  $desc"
@@ -256,8 +267,8 @@ DOMAINS_TRAVERSED=0
 
 for attempt in $(seq 1 20); do
   STATUS=$(curl -sf "http://127.0.0.1:$PORT/api/loop/status")
-  CURRENT=$(echo "$STATUS" | python -c "import sys,json; print(json.load(sys.stdin)['current_domain'])" 2>/dev/null)
-  HISTORY_LEN=$(echo "$STATUS" | python -c "import sys,json; print(json.load(sys.stdin)['history_length'])" 2>/dev/null)
+  CURRENT=$(echo "$STATUS" | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin)['current_domain'])" 2>/dev/null)
+  HISTORY_LEN=$(echo "$STATUS" | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin)['history_length'])" 2>/dev/null)
 
   if [ "$HISTORY_LEN" -ge 5 ]; then
     break
@@ -266,18 +277,18 @@ for attempt in $(seq 1 20); do
   # Try each slot to find one that moves.
   for slot in "${SLOTS[@]}"; do
     BEFORE=$(curl -sf "http://127.0.0.1:$PORT/api/loop/status")
-    BEFORE_DOMAIN=$(echo "$BEFORE" | python -c "import sys,json; print(json.load(sys.stdin)['current_domain'])" 2>/dev/null)
-    BEFORE_LEN=$(echo "$BEFORE" | python -c "import sys,json; print(json.load(sys.stdin)['history_length'])" 2>/dev/null)
+    BEFORE_DOMAIN=$(echo "$BEFORE" | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin)['current_domain'])" 2>/dev/null)
+    BEFORE_LEN=$(echo "$BEFORE" | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin)['history_length'])" 2>/dev/null)
 
     curl -sf -X POST "http://127.0.0.1:$PORT/api/loop/step/$slot" >/dev/null 2>&1 || true
 
     AFTER=$(curl -sf "http://127.0.0.1:$PORT/api/loop/status")
-    AFTER_DOMAIN=$(echo "$AFTER" | python -c "import sys,json; print(json.load(sys.stdin)['current_domain'])" 2>/dev/null)
-    AFTER_LEN=$(echo "$AFTER" | python -c "import sys,json; print(json.load(sys.stdin)['history_length'])" 2>/dev/null)
+    AFTER_DOMAIN=$(echo "$AFTER" | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin)['current_domain'])" 2>/dev/null)
+    AFTER_LEN=$(echo "$AFTER" | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin)['history_length'])" 2>/dev/null)
 
     # If domain changed or history grew with a non-Block outcome, we made progress.
     if [ "$AFTER_LEN" -gt "$BEFORE_LEN" ]; then
-      OUTCOME=$(echo "$AFTER" | python -c "import sys,json; h=json.load(sys.stdin)['history']; print(h[-1]['outcome'] if h else '')" 2>/dev/null)
+      OUTCOME=$(echo "$AFTER" | "$PYTHON" -c "import sys,json; h=json.load(sys.stdin)['history']; print(h[-1]['outcome'] if h else '')" 2>/dev/null)
       if [ "$OUTCOME" != $'\xe6\x97\xa0\xe8\xb7\xaf' ]; then
         DOMAINS_TRAVERSED=$((DOMAINS_TRAVERSED + 1))
         break
@@ -291,7 +302,7 @@ for attempt in $(seq 1 20); do
 done
 
 FINAL=$(curl -sf "http://127.0.0.1:$PORT/api/loop/status")
-FINAL_LEN=$(echo "$FINAL" | python -c "import sys,json; print(json.load(sys.stdin)['history_length'])" 2>/dev/null)
+FINAL_LEN=$(echo "$FINAL" | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin)['history_length'])" 2>/dev/null)
 
 TOTAL=$((TOTAL + 1))
 if [ "$DOMAINS_TRAVERSED" -ge 1 ]; then

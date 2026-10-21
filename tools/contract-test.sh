@@ -24,6 +24,19 @@ PASS=0
 FAIL=0
 TOTAL=0
 
+# The interpreter, whichever name this machine gives it.
+#
+# `python` is not on the PATH of a current ubuntu runner -- `python3` is --
+# and a gate that dies on a missing interpreter says nothing about the thing
+# it was meant to check: it says the interpreter is missing, and the checks
+# that would have run do not run. So the name is resolved once, and a
+# machine with neither is told so plainly instead of failing sixty times.
+PYTHON="$(command -v python3 || command -v python || true)"
+if [ -z "$PYTHON" ]; then
+  echo "  ERROR  no python on this machine, so the contract checks cannot run"
+  exit 1
+fi
+
 cleanup() {
   if [ -n "$SERVER_PID" ]; then
     kill "$SERVER_PID" 2>/dev/null || true
@@ -37,7 +50,7 @@ assert_contract() {
   local desc="$1" json="$2" check="$3"
   TOTAL=$((TOTAL + 1))
   local result
-  result=$(echo "$json" | python -c "
+  result=$(echo "$json" | "$PYTHON" -c "
 import sys, json
 try:
     d = json.load(sys.stdin)

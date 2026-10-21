@@ -18,6 +18,19 @@ CHECKED=0
 
 echo "Checking dependency versions..."
 echo ""
+echo ""
+
+# The interpreter, whichever name this machine gives it.
+#
+# `python` is not on the PATH of a current ubuntu runner -- `python3` is --
+# and a query that dies on a missing interpreter reports "could not query
+# latest version" for every dependency, which reads like a registry problem
+# and is really a missing program.
+PYTHON="$(command -v python3 || command -v python || true)"
+if [ -z "$PYTHON" ]; then
+  echo "  ERROR  no python on this machine, so the versions cannot be checked"
+  exit 1
+fi
 
 # Parse moon.mod for dependencies in the import block
 # Format: "user/package@version"
@@ -36,7 +49,7 @@ while IFS= read -r line; do
 
       # Query latest version
       CHECKED=$((CHECKED + 1))
-      latest=$(moon view "$pkg" --json 2>/dev/null | python -c "
+      latest=$(moon view "$pkg" --json 2>/dev/null | "$PYTHON" -c "
 import sys, json
 try:
     d = json.load(sys.stdin)

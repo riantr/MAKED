@@ -57,6 +57,60 @@ jobs:
       - name: Check the README's numbers against the tree
         run: pwsh tools/check-readme.ps1
 
+  # The gates that live in `ci.sh` but were never wired into this workflow.
+  #
+  # The five jobs below are the ones a push is checked against, and until now
+  # the contract tests, the component tests, the static analysis and the
+  # dynamic analysis had never run on the runner at all: `ci.sh` holds
+  # seventeen gates and this workflow called none of them. A gate that is only
+  # ever run by hand is a gate that is only ever run by the person who wrote
+  # it, and the five here are the ones that catch things the unit tests
+  # cannot: the shape of an API response, the way the modules compose, and
+  # what a running server does with a request it should refuse.
+  #
+  # The dynamic analysis gate starts its own server now -- it used to look
+  # for one on MAKED_PORT and skip the live checks when it found none, so
+  # the live path was covered by nothing -- and it brings the interpreter up
+  # by whichever name the machine has, because `python` is not on the PATH of
+  # a current runner and `python3` is.
+  #
+  # The mutation batteries are not here: they rewrite the source and re-run
+  # the suites two hundred and twenty-nine times, which is an hour of CI for
+  # a check that a push does not change. They are `tools/mutate-*.ps1`, and
+  # `bash ci.sh` runs them.
+  gates:
+    name: Gates
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+
+      - name: Update MoonBit dependencies
+        run: |
+          moon version --all
+          moon update
+
+      - name: Contract tests (the shape of every response)
+        run: bash tools/contract-test.sh
+
+      - name: Component tests (the modules composing)
+        run: bash tools/component-test.sh
+
+      - name: Static analysis
+        run: bash tools/sast-check.sh
+
+      - name: Dynamic analysis
+        run: bash tools/dast-check.sh
+
+      - name: Dependency versions
+        run: bash tools/dep-check.sh
+
   build-native:
     name: Build (native)
     runs-on: ubuntu-latest
