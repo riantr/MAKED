@@ -103,6 +103,15 @@ Model Context Protocol details.
   the code does not have is a setting that does something else. The files the
   README's own example commands point at have to exist, because a reader
   copies those commands too.
+  And it checks the API MAP: the routes the server registers are derived
+  from the registrations in `backend/api.mbt`, and the README's table has to
+  be exactly those -- a route the table does not name is a route nobody can
+  find, and a row the server does not serve is a promise the server does not
+  keep. Every other path the README mentions has to resolve to a route too,
+  with a concrete value allowed where the route takes a parameter. The
+  protocol version the README states has to be the one the server speaks,
+  and every library version it names has to be the one the manifest pins --
+  a version the reader would install is not the one this project runs.
 
 - **A gate on the README does not make the other documents true.**
   `tools/check-docs.ps1` (and its bash twin) applies the same

@@ -404,6 +404,188 @@ else
   printf '  ok      %-20s %s\n' 'Example paths' "$(printf '%s\n' "$EXAMPLE_PATHS" | grep -c . || true)"
 fi
 
+# --- the API map ------------------------------------------------------------
+#
+# The README carries a table of every route the server registers, and that
+# table is the map a reader navigates by. A route the table does not name is
+# a route nobody can find, and a row the server does not serve is a promise
+# the server does not keep.
+#
+# The routes are derived from the registrations in backend/api.mbt -- the
+# same derivation the documents gate uses -- and the two sets are compared.
+#
+# The README's OTHER mentions of a path are checked as well. A path in
+# prose carries a concrete value where the route has a parameter, as in
+# /api/loop/reset/knowledge, and it has to resolve to a route that takes a
+# parameter there.
+
+tree_routes() {
+  tr '\n' ' ' < backend/api.mbt \
+    | grep -oE 'app\.(get|post|put|delete|patch)\( *"[^"]+"' \
+    | sed -E 's/app\.(get|post|put|delete|patch)\( *"([^"]+)"/\1|\2/' \
+    | awk -F'|' '{ print toupper($1), $2 }' \
+    | LC_ALL=C sort -u
+}
+
+# The README's API table, as "METHOD path".
+doc_api_table() {
+  grep -oE '^\|[[:space:]]*`(GET|POST|PUT|DELETE|PATCH)`[[:space:]]*\|[[:space:]]*`/api/[^`]+`' "$README" \
+    | sed -E 's/^\|[[:space:]]*`([A-Z]+)`[[:space:]]*\|[[:space:]]*`([^`]+)`/\1 \2/' \
+    | LC_ALL=C sort -u
+}
+
+# Every path the README mentions, wherever it mentions it.
+doc_api_paths() {
+  grep -oE '/api/[A-Za-z0-9/:_.-]*' "$README" \
+    | sed -E -e 's/[.,)]+$//' -e 's/\?.*$//' \
+    | LC_ALL=C sort -u
+}
+
+TREE_ROUTES=$(tree_routes)
+DOC_API_TABLE=$(doc_api_table)
+
+if [ -z "$TREE_ROUTES" ]; then
+  fail "$(printf '%-20s no route could be derived from the code' 'API routes')"
+elif same_members "$TREE_ROUTES" "$DOC_API_TABLE"; then
+  printf '  ok      %-20s %s\n' 'API routes' "$(printf '%s\n' "$TREE_ROUTES" | grep -c .)"
+else
+  fail "$(printf '%-20s the tree has [%s], the table has [%s]' \
+    'API routes' \
+    "$(printf '%s\n' "$TREE_ROUTES" | tr '\n' ' ' | sed -e 's/ *$//')" \
+    "$(printf '%s\n' "$DOC_API_TABLE" | tr '\n' ' ' | sed -e 's/ *$//')")"
+fi
+
+# The routes as patterns, so that a concrete value in a path can match the
+# parameter of a route. A parameter becomes "any segment but the slash".
+#
+# The pattern is built segment by segment, because a replacement cannot
+# contain the character that separates the parts of a substitution -- and
+# "any segment but the slash" is full of slashes.
+build_route_pattern() {
+  local route="$1" segment pattern="" path
+  local -a segments
+  path="${route#* }"
+  IFS='/' read -r -a segments <<< "$path"
+  for segment in "${segments[@]}"; do
+    case "$segment" in
+      "") ;;
+      :*) pattern="$pattern/[^/]+" ;;
+      *) pattern="$pattern/$segment" ;;
+    esac
+  done
+  printf '%s' "$pattern"
+}
+
+ROUTE_PATTERNS=""
+while IFS= read -r route; do
+  [ -n "$route" ] || continue
+  ROUTE_PATTERNS="$ROUTE_PATTERNS$(build_route_pattern "$route")
+"
+done <<< "$TREE_ROUTES"
+
+UNRESOLVED=""
+while IFS= read -r path; do
+  [ -n "$path" ] || continue
+  matched=0
+  while IFS= read -r pattern; do
+    [ -n "$pattern" ] || continue
+    if [[ "$path" =~ ^$pattern$ ]]; then
+      matched=1
+      break
+    fi
+  done <<< "$ROUTE_PATTERNS"
+  if [ "$matched" -eq 0 ]; then
+    UNRESOLVED="$UNRESOLVED $path"
+  fi
+done <<< "$(doc_api_paths)"
+if [ -n "$UNRESOLVED" ]; then
+  fail "$(printf '%-20s the document names paths the server does not serve:%s' \
+    'API paths' "$UNRESOLVED")"
+else
+  printf '  ok      %-20s %s\n' 'API paths' "$(doc_api_paths | grep -c . || true)"
+fi
+
+# --- the protocol version ---------------------------------------------------
+#
+# The README states which version of the Model Context Protocol MAKED speaks,
+# in a sentence and in three example commands. All of them have to be the
+# version the server answers to: an agent that reads a version the server
+# does not speak cannot call it.
+
+code_protocol() {
+  grep -oE '"mcp": "[0-9]{4}-[0-9]{2}-[0-9]{2}"' backend/agent.mbt \
+    | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1 || true
+}
+
+doc_protocols() {
+  grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' "$README" | LC_ALL=C sort -u || true
+}
+
+PROTOCOL=$(code_protocol)
+if [ -z "$PROTOCOL" ]; then
+  fail "$(printf '%-20s the tree does not name a protocol version' 'Protocol version')"
+else
+  WRONG=""
+  while IFS= read -r stated; do
+    [ -n "$stated" ] || continue
+    if [ "$stated" != "$PROTOCOL" ]; then
+      WRONG="$WRONG $stated"
+    fi
+  done <<< "$(doc_protocols)"
+  if [ -n "$WRONG" ]; then
+    fail "$(printf '%-20s the document names [%s], the tree names %s' \
+      'Protocol version' "$(printf '%s' "$WRONG" | sed -e 's/^ *//')" "$PROTOCOL")"
+  else
+    printf '  ok      %-20s %s\n' 'Protocol version' "$PROTOCOL"
+  fi
+fi
+
+# --- the versions the document names ---------------------------------------
+#
+# The README names the versions of the libraries MAKED is built on, with a
+# link to each one, and it names its own version. A library version the
+# manifest does not pin is a version the reader would install, and it is not
+# the one this project runs; a version of MAKED's own that is not the
+# manifest's is a version that was never published.
+#
+# The module path decides which of the two it is: a path under the module's
+# own name is MAKED, and anything else is a library.
+
+doc_versions() {
+  grep -oE '[A-Za-z_][A-Za-z0-9_./-]*@[0-9]+\.[0-9]+\.[0-9]+' "$README" \
+    | sed -E 's#^mooncakes\.io/docs/##' \
+    | LC_ALL=C sort -u || true
+}
+
+MODULE_NAME=$(sed -nE 's/^name = "([^"]+)"/\1/p' moon.mod)
+MODULE_VERSION=$(sed -nE 's/^version = "([^"]+)"/\1/p' moon.mod)
+DEPENDENCY_PINS=$(sed -nE 's/^ *"([^"]+)@([^"]+)".*/\1 \2/p' moon.mod)
+
+WRONG_VERSION=""
+while IFS= read -r stated; do
+  [ -n "$stated" ] || continue
+  module="${stated%%@*}"
+  version="${stated##*@}"
+  case "$module" in
+    "$MODULE_NAME"|"$MODULE_NAME"/*)
+      if [ "$version" != "$MODULE_VERSION" ]; then
+        WRONG_VERSION="$WRONG_VERSION $stated"
+      fi
+      ;;
+    *)
+      if ! printf '%s\n' "$DEPENDENCY_PINS" | grep -qxF "$module $version"; then
+        WRONG_VERSION="$WRONG_VERSION $stated"
+      fi
+      ;;
+  esac
+done <<< "$(doc_versions)"
+if [ -n "$WRONG_VERSION" ]; then
+  fail "$(printf '%-20s the document names versions the manifest does not pin:%s' \
+    'Referenced versions' "$WRONG_VERSION")"
+else
+  printf '  ok      %-20s %s\n' 'Referenced versions' "$(doc_versions | grep -c . || true)"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in README.md do not match the tree."

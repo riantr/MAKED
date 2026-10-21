@@ -435,6 +435,179 @@ if ($missingPaths.Count -gt 0) {
   Write-Output ("  ok      {0,-20} {1}" -f 'Example paths', $examplePaths.Count)
 }
 
+# --- the API map ------------------------------------------------------------
+#
+# The README carries a table of every route the server registers, and that
+# table is the map a reader navigates by. A route the table does not name is
+# a route nobody can find, and a row the server does not serve is a promise
+# the server does not keep.
+#
+# The routes are derived from the registrations in backend/api.mbt -- the
+# same derivation the documents gate uses -- and the two sets are compared.
+#
+# The README's OTHER mentions of a path are checked as well. A path in
+# prose carries a concrete value where the route has a parameter, as in
+# /api/loop/reset/knowledge, and it has to resolve to a route that takes a
+# parameter there.
+
+function Get-TreeRoutes {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/api.mbt'), $enc)
+  $flat = $text -replace "`r?`n", ' '
+  $out = @()
+  foreach ($m in [regex]::Matches($flat, 'app\.(get|post|put|delete|patch)\(\s*"([^"]+)"')) {
+    $out += ("{0} {1}" -f $m.Groups[1].Value.ToUpper(), $m.Groups[2].Value)
+  }
+  Sort-Set $out
+}
+
+# The README's API table, as "METHOD path".
+function Get-DocApiTable {
+  $out = @()
+  foreach ($line in ($readme -split "`r?`n")) {
+    $m = [regex]::Match($line, '^\|\s*`(GET|POST|PUT|DELETE|PATCH)`\s*\|\s*`(/api/[^`]+)`')
+    if ($m.Success) {
+      $out += ("{0} {1}" -f $m.Groups[1].Value, $m.Groups[2].Value)
+    }
+  }
+  Sort-Set $out
+}
+
+# Every path the README mentions, wherever it mentions it.
+function Get-DocApiPaths {
+  $out = @()
+  foreach ($m in [regex]::Matches($readme, '/api/[A-Za-z0-9/:_.-]*')) {
+    $path = $m.Groups[0].Value
+    $path = $path -replace '[.,)]+$', ''
+    $path = $path -replace '\?.*$', ''
+    $out += $path
+  }
+  Sort-Set $out
+}
+
+$treeRoutes = Get-TreeRoutes
+$docApiTable = Get-DocApiTable
+
+if ($treeRoutes.Count -eq 0) {
+  Write-Output ("  {0,-20} no route could be derived from the code" -f 'API routes')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $treeRoutes $docApiTable) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'API routes', $treeRoutes.Count)
+} else {
+  Write-Output ("  {0,-20} the tree has [{1}], the table has [{2}]" -f 'API routes', ($treeRoutes -join ' '), ($docApiTable -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+}
+
+# The routes as patterns, so that a concrete value in a path can match the
+# parameter of a route. A parameter becomes "any segment but the slash".
+$routePatterns = @()
+foreach ($route in $treeRoutes) {
+  $path = $route.Substring($route.IndexOf(' ') + 1)
+  $routePatterns += [regex]::Replace($path, ':[A-Za-z_]+', '[^/]+')
+}
+
+$unresolved = @()
+foreach ($path in (Get-DocApiPaths)) {
+  $matched = $false
+  foreach ($pattern in $routePatterns) {
+    if ($path -cmatch "^$pattern$") { $matched = $true; break }
+  }
+  if (-not $matched) { $unresolved += $path }
+}
+if ($unresolved.Count -gt 0) {
+  Write-Output ("  {0,-20} the document names paths the server does not serve: {1}" -f 'API paths', ($unresolved -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  Write-Output ("  ok      {0,-20} {1}" -f 'API paths', (Get-DocApiPaths).Count)
+}
+
+# --- the protocol version ---------------------------------------------------
+#
+# The README states which version of the Model Context Protocol MAKED speaks,
+# in a sentence and in three example commands. All of them have to be the
+# version the server answers to: an agent that reads a version the server
+# does not speak cannot call it.
+
+function Get-CodeProtocol {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/agent.mbt'), $enc)
+  $m = [regex]::Match($text, '"mcp": "(\d{4}-\d{2}-\d{2})"')
+  if (-not $m.Success) { return '' }
+  $m.Groups[1].Value
+}
+
+function Get-DocProtocols {
+  $out = @()
+  foreach ($m in [regex]::Matches($readme, '\d{4}-\d{2}-\d{2}')) {
+    $out += $m.Groups[0].Value
+  }
+  Sort-Set $out
+}
+
+$protocol = Get-CodeProtocol
+if ([string]::IsNullOrEmpty($protocol)) {
+  Write-Output ("  {0,-20} the tree does not name a protocol version" -f 'Protocol version')
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  $wrong = @(Get-DocProtocols | Where-Object { $_ -cne $protocol })
+  if ($wrong.Count -gt 0) {
+    Write-Output ("  {0,-20} the document names [{1}], the tree names {2}" -f 'Protocol version', ($wrong -join ' '), $protocol)
+    Write-Output "*** FAIL ***"
+    $failures++
+  } else {
+    Write-Output ("  ok      {0,-20} {1}" -f 'Protocol version', $protocol)
+  }
+}
+
+# --- the versions the document names ---------------------------------------
+#
+# The README names the versions of the libraries MAKED is built on, with a
+# link to each one, and it names its own version. A library version the
+# manifest does not pin is a version the reader would install, and it is not
+# the one this project runs; a version of MAKED's own that is not the
+# manifest's is a version that was never published.
+#
+# The module path decides which of the two it is: a path under the module's
+# own name is MAKED, and anything else is a library.
+
+function Get-DocVersions {
+  $out = @()
+  foreach ($m in [regex]::Matches($readme, '[A-Za-z_][A-Za-z0-9_./-]*@[0-9]+\.[0-9]+\.[0-9]+')) {
+    # The link's own prefix is not part of the module path.
+    $out += ($m.Groups[0].Value -replace '^mooncakes\.io/docs/', '')
+  }
+  Sort-Set $out
+}
+
+$moonMod = [System.IO.File]::ReadAllText((Join-Path $PWD 'moon.mod'), $enc)
+$moduleName = [regex]::Match($moonMod, '(?m)^name = "([^"]+)"').Groups[1].Value
+$moduleVersion = [regex]::Match($moonMod, '(?m)^version = "([^"]+)"').Groups[1].Value
+$dependencyPins = @()
+foreach ($m in [regex]::Matches($moonMod, '(?m)^ *"([^"]+)@([^"]+)"')) {
+  $dependencyPins += ("{0} {1}" -f $m.Groups[1].Value, $m.Groups[2].Value)
+}
+
+$wrongVersion = @()
+foreach ($stated in (Get-DocVersions)) {
+  $parts = $stated -split '@'
+  $module = $parts[0]
+  $version = $parts[1]
+  if ($module -eq $moduleName -or $module.StartsWith("$moduleName/")) {
+    if ($version -cne $moduleVersion) { $wrongVersion += $stated }
+  } else {
+    if ($dependencyPins -cnotcontains "$module $version") { $wrongVersion += $stated }
+  }
+}
+if ($wrongVersion.Count -gt 0) {
+  Write-Output ("  {0,-20} the document names versions the manifest does not pin: {1}" -f 'Referenced versions', ($wrongVersion -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Referenced versions', (Get-DocVersions).Count)
+}
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in README.md do not match the tree." -f $failures)
