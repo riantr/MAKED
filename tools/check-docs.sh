@@ -1171,6 +1171,19 @@ check_workflow_scripts "workflow scripts" "$WORKFLOW_SCRIPTS" "$CI_SCRIPTS"
 
 SYSTEM_MODEL_DOT="architecture/system-model.dot"
 
+# The graphs that describe the present. A graph that says it describes the
+# past is history, and history keeps the numbers it had: the past is
+# allowed to be the past.
+current_graphs() {
+  local file
+  for file in $(printf '%s\n' architecture/*.dot | LC_ALL=C sort); do
+    [ -e "$file" ] || continue
+    if ! grep -qF 'This document describes the past.' "$file"; then
+      printf '%s\n' "$file"
+    fi
+  done
+}
+
 # The modules the tree has, as package/module. A test file is not a module:
 # the graph shows what the system is made of, not what it is checked with.
 tree_modules() {
@@ -1200,8 +1213,7 @@ check_sets "component graph modules" "$(tree_modules)" "$(graph_modules)"
 # The route counts the graphs state: the file, and the number it says.
 graph_route_claims() {
   local file
-  for file in $(printf '%s\n' architecture/*.dot | LC_ALL=C sort); do
-    [ -e "$file" ] || continue
+  for file in $(current_graphs); do
     grep -oE '[0-9]+ (JSON endpoints|routes)' "$file" | while IFS= read -r claim; do
       printf '%s %s\n' "$file" "$claim"
     done
@@ -1425,6 +1437,72 @@ check_dsl_domains() {
 }
 
 check_dsl_domains "$(dsl_domain_words)" "$RING_DOMAINS"
+
+# --- architecture/flows.dot: the flow graph traces what the server does ------
+#
+# The flow graph traces five paths through the server, and it counts as it
+# goes: eight pages are seeded, and it names the routes it walks. Those are
+# the tree's numbers, and the flow document beside it already says them --
+# but the graph is a document too, and it was not being checked.
+#
+# The count checks skip the graphs that say they describe the past: history
+# is allowed to be history, and only the present has to be right.
+
+FLOWS_DOT="architecture/flows.dot"
+
+# The page counts a graph states.
+graph_page_claims() {
+  grep -oE '[0-9]+ [Pp]ages?' "$1" | grep -oE '[0-9]+' | LC_ALL=C sort -u
+}
+
+# Every page count the graph states is the tree's count.
+check_graph_pages() {
+  local label="$1" file="$2" expected="$3" claims number bad=""
+  claims=$(graph_page_claims "$file")
+  while IFS= read -r number; do
+    [ -n "$number" ] || continue
+    if [ "$number" != "$expected" ]; then
+      bad="$bad $number"
+    fi
+  done <<< "$claims"
+  if [ -z "$claims" ]; then
+    fail "$(printf '%-22s the graph does not state the page count' "$label")"
+    return
+  fi
+  if [ -n "$bad" ]; then
+    fail "$(printf '%-22s the tree has %s, the graph says [%s]' \
+      "$label" "$expected" "$(printf '%s' "$bad" | sed -e 's/^ *//')")"
+    return
+  fi
+  ok "$label" "$expected"
+}
+
+check_graph_pages "flow graph pages" "$FLOWS_DOT" "$(count_seed_pages_only)"
+
+# Every family the flow graph names is a family the server serves.
+check_graph_families_live() {
+  local label="$1" named="$2" actual="$3" line missing=""
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    if ! printf '%s\n' "$actual" | grep -qxF "$line"; then
+      missing="$missing $line"
+    fi
+  done <<< "$named"
+  if [ -n "$missing" ]; then
+    fail "$(printf '%-22s the graph names [%s], which the server does not serve' \
+      "$label" "$(printf '%s' "$missing" | sed -e 's/^ *//')")"
+    return
+  fi
+  count_lines "$named"
+  ok "$label" "$COUNT_LINES"
+}
+
+check_graph_families_live "flow graph endpoints" \
+  "$(graph_api_families "$FLOWS_DOT")" "$(tree_api_families)"
+
+# The component graph says in words how many public pages there are.
+check_word_count "component graph pages" "public pages" "$PAGE_COUNT" \
+  "$SYSTEM_MODEL_DOT"
 
 # --- models/product-iteration.yaml: the machine file states its own size -----
 #

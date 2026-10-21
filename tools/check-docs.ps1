@@ -1114,17 +1114,27 @@ function Get-GraphModules {
 
 Test-Sets 'component graph modules' (Get-TreeModules) (Get-GraphModules)
 
-# The route counts the graphs state: the file, and the number it says.
-function Get-GraphRouteClaims {
+# The graphs that describe the present. A graph that says it describes the
+# past is history, and history keeps the numbers it had: the past is
+# allowed to be the past.
+function Get-CurrentGraphs {
   $out = @()
-  [string[]]$files = @(
-    Get-ChildItem (Join-Path $PWD 'architecture') -Filter '*.dot' -File |
-      ForEach-Object { 'architecture/' + $_.Name }
-  )
+  [string[]]$files = @(Get-ChildItem (Join-Path $PWD 'architecture') -Filter '*.dot' -File |
+    ForEach-Object { 'architecture/' + $_.Name })
   if ($files.Count -gt 1) {
     [Array]::Sort($files, [System.StringComparer]::Ordinal)
   }
-  foreach ($f in $files) {
+  foreach ($file in $files) {
+    $text = [System.IO.File]::ReadAllText((Join-Path $PWD $file), $enc)
+    if (-not $text.Contains('This document describes the past.')) { $out += $file }
+  }
+  $out
+}
+
+# The route counts the graphs state: the file, and the number it says.
+function Get-GraphRouteClaims {
+  $out = @()
+  foreach ($f in (Get-CurrentGraphs)) {
     $text = [System.IO.File]::ReadAllText((Join-Path $PWD $f), $enc)
     foreach ($m in [regex]::Matches($text, '[0-9]+ (JSON endpoints|routes)')) {
       $out += ("{0} {1}" -f $f, $m.Value)
@@ -1417,6 +1427,76 @@ function Test-DslDomains($words, $expected) {
 }
 
 Test-DslDomains (Get-DslDomainWords) $ringDomains
+
+# --- architecture/flows.dot: the flow graph traces what the server does -----
+#
+# The flow graph traces five paths through the server, and it counts as it
+# goes: eight pages are seeded, and it names the routes it walks. Those are
+# the tree's numbers, and the flow document beside it already says them --
+# but the graph is a document too, and it was not being checked.
+#
+# The count checks skip the graphs that say they describe the past: history
+# is allowed to be history, and only the present has to be right.
+
+$flowsDot = 'architecture/flows.dot'
+
+# The page counts a graph states.
+function Get-GraphPageClaims($file) {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $file), $enc)
+  $out = @()
+  foreach ($m in [regex]::Matches($text, '[0-9]+ [Pp]ages?')) {
+    $out += ([regex]::Match($m.Value, '[0-9]+')).Value
+  }
+  Sort-Set $out
+}
+
+# Every page count the graph states is the tree's count.
+function Test-GraphPages($label, $file, $expected) {
+  $claims = Get-GraphPageClaims $file
+  $numbers = @()
+  foreach ($number in @($claims)) {
+    if ($null -eq $number) { continue }
+    if ($number -eq '') { continue }
+    $numbers += $number
+  }
+  if ($numbers.Count -eq 0) {
+    Write-Fail ("{0,-22} the graph does not state the page count" -f $label)
+    return
+  }
+  $bad = @()
+  foreach ($number in $numbers) {
+    if ($number -cne "$expected") { $bad += $number }
+  }
+  if ($bad.Count -gt 0) {
+    Write-Fail ("{0,-22} the tree has {1}, the graph says [{2}]" -f $label, $expected, ($bad -join ' '))
+    return
+  }
+  Write-Ok $label $expected
+}
+
+Test-GraphPages 'flow graph pages' $flowsDot (Count-SeedPagesOnly)
+
+# Every family the flow graph names is a family the server serves.
+function Test-GraphFamiliesLive($label, $named, $actual) {
+  $missing = @()
+  $count = 0
+  foreach ($family in @($named)) {
+    if ($null -eq $family) { continue }
+    if ($family -eq '') { continue }
+    $count++
+    if ($actual -cnotcontains $family) { $missing += $family }
+  }
+  if ($missing.Count -gt 0) {
+    Write-Fail ("{0,-22} the graph names [{1}], which the server does not serve" -f $label, ($missing -join ' '))
+    return
+  }
+  Write-Ok $label $count
+}
+
+Test-GraphFamiliesLive 'flow graph endpoints' (Get-GraphApiFamilies $flowsDot) (Get-TreeApiFamilies)
+
+# The component graph says in words how many public pages there are.
+Test-WordCount 'component graph pages' 'public pages' $pageCount $systemModelDot
 
 # --- models/product-iteration.yaml: the machine file states its own size -----
 #
