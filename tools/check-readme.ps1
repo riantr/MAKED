@@ -42,6 +42,24 @@
 #   0  every claim in the document matches the tree
 #   1  a claim in the document does not match the tree
 #
+# A claim the document states in ONE place: the expected value from the tree,
+# the stated value from the document, and the two compared.
+function Test-Claim($label, $expected, $stated) {
+  if ($null -eq $stated -or "$stated" -eq '') {
+    Write-Output ("  {0,-20} the document does not state it" -f $label)
+    Write-Output "*** FAIL ***"
+    $script:failures++
+    return
+  }
+  if ("$stated" -ne "$expected") {
+    Write-Output ("  {0,-20} the tree has {1}, the document says {2}" -f $label, $expected, $stated)
+    Write-Output "*** FAIL ***"
+    $script:failures++
+    return
+  }
+  Write-Output ("  ok      {0,-20} {1}" -f $label, $expected)
+}
+
 # The integration-check count is deliberately NOT derived here. It is the
 # number of checks the integration suite actually ran, and some of its
 # assertions sit in loops, so it cannot be derived from the script's text.
@@ -52,6 +70,11 @@ Set-Location (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
 
 $ErrorActionPreference = 'Continue'
 $enc = New-Object System.Text.UTF8Encoding($false)
+
+# The counter of the claims that do not match. It is set here, before
+# anything can fail, because a check that ran before it was set would have
+# its failure counted into a variable that is about to be reset.
+$failures = 0
 
 $readmePath = Join-Path $PWD 'README.md'
 if (-not (Test-Path $readmePath)) {
@@ -215,7 +238,6 @@ $integrationTree = Get-DocumentNumber 'integration-test\.ps1\s+#\s*(\d+)\s+check
 #
 # One marker, `*** FAIL ***`, and the summary does not repeat it -- so a
 # counter that counts the marker counts the failures once and once only.
-$failures = 0
 foreach ($c in $checks) {
   $label = $c.label
   $actual = $c.actual
@@ -247,6 +269,35 @@ foreach ($c in $checks) {
   }
   Write-Output ("  ok      {0,-20} {1}" -f $label, $actual)
 }
+
+# The mutation accounting: how many mutations there are, and what became of
+# them. The headline says that every one of them has to be accounted for --
+# all but one killed by the tests, and the one that was not deliberately
+# equivalent.
+#
+# The three suites' counts are derived above. The total is their sum, the
+# expected-equivalent mutations are the ones the suites mark as such, and
+# the killed ones are the rest. A mutation the harness does not kill and
+# does not expect to survive is a survivor, and a survivor is a failure the
+# suite reports -- so the two numbers have to add up to the total.
+function Count-EquivalentMutations {
+  $total = 0
+  foreach ($f in @('tools/mutate-backend.ps1', 'tools/mutate-frontend.ps1', 'tools/mutate-loop.ps1')) {
+    $text = [System.IO.File]::ReadAllText((Join-Path $PWD $f), $enc)
+    $total += ([regex]::Matches($text, '(?m)^[ \t]*equivalent = \$true[ \t]*\r?$')).Count
+  }
+  $total
+}
+
+$equivalentMutations = Count-EquivalentMutations
+$totalMutations = $backendMutations + $frontendMutations + $loopMutations
+$killedMutations = $totalMutations - $equivalentMutations
+
+Test-Claim 'Mutation total' $totalMutations (Get-DocumentNumber '\*\*([0-9]+) mutations\*\*')
+# The number is read with a character in front of it that is not a digit, so
+# that the capture cannot start in the middle of the number and take the
+# last digit of it. The bash twin uses the same pattern.
+Test-Claim 'Mutation killed' $killedMutations (Get-DocumentNumber '[^0-9]([0-9]+) killed by the tests')
 
 if ($null -eq $integrationTable -or $null -eq $integrationTree) {
   Write-Output ("  {0,-20} the document does not state it in both places" -f 'Integration checks')
@@ -793,6 +844,7 @@ $claims = @(
   [pscustomobject]@{ label = 'Example domains';   expected = $exampleShape[0];    patterns = @('| domains,') }
   [pscustomobject]@{ label = 'Example positions'; expected = $exampleShape[1];    patterns = @('| positions,') }
   [pscustomobject]@{ label = 'Example slots';     expected = $exampleShape[2];    patterns = @('| slots', '| slot') }
+  [pscustomobject]@{ label = 'Mutation equivalents'; expected = $equivalentMutations; patterns = @('| deliberately equivalent') }
 )
 
 foreach ($claim in $claims) {

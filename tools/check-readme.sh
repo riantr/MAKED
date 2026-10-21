@@ -179,6 +179,47 @@ check "CI gates" "$CI_GATES" \
   "$(doc_number '\|[[:space:]]*CI gates[[:space:]]*\|[[:space:]]*([0-9]+)[[:space:]]*\|')" \
   "$(doc_number 'ci\.sh[[:space:]]+#[[:space:]]*([0-9]+)[[:space:]]*gates')"
 
+# A claim the document states in ONE place: the expected value from the tree,
+# the stated value from the document, and the two compared.
+check_claim() {
+  local label="$1" expected="$2" stated="$3"
+  if [ -z "$stated" ]; then
+    fail "$(printf '%-20s the document does not state it' "$label")"
+    return
+  fi
+  if [ "$stated" != "$expected" ]; then
+    fail "$(printf '%-20s the tree has %s, the document says %s' \
+      "$label" "$expected" "$stated")"
+    return
+  fi
+  printf '  ok      %-20s %s\n' "$label" "$expected"
+}
+
+# The mutation accounting: how many mutations there are, and what became of
+# them. The headline says that every one of them has to be accounted for --
+# all but one killed by the tests, and the one that was not deliberately
+# equivalent.
+#
+# The three suites' counts are derived above. The total is their sum, the
+# expected-equivalent mutations are the ones the suites mark as such, and
+# the killed ones are the rest. A mutation the harness does not kill and
+# does not expect to survive is a survivor, and a survivor is a failure the
+# suite reports -- so the two numbers have to add up to the total.
+EQUIVALENT_MUTATIONS=$(grep -hcE '^[[:space:]]*equivalent = \$true[[:space:]]*$' \
+  tools/mutate-backend.ps1 tools/mutate-frontend.ps1 tools/mutate-loop.ps1 \
+  | awk '{ n += $1 } END { print n + 0 }')
+TOTAL_MUTATIONS=$((BACKEND_MUTATIONS + FRONTEND_MUTATIONS + LOOP_MUTATIONS))
+KILLED_MUTATIONS=$((TOTAL_MUTATIONS - EQUIVALENT_MUTATIONS))
+
+check_claim "Mutation total" "$TOTAL_MUTATIONS" \
+  "$(doc_number '\*\*([0-9]+) mutations\*\*')"
+
+# The number is read with a character in front of it that is not a digit, so
+# that the capture cannot start in the middle of the number and take the
+# last digit of it. The PowerShell twin uses the same pattern.
+check_claim "Mutation killed" "$KILLED_MUTATIONS" \
+  "$(doc_number '[^0-9]([0-9]+) killed by the tests')"
+
 # The integration-check count is checked by the integration suite itself,
 # because only a run knows how many checks it made -- some of its
 # assertions sit in loops, so the number cannot be derived from the
@@ -761,6 +802,7 @@ CLAIM_SPECS=$(
   printf 'Example domains\t%s\t| domains,\n' "$EXAMPLE_DOMAINS"
   printf 'Example positions\t%s\t| positions,\n' "$EXAMPLE_POSITIONS"
   printf 'Example slots\t%s\t| slots\t| slot\n' "$EXAMPLE_SLOTS"
+  printf 'Mutation equivalents\t%s\t| deliberately equivalent\n' "$EQUIVALENT_MUTATIONS"
 )
 
 # The document is read once, and every pattern is tried against every line.
