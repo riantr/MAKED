@@ -53,6 +53,7 @@ $ErrorActionPreference = 'Continue'
 $enc = New-Object System.Text.UTF8Encoding($false)
 
 $agentDoc = 'AGENT.md'
+$agentsDoc = 'AGENTS.md'
 $runNote = 'packaging/RUN.txt'
 
 $evidence = 'architecture/system-model.evidence.md'
@@ -273,6 +274,12 @@ function Test-WordCount($label, $noun, $expected, $doc) {
     if ($numberWords.ContainsKey($word)) { $number = $numberWords[$word] }
     if ($number -eq '' -or $number -ne "$expected") { $bad += $word }
   }
+  # The words that are wrong, in ONE order: the ordinal one, which is the
+  # order the bytes are in. The bash twin sorts with LC_ALL=C, which is the
+  # same order, so the two twins print the same message when a count in
+  # words is wrong -- and a message that differs between the twins is a
+  # message nobody can trust.
+  $bad = Sort-Set $bad
   if ($bad.Count -gt 0) {
     Write-Fail ("{0,-22} the document says [{1}], the tree has {2}" -f $label, ($bad -join ' '), $expected)
     return
@@ -862,6 +869,30 @@ $ciScripts = @(Get-CiScripts)
 $workflowScripts = @(Get-WorkflowScripts)
 $ciFlat = (([System.IO.File]::ReadAllText((Join-Path $PWD 'ci.sh'), $enc)) -replace "`n", ' ') -replace ' +', ' '
 $agentsFlat = (([System.IO.File]::ReadAllText((Join-Path $PWD 'AGENTS.md'), $enc)) -replace "`n", ' ') -replace ' +', ' '
+
+# The mutations the three suites carry: one `name =` line each.
+function Get-MutationCount($file) {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $file), $enc)
+  ([regex]::Matches($text, '(?m)^[ \t]*name[ \t]*=')).Count
+}
+
+# The mutations in all three suites together. This is the number the guide
+# says the batteries re-run the suites.
+function Get-MutationTotal {
+  $total = 0
+  foreach ($suite in @('tools/mutate-backend.ps1', 'tools/mutate-frontend.ps1', 'tools/mutate-loop.ps1')) {
+    $total += Get-MutationCount $suite
+  }
+  $total
+}
+
+$mutationTotal = Get-MutationTotal
+
+# The tools the discovery document offers, as the guide spells the count out.
+Test-WordCount 'agent guide tools' 'tools' $codeTools.Count $agentsDoc
+
+Test-StatedNumber 'agent guide mutations' $mutationTotal `
+  (Get-FlatNumber $agentsFlat 're-run the suites ([0-9]+) times') 'AGENTS.md'
 
 Test-StatedNumber 'ci.sh header gates' $ciGates `
   (Get-FlatNumber $ciFlat 'runs all ([0-9]+) of them') "ci.sh's header"

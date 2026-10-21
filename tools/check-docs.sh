@@ -66,6 +66,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 AGENT_DOC="AGENT.md"
+AGENTS_DOC="AGENTS.md"
 RUN_NOTE="packaging/RUN.txt"
 
 EVIDENCE="architecture/system-model.evidence.md"
@@ -949,6 +950,31 @@ count_lines "$WORKFLOW_SCRIPTS"; WORKFLOW_GATES=$COUNT_LINES
 
 CI_FLAT=$(tr '\n' ' ' < ci.sh | tr -s ' ')
 AGENTS_FLAT=$(tr '\n' ' ' < AGENTS.md | tr -s ' ')
+
+# The mutations the three suites carry: one `name =` line each.
+count_mutations() {
+  grep -cE '^[ \t]*name[ \t]*=' "$1" || true
+}
+
+# The mutations in all three suites together. This is the number the guide
+# says the batteries re-run the suites.
+mutation_total() {
+  local total=0 suite count
+  for suite in tools/mutate-backend.ps1 tools/mutate-frontend.ps1 tools/mutate-loop.ps1; do
+    count=$(count_mutations "$suite")
+    total=$((total + count))
+  done
+  printf '%s\n' "$total"
+}
+
+MUTATION_TOTAL=$(mutation_total)
+
+# The tools the discovery document offers, as the guide spells the count out.
+count_lines "$CODE_TOOLS"
+check_word_count "agent guide tools" "tools" "$COUNT_LINES" "$AGENTS_DOC"
+
+check_stated "agent guide mutations" "$MUTATION_TOTAL" \
+  "$(flat_number "$AGENTS_FLAT" 're-run the suites ([0-9]+) times')" "AGENTS.md"
 
 check_stated "ci.sh header gates" "$CI_GATES" \
   "$(flat_number "$CI_FLAT" 'runs all ([0-9]+) of them')" "ci.sh's header"
