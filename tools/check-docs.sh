@@ -1130,7 +1130,7 @@ check_exists "system model frontend" "cmd/web/main.mbt"
 FLOWS_MD="architecture/flows.md"
 
 check_claim_number "flow routes" 'registers ([0-9]+) routes' \
-  "$(count_routes)" "$FLOWS_MD"
+  "$ROUTES" "$FLOWS_MD"
 check_claim_number "flow seed pages" 'seed_pages\(\)[^0-9]+([0-9]+) pages via UPSERT' \
   "$(count_seed_pages_only)" "$FLOWS_MD"
 check_claim_number "flow page bodies" '\(([0-9]+) pages, hardcoded HTML bodies\)' \
@@ -1243,7 +1243,7 @@ check_graph_routes() {
   fi
 }
 
-check_graph_routes "$(graph_route_claims)" "$(count_routes)"
+check_graph_routes "$(graph_route_claims)" "$ROUTES"
 
 # --- architecture/dependencies.dot: the dependency graph against the tree -----
 #
@@ -1291,9 +1291,10 @@ graph_imports() {
     | sed -E 's/@[0-9]+\.[0-9]+\.[0-9]+$//' | LC_ALL=C sort -u
 }
 
-# The import blocks of the manifests, without their comments.
-manifest_blocks() {
-  local file
+# The import blocks of the manifests, without their comments. They are read
+# ONCE and kept, because a fork is a tenth of a second on this machine and
+# there are six files in here.
+MANIFEST_BLOCKS=$(
   for file in moon.mod backend/moon.pkg frontend/moon.pkg \
               cmd/server/moon.pkg cmd/web/moon.pkg cmd/mcp/moon.pkg; do
     awk '
@@ -1302,13 +1303,13 @@ manifest_blocks() {
       inside { print }
     ' "$file"
   done
-}
+)
 
 # The external imports the tree declares. The core packages and the
 # project's own packages are left out: they are not dependencies on anything
 # outside the tree.
 tree_imports() {
-  manifest_blocks \
+  printf '%s\n' "$MANIFEST_BLOCKS" \
     | grep -oE '"[A-Za-z][A-Za-z0-9_-]*/[A-Za-z0-9_./-]+(@[0-9][0-9.]*)?"' \
     | tr -d '"' | sed -E 's/@[0-9][0-9.]*$//' \
     | grep -vE '^moonbitlang/core/' | grep -vE '^riantr/MAKED(/|$)' \
@@ -1326,7 +1327,7 @@ graph_pins() {
 # The versions the manifests pin: the last segment of the path, and the
 # version.
 tree_pins() {
-  manifest_blocks \
+  printf '%s\n' "$MANIFEST_BLOCKS" \
     | grep -oE '"[A-Za-z][A-Za-z0-9_-]*/[A-Za-z0-9_./-]+@[0-9][0-9.]*"' \
     | tr -d '"' | awk -F'@' '{ n = split($1, parts, "/"); print parts[n] "@" $2 }' \
     | LC_ALL=C sort -u
@@ -1360,9 +1361,13 @@ graph_api_families() {
   grep -oE '/api/[a-z-]+' "$1" | LC_ALL=C sort -u
 }
 
-check_sets "contract endpoints" "$(tree_api_families)" \
+# The tree's families are read once and kept: three checks ask for them,
+# and a fork is a tenth of a second on this machine.
+API_FAMILIES=$(tree_api_families)
+
+check_sets "contract endpoints" "$API_FAMILIES" \
   "$(graph_api_families "$DEPENDENCIES_DOT")"
-check_sets "topology endpoints" "$(tree_api_families)" \
+check_sets "topology endpoints" "$API_FAMILIES" \
   "$(graph_api_families "$DEPLOY_DOT")"
 
 # The variables the server reads.
@@ -1498,7 +1503,7 @@ check_graph_families_live() {
 }
 
 check_graph_families_live "flow graph endpoints" \
-  "$(graph_api_families "$FLOWS_DOT")" "$(tree_api_families)"
+  "$(graph_api_families "$FLOWS_DOT")" "$API_FAMILIES"
 
 # The component graph says in words how many public pages there are.
 check_word_count "component graph pages" "public pages" "$PAGE_COUNT" \
@@ -1520,14 +1525,19 @@ MODEL_YAML="models/product-iteration.yaml"
 
 # The number of entries in one section of the machine file. The sections are
 # the top-level keys, and an entry is a line that starts with a dash.
-model_section_count() {
-  local section="$1"
-  awk -v want="$section" '
-    /^[a-z_]+:/ { inside = ($0 == want ":") ? 1 : 0; next }
-    inside && /^  - / { n++ }
-    END { print n + 0 }
-  ' "$MODEL_YAML"
-}
+#
+# All five sections are read in ONE pass: a pass is a process, and a process
+# on this machine costs a tenth of a second.
+MODEL_SHAPE=$(awk '
+  /^[a-z_]+:/ { section = $0; sub(/:$/, "", section); next }
+  section != "" && /^  - / { count[section]++ }
+  END {
+    print count["domains"] + 0, count["positions"] + 0, count["slots"] + 0,
+          count["rules"] + 0, count["outcomes"] + 0
+  }
+' "$MODEL_YAML")
+read -r MODEL_DOMAINS MODEL_POSITIONS MODEL_SLOTS MODEL_RULES MODEL_OUTCOMES \
+  <<< "$MODEL_SHAPE"
 
 # The number the header states next to a phrase. The header is the comment
 # at the top of the file, so only the comments are read.
@@ -1537,16 +1547,15 @@ model_claim() {
 }
 
 check_model_claim() {
-  local label="$1" phrase="$2" section="$3"
-  check_stated "$label" "$(model_section_count "$section")" \
-    "$(model_claim "$phrase")" "the machine file"
+  local label="$1" phrase="$2" actual="$3"
+  check_stated "$label" "$actual" "$(model_claim "$phrase")" "the machine file"
 }
 
-check_model_claim "model domains" "domains" "domains"
-check_model_claim "model positions" "positions" "positions"
-check_model_claim "model slots" "slots" "slots"
-check_model_claim "model rules" "rules" "rules"
-check_model_claim "model outcomes" "outcomes" "outcomes"
+check_model_claim "model domains" "domains" "$MODEL_DOMAINS"
+check_model_claim "model positions" "positions" "$MODEL_POSITIONS"
+check_model_claim "model slots" "slots" "$MODEL_SLOTS"
+check_model_claim "model rules" "rules" "$MODEL_RULES"
+check_model_claim "model outcomes" "outcomes" "$MODEL_OUTCOMES"
 
 # The files the header names. A header that points at a file that is not
 # there sends the reader to nothing, and the file it names is the machine's
