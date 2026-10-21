@@ -319,8 +319,15 @@ word_number() {
 check_word_count() {
   local label="$1" noun="$2" expected="$3" doc="$4"
   local words word number bad
-  words=$(grep -oE "\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve) $noun\b" "$doc" \
-    | grep -oE '[a-z]+' | grep -vxF "$noun" | LC_ALL=C sort -u || true)
+  # The document is flattened first, because a phrase the editor wrapped is
+  # one phrase to a reader and two to a matcher. The match is
+  # case-insensitive, because a count at the start of a sentence is
+  # capitalised and the count is the same count. The word that is read is
+  # the FIRST one, because the pattern puts the number before the noun and
+  # the noun may be more than one word long.
+  words=$(tr '\n' ' ' < "$doc" | tr -s ' ' \
+    | grep -oEi "\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve) $noun\b" \
+    | grep -oiE '^[a-z]+' | tr 'A-Z' 'a-z' | LC_ALL=C sort -u || true)
   if [ -z "$words" ]; then
     fail "$(printf '%-22s the document does not state the count in words' "$label")"
     return
@@ -1000,6 +1007,39 @@ doc_deploy_settings() {
 check_sets "deployment settings" "$CODE_SETTINGS" "$(doc_deploy_settings)"
 
 check_references "$DEPLOY_MD"
+
+# --- architecture/system-model.md: the shape the system is drawn with -------
+#
+# The system model says how big the system is: how many domains it organises
+# content around, and how many pages it serves. Both are counts, and both
+# are the tree's.
+#
+# They are written in words, and a word is a count too. The match is
+# case-insensitive, because a count at the start of a sentence is
+# capitalised -- "Ten public pages" is the same claim as "ten public pages".
+
+SYSTEM_MODEL_MD="architecture/system-model.md"
+
+# The ring's domains: the tuples ring_domains() names.
+count_ring_domains() {
+  awk '
+    /pub fn ring_domains\(\)/ { inside = 1 }
+    inside && /^\}/ { exit }
+    inside { n += gsub(/\("[a-z]+",/, "&") }
+    END { print n + 0 }
+  ' backend/pages.mbt
+}
+
+RING_DOMAINS=$(count_ring_domains)
+PAGE_COUNT=$(count_seed_pages)
+
+check_word_count "system model domains" "domains" "$RING_DOMAINS" "$SYSTEM_MODEL_MD"
+check_word_count "system model ring domains" "ring domains" "$RING_DOMAINS" "$SYSTEM_MODEL_MD"
+check_word_count "system model pages" "public pages" "$PAGE_COUNT" "$SYSTEM_MODEL_MD"
+
+# The two entry points the model's table names have to be there.
+check_exists "system model backend" "cmd/server/main.mbt"
+check_exists "system model frontend" "cmd/web/main.mbt"
 
 check_stated "ci.sh header gates" "$CI_GATES" \
   "$(flat_number "$CI_FLAT" 'runs all ([0-9]+) of them')" "ci.sh's header"

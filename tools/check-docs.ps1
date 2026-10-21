@@ -257,11 +257,20 @@ $numberWords = @{
 # A count the document spells out in words. Every "<word> <noun>" in the
 # document has to be the count the tree has.
 function Test-WordCount($label, $noun, $expected, $doc) {
-  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $doc), $enc)
-  $pattern = '\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve) ' + $noun + '\b'
+  # The document is flattened first, because a phrase the editor wrapped is
+  # one phrase to a reader and two to a matcher.
+  $text = ([System.IO.File]::ReadAllText((Join-Path $PWD $doc), $enc)) -replace "`n", ' '
+  $text = $text -replace ' +', ' '
+  # The match is case-insensitive, because a count at the start of a sentence
+  # is capitalised and the count is the same count.
+  $pattern = '(?i)\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve) ' + $noun + '\b'
   $words = @()
   foreach ($m in [regex]::Matches($text, $pattern)) {
-    $word = $m.Groups[1].Value
+    # The word is lower-cased before it is looked up, because a count at the
+    # start of a sentence is capitalised and the count is the same count. The
+    # bash twin lower-cases it too, so the two twins judge the same word the
+    # same way and print it the same way.
+    $word = $m.Groups[1].Value.ToLowerInvariant()
     if ($words -cnotcontains $word) { $words += $word }
   }
   if ($words.Count -eq 0) {
@@ -922,6 +931,37 @@ function Get-DocDeploySettings {
 Test-Sets 'deployment settings' $codeSettings (Get-DocDeploySettings)
 
 Test-References $deployMd
+
+# --- architecture/system-model.md: the shape the system is drawn with -------
+#
+# The system model says how big the system is: how many domains it organises
+# content around, and how many pages it serves. Both are counts, and both
+# are the tree's.
+#
+# They are written in words, and a word is a count too. The match is
+# case-insensitive, because a count at the start of a sentence is
+# capitalised -- "Ten public pages" is the same claim as "ten public pages".
+
+$systemModelMd = 'architecture/system-model.md'
+
+# The ring's domains: the tuples ring_domains() names.
+function Get-RingDomainCount {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/pages.mbt'), $enc)
+  $m = [regex]::Match($text, '(?s)pub fn ring_domains\(\)[^{]*\{.*?\n\}')
+  if (-not $m.Success) { return -1 }
+  ([regex]::Matches($m.Value, '\("([a-z]+)",')).Count
+}
+
+$ringDomains = Get-RingDomainCount
+$pageCount = Count-SeedPages
+
+Test-WordCount 'system model domains' 'domains' $ringDomains $systemModelMd
+Test-WordCount 'system model ring domains' 'ring domains' $ringDomains $systemModelMd
+Test-WordCount 'system model pages' 'public pages' $pageCount $systemModelMd
+
+# The two entry points the model's table names have to be there.
+Test-Exists 'system model backend' 'cmd/server/main.mbt'
+Test-Exists 'system model frontend' 'cmd/web/main.mbt'
 
 Test-StatedNumber 'ci.sh header gates' $ciGates `
   (Get-FlatNumber $ciFlat 'runs all ([0-9]+) of them') "ci.sh's header"
