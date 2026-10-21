@@ -1258,6 +1258,135 @@ function Get-TreePins {
 
 Test-Sets 'graph pins' (Get-TreePins) (Get-GraphPins)
 
+# --- the graphs and the model: the API they promise, the settings they name ---
+#
+# The contract note in the dependency graph and the handler list in the
+# deployment graph both say what the API looks like from the outside. Both
+# had stopped saying /api/model, which the server has registered since the
+# model became a file the reader brings.
+#
+# The deployment graph also names the variables the server reads, and the
+# model DSL names a route and a number of domains. All three are the tree's.
+
+$deployDot = 'architecture/deployment.dot'
+$systemModelDsl = 'architecture/system-model.dsl'
+
+# The API families the tree serves: the first two segments of every route.
+function Get-TreeApiFamilies {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/api.mbt'), $enc)
+  $flat = $text -replace "`r?`n", ' '
+  $out = @()
+  foreach ($m in [regex]::Matches($flat, 'app\.(get|post|put|delete|patch)\("(/api/[^"]+)"')) {
+    $segments = $m.Groups[2].Value.Split('/')
+    $out += ('/api/' + $segments[2])
+  }
+  Sort-Set $out
+}
+
+# The API families a graph names.
+function Get-GraphApiFamilies($file) {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $file), $enc)
+  $out = @()
+  foreach ($m in [regex]::Matches($text, '/api/[a-z-]+')) {
+    $out += $m.Value
+  }
+  Sort-Set $out
+}
+
+Test-Sets 'contract endpoints' (Get-TreeApiFamilies) (Get-GraphApiFamilies $dependenciesDot)
+Test-Sets 'topology endpoints' (Get-TreeApiFamilies) (Get-GraphApiFamilies $deployDot)
+
+# The variables the server reads.
+function Get-CodeVariableNames {
+  $out = @()
+  foreach ($setting in $codeSettings) {
+    $parts = $setting -split ' '
+    if ($parts.Count -gt 0 -and $parts[0] -ne '') { $out += $parts[0] }
+  }
+  Sort-Set $out
+}
+
+# The variables the deployment graph names.
+function Get-GraphVariables {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $deployDot), $enc)
+  $out = @()
+  foreach ($m in [regex]::Matches($text, 'MAKED_[A-Z_]+')) {
+    $out += $m.Value
+  }
+  Sort-Set $out
+}
+
+Test-Sets 'topology variables' (Get-CodeVariableNames) (Get-GraphVariables)
+
+# Every route the server registers.
+function Get-TreeRoutes {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/api.mbt'), $enc)
+  $flat = $text -replace "`r?`n", ' '
+  $out = @()
+  foreach ($m in [regex]::Matches($flat, 'app\.(get|post|put|delete|patch)\("(/api/[^"]+)"')) {
+    $out += $m.Groups[2].Value
+  }
+  Sort-Set $out
+}
+
+# The routes the model names.
+function Get-DslRoutes {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $systemModelDsl), $enc)
+  $out = @()
+  foreach ($m in [regex]::Matches($text, '/api/[A-Za-z0-9/:_.-]+')) {
+    $out += $m.Value
+  }
+  Sort-Set $out
+}
+
+# Every route the model names has to be a route the server registers.
+function Test-DslRoutes($named, $actual) {
+  $missing = @()
+  foreach ($route in $named) {
+    if ($route -eq '') { continue }
+    if ($actual -cnotcontains $route) { $missing += $route }
+  }
+  if ($missing.Count -gt 0) {
+    Write-Fail ("{0,-22} the model names [{1}], the server does not register them" -f 'dsl routes', ($missing -join ' '))
+    return
+  }
+  Write-Ok 'dsl routes' (@($named | Where-Object { $_ -ne '' }).Count)
+}
+
+Test-DslRoutes (Get-DslRoutes) (Get-TreeRoutes)
+
+# The number of domains the model states, in words. The model writes it as
+# "Five-domain", so the word is the one in front of the hyphen.
+function Get-DslDomainWords {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $systemModelDsl), $enc)
+  $out = @()
+  foreach ($m in [regex]::Matches($text, '(?i)\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)-domain')) {
+    $word = $m.Groups[1].Value.ToLowerInvariant()
+    if ($out -cnotcontains $word) { $out += $word }
+  }
+  Sort-Set $out
+}
+
+function Test-DslDomains($words, $expected) {
+  if ($words.Count -eq 0) {
+    Write-Fail ("{0,-22} the model does not state the count in words" -f 'dsl domains')
+    return
+  }
+  $bad = @()
+  foreach ($word in $words) {
+    $number = ''
+    if ($numberWords.ContainsKey($word)) { $number = $numberWords[$word] }
+    if ($number -eq '' -or $number -ne "$expected") { $bad += $word }
+  }
+  if ($bad.Count -gt 0) {
+    Write-Fail ("{0,-22} the model says [{1}], the tree has {2}" -f 'dsl domains', ($bad -join ' '), $expected)
+    return
+  }
+  Write-Ok 'dsl domains' $expected
+}
+
+Test-DslDomains (Get-DslDomainWords) $ringDomains
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

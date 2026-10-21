@@ -1296,6 +1296,110 @@ tree_pins() {
 
 check_sets "graph pins" "$(tree_pins)" "$(graph_pins)"
 
+# --- the graphs and the model: the API they promise, the settings they name --
+#
+# The contract note in the dependency graph and the handler list in the
+# deployment graph both say what the API looks like from the outside. Both
+# had stopped saying /api/model, which the server has registered since the
+# model became a file the reader brings.
+#
+# The deployment graph also names the variables the server reads, and the
+# model DSL names a route and a number of domains. All three are the tree's.
+
+DEPLOY_DOT="architecture/deployment.dot"
+SYSTEM_MODEL_DSL="architecture/system-model.dsl"
+
+# The API families the tree serves: the first two segments of every route.
+tree_api_families() {
+  tr '\n' ' ' < backend/api.mbt \
+    | grep -oE 'app\.(get|post|put|delete|patch)\("/api/[^"]+"' \
+    | grep -oE '"/api/[^"]+"' | tr -d '"' \
+    | sed -E 's|^(/api/[^"/]+).*|\1|' | LC_ALL=C sort -u
+}
+
+# The API families a graph names.
+graph_api_families() {
+  grep -oE '/api/[a-z-]+' "$1" | LC_ALL=C sort -u
+}
+
+check_sets "contract endpoints" "$(tree_api_families)" \
+  "$(graph_api_families "$DEPENDENCIES_DOT")"
+check_sets "topology endpoints" "$(tree_api_families)" \
+  "$(graph_api_families "$DEPLOY_DOT")"
+
+# The variables the server reads.
+code_variable_names() {
+  printf '%s\n' "$CODE_SETTINGS" | awk '{ print $1 }' | LC_ALL=C sort -u
+}
+
+# The variables the deployment graph names.
+graph_variables() {
+  grep -oE 'MAKED_[A-Z_]+' "$DEPLOY_DOT" | LC_ALL=C sort -u
+}
+
+check_sets "topology variables" "$(code_variable_names)" "$(graph_variables)"
+
+# Every route the server registers.
+tree_routes() {
+  tr '\n' ' ' < backend/api.mbt \
+    | grep -oE 'app\.(get|post|put|delete|patch)\("/api/[^"]+"' \
+    | grep -oE '"/api/[^"]+"' | tr -d '"' | LC_ALL=C sort -u
+}
+
+# The routes the model names.
+dsl_routes() {
+  grep -oE '/api/[A-Za-z0-9/:_.-]+' "$SYSTEM_MODEL_DSL" | LC_ALL=C sort -u
+}
+
+# Every route the model names has to be a route the server registers.
+check_dsl_routes() {
+  local named="$1" actual="$2" line missing=""
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    if ! printf '%s\n' "$actual" | grep -qxF "$line"; then
+      missing="$missing $line"
+    fi
+  done <<< "$named"
+  if [ -n "$missing" ]; then
+    fail "$(printf '%-22s the model names [%s], the server does not register them' \
+      'dsl routes' "$(printf '%s' "$missing" | sed -e 's/^ *//')")"
+    return
+  fi
+  count_lines "$named"
+  ok "dsl routes" "$COUNT_LINES"
+}
+
+check_dsl_routes "$(dsl_routes)" "$(tree_routes)"
+
+# The number of domains the model states, in words. The model writes it as
+# "Five-domain", so the word is the one in front of the hyphen.
+dsl_domain_words() {
+  grep -oiE '\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)-domain' \
+    "$SYSTEM_MODEL_DSL" | grep -oiE '^[a-z]+' | tr 'A-Z' 'a-z' | LC_ALL=C sort -u
+}
+
+check_dsl_domains() {
+  local words="$1" expected="$2" word number bad=""
+  for word in $words; do
+    number=$(word_number "$word")
+    if [ -z "$number" ] || [ "$number" != "$expected" ]; then
+      bad="$bad $word"
+    fi
+  done
+  if [ -z "$words" ]; then
+    fail "$(printf '%-22s the model does not state the count in words' 'dsl domains')"
+    return
+  fi
+  if [ -n "$bad" ]; then
+    fail "$(printf '%-22s the model says [%s], the tree has %s' \
+      'dsl domains' "$(printf '%s' "$bad" | sed -e 's/^ *//')" "$expected")"
+    return
+  fi
+  ok "dsl domains" "$expected"
+}
+
+check_dsl_domains "$(dsl_domain_words)" "$RING_DOMAINS"
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."
