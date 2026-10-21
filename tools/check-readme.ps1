@@ -898,6 +898,108 @@ if ($domainNames.Count -eq 0 -or $docDomainNames.Count -eq 0) {
   $failures++
 }
 
+# --- the collective's numbers ------------------------------------------------
+#
+# The collective is pyroduct's, but the words for it are a file in this
+# repository: research/society.yaml names the thirteen positions, the eight
+# phases and the eighteen triggers. The README states those numbers in three
+# places -- the row of the three layers, the feature bullet, and the
+# sentence about the vocabulary -- and every one of them has to be the
+# file's.
+#
+# Each number is found in the sentence that states it, and not by the noun
+# alone: "34 positions" is the subject machine's, and the collective's are
+# thirteen. A pattern that looked for the noun would have caught the wrong
+# number and called it right.
+#
+# The number of transitions is the machine's and not the file's, so that one
+# is checked where the machine is: by the integration suite, which has the
+# collective the server served.
+
+# The entries in each section of the vocabulary. The carriage returns go
+# first: a file edited on Windows is the same file, and a gate that reads it
+# differently depending on the line endings is a gate that lies.
+function Get-CollectiveCounts {
+  $out = @{}
+  $section = ''
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'research/society.yaml'), $enc)
+  foreach ($line in (($text -replace "`r", '') -split "`n")) {
+    if ($line -match '^([a-z_]+):[ \t]*$') {
+      $section = $Matches[1]
+      if (-not $out.ContainsKey($section)) { $out[$section] = 0 }
+      continue
+    }
+    if ($section -ne '' -and $line -match '^[ \t]*- id:') { $out[$section]++ }
+  }
+  $out
+}
+
+# The document with its line breaks flattened. A sentence the editor wrapped
+# is still one sentence to a matcher, and the two twins have to be looking at
+# the same sentence -- so both of them flatten it the same way.
+$readmeFlat = $readme -replace "`n", ' '
+
+# One of the collective's numbers: the count the vocabulary file has, and the
+# sentences that state it. Every sentence has to state the file's number, and
+# every sentence has to be there at all -- a sentence that is gone is a number
+# that nothing checks any more.
+#
+# A sentence is named by where it is, and its pattern is the words around the
+# number rather than the noun itself. The gap between the words and the number
+# is anything that is not a digit: the multiplication sign in the row and the
+# line break in the bullet are both gaps, and a matcher that understood only
+# one byte of a sign would miss the sentence and call it unstated.
+function Test-CollectiveClaim($label, $expected, $sentences) {
+  $problems = @()
+  $places = 0
+  foreach ($sentence in $sentences) {
+    $parts = [regex]::Split($sentence, '\|')
+    $where = $parts[0]
+    $pattern = $parts[1]
+    $matches = @([regex]::Matches($readmeFlat, $pattern))
+    if ($matches.Count -eq 0) {
+      $problems += "the document does not state it in $where"
+    } elseif ($matches.Count -gt 1) {
+      $problems += "the document states it more than once in $where"
+    } else {
+      $number = $matches[0].Groups[1].Value
+      if ("$number" -ne "$expected") {
+        $problems += "the tree has $expected, the document says $number in $where"
+      }
+    }
+    $places++
+  }
+  if ($problems.Count -gt 0) {
+    foreach ($problem in $problems) {
+      Write-Output ("  {0,-20} {1}: {2}" -f 'Collective', $label, $problem)
+      Write-Output "*** FAIL ***"
+      $script:failures++
+    }
+    return
+  }
+  $unit = 'sentences'
+  if ($places -eq 1) { $unit = 'sentence' }
+  Write-Output ("  ok      {0,-20} {1}: {2} (stated in {3} {4})" -f 'Collective', $label, $expected, $places, $unit)
+}
+
+$collectiveCounts = Get-CollectiveCounts
+
+Test-CollectiveClaim 'Positions' (Get-CountOrZero $collectiveCounts 'positions') @(
+  'the row of the three layers|communicative whole[^0-9]+([0-9]+) positions',
+  'the feature bullet|Society layer, with its ([0-9]+) positions,',
+  'the vocabulary sentence|collective.s ([0-9]+) positions,'
+)
+
+Test-CollectiveClaim 'Phases' (Get-CountOrZero $collectiveCounts 'phases') @(
+  'the row of the three layers|communicative whole[^0-9]+[0-9]+ positions[^0-9]+([0-9]+) phases',
+  'the feature bullet|Society layer, with its [0-9]+ positions,[^0-9]+[0-9]+ transitions and ([0-9]+)[^0-9]+phases',
+  'the vocabulary sentence|collective.s [0-9]+ positions, ([0-9]+) phases'
+)
+
+Test-CollectiveClaim 'Triggers' (Get-CountOrZero $collectiveCounts 'triggers') @(
+  'the vocabulary sentence|collective.s [0-9]+ positions, [0-9]+ phases and ([0-9]+) triggers'
+)
+
 # --- the hooks ---------------------------------------------------------------
 #
 # The repository ships a git hook, and a hook the README does not mention is a

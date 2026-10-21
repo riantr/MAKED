@@ -910,6 +910,122 @@ else
 fi
 
 
+# --- the collective's numbers ------------------------------------------------
+#
+# The collective is pyroduct's, but the words for it are a file in this
+# repository: research/society.yaml names the thirteen positions, the eight
+# phases and the eighteen triggers. The README states those numbers in three
+# places -- the row of the three layers, the feature bullet, and the
+# sentence about the vocabulary -- and every one of them has to be the
+# file's.
+#
+# Each number is found in the sentence that states it, and not by the noun
+# alone: "34 positions" is the subject machine's, and the collective's are
+# thirteen. A pattern that looked for the noun would have caught the wrong
+# number and called it right.
+#
+# The number of transitions is the machine's and not the file's, so that one
+# is checked where the machine is: by the integration suite, which has the
+# collective the server served.
+
+# The entries in each section of the vocabulary. The carriage returns go
+# first: a file edited on Windows is the same file, and a gate that reads it
+# differently depending on the line endings is a gate that lies.
+collective_counts() {
+  tr -d '\r' < research/society.yaml | awk '
+    /^[a-z_]+:[ \t]*$/ { section = $1; sub(/:$/, "", section); next }
+    section != "" && /^[ \t]*- id:/ { count[section]++ }
+    END {
+      print "positions " (count["positions"] + 0)
+      print "phases " (count["phases"] + 0)
+      print "triggers " (count["triggers"] + 0)
+    }
+  '
+}
+
+# The document with its line breaks flattened. A sentence the editor wrapped
+# is still one sentence to a matcher, and the two twins have to be looking at
+# the same sentence -- so both of them flatten it the same way.
+README_FLAT=$(tr '\n' ' ' < "$README")
+
+# One of the collective's numbers: the count the vocabulary file has, and the
+# sentences that state it. Every sentence has to state the file's number, and
+# every sentence has to be there at all -- a sentence that is gone is a number
+# that nothing checks any more.
+#
+# A sentence is named by where it is, and its pattern is the words around the
+# number rather than the noun itself. The gap between the words and the number
+# is anything that is not a digit: the multiplication sign in the row and the
+# line break in the bullet are both gaps, and a matcher that understood only
+# one byte of a sign would miss the sentence and call it unstated.
+check_collective_claim() {
+  local label="$1" expected="$2"
+  shift 2
+  local spec sentence pattern matched number matches places=0 unit problems=''
+  for spec in "$@"; do
+    sentence="${spec%%|*}"
+    pattern="${spec#*|}"
+    matches=0
+    number=''
+    while IFS= read -r matched; do
+      [ -n "$matched" ] || continue
+      matches=$((matches + 1))
+      if [[ "$matched" =~ $pattern ]]; then
+        number="${BASH_REMATCH[1]}"
+      fi
+    done <<< "$(printf '%s\n' "$README_FLAT" | grep -oE "$pattern" || true)"
+    if [ "$matches" -eq 0 ]; then
+      problems="${problems}the document does not state it in ${sentence}
+"
+    elif [ "$matches" -gt 1 ]; then
+      problems="${problems}the document states it more than once in ${sentence}
+"
+    elif [ "$number" != "$expected" ]; then
+      problems="${problems}the tree has ${expected}, the document says ${number} in ${sentence}
+"
+    fi
+    places=$((places + 1))
+  done
+  if [ -n "$problems" ]; then
+    while IFS= read -r problem; do
+      [ -n "$problem" ] || continue
+      fail "$(printf '%-20s %s: %s' 'Collective' "$label" "$problem")"
+    done <<< "$problems"
+    return
+  fi
+  unit="sentences"
+  if [ "$places" -eq 1 ]; then
+    unit="sentence"
+  fi
+  printf '  ok      %-20s %s: %s (stated in %s %s)\n' \
+    'Collective' "$label" "$expected" "$places" "$unit"
+}
+
+COLLECTIVE_COUNTS=$(collective_counts)
+COLLECTIVE_POSITIONS=0
+COLLECTIVE_PHASES=0
+COLLECTIVE_TRIGGERS=0
+while read -r name number; do
+  case "$name" in
+    positions) COLLECTIVE_POSITIONS="$number" ;;
+    phases)    COLLECTIVE_PHASES="$number" ;;
+    triggers)  COLLECTIVE_TRIGGERS="$number" ;;
+  esac
+done <<< "$COLLECTIVE_COUNTS"
+
+check_collective_claim "Positions" "$COLLECTIVE_POSITIONS" \
+  'the row of the three layers|communicative whole[^0-9]+([0-9]+) positions' \
+  'the feature bullet|Society layer, with its ([0-9]+) positions,' \
+  'the vocabulary sentence|collective.s ([0-9]+) positions,'
+
+check_collective_claim "Phases" "$COLLECTIVE_PHASES" \
+  'the row of the three layers|communicative whole[^0-9]+[0-9]+ positions[^0-9]+([0-9]+) phases' \
+  'the feature bullet|Society layer, with its [0-9]+ positions,[^0-9]+[0-9]+ transitions and ([0-9]+)[^0-9]+phases' \
+  'the vocabulary sentence|collective.s [0-9]+ positions, ([0-9]+) phases'
+
+check_collective_claim "Triggers" "$COLLECTIVE_TRIGGERS" \
+  'the vocabulary sentence|collective.s [0-9]+ positions, [0-9]+ phases and ([0-9]+) triggers'
+
 # --- the hooks ---------------------------------------------------------------
 #
 # The repository ships a git hook, and a hook the README does not mention is a
