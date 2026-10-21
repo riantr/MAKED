@@ -17,6 +17,7 @@ cd "$ROOT"
 
 PORT=${MAKED_PORT:-$(( 49100 + RANDOM % 1000 ))}
 DB="_build/test-integration-$$.db"
+LOG="_build/test-integration-$$.log"
 SERVER_PID=""
 PASS=0
 FAIL=0
@@ -38,7 +39,7 @@ cleanup() {
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
   fi
-  rm -f "$DB"
+  rm -f "$DB" "$LOG"
 }
 trap cleanup EXIT
 
@@ -116,21 +117,58 @@ if [ -z "${MAKED_SKIP_BUILD:-}" ]; then
   moon build --target native cmd/server 2>/dev/null
 fi
 
+# The built server, wherever the toolchain put it.
+#
+# The script starts the binary itself rather than asking `moon run` to start
+# it, and that is not a style choice. Two things depend on it:
+#
+#   - The process the script holds is then the server, so the script can
+#     stop it. `moon run` is a wrapper: killing the wrapper does not
+#     necessarily kill the server it started, and a server left running
+#     holds the output pipe of the step that started it.
+#   - The server's output goes to a log file, not to the step's own output.
+#     A background process that keeps the step's output open is a step that
+#     never finishes.
+find_server() {
+  for candidate in \
+    "_build/native/release/build/cmd/server/server" \
+    "_build/native/release/build/cmd/server/server.exe" \
+    "_build/native/debug/build/cmd/server/server" \
+    "_build/native/debug/build/cmd/server/server.exe"; do
+    if [ -x "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
 # ── Start server ───────────────────────────────────────────────────────
 echo "==> starting server on port $PORT"
-MAKED_PORT="$PORT" MAKED_DB="$DB" moon run --target native cmd/server 2>/dev/null &
+SERVER_BIN="$(find_server || true)"
+if [ -z "$SERVER_BIN" ]; then
+  echo "FAIL: the server binary was not found after the build"
+  exit 1
+fi
+MAKED_PORT="$PORT" MAKED_DB="$DB" "$SERVER_BIN" > "$LOG" 2>&1 &
 SERVER_PID=$!
 
-# Wait for server to be ready (up to 10 seconds).
-for i in $(seq 1 20); do
-  if curl -sf "http://127.0.0.1:$PORT/api/status" >/dev/null 2>&1; then
+# Wait for the server to be ready.
+for i in $(seq 1 30); do
+  if curl -sf --max-time 2 "http://127.0.0.1:$PORT/api/status" >/dev/null 2>&1; then
     break
   fi
-  if [ "$i" = "20" ]; then
-    echo "FAIL: server did not start within 10 seconds"
+  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    echo "FAIL: the server exited before it answered"
+    cat "$LOG" 2>/dev/null | tail -20
     exit 1
   fi
-  sleep 0.5
+  if [ "$i" = "30" ]; then
+    echo "FAIL: the server did not answer within 30 seconds"
+    cat "$LOG" 2>/dev/null | tail -20
+    exit 1
+  fi
+  sleep 1
 done
 
 echo "==> running integration tests"
@@ -138,7 +176,7 @@ echo ""
 
 # ── GET /api/status ────────────────────────────────────────────────────
 echo "── GET /api/status"
-RESP=$(curl -sf -w "\n%{http_code}" "http://127.0.0.1:$PORT/api/status")
+RESP=$(curl -sf --max-time 10 -w "\n%{http_code}" "http://127.0.0.1:$PORT/api/status")
 BODY=$(echo "$RESP" | sed '$d')
 CODE=$(echo "$RESP" | tail -1)
 assert_status "GET /api/status returns 200" "200" "$CODE"
@@ -148,7 +186,7 @@ assert_json_has_field "has domains" "$BODY" "domains"
 # ── GET /api/pages ─────────────────────────────────────────────────────
 echo ""
 echo "── GET /api/pages"
-RESP=$(curl -sf -w "\n%{http_code}" "http://127.0.0.1:$PORT/api/pages")
+RESP=$(curl -sf --max-time 10 -w "\n%{http_code}" "http://127.0.0.1:$PORT/api/pages")
 BODY=$(echo "$RESP" | sed '$d')
 CODE=$(echo "$RESP" | tail -1)
 assert_status "GET /api/pages returns 200" "200" "$CODE"
@@ -158,7 +196,7 @@ assert_json_field "pages array has at least 5 entries" "$BODY" "len(d['pages']) 
 # ── GET /api/pages/:slug ───────────────────────────────────────────────
 echo ""
 echo "── GET /api/pages/:slug"
-RESP=$(curl -sf -w "\n%{http_code}" "http://127.0.0.1:$PORT/api/pages/model")
+RESP=$(curl -sf --max-time 10 -w "\n%{http_code}" "http://127.0.0.1:$PORT/api/pages/model")
 BODY=$(echo "$RESP" | sed '$d')
 CODE=$(echo "$RESP" | tail -1)
 assert_status "GET /api/pages/model returns 200" "200" "$CODE"
@@ -174,7 +212,7 @@ assert_json_field "error is 'not_found'" "$BODY" "d.get('error','')" "not_found"
 # ── GET /api/domains ───────────────────────────────────────────────────
 echo ""
 echo "── GET /api/domains"
-RESP=$(curl -sf -w "\n%{http_code}" "http://127.0.0.1:$PORT/api/domains")
+RESP=$(curl -sf --max-time 10 -w "\n%{http_code}" "http://127.0.0.1:$PORT/api/domains")
 BODY=$(echo "$RESP" | sed '$d')
 CODE=$(echo "$RESP" | tail -1)
 assert_status "GET /api/domains returns 200" "200" "$CODE"
@@ -183,7 +221,7 @@ assert_json_array_length "domains array has 5 entries" "$BODY" "d['domains']" "5
 # ── GET /api/loop/status ───────────────────────────────────────────────
 echo ""
 echo "── GET /api/loop/status"
-RESP=$(curl -sf -w "\n%{http_code}" "http://127.0.0.1:$PORT/api/loop/status")
+RESP=$(curl -sf --max-time 10 -w "\n%{http_code}" "http://127.0.0.1:$PORT/api/loop/status")
 BODY=$(echo "$RESP" | sed '$d')
 CODE=$(echo "$RESP" | tail -1)
 assert_status "GET /api/loop/status returns 200" "200" "$CODE"
@@ -197,7 +235,7 @@ assert_json_has_field "has history" "$BODY" "history"
 # ── GET /api/loop/slots ────────────────────────────────────────────────
 echo ""
 echo "── GET /api/loop/slots"
-RESP=$(curl -sf -w "\n%{http_code}" "http://127.0.0.1:$PORT/api/loop/slots")
+RESP=$(curl -sf --max-time 10 -w "\n%{http_code}" "http://127.0.0.1:$PORT/api/loop/slots")
 BODY=$(echo "$RESP" | sed '$d')
 CODE=$(echo "$RESP" | tail -1)
 assert_status "GET /api/loop/slots returns 200" "200" "$CODE"
@@ -211,7 +249,7 @@ assert_json_field "last slot name is 'unveil'" "$BODY" "d['slots'][7]['name']" "
 # ── POST /api/loop/step (default drive) ────────────────────────────────
 echo ""
 echo "── POST /api/loop/step"
-RESP=$(curl -sf -w "\n%{http_code}" -X POST "http://127.0.0.1:$PORT/api/loop/step")
+RESP=$(curl -sf --max-time 10 -w "\n%{http_code}" -X POST "http://127.0.0.1:$PORT/api/loop/step")
 BODY=$(echo "$RESP" | sed '$d')
 CODE=$(echo "$RESP" | tail -1)
 assert_status "POST /api/loop/step returns 200" "200" "$CODE"
@@ -221,7 +259,7 @@ assert_json_field "first history entry domain is 'M'" "$BODY" "d['history'][0]['
 # ── POST /api/loop/reset ──────────────────────────────────────────────
 echo ""
 echo "── POST /api/loop/reset"
-RESP=$(curl -sf -w "\n%{http_code}" -X POST "http://127.0.0.1:$PORT/api/loop/reset")
+RESP=$(curl -sf --max-time 10 -w "\n%{http_code}" -X POST "http://127.0.0.1:$PORT/api/loop/reset")
 BODY=$(echo "$RESP" | sed '$d')
 CODE=$(echo "$RESP" | tail -1)
 assert_status "POST /api/loop/reset returns 200" "200" "$CODE"
@@ -233,10 +271,10 @@ echo ""
 echo "── POST /api/loop/step/:slot (English)"
 
 # Reset first to known state.
-curl -sf -X POST "http://127.0.0.1:$PORT/api/loop/reset" >/dev/null
+curl -sf --max-time 10 -X POST "http://127.0.0.1:$PORT/api/loop/reset" >/dev/null
 
 # Step with 'act' slot from Standing -- this should produce a move.
-RESP=$(curl -sf -w "\n%{http_code}" -X POST "http://127.0.0.1:$PORT/api/loop/step/act")
+RESP=$(curl -sf --max-time 10 -w "\n%{http_code}" -X POST "http://127.0.0.1:$PORT/api/loop/step/act")
 BODY=$(echo "$RESP" | sed '$d')
 CODE=$(echo "$RESP" | tail -1)
 assert_status "POST /api/loop/step/act returns 200" "200" "$CODE"
@@ -244,7 +282,7 @@ assert_json_field "history has 1 entry" "$BODY" "d['history_length']" "1"
 assert_json_field_not_empty "slot field is present in history" "$BODY" "history"
 
 # Step with 'cobeing' slot.
-RESP=$(curl -sf -w "\n%{http_code}" -X POST "http://127.0.0.1:$PORT/api/loop/step/cobeing")
+RESP=$(curl -sf --max-time 10 -w "\n%{http_code}" -X POST "http://127.0.0.1:$PORT/api/loop/step/cobeing")
 BODY=$(echo "$RESP" | sed '$d')
 CODE=$(echo "$RESP" | tail -1)
 assert_status "POST /api/loop/step/cobeing returns 200" "200" "$CODE"
@@ -259,14 +297,14 @@ assert_json_field "error is 'unknown_slot'" "$BODY" "d.get('error','')" "unknown
 # ── Full ring traversal ────────────────────────────────────────────────
 echo ""
 echo "── Full ring traversal"
-curl -sf -X POST "http://127.0.0.1:$PORT/api/loop/reset" >/dev/null
+curl -sf --max-time 10 -X POST "http://127.0.0.1:$PORT/api/loop/reset" >/dev/null
 
 # Try all 8 slots from each position until we find one that moves.
 SLOTS=("occasion" "orientation" "antecedent" "act" "feedback" "hold" "cobeing" "unveil")
 DOMAINS_TRAVERSED=0
 
 for attempt in $(seq 1 20); do
-  STATUS=$(curl -sf "http://127.0.0.1:$PORT/api/loop/status")
+  STATUS=$(curl -sf --max-time 10 "http://127.0.0.1:$PORT/api/loop/status")
   CURRENT=$(echo "$STATUS" | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin)['current_domain'])" 2>/dev/null)
   HISTORY_LEN=$(echo "$STATUS" | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin)['history_length'])" 2>/dev/null)
 
@@ -276,13 +314,13 @@ for attempt in $(seq 1 20); do
 
   # Try each slot to find one that moves.
   for slot in "${SLOTS[@]}"; do
-    BEFORE=$(curl -sf "http://127.0.0.1:$PORT/api/loop/status")
+    BEFORE=$(curl -sf --max-time 10 "http://127.0.0.1:$PORT/api/loop/status")
     BEFORE_DOMAIN=$(echo "$BEFORE" | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin)['current_domain'])" 2>/dev/null)
     BEFORE_LEN=$(echo "$BEFORE" | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin)['history_length'])" 2>/dev/null)
 
-    curl -sf -X POST "http://127.0.0.1:$PORT/api/loop/step/$slot" >/dev/null 2>&1 || true
+    curl -sf --max-time 10 -X POST "http://127.0.0.1:$PORT/api/loop/step/$slot" >/dev/null 2>&1 || true
 
-    AFTER=$(curl -sf "http://127.0.0.1:$PORT/api/loop/status")
+    AFTER=$(curl -sf --max-time 10 "http://127.0.0.1:$PORT/api/loop/status")
     AFTER_DOMAIN=$(echo "$AFTER" | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin)['current_domain'])" 2>/dev/null)
     AFTER_LEN=$(echo "$AFTER" | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin)['history_length'])" 2>/dev/null)
 
@@ -301,7 +339,7 @@ for attempt in $(seq 1 20); do
   fi
 done
 
-FINAL=$(curl -sf "http://127.0.0.1:$PORT/api/loop/status")
+FINAL=$(curl -sf --max-time 10 "http://127.0.0.1:$PORT/api/loop/status")
 FINAL_LEN=$(echo "$FINAL" | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin)['history_length'])" 2>/dev/null)
 
 TOTAL=$((TOTAL + 1))

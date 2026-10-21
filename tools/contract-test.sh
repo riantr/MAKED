@@ -19,6 +19,7 @@ cd "$ROOT"
 
 PORT=${MAKED_PORT:-$(( 49200 + RANDOM % 1000 ))}
 DB="_build/test-contract-$$.db"
+LOG="_build/test-contract-$$.log"
 SERVER_PID=""
 PASS=0
 FAIL=0
@@ -42,7 +43,7 @@ cleanup() {
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
   fi
-  rm -f "$DB"
+  rm -f "$DB" "$LOG"
 }
 trap cleanup EXIT
 
@@ -76,17 +77,68 @@ echo ""
 # Build and start server
 echo "    Building server..."
 moon build --release --target native cmd/server 2>/dev/null
-moon build --release --target js cmd/web 2>/dev/null
-mkdir -p frontend/dist
-cp _build/js/release/build/cmd/web/web.js frontend/dist/main.js 2>/dev/null || true
+
+# The built server, wherever the toolchain put it.
+#
+# The gate starts the binary itself rather than asking `moon run` to start
+# it, and that is not a style choice. Two things depend on it:
+#
+#   - The process the gate holds is then the server, so the gate can stop
+#     it. `moon run` is a wrapper: killing the wrapper does not necessarily
+#     kill the server it started, and a server left running holds the
+#     output pipe of the step that started it.
+#   - The server's output goes to a log file, not to the step's own output.
+#     A background process that keeps the step's output open is a step that
+#     never finishes, and a gate that hangs is a gate that stops a pipeline
+#     rather than reporting anything.
+#
+# The same two things are why every request below carries a timeout: a gate
+# that waits forever on a request that never answers is the same hang with
+# a different cause.
+find_server() {
+  for candidate in \
+    "_build/native/release/build/cmd/server/server" \
+    "_build/native/release/build/cmd/server/server.exe" \
+    "_build/native/debug/build/cmd/server/server" \
+    "_build/native/debug/build/cmd/server/server.exe"; do
+    if [ -x "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+SERVER_BIN="$(find_server || true)"
+if [ -z "$SERVER_BIN" ]; then
+  echo "    ERROR: the server binary was not found after the build"
+  exit 1
+fi
 
 echo "    Starting server on port $PORT..."
-MAKED_PORT="$PORT" MAKED_DB="$DB" moon run --release --target native cmd/server &
+MAKED_PORT="$PORT" MAKED_DB="$DB" "$SERVER_BIN" > "$LOG" 2>&1 &
 SERVER_PID=$!
-sleep 2
 
-if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-  echo "    ERROR: Server failed to start"
+# Wait for it to answer, up to half a minute. A fixed sleep is either too
+# long on a fast machine or too short on a slow one, and a gate that gives
+# up on a server that was about to start fails for a reason that has
+# nothing to do with the contract.
+READY=0
+for _ in $(seq 1 30); do
+  if curl -sf --max-time 2 "http://127.0.0.1:$PORT/api/status" > /dev/null 2>&1; then
+    READY=1
+    break
+  fi
+  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    break
+  fi
+  sleep 1
+done
+
+if [ "$READY" -ne 1 ]; then
+  echo "    ERROR: the server did not answer on port $PORT"
+  echo "    --- what it said ---"
+  cat "$LOG" 2>/dev/null | tail -20
   exit 1
 fi
 
@@ -97,7 +149,7 @@ echo ""
 # Contract: GET /api/status
 # ---------------------------------------------------------------------------
 echo "  Contract: GET /api/status"
-RESP=$(curl -s "http://localhost:$PORT/api/status")
+RESP=$(curl -s --max-time 10 "http://localhost:$PORT/api/status")
 assert_contract "status has string 'status'" "$RESP" \
   "assert isinstance(d['status'], str)"
 assert_contract "status has string 'database'" "$RESP" \
@@ -121,7 +173,7 @@ assert_contract "status domain has string 'role'" "$RESP" \
 # Contract: GET /api/pages
 # ---------------------------------------------------------------------------
 echo "  Contract: GET /api/pages"
-RESP=$(curl -s "http://localhost:$PORT/api/pages")
+RESP=$(curl -s --max-time 10 "http://localhost:$PORT/api/pages")
 assert_contract "pages has array 'pages'" "$RESP" \
   "assert isinstance(d['pages'], list)"
 assert_contract "pages has at least 8 entries" "$RESP" \
@@ -147,7 +199,7 @@ assert_contract "page has int 'sort'" "$RESP" \
 # Contract: GET /api/domains
 # ---------------------------------------------------------------------------
 echo "  Contract: GET /api/domains"
-RESP=$(curl -s "http://localhost:$PORT/api/domains")
+RESP=$(curl -s --max-time 10 "http://localhost:$PORT/api/domains")
 assert_contract "domains has array 'domains'" "$RESP" \
   "assert isinstance(d['domains'], list)"
 assert_contract "domains has 5 entries" "$RESP" \
@@ -157,7 +209,7 @@ assert_contract "domains has 5 entries" "$RESP" \
 # Contract: GET /api/loop/status
 # ---------------------------------------------------------------------------
 echo "  Contract: GET /api/loop/status"
-RESP=$(curl -s "http://localhost:$PORT/api/loop/status")
+RESP=$(curl -s --max-time 10 "http://localhost:$PORT/api/loop/status")
 assert_contract "loop status has string 'current_domain'" "$RESP" \
   "assert isinstance(d['current_domain'], str)"
 assert_contract "loop status has string 'current_title'" "$RESP" \
@@ -189,7 +241,7 @@ assert_contract "loop status has string 'group_state_gloss'" "$RESP" \
 # Contract: GET /api/loop/slots
 # ---------------------------------------------------------------------------
 echo "  Contract: GET /api/loop/slots"
-RESP=$(curl -s "http://localhost:$PORT/api/loop/slots")
+RESP=$(curl -s --max-time 10 "http://localhost:$PORT/api/loop/slots")
 assert_contract "slots has array 'slots'" "$RESP" \
   "assert isinstance(d['slots'], list)"
 assert_contract "slots has 8 entries" "$RESP" \
@@ -210,7 +262,7 @@ assert_contract "slot has no 'source' field" "$RESP" \
 # Contract: POST /api/loop/step
 # ---------------------------------------------------------------------------
 echo "  Contract: POST /api/loop/step"
-RESP=$(curl -s -X POST "http://localhost:$PORT/api/loop/step")
+RESP=$(curl -s --max-time 10 -X POST "http://localhost:$PORT/api/loop/step")
 assert_contract "step response has string 'current_domain'" "$RESP" \
   "assert isinstance(d['current_domain'], str)"
 assert_contract "step response has int 'history_length'" "$RESP" \
@@ -222,7 +274,7 @@ assert_contract "step response history_length >= 1" "$RESP" \
 # Contract: POST /api/loop/reset
 # ---------------------------------------------------------------------------
 echo "  Contract: POST /api/loop/reset"
-RESP=$(curl -s -X POST "http://localhost:$PORT/api/loop/reset")
+RESP=$(curl -s --max-time 10 -X POST "http://localhost:$PORT/api/loop/reset")
 assert_contract "reset response has string 'current_domain'" "$RESP" \
   "assert isinstance(d['current_domain'], str)"
 assert_contract "reset response current_domain is M" "$RESP" \
@@ -234,17 +286,17 @@ assert_contract "reset response history_length is 0" "$RESP" \
 # Contract: POST /api/loop/reset/:domain
 # ---------------------------------------------------------------------------
 echo "  Contract: POST /api/loop/reset/:domain"
-RESP=$(curl -s -X POST "http://localhost:$PORT/api/loop/reset/D")
+RESP=$(curl -s --max-time 10 -X POST "http://localhost:$PORT/api/loop/reset/D")
 assert_contract "reset to D has current_domain D" "$RESP" \
   "assert d['current_domain'] == 'D'"
 assert_contract "reset to D has history_length 0" "$RESP" \
   "assert d['history_length'] == 0"
 
-RESP=$(curl -s -X POST "http://localhost:$PORT/api/loop/reset/attack")
+RESP=$(curl -s --max-time 10 -X POST "http://localhost:$PORT/api/loop/reset/attack")
 assert_contract "reset to attack (english) has current_domain A" "$RESP" \
   "assert d['current_domain'] == 'A'"
 
-RESP=$(curl -s -X POST "http://localhost:$PORT/api/loop/reset/invalid")
+RESP=$(curl -s --max-time 10 -X POST "http://localhost:$PORT/api/loop/reset/invalid")
 assert_contract "reset to invalid domain returns error" "$RESP" \
   "assert 'error' in d"
 
@@ -252,7 +304,7 @@ assert_contract "reset to invalid domain returns error" "$RESP" \
 # Contract: GET /api/loop/mode
 # ---------------------------------------------------------------------------
 echo "  Contract: GET /api/loop/mode"
-RESP=$(curl -s "http://localhost:$PORT/api/loop/mode")
+RESP=$(curl -s --max-time 10 "http://localhost:$PORT/api/loop/mode")
 assert_contract "mode response has string 'mode'" "$RESP" \
   "assert isinstance(d['mode'], str)"
 assert_contract "mode response mode is structured or free" "$RESP" \
@@ -266,7 +318,7 @@ assert_contract "mode response has string 'gloss'" "$RESP" \
 # Contract: POST /api/loop/mode/:mode
 # ---------------------------------------------------------------------------
 echo "  Contract: POST /api/loop/mode/:mode"
-RESP=$(curl -s -X POST "http://localhost:$PORT/api/loop/mode/free")
+RESP=$(curl -s --max-time 10 -X POST "http://localhost:$PORT/api/loop/mode/free")
 assert_contract "set mode to free succeeds" "$RESP" \
   "assert d['mode'] == 'free'"
 assert_contract "set mode response has mode_designation" "$RESP" \
@@ -274,11 +326,11 @@ assert_contract "set mode response has mode_designation" "$RESP" \
 assert_contract "set mode response has mode_gloss" "$RESP" \
   "assert isinstance(d['mode_gloss'], str)"
 
-RESP=$(curl -s -X POST "http://localhost:$PORT/api/loop/mode/structured")
+RESP=$(curl -s --max-time 10 -X POST "http://localhost:$PORT/api/loop/mode/structured")
 assert_contract "set mode to structured succeeds" "$RESP" \
   "assert d['mode'] == 'structured'"
 
-RESP=$(curl -s -X POST "http://localhost:$PORT/api/loop/mode/invalid")
+RESP=$(curl -s --max-time 10 -X POST "http://localhost:$PORT/api/loop/mode/invalid")
 assert_contract "set invalid mode returns error" "$RESP" \
   "assert 'error' in d"
 
@@ -286,7 +338,7 @@ assert_contract "set invalid mode returns error" "$RESP" \
 # Contract: mode fields in loop status
 # ---------------------------------------------------------------------------
 echo "  Contract: mode fields in loop status"
-RESP=$(curl -s "http://localhost:$PORT/api/loop/status")
+RESP=$(curl -s --max-time 10 "http://localhost:$PORT/api/loop/status")
 assert_contract "status has mode field" "$RESP" \
   "assert isinstance(d['mode'], str)"
 assert_contract "status has mode_designation field" "$RESP" \

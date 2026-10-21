@@ -45,6 +45,7 @@ assert_dast() {
 PORT="${MAKED_PORT:-}"
 SERVER_PID=""
 DB=""
+LOG=""
 
 cleanup() {
   if [ -n "$SERVER_PID" ]; then
@@ -54,12 +55,42 @@ cleanup() {
   if [ -n "$DB" ]; then
     rm -f "$DB"
   fi
+  if [ -n "$LOG" ]; then
+    rm -f "$LOG"
+  fi
 }
 trap cleanup EXIT
 
 # Whether something answers on the port.
 server_answers() {
   curl -s --max-time 2 "http://localhost:$1/api/status" > /dev/null 2>&1
+}
+
+# The built server, wherever the toolchain put it.
+#
+# The gate starts the binary itself rather than asking `moon run` to start
+# it, and that is not a style choice. Two things depend on it:
+#
+#   - The process the gate holds is then the server, so the gate can stop
+#     it. `moon run` is a wrapper: killing the wrapper does not necessarily
+#     kill the server it started, and a server left running holds the
+#     output pipe of the step that started it.
+#   - The server's output goes to a log file, not to the step's own output.
+#     A background process that keeps the step's output open is a step that
+#     never finishes, and a gate that hangs is a gate that stops a pipeline
+#     rather than reporting anything.
+find_server() {
+  for candidate in \
+    "_build/native/release/build/cmd/server/server" \
+    "_build/native/release/build/cmd/server/server.exe" \
+    "_build/native/debug/build/cmd/server/server" \
+    "_build/native/debug/build/cmd/server/server.exe"; do
+    if [ -x "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
 }
 
 # How many pages the server says it holds.
@@ -151,17 +182,27 @@ if [ -z "$PORT" ] || ! server_answers "$PORT"; then
   echo ""
   echo "  Starting a server for the live checks (port $PORT)..."
   DB="_build/test-dast-$$.db"
+  LOG="_build/test-dast-$$.log"
   if moon build --release --target native cmd/server > /dev/null 2>&1; then
-    MAKED_PORT="$PORT" MAKED_DB="$DB" moon run --release --target native cmd/server &
-    SERVER_PID=$!
-    # The server needs a moment to bind the port; thirty tries is a minute,
-    # which is longer than any start-up here takes and shorter than a build.
-    for _ in $(seq 1 30); do
-      if server_answers "$PORT"; then
-        break
-      fi
-      sleep 1
-    done
+    SERVER_BIN="$(find_server || true)"
+    if [ -z "$SERVER_BIN" ]; then
+      echo "    the server binary was not found after the build"
+    else
+      MAKED_PORT="$PORT" MAKED_DB="$DB" "$SERVER_BIN" > "$LOG" 2>&1 &
+      SERVER_PID=$!
+      # The server needs a moment to bind the port; thirty tries is a
+      # minute, which is longer than any start-up here takes and shorter
+      # than a build.
+      for _ in $(seq 1 30); do
+        if server_answers "$PORT"; then
+          break
+        fi
+        if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+          break
+        fi
+        sleep 1
+      done
+    fi
   else
     echo "    the server did not build, so the live checks cannot run"
   fi
