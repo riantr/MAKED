@@ -45,14 +45,14 @@ supported_targets = "js+native"
 description = "MAKED on MoonBit: rabbita SPA frontend + a Flask-style micro-framework on moonback"
 
 import {
-  "moonbit-community/rabbita@0.16.5",
+  "moonbit-community/rabbita@0.16.6",
   "moonbit-community/sqlite3@0.2.3",
   "moonbit-community/yaml@0.0.8",
   "moonbitlang/async@0.22.5",
   "moonbitlang/moonback@0.8.9",
   "moonbitlang/pdflite@0.4.0",
-  "moonbitlang/x@0.5.5",
-  "riantr/moonbit_doubleML@0.163.9",
+  "moonbitlang/x@0.5.6",
+  "riantr/moonbit_doubleML@0.164.15",
   "riantr/pyroduct@0.1.32",
-  "colmugx/mcp@0.18.0",
+  "colmugx/mcp@0.18.1",
 }

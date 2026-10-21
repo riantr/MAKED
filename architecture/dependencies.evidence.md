@@ -15,11 +15,11 @@
 
 | Dependency | Version | Source |
 |-----------|---------|--------|
-| moonbit-community/rabbita | 0.16.4 | `moon.mod:30` |
-| moonbit-community/sqlite3 | 0.2.3 | `moon.mod:31` |
-| moonbitlang/async | 0.22.4 | `moon.mod:32` |
-| moonbitlang/moonback | 0.8.6 | `moon.mod:33` |
-| moonbitlang/x | 0.5.5 | `moon.mod:34` |
+| moonbit-community/rabbita | 0.16.6 | `moon.mod:48` |
+| moonbit-community/sqlite3 | 0.2.3 | `moon.mod:49` |
+| moonbitlang/async | 0.22.5 | `moon.mod:51` |
+| moonbitlang/moonback | 0.8.9 | `moon.mod:52` |
+| moonbitlang/x | 0.5.6 | `moon.mod:54` |
 
 ## Change impact evidence
 

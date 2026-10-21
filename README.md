@@ -22,7 +22,7 @@ Three layers sit on that ring:
 | **Society** | The collective as a communicative whole — 13 positions × 8 phases × 28 transitions, from [riantr/pyroduct](https://mooncakes.io/docs/riantr/pyroduct@0.1.32) |
 
 The state machine is `riantr/pyroduct@0.1.32`. The front end is
-[rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.16.5), the server is a
+[rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.16.6), the server is a
 Flask-style micro-framework on [moonback](https://mooncakes.io/docs/moonbitlang/moonback@0.8.9),
 and the storage is SQLite.
 
@@ -753,11 +753,11 @@ Apache-2.0 License. See [LICENSE](LICENSE) for details.
 
 - [pyroduct](https://mooncakes.io/docs/riantr/pyroduct@0.1.32) — the state machine, the
   group states and the collective
-- [rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.16.5) — the single-page
+- [rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.16.6) — the single-page
   front end
 - [moonback](https://mooncakes.io/docs/moonbitlang/moonback@0.8.9) — the HTTP server the
   micro-framework sits on
-- [moonbit_doubleML](https://mooncakes.io/docs/riantr/moonbit_doubleML@0.163.9) — the
+- [moonbit_doubleML](https://mooncakes.io/docs/riantr/moonbit_doubleML@0.164.15) — the
   causal estimate
 - [Model Context Protocol](https://modelcontextprotocol.io) — the agent's server, version
   2026-07-28
