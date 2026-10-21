@@ -214,18 +214,19 @@ gate_dep_check() {
 }
 
 # ---------------------------------------------------------------------------
-# Gate 16: The architecture documents against the tree
+# Gate 16: The documents against the tree
 # ---------------------------------------------------------------------------
 #
-# The README has a gate for its numbers. The architecture documents make the
-# same kind of claim -- a count, a shape, a file and line to look at -- and
-# they rotted the same way: four API endpoints when there are thirty-seven,
-# eight columns when there are twelve, "no Dockerfile" when there is one,
-# and a hundred file:line references pointing at lines that had moved.
+# The README has a gate for its numbers. The other documents a reader is sent
+# to make the same kind of claim -- a count, a shape, a file and line to look
+# at -- and they rotted the same way: four API endpoints when there are
+# thirty-seven, eight columns when there are twelve, "no Dockerfile" when
+# there is one, and a hundred file:line references pointing at lines that had
+# moved.
 #
 # The gate reads only. It takes a second.
-gate_architecture() {
-  bash tools/check-architecture.sh
+gate_docs() {
+  bash tools/check-docs.sh
 }
 
 # ---------------------------------------------------------------------------
@@ -262,7 +263,7 @@ case "$MODE" in
     gate "coverage"        gate_coverage
     gate "contract"        gate_contract
     gate "sast"            gate_sast
-    gate "architecture"    gate_architecture
+    gate "docs"            gate_docs
     gate "readme"          gate_readme
     ;;
   --unit-only|-u)
@@ -288,7 +289,7 @@ case "$MODE" in
     gate "mutation"        gate_mutation
     gate "dast"            gate_dast
     gate "dep-check"       gate_dep_check
-    gate "architecture"    gate_architecture
+    gate "docs"            gate_docs
     gate "readme"          gate_readme
     ;;
 esac

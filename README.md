@@ -576,8 +576,8 @@ MAKED_moonbit/
 │   ├── check-mutation-anchors.ps1    # 229 anchors, and whether any is dead
 │   ├── check-readme.ps1              # the numbers this document states, against the tree
 │   ├── check-readme.sh               # the same gate, in bash
-│   ├── check-architecture.ps1        # the architecture documents' claims, against the tree
-│   └── check-architecture.sh         # the same gate, in bash
+│   ├── check-docs.ps1                # the other documents' claims, against the tree
+│   └── check-docs.sh                 # the same gate, in bash
 ├── AGENT.md                         # how to drive MAKED from another agent
 ├── AGENTS.md                        # how to work on MAKED
 ├── moon.mod  moon.pkg

@@ -111,17 +111,17 @@ jobs:
       - name: Dependency versions
         run: bash tools/dep-check.sh
 
-      # The architecture documents make the same kind of claim the README
-      # does -- a count, a shape, a file and line to look at -- and they
-      # rotted the same way: four API endpoints when there were
+      # The other documents a reader is sent to make the same kind of claim
+      # the README does -- a count, a shape, a file and line to look at -- and
+      # they rotted the same way: four API endpoints when there were
       # thirty-seven, "no Dockerfile" when there was one, and a hundred
-      # file:line references pointing at lines that had moved. The README
-      # has a gate for its numbers; this is the same gate for the other
-      # documents.
+      # file:line references pointing at lines that had moved. The README has
+      # a gate for its numbers; this is the same gate for architecture/,
+      # AGENT.md and the note in the release archive.
       #
       # It reads only and takes a second.
-      - name: Architecture documents against the tree
-        run: bash tools/check-architecture.sh
+      - name: Documents against the tree
+        run: bash tools/check-docs.sh
 
       - name: README numbers against the tree
         run: bash tools/check-readme.sh

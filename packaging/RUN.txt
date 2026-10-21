@@ -25,6 +25,18 @@ Useful settings, all optional:
 MAKED_HOST is the one to reach for when the server has to be reachable from
 another machine: the default, 127.0.0.1, means this computer only.
 
+MAKED runs on four files as well, and each is named by a variable of its own.
+All four are optional: leave one unset and MAKED runs on the built-in one.
+
+    MAKED_MODEL      the machine: the domains, positions, slots and rules
+    MAKED_RESEARCH   the mapping table: what a document means
+    MAKED_SOCIETY    the society vocabulary: the collective's own words
+    MAKED_CORPUS     the corpus: where the documents come from
+
+This archive carries examples of all four: machines under models/, mapping
+tables and corpora under research/, and research/notes/ is the corpus one of
+those corpora names. Point a variable at one of them to run on it.
+
 There is no authentication. Anyone who can reach the port can read and delete
 every record, so do not expose it to a network you do not control.
 

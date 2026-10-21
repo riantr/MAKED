@@ -1,0 +1,796 @@
+#!/usr/bin/env bash
+# Check the documents against the tree.
+#
+#   bash tools/check-docs.sh
+#
+# The README has a gate for its numbers (tools/check-readme.sh). This is the
+# same invariant applied to the other documents a reader is sent to:
+#
+#   **the number the document states IS the number the tree has**
+#
+# The documents are:
+#
+#   architecture/      how the system is put together
+#   AGENT.md           how to drive MAKED from another agent
+#   packaging/RUN.txt  the note that ships inside the release archive
+#
+# They rotted the way the README did: four API endpoints when there are
+# thirty-seven, eight columns when there are twelve, "no Dockerfile" when
+# there is one, a hundred file:line references pointing at lines that had
+# long since moved, and a table of tools that had drifted away from the
+# tools the server actually has.
+#
+# Four kinds of claim are checked, and each is checked in the way that fits
+# it.
+#
+# The COUNTS are derived from the tree and compared with what the documents
+# say. The route count comes from counting the route registrations; the
+# column count from counting the columns of the `pages` table; the field
+# count from counting the fields of the `Page` struct; the page count from
+# counting what is seeded.
+#
+# The REFERENCES are checked for existence and for range. A reference to a
+# file that is not there is a broken pointer. A reference to a line past the
+# end of the file is a broken pointer too. A reference to a line that is
+# still IN RANGE but no longer says what the claim says it says is the
+# dangerous one -- it looks verified -- and no script can catch that; it is
+# why the documents carry the claim in words next to the pointer.
+#
+# The SETS are compared by membership. The tools the discovery document
+# declares, the files MAKED runs on, the HTTP endpoints it lists, the
+# environment variables the server reads: a set with one entry too many and
+# a set with one entry too few fail the same way, because both send a reader
+# to something that is not there. The comparison is by membership and not by
+# a sorted string, so the two twins cannot disagree about the answer by
+# disagreeing about the order.
+#
+# The WORDS are counts too. "the seven tools" is a claim exactly as much as
+# "37 API routes" is. A number word can be mapped to a number, so it is
+# mapped and compared.
+#
+# It reads only. It never writes to the source tree.
+#
+# It also starts no processes it does not need. Every one of them costs a
+# tenth of a second on Windows and a millisecond on Linux, and a gate that
+# takes forty seconds on the machine that writes the documents is a gate
+# people stop running. So the sets are compared in the shell, the line
+# counts are cached per file, and each derived list is read once.
+#
+# Exit codes:
+#   0  every claim in the documents matches the tree
+#   1  a claim in the documents does not match the tree
+
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+AGENT_DOC="AGENT.md"
+RUN_NOTE="packaging/RUN.txt"
+
+EVIDENCE="architecture/system-model.evidence.md"
+DEPS="architecture/dependencies.evidence.md"
+DEPS_MD="architecture/dependencies.md"
+SUMMARY="architecture/system-model.summary.md"
+DEPLOY="architecture/deployment.evidence.md"
+
+# The documents are read into the shell once, and everything that asks a
+# document a question asks the string. `$(< file)` is the shell's own read:
+# no process, no fork.
+EVIDENCE_TEXT=$(< "$EVIDENCE")
+DEPS_TEXT=$(< "$DEPS")
+DEPS_MD_TEXT=$(< "$DEPS_MD")
+SUMMARY_TEXT=$(< "$SUMMARY")
+
+FAILURES=0
+
+fail() {
+  echo "  $1"
+  echo "*** FAIL ***"
+  FAILURES=$((FAILURES + 1))
+}
+
+ok() {
+  printf '  ok      %-22s %s\n' "$1" "$2"
+}
+
+# --- sets --------------------------------------------------------------------
+#
+# A set is a list of lines. Two sets are the same when they have the same
+# members and the same size, and the order they are written in says nothing
+# about it.
+#
+# The comparisons are done in the shell rather than by piping into grep.
+# They are the same comparison, and they cost no processes.
+#
+# And they answer through a VARIABLE rather than through stdout. A command
+# substitution is a fork, and a fork on this machine costs a tenth of a
+# second; a gate that forks a hundred times takes a minute, and a gate that
+# takes a minute is a gate people stop running.
+
+# COUNT_LINES holds the answer of count_lines.
+COUNT_LINES=0
+count_lines() {
+  local count=0 line
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    count=$((count + 1))
+  done <<< "$1"
+  COUNT_LINES=$count
+}
+
+# JOIN_LINES holds the answer of join_lines.
+JOIN_LINES=""
+join_lines() {
+  local line out=""
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    if [ -z "$out" ]; then out="$line"; else out="$out $line"; fi
+  done <<< "$1"
+  JOIN_LINES="$out"
+}
+
+# NOT_IN holds the answer of not_in.
+NOT_IN=""
+not_in() {
+  local source="$1" other="$2" line candidate found out=""
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    found=0
+    while IFS= read -r candidate; do
+      [ -n "$candidate" ] || continue
+      if [ "$candidate" = "$line" ]; then
+        found=1
+        break
+      fi
+    done <<< "$other"
+    if [ "$found" -eq 0 ]; then
+      if [ -z "$out" ]; then out="$line"; else out="$out $line"; fi
+    fi
+  done <<< "$source"
+  NOT_IN="$out"
+}
+
+# Two sets that have to be the same.
+check_sets() {
+  local label="$1" expected="$2" stated="$3"
+  local na nb missing extra
+  count_lines "$expected"; na=$COUNT_LINES
+  count_lines "$stated"; nb=$COUNT_LINES
+  not_in "$expected" "$stated"; missing=$NOT_IN
+  not_in "$stated" "$expected"; extra=$NOT_IN
+  if [ "$na" = "$nb" ] && [ -z "$missing" ] && [ -z "$extra" ]; then
+    ok "$label" "$na"
+    return
+  fi
+  join_lines "$expected"; local expected_text="$JOIN_LINES"
+  join_lines "$stated"; local stated_text="$JOIN_LINES"
+  fail "$(printf '%-22s the tree says [%s], the document says [%s]' \
+    "$label" "$expected_text" "$stated_text")"
+}
+
+# Every member of the first set has to be a member of the second.
+check_subset() {
+  local label="$1" subset="$2" superset="$3"
+  local missing
+  not_in "$subset" "$superset"; missing=$NOT_IN
+  if [ -z "$missing" ]; then
+    count_lines "$subset"
+    ok "$label" "$COUNT_LINES"
+    return
+  fi
+  fail "$(printf '%-22s the document is missing [%s]' "$label" "$missing")"
+}
+
+# --- how the tree is counted ------------------------------------------------
+
+# A route is one registration: app.get(...), app.post(...), and the rest.
+# The count is the number of registrations, not the number of distinct
+# paths, because a path registered for two verbs is two registrations and
+# the handler behind them is two handlers.
+count_routes() {
+  grep -cE 'app\.(get|post|put|delete|patch)\(' backend/api.mbt || true
+}
+
+# The same routes as "METHOD path". The file is read as one line first,
+# because one registration spreads its path over two lines, and a path that
+# is on the next line is still a path.
+tree_endpoints() {
+  tr '\n' ' ' < backend/api.mbt \
+    | grep -oE 'app\.(get|post|put|delete|patch)\( *"[^"]+"' \
+    | sed -E 's/app\.(get|post|put|delete|patch)\( *"([^"]+)"/\1|\2/' \
+    | awk -F'|' '{ print toupper($1), $2 }'
+}
+
+# The columns of the `pages` table. The CREATE TABLE statement is a block of
+# #| lines -- MoonBit's string literal for the SQL -- and every line that
+# names a column says TEXT or INTEGER. Counting those lines counts the
+# columns.
+count_page_columns() {
+  awk '
+    /CREATE TABLE IF NOT EXISTS pages/ { inside = 1; next }
+    inside && /^\s*#\|/ {
+      if ($0 ~ /TEXT|INTEGER/) n++
+      next
+    }
+    inside { exit }
+    END { print n + 0 }
+  ' backend/database.mbt
+}
+
+# The fields of the `Page` struct. It is the only `struct Page` in the file
+# and it ends at the first closing brace at the start of a line.
+count_page_fields() {
+  awk '
+    /^pub\(all\) struct Page \{/ { inside = 1; next }
+    inside && /^\}/ { exit }
+    inside && /^[ \t]+[a-z_]+[ \t]*:/ { n++ }
+    END { print n + 0 }
+  ' backend/pages.mbt
+}
+
+# The pages the server serves. Three places produce one:
+#
+#   - the ring domains, one tuple each
+#   - the list of the other three seeded pages, one tuple each
+#   - the index page and the not-found page, one constructor each
+#
+# The three counts are added because the three shapes are three lists, and a
+# counter that read only one of them would be wrong by the other two.
+count_seed_pages() {
+  local ring list singles
+  ring=$(grep -cE '^ *\("[a-z]+", "[A-Z]' backend/pages.mbt || true)
+  # The list of the other pages: a tuple that starts with a bare slug in
+  # quotes on its own line. The capitalised title on the next line is not a
+  # slug, so the pattern asks for a lower-case word.
+  list=$(grep -cE '^ *"([a-z]+)",$' backend/pages.mbt || true)
+  # The two constructors that make a page on their own.
+  singles=$(grep -cE '^ *slug: "' backend/pages.mbt || true)
+  echo $((ring + list + singles))
+}
+
+# --- what the documents say -------------------------------------------------
+
+# A number the documents state.
+#
+# The pattern matches the whole FRAGMENT the number sits in, and the number
+# is then the only run of digits in that fragment. Two things follow from
+# that, and both are why it is written this way.
+#
+# The fragment is matched with grep -oE rather than sed's s///. A greedy
+# leading `.*` eats INTO the number: "37 API routes" leaves "7" for the
+# capture group, because the engine tries the longest `.*` first and "7" is
+# the longest prefix that still leaves a digit before " API routes". A gate
+# that reads 7 where the document says 37 is a gate that cannot be trusted.
+#
+# The context around the number carries no digits of its own. That is what
+# makes "the only run of digits in the fragment" the right answer, and it is
+# why a pattern like "mutate-backend.ps1 # 143 mutations" is not safe here:
+# the "1" of "ps1" would be a digit run of its own.
+#
+# The answer lands in DOC_NUMBER rather than on stdout, so that asking a
+# document seven questions does not fork seven times.
+DOC_NUMBER=""
+doc_number() {
+  local pattern="$1" file="$2" text fragment
+  case "$file" in
+    "$EVIDENCE") text="$EVIDENCE_TEXT" ;;
+    "$DEPS") text="$DEPS_TEXT" ;;
+    "$DEPS_MD") text="$DEPS_MD_TEXT" ;;
+    "$SUMMARY") text="$SUMMARY_TEXT" ;;
+    *) text=$(< "$file") ;;
+  esac
+  DOC_NUMBER=""
+  if [[ "$text" =~ $pattern ]]; then
+    fragment="${BASH_REMATCH[0]}"
+    if [[ "$fragment" =~ [0-9]+ ]]; then
+      DOC_NUMBER="${BASH_REMATCH[0]}"
+    fi
+  fi
+}
+
+# A number spelled out in words. "the seven tools" is a claim exactly as
+# much as "37 API routes" is, and a word can be mapped to a number.
+#
+# The map is the twelve words a count below a hundred is written with. A
+# count outside that range is a sentence the gate cannot read, and the gate
+# says so rather than passing it.
+word_number() {
+  case "$1" in
+    one) echo 1 ;;
+    two) echo 2 ;;
+    three) echo 3 ;;
+    four) echo 4 ;;
+    five) echo 5 ;;
+    six) echo 6 ;;
+    seven) echo 7 ;;
+    eight) echo 8 ;;
+    nine) echo 9 ;;
+    ten) echo 10 ;;
+    eleven) echo 11 ;;
+    twelve) echo 12 ;;
+    *) echo "" ;;
+  esac
+}
+
+# A count the document spells out in words. Every "<word> <noun>" in the
+# document has to be the count the tree has.
+check_word_count() {
+  local label="$1" noun="$2" expected="$3" doc="$4"
+  local words word number bad
+  words=$(grep -oE "\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve) $noun\b" "$doc" \
+    | grep -oE '[a-z]+' | grep -vxF "$noun" | LC_ALL=C sort -u || true)
+  if [ -z "$words" ]; then
+    fail "$(printf '%-22s the document does not state the count in words' "$label")"
+    return
+  fi
+  bad=""
+  for word in $words; do
+    number=$(word_number "$word")
+    if [ -z "$number" ] || [ "$number" != "$expected" ]; then
+      bad="$bad $word"
+    fi
+  done
+  if [ -n "$bad" ]; then
+    fail "$(printf '%-22s the document says [%s], the tree has %s' \
+      "$label" "$(printf '%s' "$bad" | sed -e 's/^ *//')" "$expected")"
+    return
+  fi
+  ok "$label" "$expected"
+}
+
+check_count() {
+  local label="$1" actual="$2" expected="$3"
+  if [ -z "$actual" ] || [ "$actual" -lt 0 ]; then
+    fail "$(printf '%-22s could not be derived from the tree' "$label")"
+    return
+  fi
+  if [ -z "$expected" ]; then
+    fail "$(printf '%-22s no document states it' "$label")"
+    return
+  fi
+  if [ "$expected" != "$actual" ]; then
+    fail "$(printf '%-22s the tree has %s, the document says %s' \
+      "$label" "$actual" "$expected")"
+    return
+  fi
+  ok "$label" "$actual"
+}
+
+# --- the tree, read once ----------------------------------------------------
+#
+# Everything the checks compare against is derived HERE, once, and the
+# checks below read the results. A derived list that is recomputed per
+# check is a list that costs a process per check.
+
+ROUTES=$(count_routes)
+TREE_ENDPOINTS=$(tree_endpoints)
+
+# --- the counts -------------------------------------------------------------
+
+doc_number '[0-9]+ API routes' "$EVIDENCE"
+check_count "API routes" \
+  "$ROUTES" \
+  "$DOC_NUMBER"
+
+# The same routes, counted the second way. The count above is a count of
+# LINES that carry a registration; this one is a count of the paths the
+# registrations name. One registration spreads its path over two lines, so
+# the two counts are the same number -- and if they are not, the path
+# extraction above has broken, and every endpoint check built on it would
+# pass against nothing.
+count_lines "$TREE_ENDPOINTS"
+check_count "route paths" \
+  "$COUNT_LINES" \
+  "$ROUTES"
+
+doc_number 'pages` table with [0-9]+ columns' "$EVIDENCE"
+check_count "pages columns" \
+  "$(count_page_columns)" \
+  "$DOC_NUMBER"
+
+doc_number 'Page struct with [0-9]+ fields' "$EVIDENCE"
+check_count "Page fields" \
+  "$(count_page_fields)" \
+  "$DOC_NUMBER"
+
+doc_number '[|] [0-9]+ seed pages' "$EVIDENCE"
+check_count "seed pages" \
+  "$(count_seed_pages)" \
+  "$DOC_NUMBER"
+
+doc_number 'frontend/frontend_test\.mbt` [|] [0-9]+ tests' "$EVIDENCE"
+check_count "frontend tests" \
+  "$(grep -cE '^[ \t]*(async[ \t]+)?test[ \t]+"[^"]*"[ \t]*\{' frontend/frontend_test.mbt || true)" \
+  "$DOC_NUMBER"
+
+doc_number 'backend/database_test\.mbt` [|] [0-9]+ tests' "$EVIDENCE"
+check_count "backend tests" \
+  "$(grep -cE '^[ \t]*(async[ \t]+)?test[ \t]+"[^"]*"[ \t]*\{' backend/database_test.mbt || true)" \
+  "$DOC_NUMBER"
+
+# The summary states the two suites together.
+doc_number '[0-9]+ tests across backend and frontend' "$SUMMARY"
+check_count "tests (summary)" \
+  "$(cat backend/*.mbt frontend/*.mbt | grep -cE '^[ \t]*(async[ \t]+)?test[ \t]+"[^"]*"[ \t]*\{' || true)" \
+  "$DOC_NUMBER"
+
+# --- the dependency versions ------------------------------------------------
+#
+# The version each dependency is pinned to is stated in three documents, and
+# it is stated in moon.mod. All four have to agree: a document that names a
+# version the manifest does not pin is a document that sends a reader to a
+# version that is not the one this project uses.
+#
+# The version is read out of moon.mod's import block, and the documents are
+# asked whether they state the same one. The three documents are read into
+# the shell once, and the question is then asked of the strings -- the same
+# question a grep would answer, without thirty processes.
+
+DEPS_TEXT=$(cat "$DEPS")
+DEPS_MD_TEXT=$(cat "$DEPS_MD")
+EVIDENCE_TEXT=$(cat "$EVIDENCE")
+
+check_dependency_versions() {
+  local module="$1" version="$2" label="$3"
+  local bad=0
+  local index doc text
+  # The pattern is held in a variable because a regex with spaces in it has
+  # to be, and the dots are escaped because a version is a version and not
+  # a pattern -- the PowerShell twin escapes them too.
+  local module_re="${module//./\\.}"
+  local version_re="${version//./\\.}"
+  local table_form="\\| $module_re \\| $version_re \\|"
+  for index in 0 1 2; do
+    case "$index" in
+      0) doc="$DEPS" ; text="$DEPS_TEXT" ;;
+      1) doc="$DEPS_MD" ; text="$DEPS_MD_TEXT" ;;
+      2) doc="$EVIDENCE" ; text="$EVIDENCE_TEXT" ;;
+    esac
+    if [[ "$text" != *"$module@$version"* ]] \
+       && [[ ! "$text" =~ $table_form ]]; then
+      fail "$(printf '%-22s %s does not state %s' "$label" "$doc" "$version")"
+      bad=1
+    fi
+  done
+  if [ "$bad" -eq 0 ]; then
+    ok "$label" "$module@$version"
+  fi
+}
+
+while read -r module version; do
+  [ -n "$module" ] || continue
+  check_dependency_versions "$module" "$version" "dep ${module##*/}"
+done < <(sed -nE 's/^ *"([^"]+)@([^"]+)".*/\1 \2/p' moon.mod)
+
+# --- the references ---------------------------------------------------------
+#
+# Every `file.ext:line` or `file.ext:line-line` in the architecture
+# documents has to point at a file that exists and a line that is in it. A
+# pointer to a line past the end of the file is a pointer to nothing.
+#
+# This catches the mechanical half of the rot. It cannot catch a reference
+# that is in range but has drifted -- that is why the documents say what the
+# claim IS next to the pointer, and why a reader who finds one wrong can put
+# it back.
+#
+# The line count of a file is counted once and kept: a document with a
+# hundred references to ten files should cost ten counts, not a hundred.
+# And the count is asked for through a VARIABLE -- a command substitution
+# per reference is a fork per reference, and that was the whole cost of
+# this gate on a machine where a fork is expensive.
+declare -A FILE_LINES
+FILE_LINE_COUNT=0
+
+file_line_count() {
+  local file="$1"
+  if [ -z "${FILE_LINES[$file]+counted}" ]; then
+    local -a lines
+    mapfile -t lines < "$file"
+    FILE_LINES[$file]=${#lines[@]}
+  fi
+  FILE_LINE_COUNT="${FILE_LINES[$file]}"
+}
+
+check_references() {
+  local doc="$1"
+  local text rest file line last count
+  local -a refs=()
+  local -A seen=()
+  text=$(< "$doc")
+  rest="$text"
+  # The references are collected in the order the document states them, and
+  # a reference that appears twice is one reference. The PowerShell twin
+  # walks the document the same way, so the two report in the same order.
+  while [[ "$rest" =~ \`([A-Za-z0-9_./-]+\.(mbt|moon\.pkg|ps1|sh|mod|dsl|dot|md)):([0-9]+)(-([0-9]+))?\` ]]; do
+    file="${BASH_REMATCH[1]}"
+    line="${BASH_REMATCH[3]}"
+    if [ -n "${BASH_REMATCH[4]}" ]; then
+      last="${BASH_REMATCH[5]}"
+      key="$file:$line${BASH_REMATCH[4]}"
+    else
+      last="$line"
+      key="$file:$line"
+    fi
+    if [ -z "${seen[$key]+yes}" ]; then
+      seen[$key]=1
+      refs+=("$key")
+    fi
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+  done
+  local bad=0
+  local ref
+  for ref in "${refs[@]}"; do
+    file="${ref%%:*}"
+    line="${ref##*:}"
+    last="${line##*-}"
+    if [ ! -f "$file" ]; then
+      fail "$(printf '%-22s %s names a file that is not there' "$doc" "$file")"
+      bad=1
+      continue
+    fi
+    file_line_count "$file"
+    count="$FILE_LINE_COUNT"
+    if [ "$last" -gt "$count" ]; then
+      fail "$(printf '%-22s %s points past the end of the file (%s lines)' \
+        "$doc" "$ref" "$count")"
+      bad=1
+    fi
+  done
+  if [ "$bad" -eq 0 ]; then
+    ok "references $(basename "$doc")" "${#refs[@]}"
+  fi
+}
+
+for doc in "$EVIDENCE" "$DEPS" "$DEPLOY" "architecture/flows.evidence.md"; do
+  check_references "$doc"
+done
+
+# --- the facts that are not counts -----------------------------------------
+#
+# The deployment document used to claim there was no Dockerfile, no compose
+# file and no CI. Those are not numbers; they are the presence or absence of
+# a file, and they are checked the same way -- by looking.
+
+check_exists() {
+  local label="$1" path="$2"
+  if [ -e "$path" ]; then
+    ok "$label" "$path"
+  else
+    fail "$(printf '%-22s %s is not there' "$label" "$path")"
+  fi
+}
+
+check_exists "Dockerfile" "Dockerfile"
+check_exists "compose file" "docker-compose.yml"
+check_exists "CI workflow" ".github/workflows/ci.yml"
+check_exists "publish workflow" ".github/workflows/publish.yml"
+
+# --- AGENT.md: the document for another agent -------------------------------
+#
+# The discovery document at `GET /api/agent` is what an agent reads, and
+# AGENT.md is what a person reads before pointing an agent at it. Both carry
+# the same facts -- the tools, the protocol, the files, the endpoints -- so
+# the facts are derived ONCE, from the discovery document, and both are
+# checked against them.
+#
+# The discovery document is the source rather than the tree because the
+# discovery document is what the server ANSWERS with. A tool the server does
+# not have is a tool the discovery document must not offer, and the check
+# that the server has it is the handler switch in cmd/mcp/main.mbt.
+
+# The tools the discovery document declares. The `name:` field is what makes
+# a tool a tool; the `tool:` field of the endpoint list is a reference to
+# one, and is not a declaration.
+code_tools() {
+  grep -oE 'name: "maked_[a-z_]+"' backend/agent.mbt \
+    | grep -oE 'maked_[a-z_]+' | LC_ALL=C sort -u || true
+}
+
+# The same tools as AGENT.md's table gives them. A tool row starts with the
+# tool name in backticks; the endpoint table's rows start with a verb, so
+# they are never mistaken for tool rows.
+doc_tools() {
+  grep -oE '^\| `maked_[a-z_]+`' "$AGENT_DOC" \
+    | sed -E 's/^\| `([^`]+)`.*/\1/' | LC_ALL=C sort -u || true
+}
+
+# The endpoints the discovery document lists, as "METHOD path".
+code_endpoints() {
+  tr '\n' ' ' < backend/agent.mbt \
+    | grep -oE '"method": "[A-Z]+", *"path": "[^"]+"' \
+    | sed -E 's/"method": "([A-Z]+)", *"path": "([^"]+)"/\1 \2/' | LC_ALL=C sort -u || true
+}
+
+# The same endpoints as AGENT.md's table gives them.
+doc_endpoints() {
+  grep -oE '^\| `(GET|POST|PUT|DELETE|PATCH)` \| `/api/[^`]+`' "$AGENT_DOC" \
+    | sed -E 's/^\| `([A-Z]+)` \| `([^`]+)`/\1 \2/' | LC_ALL=C sort -u || true
+}
+
+# The tools AGENT.md's endpoint table points at.
+doc_endpoint_tools() {
+  grep -oE '^\| `(GET|POST|PUT|DELETE|PATCH)` \| `/api/[^`]+` \| `maked_[a-z_]+`' "$AGENT_DOC" \
+    | grep -oE 'maked_[a-z_]+' | LC_ALL=C sort -u || true
+}
+
+# The variables that name the files MAKED runs on, from the discovery
+# document.
+code_file_vars() {
+  grep -oE '"variable": "MAKED_[A-Z_]+"' backend/agent.mbt \
+    | grep -oE 'MAKED_[A-Z_]+' | LC_ALL=C sort -u || true
+}
+
+# The same variables as the backend actually reads them. The discovery
+# document has to offer what the code asks for: a file the code reads and
+# the document does not name is a file nobody can point the code at.
+code_env_reads() {
+  grep -ohE 'get_env_var\("MAKED_[A-Z_]+"\)' backend/*.mbt \
+    | grep -oE 'MAKED_[A-Z_]+' | LC_ALL=C sort -u || true
+}
+
+# The same variables as AGENT.md's table gives them. The SHAPE of the row is
+# what identifies it -- the variable sits in the second column -- so the
+# table is found by its shape and not by the heading above it, which is
+# itself a claim the word check makes.
+doc_file_vars() {
+  grep -oE '^\| [^|]+ \| `MAKED_[A-Z_]+` \|' "$AGENT_DOC" \
+    | grep -oE 'MAKED_[A-Z_]+' | LC_ALL=C sort -u || true
+}
+
+# The protocol version the discovery document names.
+code_protocol() {
+  grep -oE '"mcp": "[0-9]{4}-[0-9]{2}-[0-9]{2}"' backend/agent.mbt \
+    | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1 || true
+}
+
+# Every date-shaped version in AGENT.md. They all have to be the one the
+# server speaks: an agent that reads a version the server does not answer
+# to is an agent that cannot call it.
+doc_protocols() {
+  grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' "$AGENT_DOC" | LC_ALL=C sort -u || true
+}
+
+CODE_TOOLS=$(code_tools)
+DOC_TOOLS=$(doc_tools)
+CODE_ENDPOINTS=$(code_endpoints)
+DOC_ENDPOINTS=$(doc_endpoints)
+DOC_ENDPOINT_TOOLS=$(doc_endpoint_tools)
+CODE_FILE_VARS=$(code_file_vars)
+CODE_ENV_READS=$(code_env_reads)
+DOC_FILE_VARS=$(doc_file_vars)
+CODE_PROTOCOL=$(code_protocol)
+DOC_PROTOCOLS=$(doc_protocols)
+
+check_sets "agent tools" "$CODE_TOOLS" "$DOC_TOOLS"
+
+count_lines "$CODE_TOOLS"
+check_word_count "agent tools (words)" "tools" "$COUNT_LINES" "$AGENT_DOC"
+
+check_sets "agent files" "$CODE_FILE_VARS" "$DOC_FILE_VARS"
+
+count_lines "$CODE_FILE_VARS"
+check_word_count "agent files (words)" "files" "$COUNT_LINES" "$AGENT_DOC"
+
+# The discovery document has to offer the variables the code reads.
+check_sets "agent files (code)" "$CODE_FILE_VARS" "$CODE_ENV_READS"
+
+# Every protocol version the document states has to be the one the server
+# speaks, and it has to state it at all.
+if [ -z "$CODE_PROTOCOL" ]; then
+  fail "$(printf '%-22s the tree does not name a protocol version' 'agent protocol')"
+else
+  not_in "$DOC_PROTOCOLS" "$CODE_PROTOCOL"; WRONG="$NOT_IN"
+  not_in "$CODE_PROTOCOL" "$DOC_PROTOCOLS"; MISSING="$NOT_IN"
+  if [ -n "$WRONG" ]; then
+    fail "$(printf '%-22s the document names [%s], the tree names %s' \
+      'agent protocol' "$WRONG" "$CODE_PROTOCOL")"
+  elif [ -n "$MISSING" ]; then
+    fail "$(printf '%-22s the document does not name %s' 'agent protocol' "$CODE_PROTOCOL")"
+  else
+    ok "agent protocol" "$CODE_PROTOCOL"
+  fi
+fi
+
+check_sets "agent endpoints" "$CODE_ENDPOINTS" "$DOC_ENDPOINTS"
+
+# Every endpoint the discovery document lists has to be a route the server
+# really registers, with the same verb.
+check_subset "agent endpoints live" "$CODE_ENDPOINTS" "$TREE_ENDPOINTS"
+
+# The discovery endpoint itself is the way in, so it has to be a route.
+check_subset "discovery route" "GET /api/agent" "$TREE_ENDPOINTS"
+
+# Every tool the endpoint table points at has to be a tool the server has.
+check_subset "endpoint tools" "$DOC_ENDPOINT_TOOLS" "$CODE_TOOLS"
+
+# The agent's server is not in the published release, and the document says
+# so. One of the two is a lie the moment the other changes, so the two are
+# checked against each other: the release workflow is what decides whether
+# the server is shipped, and the document has to say the same thing.
+PUBLISH_MCP=$(grep -cE 'cmd/mcp' .github/workflows/publish.yml || true)
+DOC_NOT_SHIPPED=$(grep -cF 'in the published release artifacts' "$AGENT_DOC" || true)
+if [ "$PUBLISH_MCP" -gt 0 ] && [ "$DOC_NOT_SHIPPED" -gt 0 ]; then
+  fail "$(printf '%-22s the document says the agent server is not released, and the release workflow builds it' \
+    'release claim')"
+elif [ "$PUBLISH_MCP" -eq 0 ] && [ "$DOC_NOT_SHIPPED" -eq 0 ]; then
+  fail "$(printf '%-22s the release workflow does not build the agent server, and the document does not say so' \
+    'release claim')"
+else
+  ok "release claim" "not in the release"
+fi
+
+# The port the agent's server speaks HTTP on is named by a variable, and the
+# document has to name the same one the code reads.
+if grep -qF 'MAKED_MCP_PORT' "$AGENT_DOC" && grep -qF 'MAKED_MCP_PORT' cmd/mcp/main.mbt; then
+  ok "agent port variable" "MAKED_MCP_PORT"
+else
+  fail "$(printf '%-22s MAKED_MCP_PORT is not in both the document and the server' \
+    'agent port variable')"
+fi
+
+# --- packaging/RUN.txt: the note in the archive -----------------------------
+#
+# The note is what a reader has after the toolchain is gone, so the variables
+# it lists are the only ones they will find. A variable the server reads and
+# the note does not name is a setting nobody can turn.
+
+# The settings the server reads, with their defaults.
+code_settings() {
+  grep -oE 'env_or\("MAKED_[A-Z_]+", "[^"]*"\)' cmd/server/main.mbt \
+    | sed -E 's/env_or\("([A-Z_]+)", "([^"]*)"\)/\1 \2/' | LC_ALL=C sort -u || true
+}
+
+# The same settings as the note gives them. The line has to END with the
+# default, so a sentence that mentions a variable in passing is not read as
+# a setting.
+doc_settings() {
+  grep -oE '^ *MAKED_[A-Z_]+ +[^()]*\(default [^)]*\)[[:space:]]*$' "$RUN_NOTE" \
+    | sed -E 's/^ *([A-Z_]+) +[^()]*\(default ([^)]*)\)/\1 \2/' | LC_ALL=C sort -u || true
+}
+
+# The variables the note names that are not settings: the ones that name
+# files. The settings are subtracted, so a variable mentioned in a sentence
+# is not mistaken for a file.
+doc_run_files() {
+  local settings="$1"
+  local names
+  names=$(printf '%s\n' "$settings" | awk '{ print $1 }' | LC_ALL=C sort -u)
+  grep -oE 'MAKED_[A-Z_]+' "$RUN_NOTE" | LC_ALL=C sort -u | while IFS= read -r variable; do
+    [ -n "$variable" ] || continue
+    if ! printf '%s\n' "$names" | grep -qxF "$variable"; then
+      printf '%s\n' "$variable"
+    fi
+  done
+}
+
+CODE_SETTINGS=$(code_settings)
+DOC_SETTINGS=$(doc_settings)
+
+check_sets "run note settings" "$CODE_SETTINGS" "$DOC_SETTINGS"
+
+check_sets "run note files" "$CODE_FILE_VARS" "$(doc_run_files "$CODE_SETTINGS")"
+
+# The executable the note tells the reader to run is the one the release
+# workflow packages.
+if grep -qF 'stage/maked/server' .github/workflows/publish.yml \
+   && grep -qF 'server.exe' "$RUN_NOTE" \
+   && grep -qF './server' "$RUN_NOTE"; then
+  ok "run note executable" "./server"
+else
+  fail "$(printf '%-22s the note and the release workflow disagree about the executable' \
+    'run note executable')"
+fi
+
+echo ""
+if [ "$FAILURES" -gt 0 ]; then
+  echo "$FAILURES claim(s) in the documents do not match the tree."
+  echo "*** FAIL ***"
+  echo ""
+  echo "The documents state a claim and the tree has another. Fix the documents,"
+  echo "or fix the tree -- but make the two agree before saying anything about"
+  echo "either of them."
+  exit 1
+fi
+echo "Every claim in the documents matches the tree."
+exit 0

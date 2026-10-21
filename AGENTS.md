@@ -97,14 +97,16 @@ Model Context Protocol details.
   supposed to bring their own work into.
 
 - **A gate on the README does not make the other documents true.**
-  `tools/check-architecture.ps1` (and its bash twin) applies the same
-  invariant to `architecture/`: the route count, the column count, the field
-  count, the seeded-page count, the dependency versions and the `file:line`
-  references are all derived from the tree and compared with what the
-  documents say. Those documents rotted the same way the README did, and
-  further -- they claim things about the SHAPE of the system ("read-only
-  content model", "no Dockerfile", "no CI"), and a shape claim is not a
-  number a script can derive, so it has to be kept true by reading it.
+  `tools/check-docs.ps1` (and its bash twin) applies the same
+  invariant to the other documents a reader is sent to: `architecture/`,
+  `AGENT.md` and the note in the release archive. The route count, the
+  column count, the field count, the seeded-page count, the dependency
+  versions and the `file:line` references are all derived from the tree and
+  compared with what the documents say. Those documents rotted the same way
+  the README did, and further -- they claim things about the SHAPE of the
+  system ("read-only content model", "no Dockerfile", "no CI"), and a shape
+  claim is not a number a script can derive, so it has to be kept true by
+  reading it.
   A `file:line` reference that is still in range but no longer says what the
   claim says is the dangerous kind: it looks verified. So the documents say
   what the claim IS next to the pointer, and the gate checks the mechanical
@@ -112,6 +114,14 @@ Model Context Protocol details.
   `evolution.evidence.md` keep the reasoning for the migration slices -- and
   they carry a header saying so rather than being rewritten; rewriting them
   would destroy the reason the slices exist.
+  The same gate checks the two documents a USER is handed rather than a
+  developer: `AGENT.md` (the tools, the protocol version, the files and the
+  endpoints, all derived from the discovery document the server answers with)
+  and `packaging/RUN.txt` (every environment variable the server reads, with
+  the default it has). A set is compared by MEMBERSHIP rather than by a
+  sorted string, so the two twins cannot disagree about the answer by
+  disagreeing about the order, and a count spelled out in words ("the seven
+  tools") is mapped to a number and checked like any other.
 
 - **The language of a surface is decided by who owns the words.** The machine's
   words -- the positions, the slots, the names of the five domains, the prose
