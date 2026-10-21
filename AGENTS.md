@@ -89,7 +89,12 @@ Model Context Protocol details.
   and removed. Adding a test means updating the document too, and the gate
   says so if you forget. The integration-check count is the one number the
   gate cannot derive, because some of the suite's assertions sit in loops; the
-  integration suite checks that one itself, at the end of a run.
+  integration suite checks that one itself, at the end of a run. The gate also
+  checks the project-structure LISTING: every source file has to be named in
+  it, and a name has to appear as many times as the tree has files with that
+  name. The listing is the map a reader navigates by, and it was missing
+  eleven files -- among them the workspace, which is the thing the reader is
+  supposed to bring their own work into.
 
 - **A gate on the README does not make the other documents true.**
   `tools/check-architecture.ps1` (and its bash twin) applies the same

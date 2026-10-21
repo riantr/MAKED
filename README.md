@@ -523,9 +523,17 @@ MAKED_moonbit/
 │   ├── bootstrap.mbt                 # the start-up: plan → read → install
 │   ├── version.mbt                   # the version the agent reports
 │   ├── api.mbt                       # every HTTP route
-│   ├── maked_app.mbt                 # the Flask-style app
+│   ├── app.mbt                       # the Flask-style app: the route table and the middleware chain
+│   ├── maked_app.mbt                 # the app, assembled
+│   ├── request.mbt                   # the request wrapper
+│   ├── response.mbt                  # the response helpers
+│   ├── pages.mbt                     # the content model, and the ten public pages
+│   ├── entries.mbt                   # the workspace: the things the reader brings
 │   ├── research_config.mbt           # the mapping table
+│   ├── research.mbt                  # what a document means
 │   ├── corpus.mbt                    # the corpus
+│   ├── corpus_sources.mbt            # where the documents come from: arxiv, a feed, a folder
+│   ├── datafile.mbt                  # a file that may be JSON or YAML
 │   ├── causal.mbt                    # the causal estimate
 │   ├── narration.mbt                 # the sentences
 │   ├── i18n.mbt                      # the language switch
@@ -535,7 +543,16 @@ MAKED_moonbit/
 │   ├── database.mbt                  # SQLite
 │   └── *_test.mbt                    # 432 tests
 ├── frontend/                         # the single-page app (js)
-│   ├── app.mbt  i18n.mbt  loop_state.mbt  society.mbt  views.mbt
+│   ├── app.mbt                       # the TEA loop and the messages
+│   ├── i18n.mbt                      # the words the client owns
+│   ├── loop_state.mbt                # the loop's state, and why a step may do nothing
+│   ├── society.mbt                   # the society panel
+│   ├── session.mbt                   # the explorations panel
+│   ├── entries.mbt                   # the workspace panel
+│   ├── causal.mbt                    # the causal panel
+│   ├── page.mbt                      # the page, and how it is decoded
+│   ├── logo.mbt                      # the ring
+│   ├── views.mbt                     # the views
 │   └── frontend_test.mbt             # 129 tests
 ├── cmd/
 │   ├── server/main.mbt               # the web server
@@ -548,7 +565,9 @@ MAKED_moonbit/
 │   ├── product-iteration.yaml
 │   ├── society.yaml
 │   ├── corpus-arxiv.yaml
-│   └── corpus-local.yaml
+│   ├── corpus-local.yaml
+│   └── notes/                        # the corpus the local example names
+│       └── failed-launch.md
 ├── tools/
 │   ├── integration-test.ps1          # 369 checks against a running server
 │   ├── mutate-backend.ps1            # 148 mutations of the backend

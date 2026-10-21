@@ -174,6 +174,79 @@ else
     'Integration checks' "$INTEGRATION_TABLE"
 fi
 
+# --- the project-structure listing ------------------------------------------
+#
+# Every source file has to be named in the listing, because the listing is
+# the map a reader navigates by. A file that is in the tree and not in the
+# listing is a file the reader cannot find: the listing carried eleven of
+# them, including the workspace -- the thing the reader is supposed to bring
+# their own work into -- and the ring logo.
+#
+# The listing is a fenced block, and only that block is searched. The
+# document mentions file names in prose as well -- in the tools table, in
+# the discussion of a gate -- and a mention there is not a place in the map.
+#
+# The test files are the exception: they are listed by their GLOB
+# (`*_test.mbt`), which is a complete statement about them. So the source
+# files are the ones checked one by one.
+LISTING=$(awk '
+  /^## Project Structure/ { inside = 1; next }
+  inside && /^```/ {
+    if (inblock) { exit }
+    inblock = 1
+    next
+  }
+  inblock { print }
+' "$README")
+
+if [ -z "$LISTING" ]; then
+  fail "$(printf '%-20s the document has no project-structure listing' 'Structure listing')"
+else
+  # The names are collected and DEDUPED before they are counted, because a
+  # name that appears in two directories -- `main.mbt` is in three -- is one
+  # entry in the listing. The PowerShell twin does the same, and two twins
+  # that count the same thing differently are worse than one twin.
+  #
+  # But a NAME alone is not enough to say a file is listed: `entries.mbt` is
+  # in both the backend and the frontend, and a listing that named only the
+  # backend's would still contain the string "entries.mbt". So the name has
+  # to appear at least as many times in the listing as the tree has files
+  # with that name. That is what makes the check about the FILES rather
+  # than about the strings.
+  #
+  # The directories are searched RECURSIVELY and the list does not name a
+  # directory inside another one it already names: `research` covers
+  # `research/notes`, and naming both would count the note twice and ask
+  # the listing for it twice.
+  NAMES=$(for dir in backend frontend cmd models research tools; do
+    [ -d "$dir" ] || continue
+    find "$dir" -type f \( -name '*.mbt' -o -name '*.json' -o -name '*.yaml' -o -name '*.yml' -o -name '*.md' \) \
+      ! -name '*test*'
+  done | sed 's|.*/||' | sort -u)
+  MISSING=""
+  COUNT=0
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    COUNT=$((COUNT + 1))
+    # How many files in the tree carry this name, and how many lines of the
+    # listing name it. Both counts are of LINES, so the twins agree.
+    local_tree=$(for dir in backend frontend cmd models research tools; do
+      [ -d "$dir" ] || continue
+      find "$dir" -type f \( -name '*.mbt' -o -name '*.json' -o -name '*.yaml' -o -name '*.yml' -o -name '*.md' \) \
+        ! -name '*test*' -name "$name"
+    done | wc -l)
+    local_listing=$(printf '%s\n' "$LISTING" | grep -cF "$name" || true)
+    if [ "$local_listing" -lt "$local_tree" ]; then
+      MISSING="$MISSING $name"
+    fi
+  done <<< "$NAMES"
+  if [ -n "$MISSING" ]; then
+    fail "$(printf '%-20s the listing does not name some files:%s' 'Structure listing' "$MISSING")"
+  else
+    printf '  ok      %-20s %s files, all named\n' 'Structure listing' "$COUNT"
+  fi
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES number(s) in README.md do not match the tree."
