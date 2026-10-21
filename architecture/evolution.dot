@@ -1,11 +1,24 @@
 // MAKED Evolution Roadmap &mdash; Graphviz DOT
 // Skill: evolution-planner + graphviz
 //
+// This document describes the past.
+//
+// It is the migration plan as it was written: the tree as it stood when
+// the plan was made, and the slices that were supposed to take it
+// somewhere else. Every slice has since been implemented, or deliberately
+// deferred. The reasoning is the point, so the picture is kept as it was
+// drawn -- but read it as history.
+//
+// For the system as it is today, read architecture/system-model.md and the
+// README.
+//
 // Shows the migration slices as a timeline with dependencies.
 // Render: dot -Tsvg evolution.dot -o evolution.svg
 
 digraph maked_evolution {
   rankdir=LR
+  label="This document describes the past.\nThe migration plan as it was written."
+  labelloc="t"
   node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10]
   edge [fontname="Helvetica", fontsize=8]
 

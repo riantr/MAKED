@@ -623,10 +623,15 @@ check_exists "publish workflow" ".github/workflows/publish.yml"
 
 # --- the documents that describe the past -------------------------------------
 #
-# Four documents were written to record the analysis that produced the
+# Seven documents were written to record the analysis that produced the
 # migration slices, and every claim in them was true then and is false now.
 # They are kept as they were written -- the reasoning is the point -- but a
 # reader has to be TOLD, so each one carries a header that says so.
+#
+# Three of them are graphs, and a header in a graph is invisible once the
+# graph is rendered, so each of those carries the marker twice: once in the
+# source, where a reader opens the file, and once as the graph's own title,
+# where a reader opens the picture.
 #
 # The gate checks the header, because a header is easy to lose in an edit,
 # and a claim that is history without saying so is a lie.
@@ -642,8 +647,29 @@ check_past_header() {
 }
 
 for doc in architecture/evolution.md architecture/evolution.evidence.md \
-           evolution-summary.md architecture-evolution-roadmap.md; do
+           architecture/evolution.dot evolution-summary.md \
+           architecture-evolution-roadmap.md \
+           current-vs-target-architecture.dot migration-dependency-graph.dot; do
   check_past_header "$doc"
+done
+
+# The three graphs say it in their title as well, because a title is what a
+# reader sees once the graph is rendered. A graph that keeps the marker in
+# its source and loses it from its picture has lost it for half its readers,
+# and the source comment does not travel with the SVG.
+check_past_title() {
+  local doc="$1"
+  if grep -qE 'label="This document describes the past\.' "$doc"; then
+    ok "past title" "$doc"
+  else
+    fail "$(printf '%-22s %s does not say in its title that it describes the past' \
+      'past title' "$doc")"
+  fi
+}
+
+for doc in architecture/evolution.dot current-vs-target-architecture.dot \
+           migration-dependency-graph.dot; do
+  check_past_title "$doc"
 done
 
 # --- AGENT.md: the document for another agent -------------------------------

@@ -1,5 +1,17 @@
+// This document describes the past.
+//
+// The dependencies between the migration slices, and the critical path
+// through them, as they were worked out when the tree was a prototype.
+// Every slice has since been implemented, or deliberately deferred. The
+// reasoning is the point -- but read it as history.
+//
+// For the system as it is today, read architecture/system-model.md and the
+// README.
+
 digraph migration_dependencies {
   rankdir=LR;
+  label="This document describes the past.\nThe slices, their dependencies, and the critical path."
+  labelloc="t"
   fontname="Helvetica";
   node [fontname="Helvetica", fontsize=10, shape=box, style=filled];
   edge [fontname="Helvetica", fontsize=9];

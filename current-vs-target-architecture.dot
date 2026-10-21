@@ -1,5 +1,18 @@
+// This document describes the past.
+//
+// It is the comparison the migration plan was drawn from: the prototype on
+// the left, the production-ready architecture on the right, and the slices
+// that would take the tree from one to the other. Every slice has since
+// been implemented, or deliberately deferred. The reasoning is the point,
+// so the picture is kept as it was drawn -- but read it as history.
+//
+// For the system as it is today, read architecture/system-model.md and the
+// README.
+
 digraph evolution {
   rankdir=TB;
+  label="This document describes the past.\nThe prototype, and the architecture it was aiming at."
+  labelloc="t"
   fontname="Helvetica";
   node [fontname="Helvetica", fontsize=10];
   edge [fontname="Helvetica", fontsize=9];
