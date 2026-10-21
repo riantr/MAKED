@@ -47,6 +47,14 @@ $repo = $PWD.Path
 $script:passed = 0
 $script:failed = 0
 
+# The collective's own numbers, as the server served them. The society section
+# sets them and the end of the run reads them, after the server is gone: a
+# number that nobody can ask any more is a number the document cannot be
+# checked against. Minus one means "not served", which is a failure and not
+# a count.
+$script:collectivePositions = -1
+$script:collectiveTransitions = -1
+
 function Assert-True {
   param([string]$Desc, [bool]$Condition, [string]$Detail = "")
   if ($Condition) {
@@ -1493,6 +1501,11 @@ try {
     Assert-ArrayLength "and the built-in vocabulary has no gaps" $body "gaps" 0
     Assert-Field "and no move has been taken yet" $body "kind" ""
 
+    # The counts the collective really has, kept for the check at the end of
+    # the run. The document states them in two places, and the truth is here.
+    $script:collectivePositions = @($body.positions).Count
+    $script:collectiveTransitions = @($body.transitions).Count
+
     # The collective in the other language.
     #
     # The vocabulary file is the reader's own words and it is written in
@@ -2184,5 +2197,63 @@ if (Test-Path $readmePath) {
   }
   Write-Host ""
   Write-Host ("README.md's shape ({0} positions, {1} slots, {2} rules, {3} of them blocked) matches the machine." -f $modelPositions, $modelSlots, $modelRules, $modelBlocked)
+
+  # The collective's shape: the positions and the transitions of the collective
+  # the server served.
+  #
+  # The words for the collective are a file in this repository, so the README
+  # gate checks the document against the file; the number of transitions is the
+  # machine's, and the machine is the pyroduct package's -- not this
+  # repository. So that number is checked here, where the collective is.
+  #
+  # The number of phases is the file's and is checked by the README gate
+  # against the file; this check does not repeat it. The point of a check is
+  # to be the one place a fact is watched, and a fact watched twice is a fact
+  # watched in two places that can disagree about what to do.
+  $collectiveProblems = @()
+  $collectiveClaims = 0
+
+  # "13 positions x 8 phases x 28 transitions", the row of the three layers.
+  # The multiplication sign is written as an escape, because this file is
+  # ASCII and the document is not.
+  foreach ($claim in [regex]::Matches($readme, '([0-9]+) positions \u00D7 ([0-9]+) phases \u00D7 ([0-9]+) transitions')) {
+    $collectiveClaims += 1
+    $p = [int]$claim.Groups[1].Value
+    $t = [int]$claim.Groups[3].Value
+    if ($p -ne $script:collectivePositions) {
+      $collectiveProblems += ("the document says {0} positions; the collective has {1}" -f $p, $script:collectivePositions)
+    }
+    if ($t -ne $script:collectiveTransitions) {
+      $collectiveProblems += ("the document says {0} transitions; the collective has {1}" -f $t, $script:collectiveTransitions)
+    }
+  }
+
+  # "with its 13 positions, 28 transitions and 8 phases", the feature bullet.
+  foreach ($claim in [regex]::Matches($readme, 'with its ([0-9]+) positions, ([0-9]+) transitions')) {
+    $collectiveClaims += 1
+    $p = [int]$claim.Groups[1].Value
+    $t = [int]$claim.Groups[2].Value
+    if ($p -ne $script:collectivePositions) {
+      $collectiveProblems += ("the document says {0} positions; the collective has {1}" -f $p, $script:collectivePositions)
+    }
+    if ($t -ne $script:collectiveTransitions) {
+      $collectiveProblems += ("the document says {0} transitions; the collective has {1}" -f $t, $script:collectiveTransitions)
+    }
+  }
+
+  if ($collectiveClaims -eq 0) {
+    $collectiveProblems += "the document no longer states the collective's shape"
+  }
+
+  if ($collectiveProblems.Count -gt 0) {
+    Write-Host ""
+    Write-Host "*** FAIL ***"
+    Write-Host "README.md does not state the collective's shape as it is:"
+    foreach ($problem in $collectiveProblems) { Write-Host ("  " + $problem) }
+    Write-Host "Update the README, or find out why the collective moved."
+    exit 1
+  }
+  Write-Host ""
+  Write-Host ("README.md's collective ({0} positions, {1} transitions) matches the one the server served." -f $script:collectivePositions, $script:collectiveTransitions)
 }
 exit 0
