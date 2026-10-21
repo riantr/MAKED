@@ -578,6 +578,9 @@ MAKED_moonbit/
 │   ├── check-readme.sh               # the same gate, in bash
 │   ├── check-docs.ps1                # the other documents' claims, against the tree
 │   └── check-docs.sh                 # the same gate, in bash
+├── .githooks/                        # the pre-commit hook, and the note beside it
+│   ├── pre-commit                    # the hook itself
+│   └── README.md                     # what it runs, and how to install it
 ├── AGENT.md                         # how to drive MAKED from another agent
 ├── AGENTS.md                        # how to work on MAKED
 ├── moon.mod  moon.pkg
@@ -644,6 +647,20 @@ moon test --target native backend   # the backend
 moon test --target js frontend      # the frontend
 bash ci.sh                          # everything, including the slow gates
 ```
+
+### The pre-commit hook
+
+The repository ships a hook that type-checks the project before a commit is
+created:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The hook is [`.githooks/pre-commit`](.githooks/pre-commit), and
+[`.githooks/README.md`](.githooks/README.md) says what it runs. It runs
+`moon check`, which is the fast half of the gate; `bash ci.sh` is the whole of
+it.
 
 ### What the mutation harness actually means
 

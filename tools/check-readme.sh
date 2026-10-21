@@ -868,6 +868,37 @@ else
 fi
 
 
+# --- the hooks ---------------------------------------------------------------
+#
+# The repository ships a git hook, and a hook the README does not mention is a
+# hook a reader never finds. The files in .githooks are derived from the
+# tree, the paths the README names are derived from the document, and the two
+# sets have to be the same.
+
+tree_hooks() {
+  find .githooks -maxdepth 1 -type f -print 2>/dev/null \
+    | sed -E 's|^\./||; s|^\.githooks/||' | LC_ALL=C sort -u
+}
+
+doc_hooks() {
+  grep -oE '\.githooks/[A-Za-z0-9_.-]+' "$README" \
+    | sed -E 's|^\.githooks/||' | LC_ALL=C sort -u || true
+}
+
+TREE_HOOKS=$(tree_hooks)
+DOC_HOOKS=$(doc_hooks)
+
+if [ -z "$TREE_HOOKS" ]; then
+  fail "$(printf '%-20s the tree has no hooks to name' 'Git hooks')"
+elif same_members "$TREE_HOOKS" "$DOC_HOOKS"; then
+  printf '  ok      %-20s %s\n' 'Git hooks' "$(printf '%s\n' "$TREE_HOOKS" | grep -c .)"
+else
+  fail "$(printf '%-20s the tree has [%s], the document names [%s]' \
+    'Git hooks' \
+    "$(printf '%s\n' "$TREE_HOOKS" | tr '\n' ' ' | sed -e 's/ *$//')" \
+    "$(printf '%s\n' "$DOC_HOOKS" | tr '\n' ' ' | sed -e 's/ *$//')")"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in README.md do not match the tree."

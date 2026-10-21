@@ -3,6 +3,13 @@
 ## Pre-commit Hook
 
 This pre-commit hook performs automatic checks before finalizing your commit.
+It is the fast half of the gate: the whole gate is in `ci.sh`, and the hook
+is the part that catches a change that does not compile.
+
+### What It Runs
+
+The hook runs `moon check` -- the type check of every package in the project
+-- before the commit is created.
 
 ### Usage Instructions
 

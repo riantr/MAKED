@@ -807,6 +807,36 @@ else
     'run note executable')"
 fi
 
+# --- .githooks/README.md: the note beside the hook ---------------------------
+#
+# The hook and the note beside it have to agree. A note that names a command
+# the hook does not run sends a reader to a gate that is not there, and a
+# hook that runs a command the note does not name is a gate the reader does
+# not know is there.
+
+# The commands the hook runs: the lines that are neither blank nor a comment.
+code_hook_commands() {
+  grep -vE '^[[:space:]]*(#|$)' .githooks/pre-commit \
+    | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | LC_ALL=C sort -u || true
+}
+
+# The commands the note states, in the section that says what the hook runs.
+doc_hook_commands() {
+  awk '
+    /^#+ What It Runs/ { inside = 1; next }
+    inside && /^#/ { exit }
+    inside {
+      line = $0
+      while (match(line, /`[^`]+`/)) {
+        print substr(line, RSTART + 1, RLENGTH - 2)
+        line = substr(line, RSTART + RLENGTH)
+      }
+    }
+  ' .githooks/README.md | LC_ALL=C sort -u || true
+}
+
+check_sets "hook commands" "$(code_hook_commands)" "$(doc_hook_commands)"
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

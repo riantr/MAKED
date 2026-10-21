@@ -846,6 +846,45 @@ if ($domainNames.Count -eq 0 -or $docDomainNames.Count -eq 0) {
   $failures++
 }
 
+# --- the hooks ---------------------------------------------------------------
+#
+# The repository ships a git hook, and a hook the README does not mention is a
+# hook a reader never finds. The files in .githooks are derived from the
+# tree, the paths the README names are derived from the document, and the two
+# sets have to be the same.
+
+function Get-TreeHooks {
+  $out = @()
+  $dir = Join-Path $PWD '.githooks'
+  if (Test-Path $dir) {
+    foreach ($f in (Get-ChildItem $dir -File)) { $out += $f.Name }
+  }
+  Sort-Set $out
+}
+
+function Get-DocHooks {
+  $out = @()
+  foreach ($m in [regex]::Matches($readme, '\.githooks/([A-Za-z0-9_.-]+)')) {
+    $out += $m.Groups[1].Value
+  }
+  Sort-Set $out
+}
+
+$treeHooks = Get-TreeHooks
+$docHooks = Get-DocHooks
+
+if ($treeHooks.Count -eq 0) {
+  Write-Output ("  {0,-20} the tree has no hooks to name" -f 'Git hooks')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $treeHooks $docHooks) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Git hooks', $treeHooks.Count)
+} else {
+  Write-Output ("  {0,-20} the tree has [{1}], the document names [{2}]" -f 'Git hooks', ($treeHooks -join ' '), ($docHooks -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+}
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in README.md do not match the tree." -f $failures)

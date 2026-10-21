@@ -722,6 +722,44 @@ if ($publishText.Contains('stage/maked/server') -and $runText.Contains('server.e
   Write-Fail ("{0,-22} the note and the release workflow disagree about the executable" -f 'run note executable')
 }
 
+# --- .githooks/README.md: the note beside the hook ---------------------------
+#
+# The hook and the note beside it have to agree. A note that names a command
+# the hook does not run sends a reader to a gate that is not there, and a
+# hook that runs a command the note does not name is a gate the reader does
+# not know is there.
+
+# The commands the hook runs: the lines that are neither blank nor a comment.
+function Get-CodeHookCommands {
+  $out = @()
+  $path = Join-Path $PWD '.githooks/pre-commit'
+  if (Test-Path $path) {
+    foreach ($line in (([System.IO.File]::ReadAllText($path, $enc)) -split "`n")) {
+      if ($line -match '^[ \t]*(#|$)') { continue }
+      $out += $line.Trim()
+    }
+  }
+  Sort-Set $out
+}
+
+# The commands the note states, in the section that says what the hook runs.
+function Get-DocHookCommands {
+  $out = @()
+  $path = Join-Path $PWD '.githooks/README.md'
+  if (Test-Path $path) {
+    $inside = $false
+    foreach ($line in (([System.IO.File]::ReadAllText($path, $enc)) -split "`n")) {
+      if ($line -match '^#+ What It Runs') { $inside = $true; continue }
+      if ($inside -and $line -match '^#') { break }
+      if (-not $inside) { continue }
+      foreach ($m in [regex]::Matches($line, '`([^`]+)`')) { $out += $m.Groups[1].Value }
+    }
+  }
+  Sort-Set $out
+}
+
+Test-Sets 'hook commands' (Get-CodeHookCommands) (Get-DocHookCommands)
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)
