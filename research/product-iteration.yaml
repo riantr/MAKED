@@ -1,9 +1,9 @@
 # A mapping table for the product-iteration model.
 #
 # The table says what a document means: which words make a rule fire, and
-# which slot the rule drives. The slots are the model's -- "ask", "scope",
-# "build", "ship" -- so this table fits models/product-iteration.json and
-# not the built-in model, whose slots have other names.
+# which slot the rule drives. The slots are the model's, so this table fits
+# models/product-iteration.json and not the built-in model, whose slots have
+# other names.
 #
 # The order is the priority. The first rule that matches wins, so the rule
 # for a question comes before the rule for a build, and a document that
@@ -11,6 +11,12 @@
 #
 #   MAKED_MODEL=models/product-iteration.json
 #   MAKED_RESEARCH=research/product-iteration.yaml
+#   slots: ask, scope, build, ship
+#
+# The slots are written down so a gate can read them, and the gate checks
+# them against the machine named above: a rule that drives a slot the
+# machine does not have is refused at start-up, and a header that names
+# slots the machine does not have is a sentence nobody believes.
 #
 # The file's name decides how it is read: a .yaml file is read as YAML and
 # every other file as JSON. It is written back in the same syntax, so an

@@ -1588,6 +1588,233 @@ function Test-ModelFiles($named) {
 
 Test-ModelFiles (Get-ModelNamedFiles)
 
+# --- research/product-iteration.yaml: the table says which machine it fits ---
+#
+# The mapping table says which machine it is for. Its header names the
+# machine, the slots, and the built-in model it is NOT for -- and none of
+# that was checked, so a table that had drifted away from its machine still
+# looked right in the header.
+#
+# Four claims are checked:
+#
+#   - the files the header points at are there
+#   - the slots the table's rules drive are the machine's slots
+#   - the slots the header names are the machine's slots
+#   - the built-in model's slots have other names
+#
+# The machine is the one the table's header names, and the machine file's
+# own name says how it is read: a .yaml file is YAML and everything else is
+# JSON. The built-in model's slots are MAKED's own names for pyroduct's
+# slots, and they are read from the one function that maps them.
+
+$researchTable = 'research/product-iteration.yaml'
+
+# A list with the empties taken out. A function that returns nothing hands
+# its caller a null, and a null that is counted as a member is a member
+# that was never there. The comma keeps an empty list an empty list.
+function Get-CleanList($items) {
+  $out = @()
+  foreach ($item in @($items)) {
+    if ($null -eq $item) { continue }
+    if ($item -eq '') { continue }
+    $out += $item
+  }
+  ,$out
+}
+
+# A set, in ONE order: the ordinal one, which is the order the bytes are
+# in. The bash twin sorts with LC_ALL=C, which is the same order, so the
+# two twins print the same message when a set does not match -- and a
+# message that differs between the twins is a message nobody can trust.
+function Sort-ResearchSet($items) {
+  [string[]]$out = @($items | Where-Object { $null -ne $_ -and $_ -ne '' })
+  if ($out.Count -gt 1) {
+    [Array]::Sort($out, [System.StringComparer]::Ordinal)
+    $unique = @()
+    foreach ($item in $out) {
+      if ($unique.Count -eq 0 -or $unique[-1] -cne $item) { $unique += $item }
+    }
+    $out = $unique
+  }
+  ,$out
+}
+
+# The files the table's header points at: the machine it fits and the
+# table itself. They are named the way a reader names them.
+function Get-ResearchNamedFiles {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $researchTable), $enc)
+  $out = @()
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -notmatch '^\s*#') { continue }
+    foreach ($m in [regex]::Matches($line, 'MAKED_(?:MODEL|RESEARCH)=([A-Za-z0-9_./-]+)')) {
+      $out += $m.Groups[1].Value
+    }
+  }
+  Sort-ResearchSet $out
+}
+
+# The machine the table fits, as the header names it.
+function Get-ResearchNamedModel {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $researchTable), $enc)
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -notmatch '^\s*#') { continue }
+    $m = [regex]::Match($line, 'MAKED_MODEL=([A-Za-z0-9_./-]+)')
+    if ($m.Success) { return $m.Groups[1].Value }
+  }
+  ''
+}
+
+# The slots the header names. The header lists them on one line, so the
+# list is read from that line and split on the commas.
+function Get-ResearchHeaderSlots {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $researchTable), $enc)
+  $out = @()
+  foreach ($line in ($text -split "`r?`n")) {
+    $m = [regex]::Match($line, '^\s*#\s+slots:\s*(.*)$')
+    if (-not $m.Success) { continue }
+    foreach ($part in ($m.Groups[1].Value -split ',')) {
+      $out += $part.Trim()
+    }
+  }
+  Sort-ResearchSet $out
+}
+
+# The slots the table's rules drive. The fallback drives one too.
+function Get-ResearchTableSlots {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $researchTable), $enc)
+  $out = @()
+  foreach ($line in ($text -split "`r?`n")) {
+    $m = [regex]::Match($line, '^\s+slot:\s*([A-Za-z0-9_-]+)\s*$')
+    if ($m.Success) { $out += $m.Groups[1].Value }
+  }
+  Sort-ResearchSet $out
+}
+
+# The slots a machine file defines. The file's name says how it is read.
+function Get-MachineSlotIds($path) {
+  if ($null -eq $path -or $path -eq '') { return ,([string[]]@()) }
+  $full = Join-Path $PWD $path
+  if (-not (Test-Path $full)) { return ,([string[]]@()) }
+  if ($path -match '\.(yaml|yml)$') { return Get-MachineYamlSlotIds $path }
+  return Get-MachineJsonSlotIds $path
+}
+
+# The slots a JSON machine file defines. The block is found by its key and
+# ends at the bracket that closes it, and the indentation of the closing
+# bracket says which one that is: a bracket inside a string would not do.
+function Get-MachineJsonSlotIds($path) {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $path), $enc)
+  $out = @()
+  $inside = $false
+  $openIndent = 0
+  foreach ($line in ($text -split "`r?`n")) {
+    if (-not $inside) {
+      $open = [regex]::Match($line, '^([ ]*)"slots"\s*:\s*\[')
+      if ($open.Success) {
+        $inside = $true
+        $openIndent = $open.Groups[1].Value.Length
+      }
+      continue
+    }
+    $close = [regex]::Match($line, '^([ ]*)\],?[ ]*$')
+    if ($close.Success) {
+      if ($close.Groups[1].Value.Length -le $openIndent) { $inside = $false }
+      continue
+    }
+    $id = [regex]::Match($line, '"id"\s*:\s*"([^"]+)"')
+    if ($id.Success) { $out += $id.Groups[1].Value }
+  }
+  Sort-ResearchSet $out
+}
+
+# The slots a YAML machine file defines. The section runs from its key to
+# the next key at the left margin.
+function Get-MachineYamlSlotIds($path) {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $path), $enc)
+  $out = @()
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^slots:\s*$') { $inside = $true; continue }
+    if ($inside -and $line -match '^[^\s#]') { $inside = $false }
+    if ($inside) {
+      $id = [regex]::Match($line, '^\s*-\s+id:\s*([A-Za-z0-9_-]+)\s*$')
+      if ($id.Success) { $out += $id.Groups[1].Value }
+    }
+  }
+  Sort-ResearchSet $out
+}
+
+# The built-in model's slots: MAKED's own names for pyroduct's slots, and
+# they are written down in the one function that maps them.
+function Get-BuiltinModelSlots {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/model.mbt'), $enc)
+  $out = @()
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^pub fn slot_id_of') { $inside = $true; continue }
+    if ($inside -and $line -match '^\}') { $inside = $false }
+    if ($inside -and $line -match '=>') {
+      $m = [regex]::Match($line, '"([^"]+)"')
+      if ($m.Success) { $out += $m.Groups[1].Value }
+    }
+  }
+  Sort-ResearchSet $out
+}
+
+# The members of one set that are also in the other. The comparison is by
+# membership, so the order the two sets are written in says nothing.
+function Get-InCommon($source, $other) {
+  $s = Get-CleanList $source
+  $o = Get-CleanList $other
+  $out = @()
+  foreach ($item in $s) {
+    if ($o -ccontains $item) { $out += $item }
+  }
+  ,$out
+}
+
+# The files the header points at have to be there. A pointer to nothing
+# sends the reader to nothing.
+function Test-ResearchFiles($named) {
+  $files = Get-CleanList $named
+  $missing = @()
+  foreach ($file in $files) {
+    if (-not (Test-Path (Join-Path $PWD $file))) { $missing += $file }
+  }
+  if ($missing.Count -gt 0) {
+    Write-Fail ("{0,-22} the table names [{1}], which are not there" -f 'research files', ($missing -join ' '))
+    return
+  }
+  Write-Ok 'research files' $files.Count
+}
+
+$researchFiles = Get-ResearchNamedFiles
+$researchModel = Get-ResearchNamedModel
+$researchHeaderSlots = Get-ResearchHeaderSlots
+$researchTableSlots = Get-ResearchTableSlots
+$researchMachineSlots = Get-MachineSlotIds $researchModel
+$builtinModelSlots = Get-BuiltinModelSlots
+
+Test-ResearchFiles $researchFiles
+
+# The slots the table drives are the machine's slots. The tree says the
+# machine's slots; the table says the slots it drives.
+Test-Sets 'research slots' $researchMachineSlots $researchTableSlots
+
+# The slots the header names are the machine's slots too. The header is
+# prose, and prose rots.
+Test-Sets 'research header slots' $researchMachineSlots $researchHeaderSlots
+
+# The table must not fit the built-in model either: the header says the
+# built-in model's slots have other names, and this is where that is
+# checked. A name the two models share is a name the header is wrong about.
+$researchCommon = Get-InCommon $researchTableSlots $builtinModelSlots
+if ($researchCommon.Count -eq 0) {
+  Write-Ok 'research builtin slots' $builtinModelSlots.Count
+} else {
+  Write-Fail ("{0,-22} the table and the built-in model share [{1}]" -f 'research builtin slots', ($researchCommon -join ' '))
+}
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

@@ -1585,6 +1585,198 @@ check_model_files() {
 
 check_model_files "$(model_named_files)"
 
+# --- research/product-iteration.yaml: the table says which machine it fits ---
+#
+# The mapping table says which machine it is for. Its header names the
+# machine, the slots, and the built-in model it is NOT for -- and none of
+# that was checked, so a table that had drifted away from its machine still
+# looked right in the header.
+#
+# Four claims are checked:
+#
+#   - the files the header points at are there
+#   - the slots the table's rules drive are the machine's slots
+#   - the slots the header names are the machine's slots
+#   - the built-in model's slots have other names
+#
+# The machine is the one the table's header names, and the machine file's
+# own name says how it is read: a .yaml file is YAML and everything else is
+# JSON. The built-in model's slots are MAKED's own names for pyroduct's
+# slots, and they are read from the one function that maps them.
+
+RESEARCH_TABLE="research/product-iteration.yaml"
+
+# The files the table's header points at: the machine it fits and the
+# table itself. They are named the way a reader names them.
+research_named_files() {
+  grep -E '^[[:space:]]*#' "$RESEARCH_TABLE" \
+    | grep -oE 'MAKED_(MODEL|RESEARCH)=[A-Za-z0-9_./-]+' \
+    | sed -E 's/^MAKED_[A-Z_]+=//' \
+    | LC_ALL=C sort -u
+}
+
+# The machine the table fits, as the header names it.
+research_named_model() {
+  grep -E '^[[:space:]]*#' "$RESEARCH_TABLE" \
+    | grep -oE 'MAKED_MODEL=[A-Za-z0-9_./-]+' \
+    | sed -E 's/^MAKED_MODEL=//' \
+    | head -1
+}
+
+# The slots the header names. The header lists them on one line, so the
+# list is read from that line and split on the commas.
+research_header_slots() {
+  grep -E '^[[:space:]]*#[[:space:]]+slots:' "$RESEARCH_TABLE" \
+    | sed -E 's/^[[:space:]]*#[[:space:]]+slots:[[:space:]]*//' \
+    | tr ',' '\n' \
+    | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' \
+    | LC_ALL=C sort -u
+}
+
+# The slots the table's rules drive. The fallback drives one too.
+research_table_slots() {
+  grep -E '^[[:space:]]+slot:[[:space:]]*[A-Za-z0-9_-]+[[:space:]]*$' \
+    "$RESEARCH_TABLE" \
+    | sed -E 's/^[[:space:]]+slot:[[:space:]]*//; s/[[:space:]]+$//' \
+    | LC_ALL=C sort -u
+}
+
+# The slots a machine file defines. The file's name says how it is read.
+machine_slot_ids() {
+  case "$1" in
+    *.yaml|*.yml) machine_yaml_slot_ids "$1" ;;
+    *) machine_json_slot_ids "$1" ;;
+  esac
+}
+
+# The slots a JSON machine file defines. The block is found by its key and
+# ends at the bracket that closes it, and the indentation of the closing
+# bracket says which one that is: a bracket inside a string would not do.
+machine_json_slot_ids() {
+  [ -n "$1" ] && [ -f "$1" ] || return 0
+  awk '
+    !in_slots {
+      if (match($0, /^[[:space:]]*"slots"[[:space:]]*:[[:space:]]*\[/)) {
+        in_slots = 1
+        open_indent = match($0, /[^ ]/) - 1
+      }
+      next
+    }
+    match($0, /^[[:space:]]*\],?[[:space:]]*$/) {
+      close_indent = match($0, /[^ ]/) - 1
+      if (close_indent <= open_indent) { in_slots = 0 }
+      next
+    }
+    match($0, /"id"[[:space:]]*:[[:space:]]*"[^"]+"/) {
+      value = substr($0, RSTART, RLENGTH)
+      sub(/^"id"[[:space:]]*:[[:space:]]*"/, "", value)
+      sub(/"$/, "", value)
+      print value
+    }
+  ' "$1" | LC_ALL=C sort -u
+}
+
+# The slots a YAML machine file defines. The section runs from its key to
+# the next key at the left margin.
+machine_yaml_slot_ids() {
+  [ -n "$1" ] && [ -f "$1" ] || return 0
+  awk '
+    match($0, /^slots:[[:space:]]*$/) { in_slots = 1; next }
+    in_slots && match($0, /^[^[:space:]#]/) { in_slots = 0 }
+    in_slots && match($0, /^[[:space:]]*-[[:space:]]+id:[[:space:]]*[A-Za-z0-9_-]+[[:space:]]*$/) {
+      line = $0
+      sub(/^[[:space:]]*-[[:space:]]+id:[[:space:]]*/, "", line)
+      sub(/[[:space:]]+$/, "", line)
+      print line
+    }
+  ' "$1" | LC_ALL=C sort -u
+}
+
+# The built-in model's slots: MAKED's own names for pyroduct's slots, and
+# they are written down in the one function that maps them.
+builtin_model_slots() {
+  awk '
+    match($0, /^pub fn slot_id_of/) { inside = 1; next }
+    inside && match($0, /^}/) { inside = 0 }
+    inside && match($0, /=>/) {
+      line = $0
+      if (match(line, /"[^"]+"/)) {
+        print substr(line, RSTART + 1, RLENGTH - 2)
+      }
+    }
+  ' backend/model.mbt | LC_ALL=C sort -u
+}
+
+# The members of one set that are also in the other. The comparison is by
+# membership, so the order the two sets are written in says nothing.
+IN_COMMON=""
+in_common() {
+  local source="$1" other="$2" line candidate found out=""
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    found=0
+    while IFS= read -r candidate; do
+      [ -n "$candidate" ] || continue
+      if [ "$candidate" = "$line" ]; then
+        found=1
+        break
+      fi
+    done <<< "$other"
+    if [ "$found" -eq 1 ]; then
+      if [ -z "$out" ]; then out="$line"; else out="$out $line"; fi
+    fi
+  done <<< "$source"
+  IN_COMMON="$out"
+}
+
+# The files the header points at have to be there. A pointer to nothing
+# sends the reader to nothing.
+check_research_files() {
+  local named="$1" file missing=""
+  while IFS= read -r file; do
+    [ -n "$file" ] || continue
+    if [ ! -f "$file" ]; then
+      missing="$missing $file"
+    fi
+  done <<< "$named"
+  if [ -n "$missing" ]; then
+    fail "$(printf '%-22s the table names [%s], which are not there' \
+      'research files' "$(printf '%s' "$missing" | sed -e 's/^ *//')")"
+    return
+  fi
+  count_lines "$named"
+  ok "research files" "$COUNT_LINES"
+}
+
+RESEARCH_FILES=$(research_named_files)
+RESEARCH_MODEL=$(research_named_model)
+RESEARCH_HEADER_SLOTS=$(research_header_slots)
+RESEARCH_TABLE_SLOTS=$(research_table_slots)
+RESEARCH_MACHINE_SLOTS=$(machine_slot_ids "$RESEARCH_MODEL")
+BUILTIN_MODEL_SLOTS=$(builtin_model_slots)
+
+check_research_files "$RESEARCH_FILES"
+
+# The slots the table drives are the machine's slots. The tree says the
+# machine's slots; the table says the slots it drives.
+check_sets "research slots" "$RESEARCH_MACHINE_SLOTS" "$RESEARCH_TABLE_SLOTS"
+
+# The slots the header names are the machine's slots too. The header is
+# prose, and prose rots.
+check_sets "research header slots" "$RESEARCH_MACHINE_SLOTS" "$RESEARCH_HEADER_SLOTS"
+
+# The table must not fit the built-in model either: the header says the
+# built-in model's slots have other names, and this is where that is
+# checked. A name the two models share is a name the header is wrong about.
+in_common "$RESEARCH_TABLE_SLOTS" "$BUILTIN_MODEL_SLOTS"
+if [ -z "$IN_COMMON" ]; then
+  count_lines "$BUILTIN_MODEL_SLOTS"
+  ok "research builtin slots" "$COUNT_LINES"
+else
+  fail "$(printf '%-22s the table and the built-in model share [%s]' \
+    'research builtin slots' "$(printf '%s' "$IN_COMMON" | sed -e 's/^ *//')")"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."
