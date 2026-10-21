@@ -2,7 +2,7 @@
 
 **An adversarial knowledge loop that shows its working.**
 
-Current release: **v0.1.7** — published as [`riantr/MAKED`](https://mooncakes.io) on mooncakes.io.
+Current release: **v0.1.7** — published as [`riantr/MAKED`](https://mooncakes.io/docs/riantr/MAKED@0.1.7) on mooncakes.io.
 
 MAKED is a five-domain ring — **Model → Data → Experience → Attack → Knowledge** — in which
 each domain is the adversarial overcoming of the one before it. The loop is driven by a
@@ -10,18 +10,21 @@ each domain is the adversarial overcoming of the one before it. The loop is driv
 hard-coded guess, and a position the table cannot move is reported as blocked rather than
 silently skipped.
 
+**34 positions × 8 slots × 272 rules**, and **223 mutations** across the three suites, every
+one of which has to be accounted for — 222 killed by the tests, one deliberately equivalent.
+
 Three layers sit on that ring:
 
 | Layer | What it is |
 |---|---|
-| **Subject** | One state machine per domain — 34 positions × 8 slots × 272 rules |
+| **Subject** | One state machine per domain — 34 positions × 8 slots × 272 rules, of which 228 have no way out |
 | **Group** | Group states computed across the domains — Scattered → Converging → Common Tongue → Settled (20 states) |
 | **Society** | The collective as a communicative whole — 13 positions × 8 phases × 28 transitions, from [riantr/pyroduct](https://mooncakes.io/docs/riantr/pyroduct@0.1.32) |
 
-The state machine is `riantr/pyroduct@0.1.32`, which also supplies the English rendering
-every user-visible string comes from. The front end is
+The state machine is `riantr/pyroduct@0.1.32`. The front end is
 [rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.16.5), the server is a
-Flask-style micro-framework on [moonback](https://mooncakes.io), and the storage is SQLite.
+Flask-style micro-framework on [moonback](https://mooncakes.io/docs/moonbitlang/moonback@0.8.9),
+and the storage is SQLite.
 
 Everything a person would want to change is a **file**: the machine, the table that says what
 a document means, the words for the collective, and the corpus the documents come from.
@@ -52,6 +55,8 @@ Protocol over stdio or HTTP.
   reported
 - ✅ **Explorations you can take away** — named sessions whose every step records why it was
   possible; replay, branch, rename, and export as Markdown or JSON
+- ✅ **Two languages, written not translated** — the loop, the timeline, the measures and the
+  exported document all answer in English or Chinese; the Chinese is the table's own wording
 - ✅ **An agent's server** — the Model Context Protocol (2026-07-28) over stdio or HTTP,
   seven tools, every answer in sentences
 - ✅ **A discovery document** — `GET /api/agent`, for an agent that does not speak the
@@ -140,10 +145,6 @@ type-checks the backend, runs every test, and builds the server:
 moon run --release --target native cmd/server
 ```
 
-The container image and the prebuilt binaries are produced by the same release run that
-publishes the package. The image is rebuilt and smoke-tested on every push by CI, so a
-broken image is caught before it is ever tagged.
-
 ## Quick Start
 
 ### Run the loop
@@ -223,7 +224,7 @@ start-up rather than ignored.
 | Method | Path | What it does |
 |---|---|---|
 | `GET` | `/api/status` | is the server up, how many pages, which domains |
-| `GET` | `/api/pages` | the nine seeded pages |
+| `GET` | `/api/pages` | the ten pages the server holds |
 | `GET` | `/api/pages/:slug` | one page by slug |
 | `GET` | `/api/domains` | the five domains in ring order |
 | `GET` | `/api/bootstrap` | pages, workspace entries and session state in one call |
@@ -486,10 +487,10 @@ files; MAKED reads them, and the documents it read are the ones it drives.
 
 ### A vocabulary of your own
 
-`research/society.yaml` names the collective's 13 positions and 28 moves in English. The ids
-are pyroduct's own names — an id the file names that pyroduct does not define is refused,
-and a position pyroduct defines that the file does not name is a gap the panel says out
-loud.
+`research/society.yaml` names the collective's 13 positions, 8 phases and 18 triggers in
+English. The ids are pyroduct's own names — an id the file names that pyroduct does not
+define is refused, and a position pyroduct defines that the file does not name is a gap the
+panel says out loud.
 
 ### Driving it from another agent
 
@@ -520,12 +521,15 @@ MAKED_moonbit/
 │   ├── corpus.mbt                    # the corpus
 │   ├── causal.mbt                    # the causal estimate
 │   ├── narration.mbt                 # the sentences
+│   ├── i18n.mbt                      # the language switch
+│   ├── export_words.mbt              # the exported document's words, in both languages
+│   ├── metrics.mbt                   # the measures, in both languages
 │   ├── session.mbt                   # explorations, timelines, exports
 │   ├── database.mbt                  # SQLite
-│   └── *_test.mbt                    # 389 tests
+│   └── *_test.mbt                    # 426 tests
 ├── frontend/                         # the single-page app (js)
-│   ├── app.mbt  loop_state.mbt  society.mbt  views.mbt
-│   └── frontend_test.mbt             # 112 tests
+│   ├── app.mbt  i18n.mbt  loop_state.mbt  society.mbt  views.mbt
+│   └── frontend_test.mbt             # 129 tests
 ├── cmd/
 │   ├── server/main.mbt               # the web server
 │   ├── mcp/main.mbt                  # the agent's server
@@ -539,35 +543,20 @@ MAKED_moonbit/
 │   ├── corpus-arxiv.yaml
 │   └── corpus-local.yaml
 ├── tools/
-│   ├── integration-test.ps1          # 320 checks against a running server
-│   ├── mutate-backend.ps1            # 120 mutations of the backend
-│   ├── mutate-frontend.ps1           # 44 mutations of the frontend
+│   ├── integration-test.ps1          # 359 checks against a running server
+│   ├── mutate-backend.ps1            # 143 mutations of the backend
+│   ├── mutate-frontend.ps1           # 64 mutations of the frontend
 │   ├── mutate-loop.ps1               # 16 mutations of the loop
-│   └── check-mutation-anchors.ps1    # 180 anchors, and whether any is dead
+│   ├── check-mutation-anchors.ps1    # 223 anchors, and whether any is dead
+│   ├── check-readme.ps1              # the numbers this document states, against the tree
+│   └── check-readme.sh               # the same gate, in bash
 ├── AGENT.md                         # how to drive MAKED from another agent
 ├── AGENTS.md                        # how to work on MAKED
 ├── moon.mod  moon.pkg
 ├── build.ps1                         # build the bundle, check, test, build the server
-├── ci.sh                             # 15 gates
+├── ci.sh                             # 17 gates
 └── Dockerfile  docker-compose.yml
 ```
-
-### Key Components
-
-- **The machine** (`backend/model.mbt`) — the whole machine, as data. A model file with its
-  own slots gets a mapping that fits it, and every rule is about a position and a slot the
-  model defines.
-- **The transition table** (`backend/loop.mbt`) — the rule for every (position, slot) pair,
-  and the `exitable_slots` that decide what can actually move. 228 of the 272 pairs are
-  `Block`.
-- **The mapping table** (`backend/research_config.mbt`) — a priority list of keyword rules.
-  The first rule that matches wins.
-- **The collective** (`backend/society.mbt`) — the Society layer's machine, its phases and
-  its transitions, with the words coming from a file rather than from the code.
-- **The agent's payloads** (`backend/agent.mbt`) — one place where every answer the agent
-  gets is written, so the HTTP route and the MCP tool cannot drift apart.
-- **The start-up** (`backend/bootstrap.mbt`) — the plan of files to read, the reading of
-  them, and the installing of them, as three separate steps.
 
 ## Usage Tips
 
@@ -609,14 +598,14 @@ fits. Keep the two files next to each other, and set both variables.
 
 | What | How many | How it is checked |
 |---|---|---|
-| Backend tests | 389 | `moon test --target native backend` |
-| Frontend tests | 112 | `moon test --target js frontend` |
-| Integration checks | 320 | `tools/integration-test.ps1` — against a server that is really running |
-| Backend mutations | 120 | `tools/mutate-backend.ps1` |
-| Frontend mutations | 44 | `tools/mutate-frontend.ps1` |
+| Backend tests | 426 | `moon test --target native backend` |
+| Frontend tests | 129 | `moon test --target js frontend` |
+| Integration checks | 359 | `tools/integration-test.ps1` — against a server that is really running |
+| Backend mutations | 143 | `tools/mutate-backend.ps1` |
+| Frontend mutations | 64 | `tools/mutate-frontend.ps1` |
 | Loop mutations | 16 | `tools/mutate-loop.ps1` |
-| Mutation anchors | 180 | `tools/check-mutation-anchors.ps1` — and whether any is dead |
-| CI gates | 15 | `ci.sh` |
+| Mutation anchors | 223 | `tools/check-mutation-anchors.ps1` — and whether any is dead |
+| CI gates | 17 | `ci.sh` |
 
 ### Running the tests
 
@@ -714,7 +703,8 @@ Five jobs, all of which have to be green: **Test**, **Build (native)**, **Build 
 - [x] Explorations: replay, branch, rename, export
 - [x] The agent's server — Model Context Protocol over stdio and HTTP
 - [x] A discovery document at `GET /api/agent`, for agents that do not speak MCP
-- [ ] A Chinese front end
+- [x] A Chinese front end
+- [x] The measures and the exported document in two languages
 
 ## Contributing
 

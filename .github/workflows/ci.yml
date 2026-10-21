@@ -45,6 +45,18 @@ jobs:
       - name: Run tests (js)
         run: moon test --target js
 
+      # The README states how many tests, mutations and gates this project
+      # has, and those numbers are a claim about the tree. The document
+      # carried six stale counts, all wrong in the same direction, because
+      # nothing checked them.
+      #
+      # The gate is an invariant rather than a snapshot -- the number the
+      # document states IS the number the tree has -- so it keeps holding
+      # as tests are added and removed. It reads only, and it takes a
+      # second.
+      - name: Check the README's numbers against the tree
+        run: pwsh tools/check-readme.ps1
+
   build-native:
     name: Build (native)
     runs-on: ubuntu-latest

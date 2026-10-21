@@ -206,6 +206,22 @@ gate_dep_check() {
 }
 
 # ---------------------------------------------------------------------------
+# Gate 15: The README's numbers against the tree
+# ---------------------------------------------------------------------------
+#
+# The README states how many tests, mutations and gates this project has.
+# Those numbers are a claim about the tree, and a claim nobody checks is a
+# claim that rots: the document carried six stale counts, all of them
+# wrong in the same direction.
+#
+# The gate is an invariant rather than a snapshot -- the number the
+# document states IS the number the tree has -- so it keeps holding as
+# tests are added and removed. It reads only.
+gate_readme() {
+  bash tools/check-readme.sh
+}
+
+# ---------------------------------------------------------------------------
 # Run gates based on mode
 # ---------------------------------------------------------------------------
 echo "MAKED CI Pipeline"
@@ -223,6 +239,7 @@ case "$MODE" in
     gate "coverage"        gate_coverage
     gate "contract"        gate_contract
     gate "sast"            gate_sast
+    gate "readme"          gate_readme
     ;;
   --unit-only|-u)
     gate "native-check"    gate_native_check
@@ -247,6 +264,7 @@ case "$MODE" in
     gate "mutation"        gate_mutation
     gate "dast"            gate_dast
     gate "dep-check"       gate_dep_check
+    gate "readme"          gate_readme
     ;;
 esac
 

@@ -529,7 +529,15 @@ try {
   Write-Host "-- GET /api/pages"
   $pages = Get-Json "/api/pages"
   Assert-True "GET /api/pages returns a list" ($null -ne $pages)
-  Assert-True "the page list holds the nine seeded pages" (@(Field $pages "pages").Count -ge 9)
+  # The page list holds every page the server seeded: the five domain
+  # pages, the three utility pages, the index, and the 404 page. The
+  # assertion used to say "nine seeded pages" and accept anything at or
+  # above nine, which was two mistakes: seed_pages() returns eight (five
+  # domains and three utility pages), and the server holds ten rows once
+  # the index and the 404 page are in the same table. The count is exact
+  # now, because a loose one cannot tell a server that serves what it
+  # seeded from a server that serves something else.
+  Assert-True "the page list holds all ten seeded pages" (@(Field $pages "pages").Count -eq 10)
 
   Write-Host ""
   Write-Host "-- GET /api/pages/:slug"
@@ -2017,4 +2025,41 @@ try {
 Write-Host ""
 Write-Host ("checks: {0} passed, {1} failed" -f $script:passed, $script:failed)
 if ($script:failed -gt 0) { exit 1 }
+
+# The README states how many checks this suite runs. Only a run knows how
+# many it made -- some of the assertions sit in loops, so the number cannot
+# be derived from this script's text -- so the suite checks the document
+# against what it just did.
+#
+# A stale count in the document is not a small thing: the number is the
+# one a reader uses to judge how much of the server was exercised, and a
+# number that is wrong in the document is wrong everywhere the document is
+# read. The other counts in the README are checked by
+# `tools/check-readme.ps1`, which can derive them from the tree; this one
+# is checked here, because this is where the truth is.
+#
+# The path is derived the way the script derives its own root rather than
+# written with a backslash: the suite runs on the CI runner, which is
+# ubuntu, and a backslash is a character there rather than a separator.
+$readmePath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'README.md'
+if (Test-Path $readmePath) {
+  $readme = [System.IO.File]::ReadAllText($readmePath, [System.Text.Encoding]::UTF8)
+  $m = [regex]::Match($readme, '(?m)^\|\s*Integration checks\s*\|\s*(\d+)\s*\|')
+  if (-not $m.Success) {
+    Write-Host ""
+    Write-Host "*** FAIL ***"
+    Write-Host "README.md has no row for the integration checks."
+    exit 1
+  }
+  $stated = [int]$m.Groups[1].Value
+  if ($stated -ne $script:passed) {
+    Write-Host ""
+    Write-Host "*** FAIL ***"
+    Write-Host ("README.md says the suite runs {0} checks; it ran {1}." -f $stated, $script:passed)
+    Write-Host "Update the README, or find out why the count moved."
+    exit 1
+  }
+  Write-Host ""
+  Write-Host ("README.md's count ({0} checks) matches this run." -f $stated)
+}
 exit 0

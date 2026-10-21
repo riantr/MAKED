@@ -78,6 +78,19 @@ Model Context Protocol details.
   is meaningless -- it is the last `moon test` propagating through PowerShell --
   so read the `survivors:` line, not `$LASTEXITCODE`.
 
+- **The README states numbers, and the numbers are checked.**
+  `tools/check-readme.ps1` (and its bash twin `tools/check-readme.sh`) derives
+  the test, mutation, anchor and gate counts from the tree and compares them
+  with what `README.md` says. A number in the document that the tree does not
+  agree with is a red gate, not a stale line: the document carried six of them
+  for months, all wrong in the same direction, because nothing compared the two.
+  The check is an invariant rather than a snapshot -- the number the document
+  states IS the number the tree has -- so it keeps holding as tests are added
+  and removed. Adding a test means updating the document too, and the gate
+  says so if you forget. The integration-check count is the one number the
+  gate cannot derive, because some of the suite's assertions sit in loops; the
+  integration suite checks that one itself, at the end of a run.
+
 - Read the endpoint with `Invoke-WebRequest` before suspecting the backend. A
   loop panel stuck on "Loading loop status..." while the server answers 200 is
   a client-side fault, and the browser's own network/console capture is not
