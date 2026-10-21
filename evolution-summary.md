@@ -1,5 +1,14 @@
 # MAKED_moonbit Architecture Evolution Summary
 
+> **This document describes the past.** It is the summary of the analysis
+> that produced MAKED's migration slices, written when the tree was a
+> prototype: 76 tests, no CI, no container, no write path. Every slice it
+> names has since been implemented. The findings are kept as they were
+> written, because the reasoning is the point -- but read them as history.
+> For the system as it is today, read
+> [architecture/system-model.md](architecture/system-model.md) and the
+> [README](README.md).
+
 ## Core Findings
 
 By using the Architecture Visualization plugin for the analysis, **6 evolution slices** were identified for taking MAKED_moonbit from prototype to production-ready system, to be implemented in 3 phases.

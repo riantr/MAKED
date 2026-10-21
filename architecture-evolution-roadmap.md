@@ -1,6 +1,15 @@
 # MAKED_moonbit Evolution Roadmap
 
-## Current Status (evidence-backed)
+> **This document describes the past.** It is the roadmap the migration
+> slices were cut from, written when the tree was a prototype: 76 tests,
+> five packages, no CI, no container, no write path. Every slice below has
+> since been implemented. The status section is the status as it was found
+> then, not as it is -- the document is kept as it was written, because the
+> reasoning is the point -- but read it as history. For the system as it is
+> today, read [architecture/system-model.md](architecture/system-model.md)
+> and the [README](README.md).
+
+## Status (as found at the time of the analysis)
 
 ### Architecture Structure
 - **5 packages**: backend (native lib), frontend (js lib), cmd/server (native exe), cmd/web (js exe), root

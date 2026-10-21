@@ -1,15 +1,16 @@
 # Evolution Evidence
 
-> **This document is a record of the past.** Every claim below was true of
-> MAKED before the slices were implemented, and each one is now false --
-> there is a Dockerfile, there is a CI pipeline with six jobs, there is a
-> write path, and the suites have grown from sixteen tests to hundreds. The
-> claims are kept in their original form because they are the *reason* the
-> slices exist: a reader who wants to know why MAKED has a container or a
-> pipeline needs to know that there was a time when it had neither. For the
-> system as it is today, see [system-model.evidence.md](system-model.evidence.md).
+> **This document describes the past.** It is a record of it: every claim
+> below was true of MAKED before the slices were implemented, and each one
+> is now false -- there is a Dockerfile, there is a CI pipeline with six
+> jobs, there is a write path, and the suites have grown from sixteen tests
+> to hundreds. The claims are kept in their original form because they are
+> the *reason* the slices exist: a reader who wants to know why MAKED has a
+> container or a pipeline needs to know that there was a time when it had
+> neither. For the system as it is today, see
+> [system-model.evidence.md](system-model.evidence.md).
 
-## Current state evidence
+## State evidence (as built, at the time this was written)
 
 All current-state claims are sourced in `system-model.evidence.md`. This
 document adds evidence for the evolution recommendations.

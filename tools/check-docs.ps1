@@ -432,6 +432,29 @@ Test-Exists 'compose file' 'docker-compose.yml'
 Test-Exists 'CI workflow' '.github/workflows/ci.yml'
 Test-Exists 'publish workflow' '.github/workflows/publish.yml'
 
+# --- the documents that describe the past -------------------------------------
+#
+# Four documents were written to record the analysis that produced the
+# migration slices, and every claim in them was true then and is false now.
+# They are kept as they were written -- the reasoning is the point -- but a
+# reader has to be TOLD, so each one carries a header that says so.
+#
+# The gate checks the header, because a header is easy to lose in an edit,
+# and a claim that is history without saying so is a lie.
+
+function Test-PastHeader($doc) {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $doc), $enc)
+  if ($text.Contains('This document describes the past.')) {
+    Write-Ok 'past header' $doc
+  } else {
+    Write-Fail ("{0,-22} {1} does not say that it describes the past" -f 'past header', $doc)
+  }
+}
+
+foreach ($doc in @('architecture/evolution.md', 'architecture/evolution.evidence.md', 'evolution-summary.md', 'architecture-evolution-roadmap.md')) {
+  Test-PastHeader $doc
+}
+
 # --- AGENT.md: the document for another agent -------------------------------
 #
 # The discovery document at `GET /api/agent` is what an agent reads, and

@@ -566,6 +566,31 @@ check_exists "compose file" "docker-compose.yml"
 check_exists "CI workflow" ".github/workflows/ci.yml"
 check_exists "publish workflow" ".github/workflows/publish.yml"
 
+# --- the documents that describe the past -------------------------------------
+#
+# Four documents were written to record the analysis that produced the
+# migration slices, and every claim in them was true then and is false now.
+# They are kept as they were written -- the reasoning is the point -- but a
+# reader has to be TOLD, so each one carries a header that says so.
+#
+# The gate checks the header, because a header is easy to lose in an edit,
+# and a claim that is history without saying so is a lie.
+
+check_past_header() {
+  local doc="$1"
+  if grep -qF 'This document describes the past.' "$doc"; then
+    ok "past header" "$doc"
+  else
+    fail "$(printf '%-22s %s does not say that it describes the past' \
+      'past header' "$doc")"
+  fi
+}
+
+for doc in architecture/evolution.md architecture/evolution.evidence.md \
+           evolution-summary.md architecture-evolution-roadmap.md; do
+  check_past_header "$doc"
+done
+
 # --- AGENT.md: the document for another agent -------------------------------
 #
 # The discovery document at `GET /api/agent` is what an agent reads, and

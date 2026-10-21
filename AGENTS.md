@@ -110,10 +110,13 @@ Model Context Protocol details.
   A `file:line` reference that is still in range but no longer says what the
   claim says is the dangerous kind: it looks verified. So the documents say
   what the claim IS next to the pointer, and the gate checks the mechanical
-  half. Two of them describe the PAST -- `evolution.md` and
-  `evolution.evidence.md` keep the reasoning for the migration slices -- and
-  they carry a header saying so rather than being rewritten; rewriting them
-  would destroy the reason the slices exist.
+  half. FOUR of them describe the PAST -- `architecture/evolution.md`,
+  `architecture/evolution.evidence.md`, `evolution-summary.md` and
+  `architecture-evolution-roadmap.md` keep the reasoning for the migration
+  slices -- and they carry a header saying so rather than being rewritten;
+  rewriting them would destroy the reason the slices exist. The gate checks
+  the header too, because a header is easy to lose in an edit and a claim
+  that is history without saying so is a lie.
   The same gate checks the two documents a USER is handed rather than a
   developer: `AGENT.md` (the tools, the protocol version, the files and the
   endpoints, all derived from the discovery document the server answers with)
