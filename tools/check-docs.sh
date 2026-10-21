@@ -976,6 +976,31 @@ check_word_count "agent guide tools" "tools" "$COUNT_LINES" "$AGENTS_DOC"
 check_stated "agent guide mutations" "$MUTATION_TOTAL" \
   "$(flat_number "$AGENTS_FLAT" 're-run the suites ([0-9]+) times')" "AGENTS.md"
 
+# --- architecture/deployment.md: the topology a reader deploys ----------------
+#
+# The deployment document states the variables the server reads, with their
+# defaults, and points at the lines of the server that read them. Both are
+# claims about the tree: a default the document states and the code does not
+# have is a setting that does something else, and a pointer past the end of
+# the file is a pointer to nothing.
+#
+# The defaults are the ones the code gives, and they are the same defaults
+# the note in the release archive gives, so the two documents and the code
+# all have to agree.
+
+DEPLOY_MD="architecture/deployment.md"
+
+# The settings the deployment document states: the variable and the default
+# in the first two columns of its table.
+doc_deploy_settings() {
+  grep -oE '\| `MAKED_[A-Z_]+` \| `[^`]+` \|' "$DEPLOY_MD" \
+    | sed -E 's/\| `([A-Z_]+)` \| `([^`]+)` \|/\1 \2/' | LC_ALL=C sort -u || true
+}
+
+check_sets "deployment settings" "$CODE_SETTINGS" "$(doc_deploy_settings)"
+
+check_references "$DEPLOY_MD"
+
 check_stated "ci.sh header gates" "$CI_GATES" \
   "$(flat_number "$CI_FLAT" 'runs all ([0-9]+) of them')" "ci.sh's header"
 check_stated "agent guide gates" "$CI_GATES" \

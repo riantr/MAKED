@@ -894,6 +894,35 @@ Test-WordCount 'agent guide tools' 'tools' $codeTools.Count $agentsDoc
 Test-StatedNumber 'agent guide mutations' $mutationTotal `
   (Get-FlatNumber $agentsFlat 're-run the suites ([0-9]+) times') 'AGENTS.md'
 
+# --- architecture/deployment.md: the topology a reader deploys ----------------
+#
+# The deployment document states the variables the server reads, with their
+# defaults, and points at the lines of the server that read them. Both are
+# claims about the tree: a default the document states and the code does not
+# have is a setting that does something else, and a pointer past the end of
+# the file is a pointer to nothing.
+#
+# The defaults are the ones the code gives, and they are the same defaults
+# the note in the release archive gives, so the two documents and the code
+# all have to agree.
+
+$deployMd = 'architecture/deployment.md'
+
+# The settings the deployment document states: the variable and the default
+# in the first two columns of its table.
+function Get-DocDeploySettings {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $deployMd), $enc)
+  foreach ($m in [regex]::Matches($text, '\| `(MAKED_[A-Z_]+)` \| `([^`]+)` \|')) {
+    $out += ("{0} {1}" -f $m.Groups[1].Value, $m.Groups[2].Value)
+  }
+  Sort-Set $out
+}
+
+Test-Sets 'deployment settings' $codeSettings (Get-DocDeploySettings)
+
+Test-References $deployMd
+
 Test-StatedNumber 'ci.sh header gates' $ciGates `
   (Get-FlatNumber $ciFlat 'runs all ([0-9]+) of them') "ci.sh's header"
 Test-StatedNumber 'agent guide gates' $ciGates `
