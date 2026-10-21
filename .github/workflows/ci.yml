@@ -111,6 +111,21 @@ jobs:
       - name: Dependency versions
         run: bash tools/dep-check.sh
 
+      # The architecture documents make the same kind of claim the README
+      # does -- a count, a shape, a file and line to look at -- and they
+      # rotted the same way: four API endpoints when there were
+      # thirty-seven, "no Dockerfile" when there was one, and a hundred
+      # file:line references pointing at lines that had moved. The README
+      # has a gate for its numbers; this is the same gate for the other
+      # documents.
+      #
+      # It reads only and takes a second.
+      - name: Architecture documents against the tree
+        run: bash tools/check-architecture.sh
+
+      - name: README numbers against the tree
+        run: bash tools/check-readme.sh
+
   build-native:
     name: Build (native)
     runs-on: ubuntu-latest

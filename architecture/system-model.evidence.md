@@ -51,7 +51,7 @@ files. Confidence is **high** unless noted otherwise.
 | All pages held in memory after first load | `frontend/app.mbt:26-31` | high |
 | Page struct mirrors backend, decodes JSON totally | `frontend/page.mbt:16-131` | high |
 | Views: header, domain cards, page view, not found, loading, error | `frontend/views.mbt:28-200` | high |
-| Logo: SVG ring + taijitu, HTML letter overlay | `frontend/logo.mbt:1-207` | high |
+| Logo: SVG ring + taijitu, HTML letter overlay | `frontend/logo.mbt:1-201` | high |
 | Ring geometry: 5 nodes clockwise from top, radius 68, viewBox 200x200 | `frontend/logo.mbt:42-70` | high |
 | Node colors: M indigo, D green, E red, A yellow, K grey | `frontend/logo.mbt:31-39` | high |
 | `dangerous_inner_html` used for page bodies (safe: backend is sole writer) | `frontend/views.mbt:141-157` | high |
@@ -71,9 +71,14 @@ files. Confidence is **high** unless noted otherwise.
 |-----------|---------|---------|--------|
 | moonbit-community/rabbita | 0.16.6 | frontend | `moon.mod:48` |
 | moonbit-community/sqlite3 | 0.2.3 | backend | `moon.mod:49` |
+| moonbit-community/yaml | 0.0.8 | backend | `moon.mod:50` |
 | moonbitlang/async | 0.22.5 | backend | `moon.mod:51` |
 | moonbitlang/moonback | 0.8.9 | backend | `moon.mod:52` |
+| moonbitlang/pdflite | 0.4.0 | backend | `moon.mod:53` |
 | moonbitlang/x | 0.5.6 | (transitive) | `moon.mod:54` |
+| riantr/moonbit_doubleML | 0.164.15 | backend | `moon.mod:55` |
+| riantr/pyroduct | 0.1.32 | backend | `moon.mod:56` |
+| colmugx/mcp | 0.18.1 | cmd/mcp | `moon.mod:57` |
 
 ## Tests
 

@@ -556,12 +556,14 @@ MAKED_moonbit/
 │   ├── mutate-loop.ps1               # 16 mutations of the loop
 │   ├── check-mutation-anchors.ps1    # 229 anchors, and whether any is dead
 │   ├── check-readme.ps1              # the numbers this document states, against the tree
-│   └── check-readme.sh               # the same gate, in bash
+│   ├── check-readme.sh               # the same gate, in bash
+│   ├── check-architecture.ps1        # the architecture documents' claims, against the tree
+│   └── check-architecture.sh         # the same gate, in bash
 ├── AGENT.md                         # how to drive MAKED from another agent
 ├── AGENTS.md                        # how to work on MAKED
 ├── moon.mod  moon.pkg
 ├── build.ps1                         # build the bundle, check, test, build the server
-├── ci.sh                             # 17 gates
+├── ci.sh                             # 18 gates
 └── Dockerfile  docker-compose.yml
 ```
 
@@ -612,7 +614,7 @@ fits. Keep the two files next to each other, and set both variables.
 | Frontend mutations | 65 | `tools/mutate-frontend.ps1` |
 | Loop mutations | 16 | `tools/mutate-loop.ps1` |
 | Mutation anchors | 229 | `tools/check-mutation-anchors.ps1` — and whether any is dead |
-| CI gates | 17 | `ci.sh` |
+| CI gates | 18 | `ci.sh` |
 
 ### Running the tests
 
@@ -646,10 +648,10 @@ Six jobs, all of which have to be green: **Test**, **Gates**, **Build (native)**
 **Integration**, **Container**.
 
 The **Gates** job runs the checks the unit tests cannot: the shape of every API response, the
-way the modules compose, the static analysis, the dynamic analysis against a running server, and
-the dependency versions. The dynamic analysis used to look for a server and skip its live checks
-when it found none, so those checks had never run anywhere; the gate now starts its own server
-and asks it.
+way the modules compose, the static analysis, the dynamic analysis against a running server, the
+dependency versions, and the two documents that state what the tree has. The dynamic analysis used
+to look for a server and skip its live checks when it found none, so those checks had never run
+anywhere; the gate now starts its own server and asks it.
 
 The other gates — the mutation batteries, the coverage report, the benchmarks and the formal
 verification — are in `ci.sh`, which is the local equivalent of the pipeline and its slower half.

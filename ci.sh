@@ -7,7 +7,7 @@
 #
 # The GitHub workflow runs the five of them that a push is checked against --
 # the contract tests, the component tests, the static analysis, the dynamic
-# analysis and the dependency check -- and this script runs all seventeen.
+# analysis and the dependency check -- and this script runs all eighteen.
 # The rest are the slow half: the mutation batteries rewrite the source and
 # re-run the suites two hundred and twenty-nine times, the coverage report
 # runs the native suite again, and the benchmarks and the formal
@@ -214,7 +214,22 @@ gate_dep_check() {
 }
 
 # ---------------------------------------------------------------------------
-# Gate 15: The README's numbers against the tree
+# Gate 16: The architecture documents against the tree
+# ---------------------------------------------------------------------------
+#
+# The README has a gate for its numbers. The architecture documents make the
+# same kind of claim -- a count, a shape, a file and line to look at -- and
+# they rotted the same way: four API endpoints when there are thirty-seven,
+# eight columns when there are twelve, "no Dockerfile" when there is one,
+# and a hundred file:line references pointing at lines that had moved.
+#
+# The gate reads only. It takes a second.
+gate_architecture() {
+  bash tools/check-architecture.sh
+}
+
+# ---------------------------------------------------------------------------
+# Gate 17: The README's numbers against the tree
 # ---------------------------------------------------------------------------
 #
 # The README states how many tests, mutations and gates this project has.
@@ -247,6 +262,7 @@ case "$MODE" in
     gate "coverage"        gate_coverage
     gate "contract"        gate_contract
     gate "sast"            gate_sast
+    gate "architecture"    gate_architecture
     gate "readme"          gate_readme
     ;;
   --unit-only|-u)
@@ -272,6 +288,7 @@ case "$MODE" in
     gate "mutation"        gate_mutation
     gate "dast"            gate_dast
     gate "dep-check"       gate_dep_check
+    gate "architecture"    gate_architecture
     gate "readme"          gate_readme
     ;;
 esac

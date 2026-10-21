@@ -91,6 +91,23 @@ Model Context Protocol details.
   gate cannot derive, because some of the suite's assertions sit in loops; the
   integration suite checks that one itself, at the end of a run.
 
+- **A gate on the README does not make the other documents true.**
+  `tools/check-architecture.ps1` (and its bash twin) applies the same
+  invariant to `architecture/`: the route count, the column count, the field
+  count, the seeded-page count, the dependency versions and the `file:line`
+  references are all derived from the tree and compared with what the
+  documents say. Those documents rotted the same way the README did, and
+  further -- they claim things about the SHAPE of the system ("read-only
+  content model", "no Dockerfile", "no CI"), and a shape claim is not a
+  number a script can derive, so it has to be kept true by reading it.
+  A `file:line` reference that is still in range but no longer says what the
+  claim says is the dangerous kind: it looks verified. So the documents say
+  what the claim IS next to the pointer, and the gate checks the mechanical
+  half. Two of them describe the PAST -- `evolution.md` and
+  `evolution.evidence.md` keep the reasoning for the migration slices -- and
+  they carry a header saying so rather than being rewritten; rewriting them
+  would destroy the reason the slices exist.
+
 - **The language of a surface is decided by who owns the words.** The machine's
   words -- the positions, the slots, the names of the five domains, the prose
   of the pages -- are the server's, and they come back in the language the

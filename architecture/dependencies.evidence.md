@@ -17,9 +17,14 @@
 |-----------|---------|--------|
 | moonbit-community/rabbita | 0.16.6 | `moon.mod:48` |
 | moonbit-community/sqlite3 | 0.2.3 | `moon.mod:49` |
+| moonbit-community/yaml | 0.0.8 | `moon.mod:50` |
 | moonbitlang/async | 0.22.5 | `moon.mod:51` |
 | moonbitlang/moonback | 0.8.9 | `moon.mod:52` |
+| moonbitlang/pdflite | 0.4.0 | `moon.mod:53` |
 | moonbitlang/x | 0.5.6 | `moon.mod:54` |
+| riantr/moonbit_doubleML | 0.164.15 | `moon.mod:55` |
+| riantr/pyroduct | 0.1.32 | `moon.mod:56` |
+| colmugx/mcp | 0.18.1 | `moon.mod:57` |
 
 ## Change impact evidence
 
