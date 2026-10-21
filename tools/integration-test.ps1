@@ -2103,5 +2103,86 @@ if (Test-Path $readmePath) {
   }
   Write-Host ""
   Write-Host ("README.md's count ({0} checks) matches this run." -f $stated)
+
+  # The README's headline states the shape of the machine: thirty-four
+  # positions, eight slots, two hundred and seventy-two rules, and the
+  # number of those rules that have no way out. Nothing in the tree can be
+  # asked that question -- the machine is the pyroduct package's, and the
+  # package is not this repository -- so the document is checked here,
+  # against the model the server just served.
+  #
+  # Every place the document states the shape has to state the same one. A
+  # headline number that has drifted is the first thing a reader sees, and
+  # the second thing they do is find out whether the project notices.
+  $modelPositions = @($model.positions).Count
+  $modelSlots = @($model.slots).Count
+  $modelRules = @($model.rules).Count
+  $modelBlocked = @($model.rules | Where-Object { $_.outcome.kind -eq 'block' }).Count
+  $shapeProblems = @()
+  $shapeClaims = 0
+  $blockedClaims = 0
+
+  # "34 positions x 8 slots x 272 rules". The multiplication sign is written
+  # as an escape, because this file is ASCII and the document is not.
+  foreach ($claim in [regex]::Matches($readme, '([0-9]+) positions \u00D7 ([0-9]+) slots \u00D7 ([0-9]+) rules')) {
+    $shapeClaims += 1
+    $p = [int]$claim.Groups[1].Value
+    $s = [int]$claim.Groups[2].Value
+    $r = [int]$claim.Groups[3].Value
+    if ($p -ne $modelPositions -or $s -ne $modelSlots -or $r -ne $modelRules) {
+      $shapeProblems += ("the document says {0} positions, {1} slots and {2} rules; the machine has {3}, {4} and {5}" -f $p, $s, $r, $modelPositions, $modelSlots, $modelRules)
+    }
+  }
+
+  # "of which 228 have no way out".
+  foreach ($claim in [regex]::Matches($readme, '([0-9]+) have no way out')) {
+    $blockedClaims += 1
+    $n = [int]$claim.Groups[1].Value
+    if ($n -ne $modelBlocked) {
+      $shapeProblems += ("the document says {0} rules have no way out; the machine has {1}" -f $n, $modelBlocked)
+    }
+  }
+
+  # "of the 272 position/slot pairs, 228 are Block".
+  foreach ($claim in [regex]::Matches($readme, 'of the ([0-9]+) position/slot pairs, ([0-9]+) are')) {
+    $blockedClaims += 1
+    $pairs = [int]$claim.Groups[1].Value
+    $blocked = [int]$claim.Groups[2].Value
+    if ($pairs -ne $modelRules) {
+      $shapeProblems += ("the document says {0} position/slot pairs; the machine has {1}" -f $pairs, $modelRules)
+    }
+    if ($blocked -ne $modelBlocked) {
+      $shapeProblems += ("the document says {0} of the pairs are blocked; the machine has {1}" -f $blocked, $modelBlocked)
+    }
+  }
+
+  # The slot vocabulary is stated in words, in the table of routes.
+  $slotWords = @{
+    'one' = 1; 'two' = 2; 'three' = 3; 'four' = 4; 'five' = 5; 'six' = 6
+    'seven' = 7; 'eight' = 8; 'nine' = 9; 'ten' = 10; 'eleven' = 11; 'twelve' = 12
+  }
+  foreach ($claim in [regex]::Matches($readme, 'the ([a-z]+)-slot vocabulary')) {
+    $w = $claim.Groups[1].Value
+    if (-not $slotWords.ContainsKey($w)) {
+      $shapeProblems += ("the document says a '{0}-slot vocabulary', which is not a number" -f $w)
+    } elseif ($slotWords[$w] -ne $modelSlots) {
+      $shapeProblems += ("the document says a {0}-slot vocabulary; the machine has {1} slots" -f $w, $modelSlots)
+    }
+  }
+
+  if ($shapeClaims -eq 0 -or $blockedClaims -eq 0) {
+    $shapeProblems += "the document no longer states the shape of the machine"
+  }
+
+  if ($shapeProblems.Count -gt 0) {
+    Write-Host ""
+    Write-Host "*** FAIL ***"
+    Write-Host "README.md does not state the machine's shape as it is:"
+    foreach ($problem in $shapeProblems) { Write-Host ("  " + $problem) }
+    Write-Host "Update the README, or find out why the machine moved."
+    exit 1
+  }
+  Write-Host ""
+  Write-Host ("README.md's shape ({0} positions, {1} slots, {2} rules, {3} of them blocked) matches the machine." -f $modelPositions, $modelSlots, $modelRules, $modelBlocked)
 }
 exit 0
