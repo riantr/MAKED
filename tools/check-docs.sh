@@ -1125,6 +1125,88 @@ check_stated "agent guide workflow" "$WORKFLOW_GATES" \
 
 check_workflow_scripts "workflow scripts" "$WORKFLOW_SCRIPTS" "$CI_SCRIPTS"
 
+# --- architecture/*.dot: the graphs against the tree --------------------------
+#
+# The graphs are pictures of the tree, and a picture rots the way a document
+# rots. The component graph kept the seven backend modules the project
+# started with and still said four API endpoints when the server registers
+# thirty-seven; the flow graph still said four routes in the step that builds
+# the API.
+#
+# Two claims are checked. The MODULES are the tree's: the component graph
+# names every module the project has, and every module it names is one the
+# project has. The COUNT is the tree's: every graph that says how many routes
+# the API builds says the number the server registers.
+#
+# The escapes are read before the names are taken. A label in a DOT file
+# separates its lines with a backslash and an n, and that n is a letter: a
+# name that follows an escape would be read as part of it. So the escapes
+# become spaces first, and the names are read out of what is left.
+
+SYSTEM_MODEL_DOT="architecture/system-model.dot"
+
+# The modules the tree has, as package/module. A test file is not a module:
+# the graph shows what the system is made of, not what it is checked with.
+tree_modules() {
+  local pkg file base
+  for pkg in backend frontend cmd/server cmd/web cmd/mcp; do
+    for file in "$pkg"/*.mbt; do
+      [ -e "$file" ] || continue
+      base="${file##*/}"
+      case "$base" in
+        *_test.mbt|*_wbtest.mbt) continue ;;
+      esac
+      printf '%s/%s\n' "$pkg" "$base"
+    done
+  done | LC_ALL=C sort -u
+}
+
+# The modules the component graph names, the same way. The escapes go first:
+# a backslash and an n is two characters, and the n is a letter the next name
+# would be read as part of.
+graph_modules() {
+  sed 's/\\n/ /g' "$SYSTEM_MODEL_DOT" \
+    | grep -oE '[A-Za-z0-9_]+(/[A-Za-z0-9_]+)*\.mbt' | LC_ALL=C sort -u || true
+}
+
+check_sets "component graph modules" "$(tree_modules)" "$(graph_modules)"
+
+# The route counts the graphs state: the file, and the number it says.
+graph_route_claims() {
+  local file
+  for file in $(printf '%s\n' architecture/*.dot | LC_ALL=C sort); do
+    [ -e "$file" ] || continue
+    grep -oE '[0-9]+ (JSON endpoints|routes)' "$file" | while IFS= read -r claim; do
+      printf '%s %s\n' "$file" "$claim"
+    done
+  done
+}
+
+# Every graph that states a route count has to state the tree's.
+check_graph_routes() {
+  local claims="$1" actual="$2" line file rest number count=0 before="$FAILURES"
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    count=$((count + 1))
+    file="${line%% *}"
+    rest="${line#* }"
+    number="${rest%% *}"
+    if [ "$number" != "$actual" ]; then
+      fail "$(printf '%-22s the tree has %s, %s says %s' \
+        'graph routes' "$actual" "$file" "$number")"
+    fi
+  done <<< "$claims"
+  if [ "$count" -eq 0 ]; then
+    fail "$(printf '%-22s no graph states the route count' 'graph routes')"
+    return
+  fi
+  if [ "$FAILURES" -eq "$before" ]; then
+    ok "graph routes" "$actual"
+  fi
+}
+
+check_graph_routes "$(graph_route_claims)" "$(count_routes)"
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

@@ -1,8 +1,17 @@
 // MAKED Component Graph &mdash; Graphviz DOT
 // Skill: system-modeler + graphviz
 //
-// Shows internal modules of the backend and frontend packages, their
-// dependencies on each other and on external MoonBit packages.
+// Shows the modules of the backend, the frontend and the entry points, the
+// dependencies between them, and the external MoonBit packages the tree
+// imports.
+//
+// The module lists are the tree's. Every module the project has is named
+// here, and every module named here is one the project has -- the gate
+// (tools/check-docs.sh) says so out loud, because a picture of the tree rots
+// the way a document rots: this one kept the seven backend modules the
+// project started with, and still said four API endpoints when the server
+// registers thirty-seven.
+//
 // Render with: dot -Tsvg system-model.dot -o system-model.svg
 
 digraph maked_components {
@@ -17,13 +26,16 @@ digraph maked_components {
     color="#4a7c9e"
     node [fillcolor="#d4e6f1"]
 
-    app       [label="App\napp.mbt\nFlask-style router +\nmiddleware chain"]
-    api       [label="API\napi.mbt\n4 JSON endpoints"]
-    database  [label="Database\ndatabase.mbt\nSQLite storage layer"]
-    pages     [label="Pages\npages.mbt\nContent model +\nseed data"]
-    request   [label="Request\nrequest.mbt\nmoonback Request wrapper"]
-    response  [label="Response\nresponse.mbt\nJSON/text response helpers"]
-    maked_app [label="create_app\nmaked_app.mbt\nAssembly + static\n+ SPA fallback"]
+    framework [label="Framework\nbackend/app.mbt\nbackend/request.mbt\nbackend/response.mbt\nRoute table +\nmiddleware chain"]
+    api       [label="API\nbackend/api.mbt\n37 JSON endpoints"]
+    content   [label="Content\nbackend/pages.mbt\nbackend/database.mbt\nThe ten public pages\nand the SQLite store"]
+    assembly  [label="Assembly\nbackend/maked_app.mbt\nbackend/bootstrap.mbt\nbackend/version.mbt\nReads the files\nMAKED runs"]
+    machine   [label="Machine\nbackend/model.mbt\nbackend/loop.mbt\nbackend/step.mbt\nbackend/metrics.mbt\nThe state machine\nMAKED runs"]
+    sessions  [label="Sessions and society\nbackend/session.mbt\nbackend/society.mbt\nNamed explorations\nand the collective"]
+    work      [label="The reader's work\nbackend/entries.mbt\nbackend/datafile.mbt\nbackend/export_words.mbt\nWhat the reader\nbrings, and takes away"]
+    language  [label="Language\nbackend/i18n.mbt\nbackend/narration.mbt\nThe language the\nserver answers in"]
+    research  [label="Research\nbackend/research.mbt\nbackend/research_config.mbt\nbackend/corpus.mbt\nbackend/corpus_sources.mbt\nbackend/causal.mbt\nWhat a document means"]
+    agent     [label="Agent\nbackend/agent.mbt\nThe seven tools\nanother agent calls"]
   }
 
   subgraph cluster_frontend {
@@ -32,10 +44,13 @@ digraph maked_components {
     color="#7c9e4a"
     node [fillcolor="#d9ead3"]
 
-    f_app    [label="App (Elm-style)\napp.mbt\nModel/Update/View"]
-    f_page   [label="Page\npage.mbt\nJSON decoding +\nnavigation"]
-    f_views  [label="Views\nviews.mbt\nHeader, cards,\npage rendering"]
-    f_logo   [label="Logo\nlogo.mbt\nSVG ring + taijitu"]
+    f_app   [label="App\nfrontend/app.mbt\nModel / Update / View"]
+    f_page  [label="Page\nfrontend/page.mbt\nTyped accessors\nover the JSON"]
+    f_views [label="Views\nfrontend/views.mbt\nHeader, cards,\npage rendering"]
+    f_logo  [label="Logo\nfrontend/logo.mbt\nSVG ring + taijitu"]
+    f_lang  [label="Language\nfrontend/i18n.mbt\nThe words the\ninterface is made of"]
+    f_state [label="State\nfrontend/loop_state.mbt\nfrontend/session.mbt\nfrontend/society.mbt\nThe loop, the sessions,\nthe collective"]
+    f_work  [label="The reader's work\nfrontend/entries.mbt\nfrontend/causal.mbt\nThe records the reader\nbrings, and what an\nestimate rests on"]
   }
 
   subgraph cluster_cmd {
@@ -44,65 +59,78 @@ digraph maked_components {
     color="#9e7c4a"
     node [fillcolor="#fde8cd"]
 
-    cmd_server [label="cmd/server\nmain.mbt\nNative entry point"]
-    cmd_web    [label="cmd/web\nmain.mbt\nJS entry point"]
+    cmd_server [label="cmd/server/main.mbt\nNative entry point"]
+    cmd_web    [label="cmd/web/main.mbt\nJS entry point"]
+    cmd_mcp    [label="cmd/mcp/main.mbt\nThe agent's server"]
   }
 
   // --- External dependencies ---
-  node [shape=component, fillcolor="#e8e8e8"]
+  subgraph cluster_external {
+    label="External MoonBit packages"
+    style=dashed
+    color="#999999"
+    node [shape=component, fillcolor="#e8e8e8"]
 
-  moonback   [label="moonback\nHTTP server framework"]
-  sqlite3    [label="sqlite3\nSQLite FFI bindings"]
-  rabbita    [label="rabbita\nElm-style SPA framework"]
-  async      [label="moonbitlang/async\nAsync runtime + fs + http"]
-  async_http [label="async/http\nHTTP types"]
-  async_fs   [label="async/fs\nFilesystem ops"]
-  static_mw  [label="moonback/unstable_static\nStatic file middleware"]
-  rabbita_html [label="rabbita/html\nHTML virtual DOM"]
-  rabbita_nav  [label="rabbita/nav\nHistory API routing"]
-  rabbita_sub  [label="rabbita/sub\nSubscriptions"]
-  rabbita_cmd  [label="rabbita/cmd\nCommands + Emit"]
-  rabbita_http   [label="rabbita/http\nHTTP client"]
-  rabbita_url    [label="rabbita/url\nURL parsing"]
-  rabbita_svg    [label="rabbita/svg\nSVG elements"]
+    moonback [label="moonback@0.8.9\nHTTP server + router\nmoonback/middlewares/unstable_static"]
+    sqlite3  [label="sqlite3@0.2.3\nSQLite FFI"]
+    yaml     [label="yaml@0.0.8\nThe machine files"]
+    async    [label="async@0.22.5\nasync/fs, async/http,\nasync/io, async/stdio"]
+    rabbita  [label="rabbita@0.16.6\nrabbita/cmd, rabbita/html,\nrabbita/http, rabbita/nav,\nrabbita/sub, rabbita/svg,\nrabbita/url"]
+    pdflite  [label="pdflite@0.4.0\npdflite/markdown"]
+    xpkg     [label="x@0.5.6\nPaths and files"]
+    doubleml [label="moonbit_doubleML@0.164.15\nThe regression the\nloop reports"]
+    pyroduct [label="pyroduct@0.1.32\npyroduct/group, pyroduct/society,\npyroduct/src"]
+    mcpsdk   [label="mcp@0.18.1\nmcp/protocol/tool,\nmcp/protocol/types,\nmcp/runtime"]
+  }
 
   // --- Backend edges ---
-  app -> request       [label="wraps"]
-  app -> response      [label="produces"]
-  app -> moonback      [label="adapts to\nModule/Handler"]
-  api -> app           [label="registers\nroutes on"]
-  api -> database      [label="queries"]
-  api -> pages         [label="uses\nring_domains()"]
-  database -> sqlite3  [label="prepare/step/\nfinalize"]
-  database -> pages    [label="stores\nPage records"]
-  maked_app -> app     [label="creates\nApp"]
-  maked_app -> database [label="opens +\nseeds"]
-  maked_app -> api     [label="build_api()"]
-  maked_app -> static_mw  [label="static_files()"]
-  maked_app -> async_fs   [label="read_file\n(index.html)"]
-
-  cmd_server -> maked_app  [label="create_app()"]
-  cmd_server -> app        [label="to_module()"]
-  cmd_server -> moonback   [label="App + listen +\nserve"]
-  cmd_server -> async      [label="async runtime"]
-  cmd_server -> async_fs   [label="exists()"]
+  assembly -> framework [label="creates App"]
+  assembly -> content   [label="opens + seeds"]
+  assembly -> api       [label="build_api()"]
+  assembly -> bootstrap [label="reads the files"]
+  assembly -> language  [label="asks for"]
+  api -> framework      [label="registers\nroutes on"]
+  api -> content        [label="reads"]
+  api -> machine        [label="the loop"]
+  api -> sessions       [label="sessions"]
+  api -> work           [label="entries"]
+  api -> research       [label="research"]
+  api -> agent          [label="discovery"]
+  machine -> sessions   [label="records steps"]
+  machine -> language   [label="words"]
+  research -> machine   [label="estimates over"]
+  agent -> machine      [label="moves the loop"]
+  agent -> sessions     [label="sessions"]
 
   // --- Frontend edges ---
-  f_app -> f_page    [label="decode_pages\nfind_page\nnavigation"]
-  f_app -> f_views   [label="header\ndomain_cards\npage_view"]
-  f_app -> f_logo    [label="logo()"]
-  f_app -> rabbita       [label="create_state\nwith_init"]
-  f_app -> rabbita_cmd   [label="Emit, Cmd"]
-  f_app -> rabbita_sub   [label="on_url_changed"]
-  f_app -> rabbita_http  [label="GET /api/bootstrap"]
-  f_app -> rabbita_html  [label="Html builders"]
-  f_page -> rabbita_http [label="Json decoding"]
-  f_views -> f_logo      [label="logo_mark()"]
-  f_views -> rabbita_html [label="html elements"]
-  f_views -> rabbita_nav  [label="push_url"]
-  f_views -> rabbita_svg  [label="svg elements"]
-  f_logo -> rabbita_svg   [label="svg primitives"]
+  f_app -> f_page  [label="decodes"]
+  f_app -> f_views [label="renders"]
+  f_app -> f_logo  [label="logo()"]
+  f_app -> f_lang  [label="words"]
+  f_app -> f_state [label="loop, sessions,\nsociety"]
+  f_app -> f_work  [label="entries,\ncausal"]
 
-  cmd_web -> f_app     [label="app()"]
-  cmd_web -> rabbita   [label="new().mount()"]
+  // --- Entry point edges ---
+  cmd_server -> assembly  [label="create_app()"]
+  cmd_server -> framework [label="to_module()"]
+  cmd_web -> f_app        [label="app()"]
+  cmd_mcp -> agent        [label="the seven tools"]
+
+  // --- External edges ---
+  framework -> moonback [label="adapts to\nModule/Handler"]
+  framework -> async    [label="async runtime"]
+  content -> sqlite3    [label="prepare/reset/bind/\nstep/finalize"]
+  content -> yaml       [label="the machine files"]
+  api -> moonback       [label="routes"]
+  assembly -> async     [label="fs.read_file"]
+  assembly -> pdflite   [label="markdown"]
+  assembly -> xpkg      [label="paths"]
+  machine -> pyroduct   [label="the model"]
+  research -> pyroduct  [label="group, society"]
+  research -> doubleml  [label="the regression"]
+  research -> corpus    [label="the corpus"]
+  f_app -> rabbita      [label="create_state\nwith_init"]
+  f_views -> rabbita    [label="html, nav, svg"]
+  f_page -> rabbita     [label="json"]
+  agent -> mcpsdk       [label="the protocol"]
 }

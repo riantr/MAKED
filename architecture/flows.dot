@@ -37,7 +37,7 @@ digraph maked_flows {
     s2 [label="2. create_app(db_path)", fillcolor="#fde8cd"]
     s3 [label="3. Database::open\n  migrate (CREATE TABLE IF NOT EXISTS)", fillcolor="#fde8cd"]
     s4 [label="4. db.seed(seed_pages())\n  UPSERT 8 pages", fillcolor="#fde8cd"]
-    s5 [label="5. App::new()\n  add_middleware(logging)\n  build_api(4 routes)", fillcolor="#fde8cd"]
+    s5 [label="5. App::new()\n  add_middleware(logging)\n  build_api(37 routes)", fillcolor="#fde8cd"]
     s6 [label="6. to_module()\n  adapt handlers", fillcolor="#fde8cd"]
     s7 [label="7. moonback.listen(port)\n  server.serve()", fillcolor="#fde8cd"]
   }

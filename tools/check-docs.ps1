@@ -1039,6 +1039,99 @@ Test-StatedNumber 'agent guide workflow' $workflowScripts.Count `
 
 Test-WorkflowScripts 'workflow scripts' $workflowScripts $ciScripts
 
+# --- architecture/*.dot: the graphs against the tree -------------------------
+#
+# The graphs are pictures of the tree, and a picture rots the way a document
+# rots. The component graph kept the seven backend modules the project
+# started with and still said four API endpoints when the server registers
+# thirty-seven; the flow graph still said four routes in the step that builds
+# the API.
+#
+# Two claims are checked. The MODULES are the tree's: the component graph
+# names every module the project has, and every module it names is one the
+# project has. The COUNT is the tree's: every graph that says how many routes
+# the API builds says the number the server registers.
+#
+# The escapes are read before the names are taken. A label in a DOT file
+# separates its lines with a backslash and an n, and that n is a letter: a
+# name that follows an escape would be read as part of it. So the escapes
+# become spaces first, and the names are read out of what is left.
+
+$systemModelDot = 'architecture/system-model.dot'
+
+# The modules the tree has, as package/module. A test file is not a module:
+# the graph shows what the system is made of, not what it is checked with.
+function Get-TreeModules {
+  $out = @()
+  foreach ($pkg in @('backend', 'frontend', 'cmd/server', 'cmd/web', 'cmd/mcp')) {
+    foreach ($f in (Get-ChildItem (Join-Path $PWD $pkg) -Filter '*.mbt' -File)) {
+      $name = $f.Name
+      if ($name.EndsWith('_test.mbt') -or $name.EndsWith('_wbtest.mbt')) { continue }
+      $out += ("{0}/{1}" -f $pkg, $name)
+    }
+  }
+  Sort-Set $out
+}
+
+# The modules the component graph names, the same way. The escapes go first:
+# a backslash and an n is two characters, and the n is a letter the next name
+# would be read as part of.
+function Get-GraphModules {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $systemModelDot), $enc)
+  $flat = $text -replace '\\n', ' '
+  $out = @()
+  foreach ($m in [regex]::Matches($flat, '[A-Za-z0-9_]+(/[A-Za-z0-9_]+)*\.mbt')) {
+    $out += $m.Value
+  }
+  Sort-Set $out
+}
+
+Test-Sets 'component graph modules' (Get-TreeModules) (Get-GraphModules)
+
+# The route counts the graphs state: the file, and the number it says.
+function Get-GraphRouteClaims {
+  $out = @()
+  [string[]]$files = @(
+    Get-ChildItem (Join-Path $PWD 'architecture') -Filter '*.dot' -File |
+      ForEach-Object { 'architecture/' + $_.Name }
+  )
+  if ($files.Count -gt 1) {
+    [Array]::Sort($files, [System.StringComparer]::Ordinal)
+  }
+  foreach ($f in $files) {
+    $text = [System.IO.File]::ReadAllText((Join-Path $PWD $f), $enc)
+    foreach ($m in [regex]::Matches($text, '[0-9]+ (JSON endpoints|routes)')) {
+      $out += ("{0} {1}" -f $f, $m.Value)
+    }
+  }
+  $out
+}
+
+# Every graph that states a route count has to state the tree's.
+function Test-GraphRoutes($claims, $actual) {
+  $before = $script:failures
+  $count = 0
+  foreach ($claim in $claims) {
+    if ($claim -eq '') { continue }
+    $count++
+    $parts = $claim -split ' '
+    $file = $parts[0]
+    $number = $parts[1]
+    if ($number -cne $actual) {
+      Write-Fail ("{0,-22} the tree has {1}, {2} says {3}" -f 'graph routes', $actual, $file, $number)
+    }
+  }
+  if ($count -eq 0) {
+    Write-Fail ("{0,-22} no graph states the route count" -f 'graph routes')
+    return
+  }
+  if ($script:failures -eq $before) {
+    Write-Ok 'graph routes' $actual
+  }
+}
+
+Test-GraphRoutes (Get-GraphRouteClaims) ("$(Count-Routes)")
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)
