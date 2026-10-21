@@ -1,5 +1,14 @@
 # Evolution Evidence
 
+> **This document is a record of the past.** Every claim below was true of
+> MAKED before the slices were implemented, and each one is now false --
+> there is a Dockerfile, there is a CI pipeline with six jobs, there is a
+> write path, and the suites have grown from sixteen tests to hundreds. The
+> claims are kept in their original form because they are the *reason* the
+> slices exist: a reader who wants to know why MAKED has a container or a
+> pipeline needs to know that there was a time when it had neither. For the
+> system as it is today, see [system-model.evidence.md](system-model.evidence.md).
+
 ## Current state evidence
 
 All current-state claims are sourced in `system-model.evidence.md`. This
@@ -78,9 +87,9 @@ document adds evidence for the evolution recommendations.
 
 | Evidence | Source |
 |----------|--------|
-| Only database dependency is sqlite3 | `moon.mod:31`, `backend/moon.pkg:9` |
+| Only database dependency is sqlite3 | `moon.mod:49`, `backend/moon.pkg:9` |
 | No PostgreSQL, MySQL, or other DB imports | Grep for database drivers returns only sqlite3 |
-| Schema is one table with 8 columns | `backend/database.mbt:74-88` |
+| Schema is one table with 8 columns | `backend/database.mbt:76-88` |
 
 ### ADR-004: rabbita frontend
 

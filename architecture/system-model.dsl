@@ -24,7 +24,7 @@ workspace {
     user -> backend "Loads site, navigates pages" "HTTPS"
     backend -> database "Reads/writes page content" "SQLite FFI"
     backend -> frontend "Serves static bundle (index.html, main.js, styles.css)" "HTTP static files"
-    frontend -> backend "Fetches all pages at startup" "HTTP GET /api/pages"
+    frontend -> backend "Fetches the pages and the working state at startup" "HTTP GET /api/bootstrap"
   }
 
   views {

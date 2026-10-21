@@ -21,8 +21,8 @@ communicate only through the JSON API contract at runtime.
 
 | Package | Depends on (internal) | Depends on (external) |
 |---------|----------------------|----------------------|
-| `backend/` | (none) | moonback, moonback/unstable_static, sqlite3, async, async/fs, async/http |
-| `frontend/` | (none) | rabbita, rabbita/cmd, rabbita/html, rabbita/http, rabbita/nav, rabbita/sub, rabbita/svg, rabbita/url |
+| `backend/` | (none) | moonback, moonback/unstable_static, sqlite3, yaml, async/fs, async/http, pdflite/markdown, moonbit_doubleML, pyroduct (src, group, society), core (debug, env, json, math, string) |
+| `frontend/` | (none) | rabbita, rabbita/cmd, rabbita/html, rabbita/http, rabbita/nav, rabbita/sub, rabbita/svg, rabbita/url, core (json, math, string) |
 | `cmd/server/` | backend | moonback, async, async/fs, core/env, core/string |
 | `cmd/web/` | frontend | rabbita |
 | root `moon.pkg` | (empty) | (none) |
@@ -34,7 +34,12 @@ moonbitlang/moonback@0.8.9          ← HTTP server framework
 moonbitlang/async@0.22.5            ← Async runtime (fs, http, process)
 moonbit-community/sqlite3@0.2.3     ← SQLite FFI bindings
 moonbit-community/rabbita@0.16.6    ← Elm-style SPA framework
+moonbit-community/yaml@0.0.8        ← The mapping table's syntax
+moonbitlang/pdflite@0.4.0           ← Markdown export
 moonbitlang/x@0.5.6                 ← Utility library (transitive)
+riantr/moonbit_doubleML@0.164.15    ← The causal estimate
+riantr/pyroduct@0.1.32              ← The state machine and the collective
+colmugx/mcp@0.18.1                  ← The agent's server
 ```
 
 ## Change impact analysis
@@ -76,7 +81,7 @@ finalize) is the silent-failure surface. The tests are mutation-tested
 
 | Affected | What breaks |
 |----------|-------------|
-| `backend/api.mbt` | `App::get()`, `App::route()` |
+| `backend/api.mbt` | `App::get()`, `App::post()`, `App::put()`, `App::delete()`, `App::route()` |
 | `backend/maked_app.mbt` | `App::new()`, `App::add_middleware()`, `App::to_module()` |
 | `cmd/server/main.mbt` | `app.to_module()` |
 
@@ -111,6 +116,24 @@ the framework's expected shape.
 
 **Key risk**: the JSON field names in `get_string`/`get_int`/`get_bool` must
 match `backend/pages.mbt`'s `Page::to_json()` keys. No compile-time check.
+
+### If you change `backend/pages.mbt`
+
+**Blast radius**: backend, frontend (via JSON contract)
+
+| Affected | What breaks |
+|----------|-------------|
+| `backend/database.mbt` | `Page` struct fields, `seed()` parameters, the `pages` table's columns |
+| `backend/api.mbt` | `Page::to_json()`, `domains_json()`, the `?lang=` handlers |
+| `frontend/page.mbt` | the decoder's field names must match `to_json()`'s keys |
+| `frontend/frontend_test.mbt` | the JSON fixtures the decoder is tested against |
+| `tools/mutate-backend.ps1` | the guards that point at the bilingual fields |
+
+**Key risk**: the four fields that carry a word the machine owns -- title,
+role, summary and body -- exist twice, once per language, and `Lang::pick`
+is the single place the choice is made. A field added to one language and
+not the other is not a compile error; it is a surface that silently stays
+in one language.
 
 ### If you change `frontend/logo.mbt`
 

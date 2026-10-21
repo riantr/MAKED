@@ -26,17 +26,17 @@
 ### 1. Server startup
 
 ```
-env vars (MAKED_PORT, MAKED_DB, MAKED_DIST)
+env vars (MAKED_PORT, MAKED_HOST, MAKED_DB, MAKED_DIST)
   → parse_port / env_or
   → create_app(db_path)
     → Database::open(path)
       → sqlite3.Connection::open
-      → migrate() — CREATE TABLE IF NOT EXISTS
+      → migrate() — CREATE TABLE IF NOT EXISTS (pages, entries, sessions, session_steps)
     → seed(seed_pages()) — 8 pages via UPSERT
     → seed([home_page, not_found_page])
     → App::new()
     → add_middleware(logging_middleware)
-    → build_api(app, db, db_path) — registers 4 routes
+    → build_api(app, db, db_path) — registers 37 routes
   → app.to_module() — adapts to moonback Module
   → moonback.App(root) with static + spa_fallback middleware
   → moonback.listen(port)
@@ -58,12 +58,12 @@ Browser → GET /about
   ← Browser receives index.html
   → <script src="main.js"> loads
   → rabbita.new(app).mount("app")
-    → start(emit): model = initial(), cmd = GET /api/pages
-    → HTTP GET /api/pages
-      → routes module: matches GET /api/pages
-      → logging_middleware: logs "GET /api/pages -> 200"
+    → start(emit): model = initial(), cmd = GET /api/bootstrap
+    → HTTP GET /api/bootstrap
+      → routes module: matches GET /api/bootstrap
+      → logging_middleware: logs "GET /api/bootstrap -> 200"
       → handler: db.all_pages() → map to_json → Response::json
-      ← 200 {"pages": [...]}
+      ← 200 {"pages": [...], "entries": [...], "session": {...}}
     → Loaded(Ok(json)) → update: decode_pages, loaded = true
     → on_url_changed fires with current URL /about
     → UrlChanged → update: current = slug_of("/about") = "about"
@@ -133,6 +133,7 @@ seed_pages() → Array[Page] (8 pages, hardcoded HTML bodies)
   → rabbita vdom → browser DOM
 ```
 
-**Key property**: content is HTML fragments stored in SQLite, rendered via
-`inner_html` (dangerous_inner_html). Safe because the backend is the sole
-writer and there is no user input path.
+**Key property**: the body is an HTML fragment stored in SQLite, rendered via
+`inner_html` (dangerous_inner_html). It is safe here because the backend is the
+sole writer of that column -- the reader's own records are a different table
+and a different endpoint, and they are rendered as text.

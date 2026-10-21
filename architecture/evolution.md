@@ -1,11 +1,21 @@
 # MAKED Evolution Plan
 
 **Skill**: `evolution-planner` + `c4model`
-**Scope**: Current state, target state options, migration slices, and a
-sequenced roadmap for evolving the MAKED architecture.
-**Audience**: The developer deciding what to build next and in what order.
+**Scope**: The state MAKED was in before the evolution, the target state options,
+the migration slices, and the reasoning behind the order they were taken in.
+**Audience**: Developers who need to understand what MAKED is, where it came
+from, and why it is shaped the way it is.
 
-## Current state (as built)
+> **This document describes the past.** It was written when MAKED was nine
+> read-only pages on one SQLite file with four GET endpoints and sixteen tests.
+> Every slice below has since been implemented: there is a CI pipeline, a
+> Dockerfile, a write path, sessions, the collective, an agent's server and a
+> Chinese front end. The "Current state" table and the slices are kept as they
+> were written, because the reasoning is the point -- but read them as history.
+> For the system as it is today, read [system-model.md](system-model.md) and
+> the [README](../README.md).
+
+## Current state (as built, at the time this was written)
 
 | Aspect | Current |
 |--------|---------|

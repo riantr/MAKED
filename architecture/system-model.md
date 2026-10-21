@@ -10,7 +10,8 @@ structured, and where the boundaries lie.
 MAKED is a two-target web application written entirely in
 [MoonBit](https://docs.moonbitlang.com). It organises content around five
 domains (Model, Attack, Knowledge, Experience, Data) arranged as a closed ring
-around a taijitu. The content is small, read-only, and served from SQLite.
+around a taijitu. The content is served from SQLite, and the pages that carry
+it speak two languages.
 
 | Target | Compile target | Entry point | Runs in |
 |--------|---------------|-------------|---------|
@@ -42,18 +43,25 @@ there is no second web server and no CORS.
    static files from `frontend/dist`, and an SPA fallback for client-side
    routes. No reverse proxy, no CORS.
 
-3. **SPA + JSON API** &mdash; The frontend (rabbita) fetches all pages in one
-   `GET /api/pages` call, then routes client-side via the History API. The
-   backend's `spa_fallback` middleware distinguishes browser navigations from
-   API 404s.
+3. **SPA + JSON API** &mdash; The frontend (rabbita) fetches the pages and the
+   working state in one `GET /api/bootstrap` call, then routes client-side via
+   the History API. The backend's `spa_fallback` middleware distinguishes
+   browser navigations from API 404s.
 
 4. **SQLite storage** &mdash; `Database` is a thin wrapper over
    `moonbit-community/sqlite3`. Schema is created idempotently via
    `CREATE TABLE IF NOT EXISTS`; content is seeded on every start with
    `INSERT ... ON CONFLICT DO UPDATE`.
 
-5. **Read-only content model** &mdash; Ten public pages (five ring domains +
-   tutorial, about, tasks, plus index and 404). No auth, no write path.
+5. **A write path for the reader's own work** &mdash; Ten public pages (five
+   ring domains + tutorial, about, tasks, plus index and 404) carry the
+   explanation; the reader's own records, explorations and tables are the
+   writable part. The pages are seeded, but the workspace, the sessions and
+   the mapping table are not read-only.
+
+6. **The language belongs to the server** &mdash; Every surface that carries the
+   machine's words asks for the language it wants, and the server answers in
+   that language.
 
 ## Assumptions
 

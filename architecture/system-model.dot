@@ -94,7 +94,7 @@ digraph maked_components {
   f_app -> rabbita       [label="create_state\nwith_init"]
   f_app -> rabbita_cmd   [label="Emit, Cmd"]
   f_app -> rabbita_sub   [label="on_url_changed"]
-  f_app -> rabbita_http  [label="GET /api/pages"]
+  f_app -> rabbita_http  [label="GET /api/bootstrap"]
   f_app -> rabbita_html  [label="Html builders"]
   f_page -> rabbita_http [label="Json decoding"]
   f_views -> f_logo      [label="logo_mark()"]

@@ -65,7 +65,7 @@ digraph maked_flows {
     c4 [label="4. spa_fallback:\n   GET + not /api/* + no dot\n   → wants_spa_shell = true", fillcolor="#d4e6f1"]
     c5 [label="5. read dist/index.html\n   → 200 text/html", fillcolor="#d4e6f1"]
     c6 [label="6. <script> loads main.js\n   rabbita.mount('app')", fillcolor="#d9ead3"]
-    c7 [label="7. start(): GET /api/pages\n   → fetch all pages", fillcolor="#d9ead3"]
+    c7 [label="7. start(): GET /api/bootstrap\n   → fetch the pages and the working state", fillcolor="#d9ead3"]
     c8 [label="8. on_url_changed(/about)\n   → slug_of = 'about'\n   → render page_view", fillcolor="#d9ead3"]
   }
 

@@ -10,8 +10,12 @@ digraph maked_evolution {
   edge [fontname="Helvetica", fontsize=8]
 
   // --- Current state ---
+  //
+  // The state as it was when the plan was written. Every slice below has
+  // since been implemented; this graph is kept as the reasoning, not as a
+  // description of the system today.
   subgraph cluster_current {
-    label="Current state\n(as built)"
+    label="Current state\n(as built, when this was written)"
     style=bold
     color="#333333"
     fillcolor="#f9f9f9"

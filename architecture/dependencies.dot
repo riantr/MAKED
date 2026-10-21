@@ -17,7 +17,7 @@ digraph maked_dependencies {
     color="#333333"
 
     backend [
-      label="backend/\n──────────\napp.mbt (Handler, Middleware, App)\napi.mbt (4 endpoints)\ndatabase.mbt (SQLite)\npages.mbt (Page, seed)\nrequest.mbt, response.mbt\nmaked_app.mbt (assembly)",
+      label="backend/\n──────────\napp.mbt (Handler, Middleware, App)\napi.mbt (37 routes)\ndatabase.mbt (SQLite)\npages.mbt (Page, seed)\nrequest.mbt, response.mbt\nmaked_app.mbt (assembly)",
       fillcolor="#d4e6f1"
       width=3.5
     ]
@@ -64,7 +64,7 @@ digraph maked_dependencies {
 
   // --- JSON contract (the only backend↔frontend link) ---
   json_contract [
-    label="JSON API contract\n──────────\nGET /api/status\nGET /api/pages\nGET /api/pages/:slug\nGET /api/domains",
+    label="JSON API contract\n──────────\nGET /api/status\nGET /api/pages\nGET /api/bootstrap\nGET /api/pages/:slug\nGET /api/domains\nGET|POST /api/entries\nGET|POST /api/sessions\nGET|POST /api/loop/*\nGET|POST /api/research/*\nGET|POST /api/society/*\nGET /api/agent",
     shape=note
     fillcolor="#fce5cd"
     style=dashed

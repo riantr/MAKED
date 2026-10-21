@@ -23,27 +23,27 @@ SQLite) and a JavaScript frontend (rabbita SPA).
 2. **Single-process deployment**: one native binary serves API + static + SPA
    fallback. No reverse proxy, no CORS configuration needed.
 
-3. **Thin framework layer**: the backend's `App` is ~135 lines and deliberately
+3. **Thin framework layer**: the backend's `App` is ~150 lines and deliberately
    mirrors Flask's shape. It does not reimplement routing; it adapts between
    `async (Request) -> Response` and moonback's `(Request, Responder) -> Unit`.
 
-4. **Read-only content model**: 10 pages stored in SQLite, seeded on every
-   start. No auth, no write API. The original django CMS had admin + Celery;
-   this scope is the ten public pages only.
+4. **A write path for the reader's own work**: 10 pages stored in SQLite and
+   seeded on every start, but the reader's own records, explorations and
+   tables are writable. The original django CMS had admin + Celery; this
+   scope is the ten public pages plus the reader's own working set.
 
 5. **Elm-style frontend**: rabbita TEA (Model/Update/View/Subscription). One
    HTTP request at startup, then client-side routing via History API.
 
-6. **Well-tested invariants**: 16 tests across backend and frontend, focused
+6. **Well-tested invariants**: 561 tests across backend and frontend, focused
    on silent-failure modes (SQLite statement lifecycle, ring geometry, JSON
-   decoding total functions).
+   decoding total functions), plus 229 mutation anchors and 369 integration
+   checks against a server that is really running.
 
 ## Gaps and unknowns
 
-- **Deployment**: no IaC, Dockerfile, or deployment config found. The system
-  appears to run locally via `moon run cmd/server`.
-- **CI/CD**: a GitHub Actions workflow exists (`.github/workflows/copilot-setup-steps.yml`)
-  but was not inspected.
+- **Deployment**: the container image is built on every push, but there is no
+  IaC and no hosted environment.
 - **Monitoring/observability**: request logging is one line per request to
   stdout. No metrics, tracing, or alerting.
 - **Users**: no analytics, no auth. Unknown whether anyone besides the
@@ -63,3 +63,8 @@ Regenerate this model when:
 - The middleware chain or routing strategy changes.
 - A write path or auth layer is introduced.
 - The frontend switches from rabbita to another framework.
+
+The claims here are about the tree, so they rot when the tree changes and
+nothing notices. The evidence document carries the file and line for each
+one; a reader who wants to know whether a claim still holds should check it
+there.
