@@ -123,7 +123,7 @@ jobs:
       - name: Documents against the tree
         run: bash tools/check-docs.sh
 
-      - name: README numbers against the tree
+      - name: README claims against the tree
         run: bash tools/check-readme.sh
 
   build-native:

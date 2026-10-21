@@ -78,7 +78,7 @@ Model Context Protocol details.
   is meaningless -- it is the last `moon test` propagating through PowerShell --
   so read the `survivors:` line, not `$LASTEXITCODE`.
 
-- **The README states numbers, and the numbers are checked.**
+- **The README states claims, and the claims are checked.**
   `tools/check-readme.ps1` (and its bash twin `tools/check-readme.sh`) derives
   the test, mutation, anchor and gate counts from the tree and compares them
   with what `README.md` says. A number in the document that the tree does not
@@ -95,6 +95,14 @@ Model Context Protocol details.
   name. The listing is the map a reader navigates by, and it was missing
   eleven files -- among them the workspace, which is the thing the reader is
   supposed to bring their own work into.
+  The gate also checks the VARIABLE TABLE: the environment variables the
+  server reads, and the default each one has, are derived from the code and
+  compared with the table the README states, because that table is the first
+  thing a reader copies from. A variable the code reads and the table does
+  not name is a setting nobody can turn, and a default the table states and
+  the code does not have is a setting that does something else. The files the
+  README's own example commands point at have to exist, because a reader
+  copies those commands too.
 
 - **A gate on the README does not make the other documents true.**
   `tools/check-docs.ps1` (and its bash twin) applies the same

@@ -1,4 +1,4 @@
-# Check the numbers in README.md against the tree.
+# Check the claims in README.md against the tree.
 #
 #   .\tools\check-readme.ps1
 #
@@ -10,19 +10,33 @@
 # tree against the document finds the document wrong, and a project whose
 # document is wrong is a project whose numbers cannot be used.
 #
-# So the check is an invariant, not a snapshot: **the number the document
-# states IS the number the tree has**. The expected value is read from the
-# document under audit; the actual value is derived from the tree; the two
-# are compared. Adding a test then requires updating the document, and
+# So the check is an invariant, not a snapshot: **what the document states
+# IS what the tree has**. The expected value is read from the document
+# under audit; the actual value is derived from the tree; the two are
+# compared. Adding a test then requires updating the document, and
 # forgetting to is a red gate rather than a quiet lie.
+#
+# There are three kinds of claim here now, and each is checked in the way
+# that fits it:
+#
+# The NUMBERS -- the test, mutation, anchor and gate counts -- are read out
+# of the document and compared with counts derived from the tree.
+#
+# The LISTING -- the project structure -- has to name every source file, and
+# a name has to appear as many times as the tree has files with that name.
+#
+# The VARIABLES -- the environment variables the server reads, and the
+# defaults they have -- are derived from the code and compared with the
+# table the document states, because that table is the first thing a reader
+# copies from.
 #
 # It reads only. It never writes to the source tree, so it is safe to run
 # at any time -- including while a mutation suite is running, though the
 # answer is then only true between mutations.
 #
 # Exit codes:
-#   0  every number in the document matches the tree
-#   1  a number in the document does not match the tree
+#   0  every claim in the document matches the tree
+#   1  a claim in the document does not match the tree
 #
 # The integration-check count is deliberately NOT derived here. It is the
 # number of checks the integration suite actually ran, and some of its
@@ -300,15 +314,136 @@ if ([string]::IsNullOrEmpty($listing)) {
   }
 }
 
+# --- the variable table -----------------------------------------------------
+#
+# The README tells a reader which environment variables the server reads and
+# what each one defaults to. That is a claim about the code, and it is the
+# one a reader acts on first: it is the table they copy from.
+#
+# The variables are derived from the code -- the server's own settings, the
+# files the backend reads, and the port the agent's server speaks on -- and
+# the table has to list exactly those, with the default the code has. A
+# variable the code reads and the table does not name is a setting nobody
+# can turn; a default the table states and the code does not have is a
+# setting that does something else.
+#
+# A variable with no default in the code is written `*(unset)*` in the
+# document, because that is what it is: the code falls back to the built-in
+# one, and the document says so.
+
+# A set, in ONE order: the ordinal one, which is the order the bytes are
+# in. The bash twin sorts with LC_ALL=C, which is the same order, so the
+# two twins print the same message when a set does not match.
+function Sort-Set($items) {
+  [string[]]$out = @($items | Where-Object { $_ -ne '' })
+  if ($out.Count -gt 1) {
+    [Array]::Sort($out, [System.StringComparer]::Ordinal)
+    $unique = @()
+    foreach ($item in $out) {
+      if ($unique.Count -eq 0 -or $unique[-1] -cne $item) { $unique += $item }
+    }
+    $out = $unique
+  }
+  $out
+}
+
+# Two lists compared by MEMBERSHIP: the same members and the same size.
+# Comparing sorted strings would make the twins disagree the moment one of
+# them sorted differently, and a message that differs between the twins is a
+# message nobody can trust.
+function Test-SameMembers($a, $b) {
+  $e = @($a | Where-Object { $_ -ne '' })
+  $s = @($b | Where-Object { $_ -ne '' })
+  if ($e.Count -ne $s.Count) { return $false }
+  foreach ($item in $e) {
+    if ($s -cnotcontains $item) { return $false }
+  }
+  return $true
+}
+
+function Get-CodeVariables {
+  $out = @()
+  foreach ($file in @('cmd/server/main.mbt', 'cmd/mcp/main.mbt')) {
+    $text = [System.IO.File]::ReadAllText((Join-Path $PWD $file), $enc)
+    foreach ($m in [regex]::Matches($text, 'env_or\("(MAKED_[A-Z_]+)", "([^"]*)"\)')) {
+      # An empty default is an unset one.
+      $default = if ($m.Groups[2].Value -eq '') { 'unset' } else { $m.Groups[2].Value }
+      $out += ("{0} {1}" -f $m.Groups[1].Value, $default)
+    }
+  }
+  # The files the backend reads. They have no default: unset means the
+  # built-in one.
+  foreach ($f in (Get-ChildItem (Join-Path $PWD 'backend') -Filter '*.mbt' -File)) {
+    $text = [System.IO.File]::ReadAllText($f.FullName, $enc)
+    foreach ($m in [regex]::Matches($text, 'get_env_var\("(MAKED_[A-Z_]+)"\)')) {
+      $out += ("{0} unset" -f $m.Groups[1].Value)
+    }
+  }
+  Sort-Set $out
+}
+
+# The same, as the README's table states them.
+function Get-DocVariables {
+  $out = @()
+  foreach ($line in ($readme -split "`r?`n")) {
+    $m = [regex]::Match($line, '^\|\s*`(MAKED_[A-Z_]+)`\s*\|\s*([^|]*)\|')
+    if ($m.Success) {
+      $default = $m.Groups[2].Value.Trim().Replace('`', '')
+      if ($default -eq '*(unset)*') { $default = 'unset' }
+      $out += ("{0} {1}" -f $m.Groups[1].Value, $default)
+    }
+  }
+  Sort-Set $out
+}
+
+# The files the README's own example commands point at. A reader copies
+# those commands; a path that is not there is a command that fails on the
+# first try.
+function Get-DocExamplePaths {
+  $out = @()
+  foreach ($m in [regex]::Matches($readme, 'MAKED_(?:MODEL|RESEARCH|SOCIETY|CORPUS)=([^ \\\r\n]+)')) {
+    $out += $m.Groups[1].Value
+  }
+  Sort-Set $out
+}
+
+$codeVariables = Get-CodeVariables
+$docVariables = Get-DocVariables
+
+if ($codeVariables.Count -eq 0) {
+  Write-Output ("  {0,-20} no environment variable could be derived from the code" -f 'Variables')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $codeVariables $docVariables) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Variables', $codeVariables.Count)
+} else {
+  Write-Output ("  {0,-20} the tree says [{1}], the table says [{2}]" -f 'Variables', ($codeVariables -join ' '), ($docVariables -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+}
+
+$examplePaths = Get-DocExamplePaths
+$missingPaths = @()
+foreach ($path in $examplePaths) {
+  if (-not (Test-Path (Join-Path $PWD $path))) { $missingPaths += $path }
+}
+if ($missingPaths.Count -gt 0) {
+  Write-Output ("  {0,-20} the example commands name files that are not there: {1}" -f 'Example paths', ($missingPaths -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Example paths', $examplePaths.Count)
+}
+
 Write-Output ""
 if ($failures -gt 0) {
-  Write-Output ("{0} number(s) in README.md do not match the tree." -f $failures)
+  Write-Output ("{0} claim(s) in README.md do not match the tree." -f $failures)
   Write-Output "*** FAIL ***"
   Write-Output ""
-  Write-Output "The document states a number and the tree has another. Fix the document,"
+  Write-Output "The document states a claim and the tree has another. Fix the document,"
   Write-Output "or fix the tree -- but make the two agree before saying anything about"
   Write-Output "either of them."
   exit 1
 }
-Write-Output "Every number in README.md matches the tree."
+Write-Output "Every claim in README.md matches the tree."
 exit 0

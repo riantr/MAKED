@@ -574,7 +574,7 @@ MAKED_moonbit/
 │   ├── mutate-frontend.ps1           # 65 mutations of the frontend
 │   ├── mutate-loop.ps1               # 16 mutations of the loop
 │   ├── check-mutation-anchors.ps1    # 229 anchors, and whether any is dead
-│   ├── check-readme.ps1              # the numbers this document states, against the tree
+│   ├── check-readme.ps1              # the claims this document states, against the tree
 │   ├── check-readme.sh               # the same gate, in bash
 │   ├── check-docs.ps1                # the other documents' claims, against the tree
 │   └── check-docs.sh                 # the same gate, in bash

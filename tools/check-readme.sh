@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Check the numbers in README.md against the tree.
+# Check the claims in README.md against the tree.
 #
 #   bash tools/check-readme.sh
 #
@@ -9,17 +9,36 @@
 # where the build runs.
 #
 # The two are kept in step deliberately. Both implement one invariant:
-# **the number the document states IS the number the tree has**. The
-# expected value is read from the document under audit, the actual value
-# is derived from the tree, and the two are compared. A number in the
-# document that the tree does not agree with is a lie in a document people
-# use to judge the project.
+# **what the document states IS what the tree has**. The expected value is
+# read from the document under audit, the actual value is derived from the
+# tree, and the two are compared. A number in the document that the tree
+# does not agree with is a lie in a document people use to judge the project.
+#
+# There are three kinds of claim here now, and each is checked in the way
+# that fits it:
+#
+# The NUMBERS -- the test, mutation, anchor and gate counts -- are read out
+# of the document and compared with counts derived from the tree.
+#
+# The LISTING -- the project structure -- has to name every source file, and
+# a name has to appear as many times as the tree has files with that name.
+#
+# The VARIABLES -- the environment variables the server reads, and the
+# defaults they have -- are derived from the code and compared with the
+# table the document states, because that table is the first thing a reader
+# copies from.
 #
 # It reads only. It never writes to the source tree.
 #
+# It also starts no processes it does not need. Every one of them costs a
+# tenth of a second on Windows and a millisecond on Linux, and a gate that
+# takes a minute on the machine that writes the document is a gate that
+# people stop running. So the tree is walked once, the counts are made in
+# the shell, and the comparisons answer through variables.
+#
 # Exit codes:
-#   0  every number in the document matches the tree
-#   1  a number in the document does not match the tree
+#   0  every claim in the document matches the tree
+#   1  a claim in the document does not match the tree
 
 set -uo pipefail
 
@@ -46,15 +65,14 @@ fail() {
 # one. Both shapes exist in this tree, and a counter that reads only the
 # first one undercounts by the number of async tests -- which is how the
 # stale 389 was produced in the first place.
+#
+# The files are read in ONE pass. A grep per file is a fork per file, and
+# the whole tree is twenty-six of them.
 count_test_blocks() {
   local dir="$1"
-  local count=0
-  local f
-  for f in "$dir"/*.mbt; do
-    [ -e "$f" ] || continue
-    count=$((count + $(grep -cE '^[ \t]*(async[ \t]+)?test[ \t]+"[^"]*"[ \t]*\{' "$f" || true)))
-  done
-  echo "$count"
+  cat "$dir"/*.mbt 2>/dev/null \
+    | grep -cE '^[ \t]*(async[ \t]+)?test[ \t]+"[^"]*"[ \t]*\{' \
+    | head -1 || true
 }
 
 # A mutation is one `@{ name = ...; file = ...; old = ...; new = ... }`
@@ -218,28 +236,58 @@ else
   # directory inside another one it already names: `research` covers
   # `research/notes`, and naming both would count the note twice and ask
   # the listing for it twice.
-  NAMES=$(for dir in backend frontend cmd models research tools; do
+  #
+  # The tree is walked ONCE and the counts are made in the shell. A find per
+  # name per directory is a fork per name per directory, and a fork on this
+  # machine costs a tenth of a second -- which made this gate take a minute
+  # to say yes to a document that was already right.
+  TREE_FILES=$(for dir in backend frontend cmd models research tools; do
     [ -d "$dir" ] || continue
     find "$dir" -type f \( -name '*.mbt' -o -name '*.json' -o -name '*.yaml' -o -name '*.yml' -o -name '*.md' \) \
       ! -name '*test*'
-  done | sed 's|.*/||' | sort -u)
+  done)
+
+  # How many files in the tree carry this name. The answer lands in a
+  # variable: a command substitution is a fork, and a fork per name is a
+  # hundred forks for a document with thirty-seven names in it.
+  COUNT_FILES_NAMED=0
+  count_files_named() {
+    local list="$1" needle="$2" count=0 file
+    while IFS= read -r file; do
+      [ -n "$file" ] || continue
+      if [ "${file##*/}" = "$needle" ]; then
+        count=$((count + 1))
+      fi
+    done <<< "$list"
+    COUNT_FILES_NAMED=$count
+  }
+
+  # How many lines of the listing name it. The count is of LINES, so the
+  # twins agree.
+  COUNT_LINES_NAMING=0
+  count_lines_naming() {
+    local text="$1" needle="$2" count=0 line
+    while IFS= read -r line; do
+      case "$line" in
+        *"$needle"*) count=$((count + 1)) ;;
+      esac
+    done <<< "$text"
+    COUNT_LINES_NAMING=$count
+  }
+
   MISSING=""
   COUNT=0
   while IFS= read -r name; do
     [ -n "$name" ] || continue
     COUNT=$((COUNT + 1))
-    # How many files in the tree carry this name, and how many lines of the
-    # listing name it. Both counts are of LINES, so the twins agree.
-    local_tree=$(for dir in backend frontend cmd models research tools; do
-      [ -d "$dir" ] || continue
-      find "$dir" -type f \( -name '*.mbt' -o -name '*.json' -o -name '*.yaml' -o -name '*.yml' -o -name '*.md' \) \
-        ! -name '*test*' -name "$name"
-    done | wc -l)
-    local_listing=$(printf '%s\n' "$LISTING" | grep -cF "$name" || true)
+    count_files_named "$TREE_FILES" "$name"
+    local_tree="$COUNT_FILES_NAMED"
+    count_lines_naming "$LISTING" "$name"
+    local_listing="$COUNT_LINES_NAMING"
     if [ "$local_listing" -lt "$local_tree" ]; then
       MISSING="$MISSING $name"
     fi
-  done <<< "$NAMES"
+  done <<< "$(printf '%s\n' "$TREE_FILES" | sed 's|.*/||' | LC_ALL=C sort -u)"
   if [ -n "$MISSING" ]; then
     fail "$(printf '%-20s the listing does not name some files:%s' 'Structure listing' "$MISSING")"
   else
@@ -247,15 +295,124 @@ else
   fi
 fi
 
+# --- the variable table -----------------------------------------------------
+#
+# The README tells a reader which environment variables the server reads and
+# what each one defaults to. That is a claim about the code, and it is the
+# one a reader acts on first: it is the table they copy from.
+#
+# The variables are derived from the code -- the server's own settings, the
+# files the backend reads, and the port the agent's server speaks on -- and
+# the table has to list exactly those, with the default the code has. A
+# variable the code reads and the table does not name is a setting nobody
+# can turn; a default the table states and the code does not have is a
+# setting that does something else.
+#
+# A variable with no default in the code is written `*(unset)*` in the
+# document, because that is what it is: the code falls back to the built-in
+# one, and the document says so.
+
+code_variables() {
+  # The settings, with their defaults. An empty default is an unset one.
+  grep -ohE 'env_or\("MAKED_[A-Z_]+", "[^"]*"\)' cmd/server/main.mbt cmd/mcp/main.mbt \
+    | sed -E -e 's/env_or\("([A-Z_]+)", ""\)/\1 unset/' \
+              -e 's/env_or\("([A-Z_]+)", "([^"]*)"\)/\1 \2/' || true
+  # The files the backend reads. They have no default: unset means the
+  # built-in one.
+  grep -ohE 'get_env_var\("MAKED_[A-Z_]+"\)' backend/*.mbt \
+    | sed -E 's/get_env_var\("([A-Z_]+)"\)/\1 unset/' || true
+}
+
+# The same, as the README's table states them. The cell is trimmed, the
+# backticks are dropped and `*(unset)*` becomes `unset`, so that the two
+# sides are compared as plain text.
+doc_variables() {
+  grep -oE '^\|[[:space:]]*`MAKED_[A-Z_]+`[[:space:]]*\|[[:space:]]*[^|]*\|' "$README" \
+    | sed -E 's/^\|[[:space:]]*`(MAKED_[A-Z_]+)`[[:space:]]*\|[[:space:]]*([^|]*)\|$/\1|\2/' \
+    | awk -F'|' '{
+        d = $2
+        gsub(/^[ \t]+/, "", d)
+        gsub(/[ \t]+$/, "", d)
+        gsub(/`/, "", d)
+        if (d == "*(unset)*") d = "unset"
+        print $1 " " d
+      }' || true
+}
+
+# The files the README's own example commands point at. A reader copies
+# those commands; a path that is not there is a command that fails on the
+# first try.
+doc_example_paths() {
+  grep -oE 'MAKED_(MODEL|RESEARCH|SOCIETY|CORPUS)=[^ \\]+' "$README" \
+    | sed -E 's/^MAKED_[A-Z_]+=//' | LC_ALL=C sort -u || true
+}
+
+# Two lists compared by MEMBERSHIP: the same members and the same size.
+# Comparing sorted strings would make the twins disagree the moment one of
+# them sorted differently, and a message that differs between the twins is a
+# message nobody can trust.
+same_members() {
+  local a="$1" b="$2" line candidate found na nb
+  na=$(printf '%s\n' "$a" | grep -c . || true)
+  nb=$(printf '%s\n' "$b" | grep -c . || true)
+  if [ "$na" != "$nb" ]; then
+    return 1
+  fi
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    found=0
+    while IFS= read -r candidate; do
+      [ -n "$candidate" ] || continue
+      if [ "$candidate" = "$line" ]; then
+        found=1
+        break
+      fi
+    done <<< "$b"
+    if [ "$found" -eq 0 ]; then
+      return 1
+    fi
+  done <<< "$a"
+  return 0
+}
+
+CODE_VARIABLES=$(code_variables | LC_ALL=C sort -u)
+DOC_VARIABLES=$(doc_variables | LC_ALL=C sort -u)
+
+if [ -z "$CODE_VARIABLES" ]; then
+  fail "$(printf '%-20s no environment variable could be derived from the code' 'Variables')"
+elif same_members "$CODE_VARIABLES" "$DOC_VARIABLES"; then
+  printf '  ok      %-20s %s\n' 'Variables' "$(printf '%s\n' "$CODE_VARIABLES" | grep -c .)"
+else
+  fail "$(printf '%-20s the tree says [%s], the table says [%s]' \
+    'Variables' \
+    "$(printf '%s\n' "$CODE_VARIABLES" | tr '\n' ' ' | sed -e 's/ *$//')" \
+    "$(printf '%s\n' "$DOC_VARIABLES" | tr '\n' ' ' | sed -e 's/ *$//')")"
+fi
+
+MISSING_PATHS=""
+EXAMPLE_PATHS=$(doc_example_paths)
+while IFS= read -r path; do
+  [ -n "$path" ] || continue
+  if [ ! -f "$path" ]; then
+    MISSING_PATHS="$MISSING_PATHS $path"
+  fi
+done <<< "$EXAMPLE_PATHS"
+if [ -n "$MISSING_PATHS" ]; then
+  fail "$(printf '%-20s the example commands name files that are not there:%s' \
+    'Example paths' "$MISSING_PATHS")"
+else
+  printf '  ok      %-20s %s\n' 'Example paths' "$(printf '%s\n' "$EXAMPLE_PATHS" | grep -c . || true)"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
-  echo "$FAILURES number(s) in README.md do not match the tree."
+  echo "$FAILURES claim(s) in README.md do not match the tree."
   echo "*** FAIL ***"
   echo ""
-  echo "The document states a number and the tree has another. Fix the document,"
+  echo "The document states a claim and the tree has another. Fix the document,"
   echo "or fix the tree -- but make the two agree before saying anything about"
   echo "either of them."
   exit 1
 fi
-echo "Every number in README.md matches the tree."
+echo "Every claim in README.md matches the tree."
 exit 0

@@ -230,17 +230,17 @@ gate_docs() {
 }
 
 # ---------------------------------------------------------------------------
-# Gate 17: The README's numbers against the tree
+# Gate 17: The README's claims against the tree
 # ---------------------------------------------------------------------------
 #
-# The README states how many tests, mutations and gates this project has.
-# Those numbers are a claim about the tree, and a claim nobody checks is a
-# claim that rots: the document carried six stale counts, all of them
-# wrong in the same direction.
+# The README states how many tests, mutations and gates this project has, and
+# which environment variables the server reads. Those are claims about the
+# tree, and a claim nobody checks is a claim that rots: the document carried
+# six stale counts, all of them wrong in the same direction.
 #
-# The gate is an invariant rather than a snapshot -- the number the
-# document states IS the number the tree has -- so it keeps holding as
-# tests are added and removed. It reads only.
+# The gate is an invariant rather than a snapshot -- what the document states
+# IS what the tree has -- so it keeps holding as tests are added and removed.
+# It reads only.
 gate_readme() {
   bash tools/check-readme.sh
 }
