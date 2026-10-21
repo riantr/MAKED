@@ -14,11 +14,15 @@
 # tree, and the two are compared. A number in the document that the tree
 # does not agree with is a lie in a document people use to judge the project.
 #
-# There are three kinds of claim here now, and each is checked in the way
+# There are four kinds of claim here now, and each is checked in the way
 # that fits it:
 #
 # The NUMBERS -- the test, mutation, anchor and gate counts -- are read out
 # of the document and compared with counts derived from the tree.
+#
+# The COUNTS IN WORDS -- "seven tools", "ten pages", "Six jobs" -- are read
+# the same way, because a count written as a word is a count like any other,
+# and a gate that only reads digits lets the words rot.
 #
 # The LISTING -- the project structure -- has to name every source file, and
 # a name has to appear as many times as the tree has files with that name.
@@ -585,6 +589,284 @@ if [ -n "$WRONG_VERSION" ]; then
 else
   printf '  ok      %-20s %s\n' 'Referenced versions' "$(doc_versions | grep -c . || true)"
 fi
+
+# --- the counts the document spells out -------------------------------------
+#
+# The README says some of its counts in words -- "seven tools", "ten pages",
+# "Six jobs" -- and a gate that reads only digits lets those rot. A count
+# written as a word is a claim like any other: the tree has a number, the
+# document has a word, and the two have to be the same number.
+#
+# The counts are derived from the tree:
+#
+#   the domains    the ring's domains, from backend/pages.mbt
+#   the tools      the agent's server, from backend/agent.mbt
+#   the files      the MAKED_* variables the backend reads
+#   the pages      the pages the server seeds
+#   the packages   the library packages -- the ones that are not executables
+#   the platforms  the release matrix
+#   the jobs       the jobs in the CI workflow
+#   the suites     the mutation suites
+#   the languages  the variants of the Lang enum
+#   the example    the example machine that ships, section by section
+#
+# A word that is not a number -- "of tools", "own positions" -- is not a
+# count, and it is passed over: the pattern is here to find the count, not to
+# police the prose around it.
+
+# The word and the number it stands for. The answer lands in a variable: a
+# command substitution is a fork, and there are twenty words to look up.
+WORD_NUMBER=0
+word_number() {
+  case "$1" in
+    one)     WORD_NUMBER=1 ;;
+    two)     WORD_NUMBER=2 ;;
+    three)   WORD_NUMBER=3 ;;
+    four)    WORD_NUMBER=4 ;;
+    five)    WORD_NUMBER=5 ;;
+    six)     WORD_NUMBER=6 ;;
+    seven)   WORD_NUMBER=7 ;;
+    eight)   WORD_NUMBER=8 ;;
+    nine)    WORD_NUMBER=9 ;;
+    ten)     WORD_NUMBER=10 ;;
+    eleven)  WORD_NUMBER=11 ;;
+    twelve)  WORD_NUMBER=12 ;;
+    thirteen) WORD_NUMBER=13 ;;
+    fourteen) WORD_NUMBER=14 ;;
+    fifteen) WORD_NUMBER=15 ;;
+    sixteen) WORD_NUMBER=16 ;;
+    seventeen) WORD_NUMBER=17 ;;
+    eighteen) WORD_NUMBER=18 ;;
+    nineteen) WORD_NUMBER=19 ;;
+    twenty)  WORD_NUMBER=20 ;;
+    *)       WORD_NUMBER=0 ;;
+  esac
+}
+
+
+# The ring's domains, and the names it gives them. One pass: the count and
+# the names come out of the same reading of the file.
+RING_SHAPE=$(awk '
+  /^pub fn ring_domains\(\)/ { inside = 1; next }
+  inside && /^}/ { exit }
+  inside && /^[[:space:]]+\("[a-z]+",/ {
+    n++
+    name = $0
+    sub(/^[[:space:]]*\("/, "", name)
+    sub(/".*/, "", name)
+    print "name " name
+  }
+  END { print "count " n + 0 }
+' backend/pages.mbt)
+DOMAIN_COUNT=0
+DOMAIN_NAMES=""
+while read -r kind value; do
+  case "$kind" in
+    count) DOMAIN_COUNT="$value" ;;
+    name)  DOMAIN_NAMES="$DOMAIN_NAMES$value"$'\n' ;;
+  esac
+done <<< "$RING_SHAPE"
+
+# The tools the agent's server offers.
+TOOL_COUNT=$(grep -cE 'name: "maked_[a-z_]+"' backend/agent.mbt)
+
+# The files the backend reads.
+FILE_COUNT=$(awk '
+  {
+    line = $0
+    while (match(line, /get_env_var\("MAKED_[A-Z_]+"\)/)) {
+      name = substr(line, RSTART + 14, RLENGTH - 16)
+      if (!(name in seen)) { seen[name] = 1; n++ }
+      line = substr(line, RSTART + RLENGTH)
+    }
+  }
+  END { print n + 0 }
+' backend/*.mbt)
+
+# The pages the server holds: the ring's pages, the utility pages, the index
+# and the not-found page.
+PAGE_SHAPE=$(awk '
+  /^        "[a-z0-9-]+",[ \t]*$/ { static++ }
+  /slug: "(index|404)"/ { fixed++ }
+  END { print static + 0, fixed + 0 }
+' backend/pages.mbt)
+read -r STATIC_PAGES FIXED_PAGES <<< "$PAGE_SHAPE"
+PAGE_COUNT=$((DOMAIN_COUNT + STATIC_PAGES + FIXED_PAGES))
+
+# The library packages -- the ones that are not executables. The executables
+# are applications; the packages are what a reader can depend on. The
+# module's own manifest is not a package either.
+MOON_PKGS=$(find . \( -path './_build' -o -path './.mooncakes' -o -path './.git' \) -prune \
+  -o -name moon.pkg -type f -print | grep -v '^\./moon\.pkg$')
+PACKAGE_COUNT=0
+if [ -n "$MOON_PKGS" ]; then
+  PACKAGE_COUNT=$(awk '
+    FNR == 1 { if (name != "" && !seen) n++; name = FILENAME; seen = 0 }
+    /pkgtype\(kind: "executable"\)/ { seen = 1 }
+    END { if (name != "" && !seen) n++; print n + 0 }
+  ' $MOON_PKGS)
+fi
+
+# The platforms a release is built for.
+PLATFORM_COUNT=$(grep -cE '^[[:space:]]*- os: ' .github/workflows/publish.yml)
+
+# The jobs in the CI workflow.
+JOB_COUNT=$(awk '
+  /^jobs:/ { inside = 1; next }
+  inside && /^  [A-Za-z0-9_-]+:/ { n++ }
+  END { print n + 0 }
+' .github/workflows/ci.yml)
+
+# The mutation suites.
+SUITE_FILES=(tools/mutate-*.ps1)
+SUITE_COUNT=${#SUITE_FILES[@]}
+
+# The languages the backend answers in.
+LANGUAGE_COUNT=$(awk '
+  /^pub enum Lang \{/ { inside = 1; next }
+  inside && /^}/ { exit }
+  inside && !/^[[:space:]]*(\/\/|$)/ { n++ }
+  END { print n + 0 }
+' backend/i18n.mbt)
+
+# The example machine that ships with the repository, section by section.
+EXAMPLE_SHAPE=$(awk '
+  /^  "[a-z]+": \[/ { section = $1; gsub(/[" :]/, "", section); next }
+  /^    \{/ { count[section]++ }
+  END { print count["domains"] + 0, count["positions"] + 0, count["slots"] + 0 }
+' models/product-iteration.json)
+read -r EXAMPLE_DOMAINS EXAMPLE_POSITIONS EXAMPLE_SLOTS <<< "$EXAMPLE_SHAPE"
+
+# The claims, the counts the tree has, and the patterns that find the counts
+# in the document.
+#
+# A pattern is the text before the number word and the text after it, with a
+# bar between the two. The patterns are handed to ONE awk pass: walking the
+# document with the shell's own matcher takes thirteen seconds on this
+# machine, and a gate that takes that long is a gate that gets skipped.
+#
+# The claims are read back in the order they are written here, and the
+# patterns of a claim are read in the order they are written too, so that the
+# two twins see the words in the same order and print the same message.
+CLAIM_SPECS=$(
+  printf 'Domains\t%s\t|-domain ring\tthe | domains in ring order\tthe | domain in ring order\tThe | domains are\n' "$DOMAIN_COUNT"
+  printf 'Tools\t%s\t| tool\n' "$TOOL_COUNT"
+  printf 'Files\t%s\t| files MAKED runs on\t| file MAKED runs on\t### The | files\t### The | file\n' "$FILE_COUNT"
+  printf 'Pages\t%s\tthe | pages the server holds\tthe | page the server holds\tthe | public pages\tthe | public page\n' "$PAGE_COUNT"
+  printf 'Packages\t%s\tships | packages\tships | package\n' "$PACKAGE_COUNT"
+  printf 'Platforms\t%s\tbuild for | platforms\tbuild for | platform\n' "$PLATFORM_COUNT"
+  printf 'Jobs\t%s\t| jobs, all of which\t| job, all of which\n' "$JOB_COUNT"
+  printf 'Suites\t%s\tacross the | suites\tacross the | suite\n' "$SUITE_COUNT"
+  printf 'Languages\t%s\t| languages\t| language\n' "$LANGUAGE_COUNT"
+  printf 'Example domains\t%s\t| domains,\n' "$EXAMPLE_DOMAINS"
+  printf 'Example positions\t%s\t| positions,\n' "$EXAMPLE_POSITIONS"
+  printf 'Example slots\t%s\t| slots\t| slot\n' "$EXAMPLE_SLOTS"
+)
+
+# The document is read once, and every pattern is tried against every line.
+# The number word is what the pattern's brackets hold, so the word is cut out
+# of the text the pattern matched: the text before it and the text after it
+# are the pattern's own two halves.
+SCAN_RESULTS=$(awk -v specs="$CLAIM_SPECS" '
+BEGIN {
+  rows = split(specs, spec_lines, "\n")
+  np = 0
+  for (i = 1; i <= rows; i++) {
+    fields = split(spec_lines[i], f, "\t")
+    labels[i] = f[1]
+    counts[i] = f[2]
+    own = ""
+    for (k = 3; k <= fields; k++) {
+      np++
+      split(f[k], ps, "|")
+      pre[np] = ps[1]
+      suf[np] = ps[2]
+      re[np] = ps[1] "([A-Za-z]+)" ps[2]
+      own = own " " np
+    }
+    owners[i] = own
+  }
+}
+{ lines[NR] = $0 }
+END {
+  for (i = 1; i <= rows; i++) {
+    list = split(owners[i], pl, " ")
+    for (j = 1; j <= list; j++) {
+      p = pl[j]
+      for (ln = 1; ln <= NR; ln++) {
+        rest = lines[ln]
+        while (match(rest, re[p])) {
+          text = substr(rest, RSTART, RLENGTH)
+          word = substr(text, length(pre[p]) + 1, RLENGTH - length(pre[p]) - length(suf[p]))
+          words[i] = words[i] word ","
+          rest = substr(rest, RSTART + RLENGTH)
+        }
+      }
+    }
+  }
+  for (i = 1; i <= rows; i++) print labels[i] "\t" counts[i] "\t" words[i]
+}
+' "$README")
+
+# One claim: the label, the count the tree has, and the words the patterns
+# found. Every number word has to be the tree's number, and at least one of
+# them has to be there.
+while IFS=$'\t' read -r label expected words; do
+  [ -n "$label" ] || continue
+  stated=""
+  broken=""
+  IFS=',' read -r -a claim_words <<< "$words"
+  for word in "${claim_words[@]}"; do
+    [ -n "$word" ] || continue
+    word="${word,,}"
+    word_number "$word"
+    if [ "$WORD_NUMBER" -eq 0 ]; then
+      continue
+    fi
+    if [ -z "$stated" ]; then
+      stated="$word"
+    fi
+    if [ "$WORD_NUMBER" -ne "$expected" ] && [ -z "$broken" ]; then
+      broken="$word"
+    fi
+  done
+  if [ -n "$broken" ]; then
+    fail "$(printf '%-20s %s: the tree has %s, the document says %s' \
+      'Number words' "$label" "$expected" "$broken")"
+  elif [ -z "$stated" ]; then
+    fail "$(printf '%-20s %s: the document does not state the count' \
+      'Number words' "$label")"
+  else
+    printf '  ok      %-20s %s: %s (%s)\n' 'Number words' "$label" "$stated" "$expected"
+  fi
+done <<< "$SCAN_RESULTS"
+
+# The names the document gives the ring's domains, against the names the tree
+# gives them. A count of five is not the same claim as the five names.
+DOC_DOMAIN_NAMES=$(awk '
+  {
+    if (!match($0, /The [A-Za-z]+ domains are/)) next
+    line = substr($0, RSTART + RLENGTH)
+    sub(/\..*/, "", line)
+    while (match(line, /`[a-z]+`/)) {
+      print substr(line, RSTART + 1, RLENGTH - 2)
+      line = substr(line, RSTART + RLENGTH)
+    }
+  }
+' "$README" | LC_ALL=C sort -u)
+
+if [ -z "$DOMAIN_NAMES" ] || [ -z "$DOC_DOMAIN_NAMES" ]; then
+  fail "$(printf '%-20s the domain names could not be found on both sides' 'Domain names')"
+elif same_members "$DOMAIN_NAMES" "$DOC_DOMAIN_NAMES"; then
+  printf '  ok      %-20s %s\n' 'Domain names' \
+    "$(printf '%s\n' "$DOC_DOMAIN_NAMES" | tr '\n' ' ' | sed -e 's/ *$//')"
+else
+  fail "$(printf '%-20s the tree names [%s], the document names [%s]' \
+    'Domain names' \
+    "$(printf '%s\n' "$DOMAIN_NAMES" | tr '\n' ' ' | sed -e 's/ *$//')" \
+    "$(printf '%s\n' "$DOC_DOMAIN_NAMES" | tr '\n' ' ' | sed -e 's/ *$//')")"
+fi
+
 
 echo ""
 if [ "$FAILURES" -gt 0 ]; then

@@ -112,6 +112,12 @@ Model Context Protocol details.
   protocol version the README states has to be the one the server speaks,
   and every library version it names has to be the one the manifest pins --
   a version the reader would install is not the one this project runs.
+  The counts the README writes as WORDS are checked the same way: "seven
+  tools", "ten pages", "Six jobs" and the rest are derived from the tree and
+  compared with what the document says, because a count written as a word is
+  a count like any other, and a gate that only reads digits lets the words
+  rot. The five domain names are checked as a set as well, because a count
+  of five is not the same claim as the five names.
 
 - **A gate on the README does not make the other documents true.**
   `tools/check-docs.ps1` (and its bash twin) applies the same

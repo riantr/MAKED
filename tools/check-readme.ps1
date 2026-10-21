@@ -16,11 +16,15 @@
 # compared. Adding a test then requires updating the document, and
 # forgetting to is a red gate rather than a quiet lie.
 #
-# There are three kinds of claim here now, and each is checked in the way
+# There are four kinds of claim here now, and each is checked in the way
 # that fits it:
 #
 # The NUMBERS -- the test, mutation, anchor and gate counts -- are read out
 # of the document and compared with counts derived from the tree.
+#
+# The COUNTS IN WORDS -- "seven tools", "ten pages", "Six jobs" -- are read
+# the same way, because a count written as a word is a count like any other,
+# and a gate that only reads digits lets the words rot.
 #
 # The LISTING -- the project structure -- has to name every source file, and
 # a name has to appear as many times as the tree has files with that name.
@@ -606,6 +610,240 @@ if ($wrongVersion.Count -gt 0) {
   $failures++
 } else {
   Write-Output ("  ok      {0,-20} {1}" -f 'Referenced versions', (Get-DocVersions).Count)
+}
+
+# --- the counts the document spells out -------------------------------------
+#
+# The README says some of its counts in words -- "seven tools", "ten pages",
+# "Six jobs" -- and a gate that reads only digits lets those rot. A count
+# written as a word is a claim like any other: the tree has a number, the
+# document has a word, and the two have to be the same number.
+#
+# The counts are derived from the tree:
+#
+#   the domains    the ring's domains, from backend/pages.mbt
+#   the tools      the agent's server, from backend/agent.mbt
+#   the files      the MAKED_* variables the backend reads
+#   the pages      the pages the server seeds
+#   the packages   the library packages -- the ones that are not executables
+#   the platforms  the release matrix
+#   the jobs       the jobs in the CI workflow
+#   the suites     the mutation suites
+#   the languages  the variants of the Lang enum
+#   the example    the example machine that ships, section by section
+#
+# A word that is not a number -- "of tools", "own positions" -- is not a
+# count, and it is passed over: the pattern is here to find the count, not to
+# police the prose around it.
+
+# The word and the number it stands for.
+$wordNumbers = @{
+  'one' = 1; 'two' = 2; 'three' = 3; 'four' = 4; 'five' = 5; 'six' = 6
+  'seven' = 7; 'eight' = 8; 'nine' = 9; 'ten' = 10; 'eleven' = 11
+  'twelve' = 12; 'thirteen' = 13; 'fourteen' = 14; 'fifteen' = 15
+  'sixteen' = 16; 'seventeen' = 17; 'eighteen' = 18; 'nineteen' = 19
+  'twenty' = 20
+}
+
+# The ring's domains, and the names it gives them.
+function Get-RingDomains {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/pages.mbt'), $enc)
+  $m = [regex]::Match($text, '(?s)pub fn ring_domains\(\)[^{]*\{.*?\n\}')
+  if (-not $m.Success) { return @() }
+  $out = @()
+  foreach ($d in [regex]::Matches($m.Value, '\("([a-z]+)",')) { $out += $d.Groups[1].Value }
+  $out
+}
+
+# The tools the agent's server offers.
+function Get-ToolCount {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/agent.mbt'), $enc)
+  ([regex]::Matches($text, 'name: "maked_[a-z_]+"')).Count
+}
+
+# The files the backend reads.
+function Get-FileCount {
+  $seen = @{}
+  $count = 0
+  foreach ($f in (Get-ChildItem (Join-Path $PWD 'backend') -Filter '*.mbt' -File)) {
+    $text = [System.IO.File]::ReadAllText($f.FullName, $enc)
+    foreach ($m in [regex]::Matches($text, 'get_env_var\("(MAKED_[A-Z_]+)"\)')) {
+      $name = $m.Groups[1].Value
+      if (-not $seen.ContainsKey($name)) { $seen[$name] = $true; $count++ }
+    }
+  }
+  $count
+}
+
+# The pages the server holds: the ring's pages, the utility pages, the index
+# and the not-found page.
+function Get-PageShape {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/pages.mbt'), $enc)
+  $static = ([regex]::Matches($text, '(?m)^        "[a-z0-9-]+",[ \t]*$')).Count
+  $fixed = ([regex]::Matches($text, 'slug: "(index|404)"')).Count
+  @($static, $fixed)
+}
+
+# The library packages -- the ones that are not executables. The executables
+# are applications; the packages are what a reader can depend on. The
+# module's own manifest is not a package either.
+function Get-PackageCount {
+  $count = 0
+  foreach ($dir in (Get-ChildItem $PWD -Directory)) {
+    if ($dir.Name -in @('_build', '.mooncakes', '.git')) { continue }
+    foreach ($m in (Get-ChildItem $dir.FullName -Filter 'moon.pkg' -File -Recurse)) {
+      $text = [System.IO.File]::ReadAllText($m.FullName, $enc)
+      if ($text -notmatch 'pkgtype\(kind: "executable"\)') { $count++ }
+    }
+  }
+  $count
+}
+
+# The platforms a release is built for.
+function Get-PlatformCount {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD '.github/workflows/publish.yml'), $enc)
+  ([regex]::Matches($text, '(?m)^[ \t]*- os: ')).Count
+}
+
+# The jobs in the CI workflow.
+function Get-JobCount {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD '.github/workflows/ci.yml'), $enc)
+  $count = 0
+  $inside = $false
+  foreach ($line in ($text -split "`n")) {
+    if ($line -match '^jobs:') { $inside = $true; continue }
+    if ($inside -and $line -match '^  [A-Za-z0-9_-]+:') { $count++ }
+  }
+  $count
+}
+
+# The mutation suites.
+function Get-SuiteCount {
+  (Get-ChildItem (Join-Path $PWD 'tools') -Filter 'mutate-*.ps1' -File).Count
+}
+
+# The languages the backend answers in.
+function Get-LanguageCount {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/i18n.mbt'), $enc)
+  $m = [regex]::Match($text, '(?s)pub enum Lang \{.*?\n\}')
+  if (-not $m.Success) { return 0 }
+  $body = $m.Value -replace '(?s)^pub enum Lang \{', '' -replace '(?s)\n\}$', ''
+  $count = 0
+  foreach ($line in ($body -split "`n")) {
+    if ($line -match '^[ \t]*(//|$)') { continue }
+    $count++
+  }
+  $count
+}
+
+# The example machine that ships with the repository, section by section.
+function Get-ExampleShape {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'models/product-iteration.json'), $enc)
+  $section = ''
+  $counts = @{}
+  foreach ($line in ($text -split "`n")) {
+    if ($line -match '^  "([a-z]+)": \[') {
+      $section = $Matches[1]
+      if (-not $counts.ContainsKey($section)) { $counts[$section] = 0 }
+      continue
+    }
+    if ($line -match '^    \{' -and $counts.ContainsKey($section)) { $counts[$section]++ }
+  }
+  @((Get-CountOrZero $counts 'domains'),
+    (Get-CountOrZero $counts 'positions'),
+    (Get-CountOrZero $counts 'slots'))
+}
+
+function Get-CountOrZero($table, $key) {
+  if ($table.ContainsKey($key)) { return $table[$key] }
+  0
+}
+
+$ringDomains = @(Get-RingDomains)
+$domainCount = $ringDomains.Count
+$domainNames = $ringDomains
+$toolCount = Get-ToolCount
+$fileCount = Get-FileCount
+$pageShape = Get-PageShape
+$pageCount = $domainCount + $pageShape[0] + $pageShape[1]
+$packageCount = Get-PackageCount
+$platformCount = Get-PlatformCount
+$jobCount = Get-JobCount
+$suiteCount = Get-SuiteCount
+$languageCount = Get-LanguageCount
+$exampleShape = Get-ExampleShape
+
+# The claims, the counts the tree has, and the patterns that find the counts
+# in the document. A pattern is the text before the number word and the text
+# after it, with a bar between the two.
+#
+# The claims are read back in the order they are written here, and the
+# patterns of a claim are read in the order they are written too, so that the
+# two twins see the words in the same order and print the same message.
+$claims = @(
+  [pscustomobject]@{ label = 'Domains';           expected = $domainCount;        patterns = @('|-domain ring', 'the | domains in ring order', 'the | domain in ring order', 'The | domains are') }
+  [pscustomobject]@{ label = 'Tools';             expected = $toolCount;          patterns = @('| tool') }
+  [pscustomobject]@{ label = 'Files';             expected = $fileCount;          patterns = @('| files MAKED runs on', '| file MAKED runs on', '### The | files', '### The | file') }
+  [pscustomobject]@{ label = 'Pages';             expected = $pageCount;          patterns = @('the | pages the server holds', 'the | page the server holds', 'the | public pages', 'the | public page') }
+  [pscustomobject]@{ label = 'Packages';          expected = $packageCount;       patterns = @('ships | packages', 'ships | package') }
+  [pscustomobject]@{ label = 'Platforms';         expected = $platformCount;      patterns = @('build for | platforms', 'build for | platform') }
+  [pscustomobject]@{ label = 'Jobs';              expected = $jobCount;           patterns = @('| jobs, all of which', '| job, all of which') }
+  [pscustomobject]@{ label = 'Suites';            expected = $suiteCount;         patterns = @('across the | suites', 'across the | suite') }
+  [pscustomobject]@{ label = 'Languages';         expected = $languageCount;      patterns = @('| languages', '| language') }
+  [pscustomobject]@{ label = 'Example domains';   expected = $exampleShape[0];    patterns = @('| domains,') }
+  [pscustomobject]@{ label = 'Example positions'; expected = $exampleShape[1];    patterns = @('| positions,') }
+  [pscustomobject]@{ label = 'Example slots';     expected = $exampleShape[2];    patterns = @('| slots', '| slot') }
+)
+
+foreach ($claim in $claims) {
+  $words = @()
+  foreach ($pattern in $claim.patterns) {
+    $parts = [regex]::Split($pattern, '\|')
+    $re = $parts[0] + '([A-Za-z]+)' + $parts[1]
+    foreach ($m in [regex]::Matches($readme, $re)) { $words += $m.Groups[1].Value }
+  }
+  $stated = ''
+  $broken = ''
+  foreach ($word in $words) {
+    $w = $word.ToLowerInvariant()
+    if (-not $wordNumbers.ContainsKey($w)) { continue }
+    if ($stated -eq '') { $stated = $w }
+    if ($wordNumbers[$w] -ne $claim.expected -and $broken -eq '') { $broken = $w }
+  }
+  if ($broken -ne '') {
+    Write-Output ("  {0,-20} {1}: the tree has {2}, the document says {3}" -f 'Number words', $claim.label, $claim.expected, $broken)
+    Write-Output "*** FAIL ***"
+    $failures++
+  } elseif ($stated -eq '') {
+    Write-Output ("  {0,-20} {1}: the document does not state the count" -f 'Number words', $claim.label)
+    Write-Output "*** FAIL ***"
+    $failures++
+  } else {
+    Write-Output ("  ok      {0,-20} {1}: {2} ({3})" -f 'Number words', $claim.label, $stated, $claim.expected)
+  }
+}
+
+# The names the document gives the ring's domains, against the names the tree
+# gives them. A count of five is not the same claim as the five names.
+function Get-DocDomainNames {
+  $out = @()
+  foreach ($m in [regex]::Matches($readme, 'The [A-Za-z]+ domains are ([^.]*)')) {
+    foreach ($s in [regex]::Matches($m.Groups[1].Value, '`([a-z]+)`')) { $out += $s.Groups[1].Value }
+  }
+  Sort-Set $out
+}
+
+$docDomainNames = Get-DocDomainNames
+if ($domainNames.Count -eq 0 -or $docDomainNames.Count -eq 0) {
+  Write-Output ("  {0,-20} the domain names could not be found on both sides" -f 'Domain names')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $domainNames $docDomainNames) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Domain names', ($docDomainNames -join ' '))
+} else {
+  Write-Output ("  {0,-20} the tree names [{1}], the document names [{2}]" -f 'Domain names', ($domainNames -join ' '), ($docDomainNames -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
 }
 
 Write-Output ""
