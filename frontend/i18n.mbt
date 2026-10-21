@@ -10,8 +10,16 @@
 // The words are the interface's own: the furniture around the machine, the
 // buttons, the empty states, the sentences the client writes for itself. The
 // words the *machine* has -- the positions, the slots, the glosses, the
-// narrations -- are the backend's, and they come back in the language the
-// request asked for. Two vocabularies, two places, one switch.
+// narrations, the names of the five domains and the prose of the pages -- are
+// the backend's, and they come back in the language the request asked for.
+// Two vocabularies, two places, one switch.
+//
+// The domain names used to be a third table, here in the client, because the
+// pages were seeded in English and the client had no way to ask for anything
+// else. It was a copy of the model's own names, kept in step by hand, and
+// nothing checked it: a name could change in the model and stay in the
+// client. The server holds both languages of a page now, so the client asks
+// and is told, and there is one place a domain is named.
 //
 // The Chinese here is written in Chinese. It is not the English translated:
 // a translated sentence keeps the English's shape (an article where Chinese
@@ -103,55 +111,6 @@ pub fn UiLang::other(self : UiLang) -> UiLang {
   match self {
     English => Chinese
     Chinese => English
-  }
-}
-
-///|
-/// The five domains, in the words the model uses for them.
-///
-/// The page titles come from the database, where they were seeded in English,
-/// and the pages themselves are prose the database holds -- so the titles are
-/// translated here rather than asked for, and the prose is left as it is.
-/// A letter is the stable name of a domain; the title is not.
-pub fn domain_title(letter : String, lang : UiLang) -> String {
-  match (letter, lang) {
-    ("M", Chinese) => "模型"
-    ("D", Chinese) => "数据"
-    ("E", Chinese) => "经验"
-    ("A", Chinese) => "攻击"
-    ("K", Chinese) => "知识"
-    (_, English) =>
-      match letter {
-        "M" => "Model"
-        "D" => "Data"
-        "E" => "Experience"
-        "A" => "Attack"
-        "K" => "Knowledge"
-        _ => letter
-      }
-    (_, Chinese) => letter
-  }
-}
-
-///|
-/// What a domain is for, in the model's own words.
-pub fn domain_role(letter : String, lang : UiLang) -> String {
-  match (letter, lang) {
-    ("M", Chinese) => "模型构建者"
-    ("D", Chinese) => "数据涡轮"
-    ("E", Chinese) => "经验吸收者"
-    ("A", Chinese) => "攻击生成者"
-    ("K", Chinese) => "知识蒸馏者"
-    (_, English) =>
-      match letter {
-        "M" => "Model Builder"
-        "D" => "Data Turbine"
-        "E" => "Experience Absorber"
-        "A" => "Attack Generator"
-        "K" => "Knowledge Distiller"
-        _ => ""
-      }
-    (_, Chinese) => ""
   }
 }
 

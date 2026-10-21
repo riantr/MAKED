@@ -109,11 +109,12 @@ fn nav_items(
 /// Each card is a clickable `<div>` holding a real `<a>`, for the same reason
 /// as the header: `<a>` cannot carry the handler.
 ///
-/// The name and the role of a domain are the model's own words, so they are
-/// read out of the table rather than out of the database: the page title was
-/// seeded in English, and a reader who has asked for Chinese should not be
-/// shown an English ring around Chinese prose.
-pub fn domain_cards(pages : Array[Page], lang : UiLang) -> @html.Html {
+/// The name and the role of a domain are the machine's own words, and they
+/// come from the server with the rest of the page: the server holds both
+/// languages of a domain and sends the one that was asked for. The client
+/// keeps no table of its own, so a name that changes in the machine changes
+/// here too.
+pub fn domain_cards(pages : Array[Page]) -> @html.Html {
   let cards : Array[@html.Html] = []
   for page in pages {
     if page.letter == "" {
@@ -125,8 +126,8 @@ pub fn domain_cards(pages : Array[Page], lang : UiLang) -> @html.Html {
       @html.div(class=letter_class, on_click=@nav.push_url(target), [
         @html.a(href=target, [
           @html.span(class="letter", page.letter),
-          @html.span(class="name", domain_title(page.letter, lang)),
-          @html.span(class="role", domain_role(page.letter, lang)),
+          @html.span(class="name", page.title),
+          @html.span(class="role", page.role),
         ]),
       ]),
     )
@@ -144,18 +145,14 @@ pub fn domain_cards(pages : Array[Page], lang : UiLang) -> @html.Html {
 /// `alert_xss_vulnerable` warning on the next line is the expected consequence
 /// and is accepted here on the strength of that argument.
 ///
-/// The title of a domain page is the model's own word for the domain, in the
-/// language asked for. The body is the database's, and it is prose rather
-/// than a name: it stays in the language it was written in.
-pub fn page_view(page : Page, lang : UiLang) -> @html.Html {
-  let title = if page.letter == "" {
-    page.title
-  } else {
-    domain_title(page.letter, lang)
-  }
+/// The title and the body are the page's own, in the language asked for: the
+/// server holds both languages and sends the one the reader asked for, so the
+/// prose is Chinese when the interface is Chinese rather than English under a
+/// Chinese heading.
+pub fn page_view(page : Page) -> @html.Html {
   let body_attrs = @html.Attrs::build().inner_html(page.body)
   @html.article(class="maked-page", [
-    @html.h1(class="maked-page-title", title),
+    @html.h1(class="maked-page-title", page.title),
     // The children parameter is required even when the content comes from
     // `inner_html`, so it is given `nothing`.
     @html.div(class="maked-body", attrs=body_attrs, @html.nothing),

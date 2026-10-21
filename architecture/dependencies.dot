@@ -89,7 +89,7 @@ digraph maked_dependencies {
   frontend -> rabbita_nav [label="push_url()"]
   frontend -> rabbita_sub [label="on_url_changed"]
   frontend -> rabbita_cmd [label="Emit, Cmd"]
-  frontend -> rabbita_http [label="GET /api/pages\nexpect_json"]
+  frontend -> rabbita_http [label="GET /api/bootstrap\nexpect_json"]
   frontend -> rabbita_svg [label="svg primitives\n(path, circle...)"]
   frontend -> rabbita_url [label="Url type"]
 }

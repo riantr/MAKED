@@ -91,6 +91,16 @@ Model Context Protocol details.
   gate cannot derive, because some of the suite's assertions sit in loops; the
   integration suite checks that one itself, at the end of a run.
 
+- **The language of a surface is decided by who owns the words.** The machine's
+  words -- the positions, the slots, the names of the five domains, the prose
+  of the pages -- are the server's, and they come back in the language the
+  request asked for. The client's own words -- the buttons, the empty states,
+  the sentences it writes for itself -- are the client's. A table in the client
+  that copies the machine's names is a copy nobody checks: the client used to
+  carry the five domain names in both languages, and the way that was found
+  was the pages needing Chinese and the client having no way to ask. Write a
+  word once, where it belongs, and let the other side ask for it.
+
 - Read the endpoint with `Invoke-WebRequest` before suspecting the backend. A
   loop panel stuck on "Loading loop status..." while the server answers 200 is
   a client-side fault, and the browser's own network/console capture is not

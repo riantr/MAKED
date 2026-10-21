@@ -74,14 +74,18 @@ fn Database::migrate(self : Database) -> Unit raise {
   self.exec(
     (
       #|CREATE TABLE IF NOT EXISTS pages (
-      #|  slug    TEXT PRIMARY KEY,
-      #|  title   TEXT NOT NULL,
-      #|  letter  TEXT NOT NULL DEFAULT '',
-      #|  role    TEXT NOT NULL DEFAULT '',
-      #|  summary TEXT NOT NULL DEFAULT '',
-      #|  body    TEXT NOT NULL DEFAULT '',
-      #|  nav     INTEGER NOT NULL DEFAULT 0,
-      #|  sort    INTEGER NOT NULL DEFAULT 0
+      #|  slug       TEXT PRIMARY KEY,
+      #|  title      TEXT NOT NULL,
+      #|  letter     TEXT NOT NULL DEFAULT '',
+      #|  role       TEXT NOT NULL DEFAULT '',
+      #|  summary    TEXT NOT NULL DEFAULT '',
+      #|  body       TEXT NOT NULL DEFAULT '',
+      #|  nav        INTEGER NOT NULL DEFAULT 0,
+      #|  sort       INTEGER NOT NULL DEFAULT 0,
+      #|  title_zh   TEXT NOT NULL DEFAULT '',
+      #|  role_zh    TEXT NOT NULL DEFAULT '',
+      #|  summary_zh TEXT NOT NULL DEFAULT '',
+      #|  body_zh    TEXT NOT NULL DEFAULT ''
       #|)
     ),
   )
@@ -172,6 +176,34 @@ fn Database::migrate(self : Database) -> Unit raise {
       "ALTER TABLE session_steps ADD COLUMN outcome_kind TEXT NOT NULL DEFAULT ''",
     )
   }
+  // The columns that carry a page's second language.
+  //
+  // The same shape as the column above and for the same reason: a database
+  // written by an older version keeps its old shape unless it is altered, and
+  // `ALTER TABLE ... ADD COLUMN` fails loudly when the column is already
+  // there. So each column is checked first and added only where it is
+  // missing.
+  //
+  // The old rows keep empty Chinese. A page seeded before the pages spoke
+  // Chinese has no Chinese to give, and the rule everywhere else is the same:
+  // a name with no Chinese in it is shown in English rather than as a blank.
+  // The next start-up re-seeds every page, so the empty rows are replaced
+  // anyway -- but a database that is opened and never seeded should still
+  // be readable.
+  if !self.has_column("pages", "title_zh") {
+    self.exec("ALTER TABLE pages ADD COLUMN title_zh TEXT NOT NULL DEFAULT ''")
+  }
+  if !self.has_column("pages", "role_zh") {
+    self.exec("ALTER TABLE pages ADD COLUMN role_zh TEXT NOT NULL DEFAULT ''")
+  }
+  if !self.has_column("pages", "summary_zh") {
+    self.exec(
+      "ALTER TABLE pages ADD COLUMN summary_zh TEXT NOT NULL DEFAULT ''",
+    )
+  }
+  if !self.has_column("pages", "body_zh") {
+    self.exec("ALTER TABLE pages ADD COLUMN body_zh TEXT NOT NULL DEFAULT ''")
+  }
 }
 
 ///|
@@ -204,8 +236,8 @@ fn Database::has_column(
 /// the same file can be restarted without losing the schema.
 pub fn Database::seed(self : Database, pages : Array[Page]) -> Unit raise {
   let upsert =
-    #|INSERT INTO pages (slug, title, letter, role, summary, body, nav, sort)
-    #|VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    #|INSERT INTO pages (slug, title, letter, role, summary, body, nav, sort, title_zh, role_zh, summary_zh, body_zh)
+    #|VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     #|ON CONFLICT(slug) DO UPDATE SET
     #|  title = excluded.title,
     #|  letter = excluded.letter,
@@ -213,7 +245,11 @@ pub fn Database::seed(self : Database, pages : Array[Page]) -> Unit raise {
     #|  summary = excluded.summary,
     #|  body = excluded.body,
     #|  nav = excluded.nav,
-    #|  sort = excluded.sort
+    #|  sort = excluded.sort,
+    #|  title_zh = excluded.title_zh,
+    #|  role_zh = excluded.role_zh,
+    #|  summary_zh = excluded.summary_zh,
+    #|  body_zh = excluded.body_zh
   let stmt = self.connection.prepare(upsert)
   for page in pages {
     // reset(clear_bindings) before every use: without the reset this statement
@@ -228,6 +264,10 @@ pub fn Database::seed(self : Database, pages : Array[Page]) -> Unit raise {
     stmt.bind(index=6, page.body)
     stmt.bind(index=7, if page.in_navigation { 1L } else { 0L })
     stmt.bind(index=8, page.sort.to_int64())
+    stmt.bind(index=9, page.title_zh)
+    stmt.bind(index=10, page.role_zh)
+    stmt.bind(index=11, page.summary_zh)
+    stmt.bind(index=12, page.body_zh)
     ignore(stmt.step())
   }
   stmt.finalize()
@@ -244,11 +284,15 @@ fn read_page(stmt : @sqlite3.Statement) -> Page raise {
     body: stmt.column(index=5),
     in_navigation: (stmt.column(index=6) : Int64) != 0L,
     sort: (stmt.column(index=7) : Int64).to_int(),
+    title_zh: stmt.column(index=8),
+    role_zh: stmt.column(index=9),
+    summary_zh: stmt.column(index=10),
+    body_zh: stmt.column(index=11),
   }
 }
 
 ///|
-const SELECT_COLUMNS : String = "slug, title, letter, role, summary, body, nav, sort"
+const SELECT_COLUMNS : String = "slug, title, letter, role, summary, body, nav, sort, title_zh, role_zh, summary_zh, body_zh"
 
 ///|
 pub fn Database::page_by_slug(self : Database, slug : String) -> Page? raise {

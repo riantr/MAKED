@@ -1269,6 +1269,49 @@ $mutations = @(
     file = 'backend/agent.mbt'
     old  = '    { "format": "json", "the_exploration": export_json(db, session, lang) }'
     new  = '    { "format": "json", "the_exploration": export_json(db, session, Lang::english()) }'
+  },
+  # --- the pages -------------------------------------------------------------
+  #
+  # The pages were the last surface that stayed in English in a Chinese
+  # interface, and they were the only one that also lied about the program it
+  # belonged to: they described the django deployment, where four of the five
+  # applications were empty scaffolds. The prose is now written in both
+  # languages, and the four words a page speaks -- its name, its role, its
+  # summary and its body -- each follow the language the request asked for.
+  #
+  # The seam is `Page::to_json`, because that is what a unit test can see. The
+  # route that hands it the language is pinned by the integration suite, which
+  # asks the running server over HTTP; a mutation at the route itself is a
+  # mutation nothing in this battery can catch.
+  @{
+    name = 'the page body stays in English'
+    file = 'backend/pages.mbt'
+    old  = '    "body": lang.pick(self.body, self.body_zh),'
+    new  = '    "body": self.body,'
+  },
+  @{
+    name = 'the page title stays in English'
+    file = 'backend/pages.mbt'
+    old  = '    "title": lang.pick(self.title, self.title_zh),'
+    new  = '    "title": self.title,'
+  },
+  @{
+    name = 'the page role stays in English'
+    file = 'backend/pages.mbt'
+    old  = '    "role": lang.pick(self.role, self.role_zh),'
+    new  = '    "role": self.role,'
+  },
+  @{
+    name = 'the page summary stays in English'
+    file = 'backend/pages.mbt'
+    old  = '    "summary": lang.pick(self.summary, self.summary_zh),'
+    new  = '    "summary": self.summary,'
+  },
+  @{
+    name = 'the Chinese body is the English body'
+    file = 'backend/pages.mbt'
+    old  = '      body_zh: domain_body_zh('
+    new  = '      body_zh: domain_body('
   }
 )
 

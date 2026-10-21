@@ -424,10 +424,22 @@ $mutations = @(
     new  = '  "?lang="'
   },
   @{
-    name = 'a domain with no name is shown blank'
-    file = 'frontend/i18n.mbt'
-    old  = '    (_, Chinese) => letter'
-    new  = '    (_, Chinese) => ""'
+    # The client used to hold its own table of the five domain names, in both
+    # languages, and keep it in step with the machine by hand -- so this
+    # mutation was about the table's fallback. The table is gone: the server
+    # holds both languages of a page now and sends the one that was asked for,
+    # and the client asks and is told. What the client still owns is the
+    # reading of the server's answer, and that is what is guarded here.
+    name = 'the page title is read from the wrong field'
+    file = 'frontend/page.mbt'
+    old  = '    title: get_string(json, "title", ""),'
+    new  = '    title: get_string(json, "summary", ""),'
+  },
+  @{
+    name = 'the page body is read from the wrong field'
+    file = 'frontend/page.mbt'
+    old  = '    body: get_string(json, "body", ""),'
+    new  = '    body: get_string(json, "summary", ""),'
   },
   @{
     name = 'the interface starts in Chinese'

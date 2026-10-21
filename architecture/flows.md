@@ -32,7 +32,7 @@ env vars (MAKED_PORT, MAKED_DB, MAKED_DIST)
     → Database::open(path)
       → sqlite3.Connection::open
       → migrate() — CREATE TABLE IF NOT EXISTS
-    → seed(seed_pages()) — 9 pages via UPSERT
+    → seed(seed_pages()) — 8 pages via UPSERT
     → seed([home_page, not_found_page])
     → App::new()
     → add_middleware(logging_middleware)
@@ -116,10 +116,10 @@ to String-keyed, so handlers never touch StringView lifetimes.
 ### 5. Page content data flow
 
 ```
-seed_pages() → Array[Page] (9 pages, hardcoded HTML bodies)
+seed_pages() → Array[Page] (8 pages, hardcoded HTML bodies)
   → Database::seed(pages)
     → prepare INSERT ... ON CONFLICT DO UPDATE
-    → for each page: reset → bind(8 params) → step
+    → for each page: reset → bind(12 params) → step
     → finalize
   → [SQLite file: maked.db, pages table]
   → Database::all_pages()

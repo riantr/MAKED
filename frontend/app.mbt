@@ -1209,7 +1209,7 @@ fn view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     error_view(c, model.error)
   } else {
     match model.page() {
-      Some(page) => page_view(page, model.lang)
+      Some(page) => page_view(page)
       None => not_found_view(c, model.current)
     }
   }
@@ -1225,7 +1225,7 @@ fn view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
       society_panel,
       research_panel,
       causal_panel,
-      domain_cards(nav_pages, model.lang),
+      domain_cards(nav_pages),
     ])
   } else if model.current == "workspace" && model.loaded {
     // The workspace is a client-side route rather than a seeded page: what it

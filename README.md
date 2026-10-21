@@ -10,8 +10,8 @@ each domain is the adversarial overcoming of the one before it. The loop is driv
 hard-coded guess, and a position the table cannot move is reported as blocked rather than
 silently skipped.
 
-**34 positions × 8 slots × 272 rules**, and **223 mutations** across the three suites, every
-one of which has to be accounted for — 222 killed by the tests, one deliberately equivalent.
+**34 positions × 8 slots × 272 rules**, and **229 mutations** across the three suites, every
+one of which has to be accounted for — 228 killed by the tests, one deliberately equivalent.
 
 Three layers sit on that ring:
 
@@ -55,8 +55,9 @@ Protocol over stdio or HTTP.
   reported
 - ✅ **Explorations you can take away** — named sessions whose every step records why it was
   possible; replay, branch, rename, and export as Markdown or JSON
-- ✅ **Two languages, written not translated** — the loop, the timeline, the measures and the
-  exported document all answer in English or Chinese; the Chinese is the table's own wording
+- ✅ **Two languages, written not translated** — the loop, the timeline, the measures, the exported
+  document and the pages themselves all answer in English or Chinese; the Chinese is the table's
+  own wording
 - ✅ **An agent's server** — the Model Context Protocol (2026-07-28) over stdio or HTTP,
   seven tools, every answer in sentences
 - ✅ **A discovery document** — `GET /api/agent`, for an agent that does not speak the
@@ -224,7 +225,7 @@ start-up rather than ignored.
 | Method | Path | What it does |
 |---|---|---|
 | `GET` | `/api/status` | is the server up, how many pages, which domains |
-| `GET` | `/api/pages` | the ten pages the server holds |
+| `GET` | `/api/pages` | the ten pages the server holds, in the language asked for |
 | `GET` | `/api/pages/:slug` | one page by slug |
 | `GET` | `/api/domains` | the five domains in ring order |
 | `GET` | `/api/bootstrap` | pages, workspace entries and session state in one call |
@@ -265,7 +266,7 @@ start-up rather than ignored.
 
 The model has two vocabularies — the English reading MAKED was built with,
 and the table's own Chinese — and the endpoints that answer about the loop,
-the timeline and the research take `?lang=`:
+the timeline, the research and the pages take `?lang=`:
 
 | `?lang=` | What comes back |
 |---|---|
@@ -278,6 +279,9 @@ GET  /api/loop/slots?lang=zh
 GET  /api/loop/continuations?lang=zh
 POST /api/loop/step?lang=zh
 GET  /api/sessions/1?lang=zh
+GET  /api/pages?lang=zh
+GET  /api/pages/model?lang=zh
+GET  /api/bootstrap?lang=zh
 ```
 
 The Chinese is the table's own rather than MAKED's translation of it: a
@@ -330,9 +334,12 @@ asks of the page, and a page that has just been opened has not been asked.
 The export links carry the language with them, so the document a reader
 downloads is in the language the page is in.
 
-One thing is still English in a Chinese interface, and it is honest about
-it: the prose of the five domain pages, which is the project's own writing
-and lives in the database.
+There is nothing left in English for a reader to work around. The pages are
+written in both languages and the server sends the one that was asked for, so
+the prose of the five domain pages is Chinese in a Chinese interface. That
+prose is the project's own writing rather than the machine's, which is why it
+lives in the database beside the English of it instead of being translated at
+the last moment.
 
 ### The agent's server
 
@@ -526,7 +533,7 @@ MAKED_moonbit/
 │   ├── metrics.mbt                   # the measures, in both languages
 │   ├── session.mbt                   # explorations, timelines, exports
 │   ├── database.mbt                  # SQLite
-│   └── *_test.mbt                    # 426 tests
+│   └── *_test.mbt                    # 432 tests
 ├── frontend/                         # the single-page app (js)
 │   ├── app.mbt  i18n.mbt  loop_state.mbt  society.mbt  views.mbt
 │   └── frontend_test.mbt             # 129 tests
@@ -543,11 +550,11 @@ MAKED_moonbit/
 │   ├── corpus-arxiv.yaml
 │   └── corpus-local.yaml
 ├── tools/
-│   ├── integration-test.ps1          # 359 checks against a running server
-│   ├── mutate-backend.ps1            # 143 mutations of the backend
-│   ├── mutate-frontend.ps1           # 64 mutations of the frontend
+│   ├── integration-test.ps1          # 369 checks against a running server
+│   ├── mutate-backend.ps1            # 148 mutations of the backend
+│   ├── mutate-frontend.ps1           # 65 mutations of the frontend
 │   ├── mutate-loop.ps1               # 16 mutations of the loop
-│   ├── check-mutation-anchors.ps1    # 223 anchors, and whether any is dead
+│   ├── check-mutation-anchors.ps1    # 229 anchors, and whether any is dead
 │   ├── check-readme.ps1              # the numbers this document states, against the tree
 │   └── check-readme.sh               # the same gate, in bash
 ├── AGENT.md                         # how to drive MAKED from another agent
@@ -598,13 +605,13 @@ fits. Keep the two files next to each other, and set both variables.
 
 | What | How many | How it is checked |
 |---|---|---|
-| Backend tests | 426 | `moon test --target native backend` |
+| Backend tests | 432 | `moon test --target native backend` |
 | Frontend tests | 129 | `moon test --target js frontend` |
-| Integration checks | 359 | `tools/integration-test.ps1` — against a server that is really running |
-| Backend mutations | 143 | `tools/mutate-backend.ps1` |
-| Frontend mutations | 64 | `tools/mutate-frontend.ps1` |
+| Integration checks | 369 | `tools/integration-test.ps1` — against a server that is really running |
+| Backend mutations | 148 | `tools/mutate-backend.ps1` |
+| Frontend mutations | 65 | `tools/mutate-frontend.ps1` |
 | Loop mutations | 16 | `tools/mutate-loop.ps1` |
-| Mutation anchors | 223 | `tools/check-mutation-anchors.ps1` — and whether any is dead |
+| Mutation anchors | 229 | `tools/check-mutation-anchors.ps1` — and whether any is dead |
 | CI gates | 17 | `ci.sh` |
 
 ### Running the tests
@@ -705,6 +712,7 @@ Five jobs, all of which have to be green: **Test**, **Build (native)**, **Build 
 - [x] A discovery document at `GET /api/agent`, for agents that do not speak MCP
 - [x] A Chinese front end
 - [x] The measures and the exported document in two languages
+- [x] The pages in two languages, and no longer describing a program that is not this one
 
 ## Contributing
 

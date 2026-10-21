@@ -1,7 +1,7 @@
 ///| The MAKED API: page content, navigation, workspace entries, and status.
 ///
 /// The page routes are read-only, as they were when the only content was the
-/// nine seeded pages. The workspace routes under `/api/entries` are the first
+/// seeded pages. The workspace routes under `/api/entries` are the first
 /// write path in the project: they are how a user puts their own model, data
 /// or recorded failure into MAKED instead of only reading about the ring.
 ///
@@ -16,18 +16,24 @@
 ///|
 /// Register the JSON API on `app`.
 pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
-  app.get("/api/status", _req => {
+  app.get("/api/status", req => {
     let pages = db.all_pages()
     let body : Json = {
       "status": "ok",
       "database": db_path,
       "page_count": pages.length(),
-      "domains": domains_json(),
+      "domains": domains_json(lang_of(req)),
     }
     Response::json(body)
   })
-  app.get("/api/pages", _req => {
-    let pages = db.all_pages().map(fn(p) { p.to_json() })
+  app.get("/api/pages", req => {
+    // The pages speak the language the request asked for, like everything
+    // else on this server that has a language to speak. The Chinese of a
+    // page is the page's own -- it was written in Chinese, not translated
+    // into it -- so a reader who asks for Chinese gets the prose rather than
+    // the English one with a Chinese heading over it.
+    let lang = lang_of(req)
+    let pages = db.all_pages().map(fn(p) { p.to_json(lang) })
     let body : Json = { "pages": pages }
     Response::json(body)
   })
@@ -49,7 +55,8 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   // The response is not cacheable. It carries the user's own records, and a
   // cached copy would be a stale list of what the server holds.
   app.get("/api/bootstrap", req => {
-    let pages = db.all_pages().map(fn(p) { p.to_json() })
+    let lang = lang_of(req)
+    let pages = db.all_pages().map(fn(p) { p.to_json(lang) })
     let entries = db.all_entries().map(fn(e) { e.to_json() })
     let body : Json = {
       "pages": pages,
@@ -65,15 +72,16 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       // and the branches that are not on the path. A client that had to ask
       // for the timeline separately would be one request further from the
       // answer on every page that shows it.
-      "session_state": session_state_json(db, lang_of(req)),
+      "session_state": session_state_json(db, lang),
     }
     Response::json(body).with_header("Cache-Control", "no-store")
   })
   app.get("/api/pages/:slug", req => {
+    let lang = lang_of(req)
     match req.param("slug") {
       Some(slug) =>
         match db.page_by_slug(slug) {
-          Some(page) => Response::json(page.to_json())
+          Some(page) => Response::json(page.to_json(lang))
           None => {
             let body : Json = { "error": "not_found", "slug": slug }
             Response::json(body, status=404)
@@ -85,8 +93,8 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       }
     }
   })
-  app.get("/api/domains", _req => {
-    let body : Json = { "domains": domains_json() }
+  app.get("/api/domains", req => {
+    let body : Json = { "domains": domains_json(lang_of(req)) }
     Response::json(body)
   })
   // Workspace: the user's own records, grouped by the domain they belong to.
@@ -1133,14 +1141,22 @@ fn session_id_param(req : Request) -> Int32 {
 /// The array is returned as `[..items]` rather than `items`: an
 /// `Array[Json]` does not coerce to `Json` on its own, but an array *literal*
 /// does, and the spread is the only difference between the two here.
-fn domains_json() -> Json {
+///
+/// The names are the machine's own, in the language asked for, and they are
+/// the same names the pages carry -- one source, so the ring on the index
+/// page and the page behind it cannot call the same domain two different
+/// names.
+fn domains_json(lang : Lang) -> Json {
   let items = []
-  for (slug, title, letter, role) in ring_domains() {
+  for (slug, stored_title, letter, stored_role) in ring_domains() {
+    let (title, role, title_zh, role_zh) = domain_names(
+      letter, stored_title, stored_role,
+    )
     let item : Json = {
       "slug": slug,
-      "title": title,
+      "title": lang.pick(title, title_zh),
       "letter": letter,
-      "role": role,
+      "role": lang.pick(role, role_zh),
     }
     items.push(item)
   }

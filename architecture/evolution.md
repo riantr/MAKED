@@ -165,7 +165,7 @@ Depends on: Slice 3 (production hardening first)
 ### ADR-001: Single-process deployment (current)
 
 **Status**: Accepted
-**Context**: MAKED is a small content site with 9 pages. A multi-service
+**Context**: MAKED is a small content site with 10 pages. A multi-service
 architecture would add operational complexity without proportional benefit.
 **Decision**: Serve API + static + SPA from one native process.
 **Consequences**:

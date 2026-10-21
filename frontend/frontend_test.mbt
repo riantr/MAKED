@@ -3034,31 +3034,38 @@ test "the sentences with a hole in them are written in the language" {
 }
 
 ///|
-/// The five domains are named in the model's own words.
+/// The name of a domain comes from the server, not from a table in here.
 ///
-/// The page titles were seeded in the database, in English, and a reader who
-/// asked for Chinese should not be shown an English ring around Chinese
-/// prose. A letter is the stable name of a domain, so the letter is what the
-/// table is keyed by.
-test "the five domains are named in the language" {
-  assert_eq(@frontend.domain_title("M", @frontend.UiLang::english()), "Model")
-  assert_eq(@frontend.domain_title("M", @frontend.UiLang::chinese()), "模型")
-  assert_eq(@frontend.domain_title("D", @frontend.UiLang::chinese()), "数据")
-  assert_eq(@frontend.domain_title("E", @frontend.UiLang::chinese()), "经验")
-  assert_eq(@frontend.domain_title("A", @frontend.UiLang::chinese()), "攻击")
-  assert_eq(@frontend.domain_title("K", @frontend.UiLang::chinese()), "知识")
-  // A letter the model does not have is shown as itself rather than as a
-  // blank: a blank in a list of domains reads as a domain with no name.
-  assert_eq(@frontend.domain_title("Z", @frontend.UiLang::chinese()), "Z")
-  assert_eq(
-    @frontend.domain_role("M", @frontend.UiLang::english()),
-    "Model Builder",
-  )
-  assert_eq(
-    @frontend.domain_role("M", @frontend.UiLang::chinese()),
-    "模型构建者",
-  )
-  assert_eq(@frontend.domain_role("Z", @frontend.UiLang::chinese()), "")
+/// The client used to keep its own list of the five domain names, in both
+/// languages, and keep it in step with the machine by hand -- nothing checked
+/// it, so a name could change in the model and stay in the client. The server
+/// holds both languages of a page now and sends the one that was asked for,
+/// so the client asks and is told.
+///
+/// What the client can be checked on is the record it holds: the name in it
+/// is the name the server sent, in the language the server sent it in.
+test "the domain name comes from the server" {
+  let pages = @frontend.decode_pages({
+    "pages": [
+      {
+        "slug": "model",
+        "title": "模型",
+        "letter": "M",
+        "role": "模型构建者",
+        "summary": "模型构建者",
+        "body": "<p>迁移表。</p>",
+        "in_navigation": true,
+        "sort": 1,
+      },
+    ],
+  })
+  assert_eq(pages.length(), 1)
+  assert_eq(pages[0].title, "模型")
+  assert_eq(pages[0].role, "模型构建者")
+  assert_eq(pages[0].body, "<p>迁移表。</p>")
+  // The letter is still the stable name of a domain: the page behind the
+  // letter is the same page whichever language it is read in.
+  assert_eq(pages[0].letter, "M")
 }
 
 ///|

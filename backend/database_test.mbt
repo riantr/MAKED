@@ -85,6 +85,10 @@ async test "text content survives the round trip byte for byte" {
     body: "<p>模型攻击与对抗 — 太极环 &amp; more</p>",
     in_navigation: true,
     sort: 7,
+    title_zh: "中文标题",
+    role_zh: "中文角色",
+    summary_zh: "中文摘要",
+    body_zh: "<p>中文正文 — 太极环 &amp; more</p>",
   }
   db.seed([page])
   match db.page_by_slug("cjk") {
@@ -99,6 +103,13 @@ async test "text content survives the round trip byte for byte" {
         loaded.body,
         "<p>模型攻击与对抗 — 太极环 &amp; more</p>",
       )
+      // The second language travels the same road. A page that lost its
+      // Chinese on the way to SQLite would fall back to its English, and
+      // nothing else would say so.
+      assert_eq(loaded.title_zh, "中文标题")
+      assert_eq(loaded.role_zh, "中文角色")
+      assert_eq(loaded.summary_zh, "中文摘要")
+      assert_eq(loaded.body_zh, "<p>中文正文 — 太极环 &amp; more</p>")
       assert_eq(loaded.in_navigation, true)
       assert_eq(loaded.sort, 7)
     }
@@ -124,6 +135,10 @@ async test "seeding two pages in one call does not repeat the first" {
       body: "b1",
       in_navigation: true,
       sort: 0,
+      title_zh: "一",
+      role_zh: "",
+      summary_zh: "摘要一",
+      body_zh: "正文一",
     },
     {
       slug: "two",
@@ -134,6 +149,10 @@ async test "seeding two pages in one call does not repeat the first" {
       body: "b2",
       in_navigation: false,
       sort: 1,
+      title_zh: "二",
+      role_zh: "",
+      summary_zh: "摘要二",
+      body_zh: "正文二",
     },
   ])
   assert_eq(db.all_pages().length(), 2)

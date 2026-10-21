@@ -549,6 +549,48 @@ try {
   Assert-Field "and it says which one" ($missing.Body | ConvertFrom-Json) "error" "not_found"
 
   Write-Host ""
+  Write-Host "-- the pages in the other language"
+  #
+  # The pages were the last surface that stayed in English in a Chinese
+  # interface, and the only one that also described a program that is not this
+  # one: they said four of the five applications were empty scaffolds. They
+  # now say what they say in the language the request asked for, and the
+  # Chinese is written Chinese rather than the English with a Chinese title
+  # over it.
+  #
+  # The expected words are code points rather than characters. This file is
+  # read by Windows PowerShell as ANSI, and a non-ASCII literal in it comes
+  # out mangled -- which would make the assertion compare mojibake with
+  # mojibake and pass.
+  $zhModel = [string]([char]0x6A21) + [char]0x578B
+  $zhFormulator = [string]([char]0x6A21) + [char]0x578B + [char]0x6784 + [char]0x5EFA + [char]0x8005
+  $zhTable = [string]([char]0x8FC1) + [char]0x79FB + [char]0x8868
+  $chinesePages = Invoke-Api -Method GET -Path "/api/pages?lang=zh"
+  Assert-Status "the page list answers in Chinese" 200 $chinesePages
+  $zhPageList = $chinesePages.Body | ConvertFrom-Json
+  $zhModelPage = @($zhPageList.pages) | Where-Object { $_.slug -eq "model" }
+  Assert-Field "the model page is named in Chinese" $zhModelPage "title" $zhModel
+  Assert-Field "and its role is in Chinese too" $zhModelPage "role" $zhFormulator
+  Assert-Contains "and its prose is in Chinese" $zhModelPage.body $zhTable
+  Assert-True "and no English furniture is left in the prose" `
+    (-not $zhModelPage.body.Contains("transition table")) `
+    ("it said '{0}'" -f $zhModelPage.body)
+  Assert-True "and it does not still claim the applications are empty" `
+    (-not $zhModelPage.body.Contains("scaffold")) `
+    ("it said '{0}'" -f $zhModelPage.body)
+  # The English page is still English: a reader who asks for nothing must get
+  # what a reader who asks for nothing always got.
+  Assert-Contains "and the English page still says it in English" $model.body "transition table"
+  $zhOne = Get-Json "/api/pages/model?lang=zh"
+  Assert-Field "one page answers in Chinese as well" $zhOne "title" $zhModel
+  $zhBoot = Get-Json "/api/bootstrap?lang=zh"
+  $zhBootModel = @((Field $zhBoot "pages")) | Where-Object { $_.slug -eq "model" }
+  Assert-Field "and the bootstrap carries the Chinese pages" $zhBootModel "title" $zhModel
+  $zhDomains = Get-Json "/api/domains?lang=zh"
+  Assert-Field "and the domain list names the domains in Chinese" `
+    (@(Field $zhDomains "domains"))[0] "title" $zhModel
+
+  Write-Host ""
   Write-Host "-- GET /api/domains"
   $domains = Get-Json "/api/domains"
   Assert-ArrayLength "the five domains are listed in ring order" $domains "domains" 5

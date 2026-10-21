@@ -24,7 +24,7 @@ digraph maked_flows {
   rabbita [label="rabbita\nSPA runtime", fillcolor="#d9ead3"]
   frontend_app [label="frontend/app\n(Elm TEA)", fillcolor="#d9ead3"]
   frontend_views [label="frontend/views", fillcolor="#d9ead3"]
-  seed_data [label="seed_pages()\n9 pages", fillcolor="#fde8cd"]
+  seed_data [label="seed_pages()\n8 pages", fillcolor="#fde8cd"]
   env [label="env vars\nPORT/DB/DIST", shape=note, fillcolor="#e8e8e8"]
 
   // ========== Flow 1: Server startup ==========
@@ -36,7 +36,7 @@ digraph maked_flows {
     s1 [label="1. env_or()\nparse_port()", fillcolor="#fde8cd"]
     s2 [label="2. create_app(db_path)", fillcolor="#fde8cd"]
     s3 [label="3. Database::open\n  migrate (CREATE TABLE IF NOT EXISTS)", fillcolor="#fde8cd"]
-    s4 [label="4. db.seed(seed_pages())\n  UPSERT 9 pages", fillcolor="#fde8cd"]
+    s4 [label="4. db.seed(seed_pages())\n  UPSERT 8 pages", fillcolor="#fde8cd"]
     s5 [label="5. App::new()\n  add_middleware(logging)\n  build_api(4 routes)", fillcolor="#fde8cd"]
     s6 [label="6. to_module()\n  adapt handlers", fillcolor="#fde8cd"]
     s7 [label="7. moonback.listen(port)\n  server.serve()", fillcolor="#fde8cd"]
@@ -147,7 +147,7 @@ digraph maked_flows {
     style=dashed
     color="#4a9e7c"
 
-    d1 [label="1. seed_pages()\n   9 Page structs\n   (hardcoded HTML)", fillcolor="#fde8cd"]
+    d1 [label="1. seed_pages()\n   8 Page structs\n   (hardcoded HTML)", fillcolor="#fde8cd"]
     d2 [label="2. Database::seed\n   UPSERT by slug", fillcolor="#d4e6f1"]
     d3 [label="3. SQLite pages table", shape=cylinder, fillcolor="#e8e8e8"]
     d4 [label="4. all_pages()\n   SELECT ORDER BY sort", fillcolor="#d4e6f1"]

@@ -27,9 +27,9 @@ SQLite) and a JavaScript frontend (rabbita SPA).
    mirrors Flask's shape. It does not reimplement routing; it adapts between
    `async (Request) -> Response` and moonback's `(Request, Responder) -> Unit`.
 
-4. **Read-only content model**: 9 pages stored in SQLite, seeded on every
+4. **Read-only content model**: 10 pages stored in SQLite, seeded on every
    start. No auth, no write API. The original django CMS had admin + Celery;
-   this scope is the nine public pages only.
+   this scope is the ten public pages only.
 
 5. **Elm-style frontend**: rabbita TEA (Model/Update/View/Subscription). One
    HTTP request at startup, then client-side routing via History API.

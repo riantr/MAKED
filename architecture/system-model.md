@@ -52,7 +52,7 @@ there is no second web server and no CORS.
    `CREATE TABLE IF NOT EXISTS`; content is seeded on every start with
    `INSERT ... ON CONFLICT DO UPDATE`.
 
-5. **Read-only content model** &mdash; Nine public pages (five ring domains +
+5. **Read-only content model** &mdash; Ten public pages (five ring domains +
    tutorial, about, tasks, plus index and 404). No auth, no write path.
 
 ## Assumptions
