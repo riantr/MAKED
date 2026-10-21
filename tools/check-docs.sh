@@ -238,16 +238,34 @@ count_page_fields() {
 #
 # The three counts are added because the three shapes are three lists, and a
 # counter that read only one of them would be wrong by the other two.
+#
+# The three counts are read in ONE pass, because a pass is a process and a
+# process on this machine costs a tenth of a second.
+seed_page_counts() {
+  awk '
+    /^ *\("[a-z]+", "[A-Z]/ { ring++ }
+    /^ *"[a-z]+",$/ { list++ }
+    /^ *slug: "/ { singles++ }
+    END { print (ring + 0) " " (list + 0) " " (singles + 0) }
+  ' backend/pages.mbt
+}
+
+# Every page the server seeds.
 count_seed_pages() {
-  local ring list singles
-  ring=$(grep -cE '^ *\("[a-z]+", "[A-Z]' backend/pages.mbt || true)
-  # The list of the other pages: a tuple that starts with a bare slug in
-  # quotes on its own line. The capitalised title on the next line is not a
-  # slug, so the pattern asks for a lower-case word.
-  list=$(grep -cE '^ *"([a-z]+)",$' backend/pages.mbt || true)
-  # The two constructors that make a page on their own.
-  singles=$(grep -cE '^ *slug: "' backend/pages.mbt || true)
+  local counts ring list singles
+  counts=$(seed_page_counts)
+  read -r ring list singles <<< "$counts"
   echo $((ring + list + singles))
+}
+
+# The pages seed_pages() returns: the ring domains and the other three. The
+# index page and the not-found page are made on their own and seeded
+# separately, so they are not part of this count.
+count_seed_pages_only() {
+  local counts ring list singles
+  counts=$(seed_page_counts)
+  read -r ring list singles <<< "$counts"
+  echo $((ring + list))
 }
 
 # --- what the documents say -------------------------------------------------
@@ -342,6 +360,35 @@ check_word_count() {
   if [ -n "$bad" ]; then
     fail "$(printf '%-22s the document says [%s], the tree has %s' \
       "$label" "$(printf '%s' "$bad" | sed -e 's/^ *//')" "$expected")"
+    return
+  fi
+  ok "$label" "$expected"
+}
+
+# A number the document states next to a phrase. Every place the document
+# states it has to state the same number, and it has to state it at least
+# once: a phrase that is gone is a number nothing checks any more.
+check_claim_number() {
+  local label="$1" pattern="$2" expected="$3" doc="$4"
+  local text matched number stated=0 bad=''
+  text=$(tr '\n' ' ' < "$doc" | tr -s ' ')
+  while IFS= read -r matched; do
+    [ -n "$matched" ] || continue
+    if [[ "$matched" =~ $pattern ]]; then
+      number="${BASH_REMATCH[1]}"
+      stated=1
+      if [ "$number" != "$expected" ]; then
+        bad="${bad} ${number}"
+      fi
+    fi
+  done <<< "$(printf '%s' "$text" | grep -oE "$pattern" || true)"
+  if [ -n "$bad" ]; then
+    fail "$(printf '%-22s the tree has %s, the document says [%s]' \
+      "$label" "$expected" "${bad# }")"
+    return
+  fi
+  if [ "$stated" -eq 0 ]; then
+    fail "$(printf '%-22s the document does not state it' "$label")"
     return
   fi
   ok "$label" "$expected"
@@ -1040,6 +1087,30 @@ check_word_count "system model pages" "public pages" "$PAGE_COUNT" "$SYSTEM_MODE
 # The two entry points the model's table names have to be there.
 check_exists "system model backend" "cmd/server/main.mbt"
 check_exists "system model frontend" "cmd/web/main.mbt"
+
+# --- architecture/flows.md: the paths the requests take ----------------------
+#
+# The flow document traces what happens on the way in and out, and it counts
+# as it goes: the routes the API builds, the pages the seed makes, the
+# columns a page row has. All three are the tree's, and a flow that says
+# "registers 37 routes" when the server registers thirty-eight is a flow a
+# reader cannot follow.
+#
+# The pages are counted two ways, because there are two different numbers
+# about them: seed_pages() returns the ring domains and the other three, and
+# the server seeds those plus an index page and a not-found page. The count
+# the flow document states is the count of the function.
+
+FLOWS_MD="architecture/flows.md"
+
+check_claim_number "flow routes" 'registers ([0-9]+) routes' \
+  "$(count_routes)" "$FLOWS_MD"
+check_claim_number "flow seed pages" 'seed_pages\(\)[^0-9]+([0-9]+) pages via UPSERT' \
+  "$(count_seed_pages_only)" "$FLOWS_MD"
+check_claim_number "flow page bodies" '\(([0-9]+) pages, hardcoded HTML bodies\)' \
+  "$(count_seed_pages_only)" "$FLOWS_MD"
+check_claim_number "flow page columns" 'bind\(([0-9]+) params\)' \
+  "$(count_page_columns)" "$FLOWS_MD"
 
 check_stated "ci.sh header gates" "$CI_GATES" \
   "$(flat_number "$CI_FLAT" 'runs all ([0-9]+) of them')" "ci.sh's header"

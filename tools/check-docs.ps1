@@ -199,11 +199,26 @@ function Count-PageFields {
 # The three counts are added because the three shapes are three lists, and a
 # counter that read only one of them would be wrong by the other two.
 function Count-SeedPages {
+  $counts = Get-SeedPageCounts
+  ($counts[0] + $counts[1] + $counts[2])
+}
+
+# The three counts the seed is made of, read in ONE pass: a pass is a
+# process, and a process on this machine costs a tenth of a second.
+function Get-SeedPageCounts {
   $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/pages.mbt'), $enc)
   $ring = ([regex]::Matches($text, '(?m)^ *\("[a-z]+", "[A-Z]')).Count
   $list = ([regex]::Matches($text, '(?m)^ *"[a-z]+",$')).Count
   $singles = ([regex]::Matches($text, '(?m)^ *slug: "')).Count
-  $ring + $list + $singles
+  @($ring, $list, $singles)
+}
+
+# The pages seed_pages() returns: the ring domains and the other three. The
+# index page and the not-found page are made on their own and seeded
+# separately, so they are not part of this count.
+function Count-SeedPagesOnly {
+  $counts = Get-SeedPageCounts
+  ($counts[0] + $counts[1])
 }
 
 # A MoonBit test is a `test "name" {` block or an `async test "name" {`
@@ -915,6 +930,30 @@ Test-StatedNumber 'agent guide mutations' $mutationTotal `
 # the note in the release archive gives, so the two documents and the code
 # all have to agree.
 
+# A number the document states next to a phrase. Every place the document
+# states it has to state the same number, and it has to state it at least
+# once: a phrase that is gone is a number nothing checks any more.
+function Test-ClaimNumber($label, $pattern, $expected, $doc) {
+  $text = ([System.IO.File]::ReadAllText((Join-Path $PWD $doc), $enc)) -replace "`n", ' '
+  $text = $text -replace ' +', ' '
+  $stated = 0
+  $bad = @()
+  foreach ($m in [regex]::Matches($text, $pattern)) {
+    $stated = 1
+    $number = $m.Groups[1].Value
+    if ("$number" -ne "$expected") { $bad += $number }
+  }
+  if ($bad.Count -gt 0) {
+    Write-Fail ("{0,-22} the tree has {1}, the document says [{2}]" -f $label, $expected, ($bad -join ' '))
+    return
+  }
+  if ($stated -eq 0) {
+    Write-Fail ("{0,-22} the document does not state it" -f $label)
+    return
+  }
+  Write-Ok $label $expected
+}
+
 $deployMd = 'architecture/deployment.md'
 
 # The settings the deployment document states: the variable and the default
@@ -962,6 +1001,30 @@ Test-WordCount 'system model pages' 'public pages' $pageCount $systemModelMd
 # The two entry points the model's table names have to be there.
 Test-Exists 'system model backend' 'cmd/server/main.mbt'
 Test-Exists 'system model frontend' 'cmd/web/main.mbt'
+
+# --- architecture/flows.md: the paths the requests take ----------------------
+#
+# The flow document traces what happens on the way in and out, and it counts
+# as it goes: the routes the API builds, the pages the seed makes, the
+# columns a page row has. All three are the tree's, and a flow that says
+# "registers 37 routes" when the server registers thirty-eight is a flow a
+# reader cannot follow.
+#
+# The pages are counted two ways, because there are two different numbers
+# about them: seed_pages() returns the ring domains and the other three, and
+# the server seeds those plus an index page and a not-found page. The count
+# the flow document states is the count of the function.
+
+$flowsMd = 'architecture/flows.md'
+
+Test-ClaimNumber 'flow routes' 'registers ([0-9]+) routes' `
+  (Count-Routes) $flowsMd
+Test-ClaimNumber 'flow seed pages' 'seed_pages\(\)[^0-9]+([0-9]+) pages via UPSERT' `
+  (Count-SeedPagesOnly) $flowsMd
+Test-ClaimNumber 'flow page bodies' '\(([0-9]+) pages, hardcoded HTML bodies\)' `
+  (Count-SeedPagesOnly) $flowsMd
+Test-ClaimNumber 'flow page columns' 'bind\(([0-9]+) params\)' `
+  (Count-PageColumns) $flowsMd
 
 Test-StatedNumber 'ci.sh header gates' $ciGates `
   (Get-FlatNumber $ciFlat 'runs all ([0-9]+) of them') "ci.sh's header"
