@@ -716,6 +716,119 @@ else
     "$(printf '%s\n' "$DOC_CORPUS_KINDS" | tr '\n' ' ' | sed -e 's/ *$//')")"
 fi
 
+# --- the tools the agent's server offers -------------------------------------
+#
+# The README has a table of the seven tools, and the arguments each one takes.
+# Those are the discovery document's: it is what the server answers with, and
+# a tool the document does not offer is a tool an agent cannot call.
+#
+# The arguments are read from the schema each tool uses. The tool says which
+# schema it has, and the schema says which arguments it has, so the two are
+# followed rather than copied.
+#
+# A tool that takes no arguments says so with a dash, and a tool that takes
+# one says so with its name. The arguments are compared as PAIRS -- a tool
+# and an argument -- so a table that drops one argument from one tool is
+# caught, and a table that moves an argument to another tool is caught too.
+
+# The tools the discovery document declares. The `name:` field is what makes
+# a tool a tool.
+code_tools() {
+  grep -oE 'name: "maked_[a-z_]+"' backend/agent.mbt \
+    | grep -oE 'maked_[a-z_]+' | LC_ALL=C sort -u || true
+}
+
+# The arguments each tool takes, as "tool argument" pairs.
+#
+# The schema functions come first in the file and the tool specs after, so
+# one pass is enough: the schemas are collected as they are met, and the
+# tool specs are answered from what was collected.
+code_tool_args() {
+  awk '
+    match($0, /^fn agent_[a-z_]*\(\) -> Json \{/) {
+      fn = $0
+      sub(/^fn /, "", fn)
+      sub(/\(\).*/, "", fn)
+      inside = 1
+      next
+    }
+    inside && match($0, /^}/) { inside = 0 }
+    inside && match($0, /^      "[a-z_]+": \{$/) {
+      key = $0
+      sub(/^      "/, "", key)
+      sub(/": \{$/, "", key)
+      props[fn] = props[fn] (props[fn] == "" ? "" : " ") key
+      next
+    }
+    match($0, /^      name: "maked_[a-z_]+",/) {
+      tool = $0
+      sub(/^      name: "/, "", tool)
+      sub(/",$/, "", tool)
+      next
+    }
+    match($0, /^      arguments: agent_[a-z_]*\(\),/) {
+      fn = $0
+      sub(/^      arguments: /, "", fn)
+      sub(/\(\),$/, "", fn)
+      args[tool] = fn
+    }
+    END {
+      for (t in args) {
+        n = split(props[args[t]], list, " ")
+        for (i = 1; i <= n; i++) {
+          if (list[i] != "") printf "%s %s\n", t, list[i]
+        }
+      }
+    }
+  ' backend/agent.mbt | LC_ALL=C sort -u
+}
+
+# The tools the README's table gives them. A tool row starts with the tool
+# name in backticks.
+doc_tools() {
+  grep -oE '^\| `maked_[a-z_]+`' "$README" \
+    | sed -E 's/^\| `([^`]+)`.*/\1/' | LC_ALL=C sort -u || true
+}
+
+# The arguments the README's table gives each tool, as "tool argument" pairs.
+# The arguments sit in the second column, and a tool that takes none says so
+# with a dash rather than with an empty cell.
+doc_tool_args() {
+  grep -oE '^\| `maked_[a-z_]+` \| [^|]*\|' "$README" \
+    | sed -E 's/^\| `([^`]+)` \| ([^|]*)\|/\1|\2/' \
+    | while IFS='|' read -r tool cell; do
+        for arg in $(printf '%s' "$cell" | grep -oE '`[^`]+`' | tr -d '`'); do
+          printf '%s %s\n' "$tool" "$arg"
+        done
+      done | LC_ALL=C sort -u
+}
+
+CODE_TOOLS=$(code_tools)
+DOC_TOOLS=$(doc_tools)
+if [ -z "$CODE_TOOLS" ]; then
+  fail "$(printf '%-20s no tool could be derived from the discovery document' 'Agent tools')"
+elif same_members "$CODE_TOOLS" "$DOC_TOOLS"; then
+  printf '  ok      %-20s %s\n' 'Agent tools' "$(printf '%s\n' "$CODE_TOOLS" | grep -c .)"
+else
+  fail "$(printf '%-20s the tree says [%s], the table says [%s]' \
+    'Agent tools' \
+    "$(printf '%s\n' "$CODE_TOOLS" | tr '\n' ' ' | sed -e 's/ *$//')" \
+    "$(printf '%s\n' "$DOC_TOOLS" | tr '\n' ' ' | sed -e 's/ *$//')")"
+fi
+
+CODE_TOOL_ARGS=$(code_tool_args)
+DOC_TOOL_ARGS=$(doc_tool_args)
+if [ -z "$CODE_TOOL_ARGS" ]; then
+  fail "$(printf '%-20s no tool argument could be derived from the discovery document' 'Agent arguments')"
+elif same_members "$CODE_TOOL_ARGS" "$DOC_TOOL_ARGS"; then
+  printf '  ok      %-20s %s\n' 'Agent arguments' "$(printf '%s\n' "$CODE_TOOL_ARGS" | grep -c .)"
+else
+  fail "$(printf '%-20s the tree says [%s], the table says [%s]' \
+    'Agent arguments' \
+    "$(printf '%s\n' "$CODE_TOOL_ARGS" | tr '\n' ' ' | sed -e 's/ *$//')" \
+    "$(printf '%s\n' "$DOC_TOOL_ARGS" | tr '\n' ' ' | sed -e 's/ *$//')")"
+fi
+
 # --- the counts the document spells out -------------------------------------
 #
 # The README says some of its counts in words -- "seven tools", "ten pages",

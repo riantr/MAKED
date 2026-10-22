@@ -348,13 +348,13 @@ exact.
 
 | Tool | Arguments | What it answers |
 |---|---|---|
-| `maked_status` | — | where the loop stands, what the last move did, what the run adds up to, whether it is still finding ground |
-| `maked_options` | `depth` | the slots that can move, the slots that cannot and why, the successors the table declined to choose between |
-| `maked_step` | `slot`, `target` | take a move, and say what happened |
+| `maked_status` | `lang` | where the loop stands, what the last move did, what the run adds up to, whether it is still finding ground |
+| `maked_options` | `depth`, `lang` | the slots that can move, the slots that cannot and why, the successors the table declined to choose between |
+| `maked_step` | `slot`, `target`, `lang` | take a move, and say what happened |
 | `maked_model` | — | the machine as data: domains, positions, slots, and the rule for every pair |
-| `maked_society` | `trigger` | where the collective stands; with a trigger, take that move |
-| `maked_sessions` | — | the named explorations, and which one is in front of us |
-| `maked_export` | `session_id`, `format` | one exploration as Markdown (to read) or JSON (to process) |
+| `maked_society` | `trigger`, `lang` | where the collective stands; with a trigger, take that move |
+| `maked_sessions` | `lang` | the named explorations, and which one is in front of us |
+| `maked_export` | `session_id`, `format`, `lang` | one exploration as Markdown (to read) or JSON (to process) |
 
 The suggested order is: `maked_status` → `maked_options` → `maked_step`. `maked_step` with
 no slot lets the table choose; with a slot you choose; with a `target` you answer a question

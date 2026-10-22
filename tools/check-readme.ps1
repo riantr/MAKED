@@ -764,6 +764,117 @@ if ($codeCorpusKinds.Count -eq 0) {
   $failures++
 }
 
+# --- the tools the agent's server offers -------------------------------------
+#
+# The README has a table of the seven tools, and the arguments each one takes.
+# Those are the discovery document's: it is what the server answers with, and
+# a tool the document does not offer is a tool an agent cannot call.
+#
+# The arguments are read from the schema each tool uses. The tool says which
+# schema it has, and the schema says which arguments it has, so the two are
+# followed rather than copied.
+#
+# A tool that takes no arguments says so with a dash, and a tool that takes
+# one says so with its name. The arguments are compared as PAIRS -- a tool
+# and an argument -- so a table that drops one argument from one tool is
+# caught, and a table that moves an argument to another tool is caught too.
+
+# The tools the discovery document declares. The `name:` field is what makes
+# a tool a tool.
+function Get-CodeTools {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/agent.mbt'), $enc)
+  $out = @()
+  foreach ($m in [regex]::Matches($text, 'name: "(maked_[a-z_]+)"')) {
+    $out += $m.Groups[1].Value
+  }
+  Sort-Set $out
+}
+
+# The arguments each tool takes, as "tool argument" pairs.
+#
+# The schema functions come first in the file and the tool specs after, so
+# one pass is enough: the schemas are collected as they are met, and the
+# tool specs are answered from what was collected.
+function Get-CodeToolArgs {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/agent.mbt'), $enc)
+  $props = @{}
+  $tool = ''
+  $fn = ''
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^fn (agent_[a-z_]*)\(\) -> Json \{') {
+      $fn = $Matches[1]
+      $inside = $true
+      $props[$fn] = @()
+      continue
+    }
+    if ($inside -and $line -match '^\}') { $inside = $false }
+    if ($inside -and $line -match '^      "([a-z_]+)": \{$') {
+      $props[$fn] += $Matches[1]
+      continue
+    }
+    if ($line -match '^      name: "(maked_[a-z_]+)",') { $tool = $Matches[1]; continue }
+    if ($line -match '^      arguments: (agent_[a-z_]*)\(\),') {
+      $schema = $Matches[1]
+      foreach ($arg in @($props[$schema])) { $out += ("{0} {1}" -f $tool, $arg) }
+    }
+  }
+  Sort-Set $out
+}
+
+# The tools the README's table gives them. A tool row starts with the tool
+# name in backticks.
+function Get-DocTools {
+  $out = @()
+  foreach ($m in [regex]::Matches($readme, '(?m)^\| `(maked_[a-z_]+)`')) {
+    $out += $m.Groups[1].Value
+  }
+  Sort-Set $out
+}
+
+# The arguments the README's table gives each tool, as "tool argument" pairs.
+# The arguments sit in the second column, and a tool that takes none says so
+# with a dash rather than with an empty cell.
+function Get-DocToolArgs {
+  $out = @()
+  foreach ($m in [regex]::Matches($readme, '(?m)^\| `(maked_[a-z_]+)` \| ([^|]*)\|')) {
+    $tool = $m.Groups[1].Value
+    foreach ($a in [regex]::Matches($m.Groups[2].Value, '`([^`]+)`')) {
+      $out += ("{0} {1}" -f $tool, $a.Groups[1].Value)
+    }
+  }
+  Sort-Set $out
+}
+
+$codeTools = @(Get-CodeTools)
+$docTools = @(Get-DocTools)
+if ($codeTools.Count -eq 0) {
+  Write-Output ("  {0,-20} no tool could be derived from the discovery document" -f 'Agent tools')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $codeTools $docTools) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Agent tools', $codeTools.Count)
+} else {
+  Write-Output ("  {0,-20} the tree says [{1}], the table says [{2}]" -f 'Agent tools', ($codeTools -join ' '), ($docTools -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+}
+
+$codeToolArgs = @(Get-CodeToolArgs)
+$docToolArgs = @(Get-DocToolArgs)
+if ($codeToolArgs.Count -eq 0) {
+  Write-Output ("  {0,-20} no tool argument could be derived from the discovery document" -f 'Agent arguments')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $codeToolArgs $docToolArgs) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Agent arguments', $codeToolArgs.Count)
+} else {
+  Write-Output ("  {0,-20} the tree says [{1}], the table says [{2}]" -f 'Agent arguments', ($codeToolArgs -join ' '), ($docToolArgs -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+}
+
 # --- the counts the document spells out -------------------------------------
 #
 # The README says some of its counts in words -- "seven tools", "ten pages",
