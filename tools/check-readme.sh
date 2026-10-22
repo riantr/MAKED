@@ -752,6 +752,70 @@ else
   fi
 fi
 
+# --- the license the document names -------------------------------------------
+#
+# The README says which license the project is under, and the manifest says
+# the same thing in the form the registry reads. The two have to be the same
+# license: a reader who reads the README and assumes a license that is not
+# the one the package carries is wrong about the thing they most need to be
+# right about.
+#
+# The LICENSE file is the text of that license, and it has to name it. A
+# LICENSE file that carries somebody else's license is a project that says
+# one thing and ships another.
+#
+# The claim is found by its own shape -- the "## License" heading and the
+# "<id> License" that follows it -- so a license named in some other part of
+# the document is not read as a claim about this one.
+
+code_license() {
+  sed -nE 's/^license = "([^"]+)"/\1/p' moon.mod
+}
+
+doc_license() {
+  awk '
+    /^## License/ { inside = 1; next }
+    inside && /^#/ { exit }
+    inside { print }
+  ' "$README" \
+    | grep -oE '[A-Za-z0-9.+-]+ License' \
+    | sed -E 's/ License$//' | head -1 || true
+}
+
+# Whether the LICENSE file names the license, as a WORD. "limitations" is
+# not the MIT license, even though it carries the letters.
+license_file_names() {
+  local id="$1" name text
+  case "$id" in
+    *-*) name="${id%%-*}" ;;
+    *)   name="$id" ;;
+  esac
+  name="$(printf '%s' "$name" | tr 'A-Z' 'a-z')"
+  text="$(tr 'A-Z' 'a-z' < LICENSE)"
+  printf '%s' "$text" | grep -qw -- "$name" > /dev/null 2>&1
+}
+
+MODULE_LICENSE=$(code_license)
+DOC_LICENSE=$(doc_license)
+if [ -z "$MODULE_LICENSE" ]; then
+  fail "$(printf '%-20s the manifest does not declare a license' 'License')"
+elif [ -z "$DOC_LICENSE" ]; then
+  fail "$(printf '%-20s the document does not state the license' 'License')"
+elif [ "$DOC_LICENSE" != "$MODULE_LICENSE" ]; then
+  fail "$(printf '%-20s the manifest says %s, the document says %s' \
+    'License' "$MODULE_LICENSE" "$DOC_LICENSE")"
+else
+  printf '  ok      %-20s %s\n' 'License' "$MODULE_LICENSE"
+fi
+
+if [ ! -f "LICENSE" ]; then
+  fail "$(printf '%-20s LICENSE is not there' 'License file')"
+elif license_file_names "$MODULE_LICENSE"; then
+  printf '  ok      %-20s %s\n' 'License file' "$MODULE_LICENSE"
+else
+  fail "$(printf '%-20s the LICENSE file does not name %s' 'License file' "$MODULE_LICENSE")"
+fi
+
 # --- the file formats and the corpus kinds -----------------------------------
 #
 # The README has a table of the files a reader can change, and every row names

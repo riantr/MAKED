@@ -792,6 +792,84 @@ if ($docReleaseVersions.Count -eq 0) {
   }
 }
 
+# --- the license the document names -------------------------------------------
+#
+# The README says which license the project is under, and the manifest says
+# the same thing in the form the registry reads. The two have to be the same
+# license: a reader who reads the README and assumes a license that is not
+# the one the package carries is wrong about the thing they most need to be
+# right about.
+#
+# The LICENSE file is the text of that license, and it has to name it. A
+# LICENSE file that carries somebody else's license is a project that says
+# one thing and ships another.
+#
+# The claim is found by its own shape -- the "## License" heading and the
+# "<id> License" that follows it -- so a license named in some other part of
+# the document is not read as a claim about this one.
+
+function Get-CodeLicense {
+  $moonMod = [System.IO.File]::ReadAllText((Join-Path $PWD 'moon.mod'), $enc)
+  [regex]::Match($moonMod, '(?m)^license = "([^"]+)"').Groups[1].Value
+}
+
+function Get-DocLicense {
+  $lines = $readme -split "`r?`n"
+  $inside = $false
+  $section = @()
+  foreach ($line in $lines) {
+    if (-not $inside) {
+      if ($line -match '^## License\s*$') { $inside = $true }
+      continue
+    }
+    if ($line -match '^#') { break }
+    $section += $line
+  }
+  if (-not $inside) { return '' }
+  $found = [regex]::Match(($section -join "`n"), '[A-Za-z0-9.+-]+ License')
+  if (-not $found.Success) { return '' }
+  $found.Value -replace ' License$', ''
+}
+
+# Whether the LICENSE file names the license, as a WORD. "limitations" is not
+# the MIT license, even though it carries the letters.
+function Test-LicenseFile($id) {
+  $name = $id
+  if ($id.Contains('-')) { $name = $id.Substring(0, $id.IndexOf('-')) }
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'LICENSE'), $enc).ToLowerInvariant()
+  [regex]::IsMatch($text, '(?<![a-z0-9_])' + [regex]::Escape($name.ToLowerInvariant()) + '(?![a-z0-9_])')
+}
+
+$moduleLicense = Get-CodeLicense
+$docLicense = Get-DocLicense
+if ([string]::IsNullOrEmpty($moduleLicense)) {
+  Write-Output ("  {0,-20} the manifest does not declare a license" -f 'License')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ([string]::IsNullOrEmpty($docLicense)) {
+  Write-Output ("  {0,-20} the document does not state the license" -f 'License')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($docLicense -cne $moduleLicense) {
+  Write-Output ("  {0,-20} the manifest says {1}, the document says {2}" -f 'License', $moduleLicense, $docLicense)
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  Write-Output ("  ok      {0,-20} {1}" -f 'License', $moduleLicense)
+}
+
+if (-not (Test-Path (Join-Path $PWD 'LICENSE'))) {
+  Write-Output ("  {0,-20} LICENSE is not there" -f 'License file')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-LicenseFile $moduleLicense) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'License file', $moduleLicense)
+} else {
+  Write-Output ("  {0,-20} the LICENSE file does not name {1}" -f 'License file', $moduleLicense)
+  Write-Output "*** FAIL ***"
+  $failures++
+}
+
 # --- the file formats and the corpus kinds -----------------------------------
 #
 # The README has a table of the files a reader can change, and every row names
