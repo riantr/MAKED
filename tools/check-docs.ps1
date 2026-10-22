@@ -3431,6 +3431,146 @@ if ($script:logStream -eq '' -or $script:logPrintLine -eq 0) {
 if (-not $script:logBadStream) { Write-Ok 'log stream' $script:logStream }
 if (-not $script:logBadSite) { Write-Ok 'log site' ("maked_app.mbt:{0}" -f $script:logPrintLine) }
 
+# --- the environment variables -------------------------------------------------
+#
+# The server reads four environment variables, and it reads all four in one
+# file: cmd/server/main.mbt. A row that points at that file and names the
+# variables is stating the set the server reads, and a partial set is a set
+# that is wrong: a reader who sets MAKED_PORT and MAKED_DB because the
+# document listed them is left guessing about MAKED_HOST.
+#
+# The names come out of the tree. An env_or call names the variable it reads.
+#
+# The shorthand MAKED_PORT/HOST/DB/DIST is expanded into the four names it
+# stands for, so a row that uses it is read like any other.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:envVars = @()
+$script:envBadVars = $false
+$script:envBadSite = $false
+
+function Get-TreeEnvVars {
+  $path = Join-Path $PWD 'cmd/server/main.mbt'
+  $lines = [System.IO.File]::ReadAllLines($path, $enc)
+  $out = @()
+  foreach ($l in $lines) {
+    if ($l.Contains('env_or("')) {
+      $rest = $l.Substring($l.IndexOf('env_or("') + 8)
+      $name = $rest.Substring(0, $rest.IndexOf('"'))
+      $out += $name
+    }
+  }
+  $out
+}
+
+# The lines the tree mentions a variable on.
+#
+# A variable is mentioned where it is read, and where the server talks about
+# it -- the warning it prints when the host is not the default, for one. A row
+# that points at the file has to point at a line the variable is on.
+function Get-EnvVarMentions($name) {
+  $path = Join-Path $PWD 'cmd/server/main.mbt'
+  $lines = [System.IO.File]::ReadAllLines($path, $enc)
+  $out = @()
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($lines[$i].Contains($name)) { $out += ($i + 1) }
+  }
+  $out
+}
+
+# The environment variables a claim names.
+#
+# The names are the tree's: MAKED_ and then capitals. A shorthand list --
+# MAKED_PORT/HOST/DB/DIST -- is expanded into the names it stands for, one
+# name at a time, because the prefix carries over.
+function Get-ClaimVars($claim) {
+  $out = @()
+  $text = $claim
+  while ($true) {
+    $m = [regex]::Match($text, 'MAKED_[A-Z_]+')
+    if (-not $m.Success) { break }
+    $name = $m.Value
+    $out += $name
+    $text = $text.Substring($m.Index + $m.Length)
+    while ($text.StartsWith('/')) {
+      $text = $text.Substring(1)
+      $w = [regex]::Match($text, '^[A-Z_]+')
+      if (-not $w.Success) { break }
+      $out += ('MAKED_' + $w.Value)
+      $text = $text.Substring($w.Length)
+    }
+  }
+  $out
+}
+
+# One claim, checked against the tree.
+function Test-EnvClaim($doc, $line, $claim) {
+  $cites = $false
+  if ($claim.Contains('cmd/server/main.mbt:')) { $cites = $true }
+  elseif (-not $claim.Contains('env_or')) { return }
+
+  $vars = @(Get-ClaimVars $claim)
+  $serverVars = @()
+  $otherVars = @()
+  foreach ($v in $vars) {
+    if ($script:envVars -ccontains $v) { $serverVars += $v } else { $otherVars += $v }
+  }
+
+  # a claim that points at the server's file must not name a variable the
+  # server does not read
+  if ($cites -and $otherVars.Count -gt 0) {
+    Write-Fail ("{0,-22} {1} line {2} names [{3}], and the server does not read them" -f 'env vars', $doc, $line, ($otherVars -join ' '))
+    $script:envBadVars = $true
+  }
+
+  # a claim that names two or more of them is stating the set
+  if ($serverVars.Count -ge 2 -and $serverVars.Count -ne $script:envVars.Count) {
+    Write-Fail ("{0,-22} {1} line {2} names [{3}], the server reads [{4}]" -f 'env vars', $doc, $line, ($serverVars -join ' '), ($script:envVars -join ' '))
+    $script:envBadVars = $true
+  }
+
+  # the claim has to point at a line the variable is on
+  if (-not $cites) { return }
+  $cited = $claim -replace '^.*cmd/server/main\.mbt:', ''
+  $cited = ($cited -split '`')[0]
+  $cited = ($cited -split '\|')[0]
+  $cited = $cited.Replace(' ', '')
+
+  foreach ($v in $serverVars) {
+    $mentions = @(Get-EnvVarMentions $v)
+    $covered = $false
+    foreach ($target in $mentions) {
+      if (Test-CitationCovers $cited $target) { $covered = $true; break }
+    }
+    if (-not $covered) {
+      Write-Fail ("{0,-22} {1} line {2} cites [{3}], the tree mentions {4} on lines {5}" -f 'env var site', $doc, $line, $cited, $v, ($mentions -join ' '))
+      $script:envBadSite = $true
+    }
+  }
+}
+
+$script:envVars = @(Get-TreeEnvVars)
+if ($script:envVars.Count -eq 0) {
+  Write-Fail ("{0,-22} the tree does not read any environment variable, or it does not read them the way this gate reads them" -f 'env vars')
+  $script:envBadVars = $true
+  $script:envBadSite = $true
+} else {
+  foreach ($doc in $archDocs) {
+    # A document that describes the past is a record of the past. Its claims
+    # are about the tree as it was, so they are not checked against the tree
+    # as it is.
+    if ($markedDocs -ccontains $doc) { continue }
+    foreach ($claim in (Get-DocClaims $doc)) {
+      Test-EnvClaim $doc $claim.line $claim.text
+    }
+  }
+}
+
+if (-not $script:envBadVars) { Write-Ok 'env vars' ($script:envVars -join ' ') }
+if (-not $script:envBadSite) { Write-Ok 'env var site' 'cmd/server/main.mbt' }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

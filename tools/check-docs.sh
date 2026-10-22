@@ -3224,16 +3224,16 @@ doc_claim_stream() {
 # A citation is a line, a range of lines, or a few of both: "65", "11-29",
 # "16, 61". A row that cites the file the log is written in has to cite the
 # line the log is written on.
-LOG_COVERS=0
-log_citation_covers() {
+CITATION_COVERS=0
+citation_covers() {
   local text="$1" target="$2" a b
-  LOG_COVERS=0
+  CITATION_COVERS=0
   while [[ "$text" =~ ([0-9]+)(-([0-9]+))? ]]; do
     a="${BASH_REMATCH[1]}"
     b="${BASH_REMATCH[3]}"
     [ -n "$b" ] || b="$a"
     if [ "$a" -le "$target" ] && [ "$target" -le "$b" ]; then
-      LOG_COVERS=1
+      CITATION_COVERS=1
       return
     fi
     text="${text#*"${BASH_REMATCH[0]}"}"
@@ -3269,8 +3269,8 @@ log_claim_check() {
   # the claim states where the log is written
   case "${claim,,}" in
     *print*)
-      log_citation_covers "$cited" "$LOG_PRINT_LINE"
-      if [ "$LOG_COVERS" -eq 0 ]; then
+      citation_covers "$cited" "$LOG_PRINT_LINE"
+      if [ "$CITATION_COVERS" -eq 0 ]; then
         fail "$(printf '%-22s %s line %s cites [%s], the tree writes the request log on line %s' \
           'log site' "$doc" "$line" "$cited" "$LOG_PRINT_LINE")"
         LOG_BAD_SITE=1
@@ -3281,14 +3281,14 @@ log_claim_check() {
   # the line it is defined on, or the line it writes the log on
   case "${claim,,}" in
     *logging_middleware*|*'logging middleware'*)
-      log_citation_covers "$cited" "$LOG_ADD_LINE"
-      if [ "$LOG_COVERS" -eq 0 ]; then
-        log_citation_covers "$cited" "$LOG_DEF_LINE"
+      citation_covers "$cited" "$LOG_ADD_LINE"
+      if [ "$CITATION_COVERS" -eq 0 ]; then
+        citation_covers "$cited" "$LOG_DEF_LINE"
       fi
-      if [ "$LOG_COVERS" -eq 0 ]; then
-        log_citation_covers "$cited" "$LOG_PRINT_LINE"
+      if [ "$CITATION_COVERS" -eq 0 ]; then
+        citation_covers "$cited" "$LOG_PRINT_LINE"
       fi
-      if [ "$LOG_COVERS" -eq 0 ]; then
+      if [ "$CITATION_COVERS" -eq 0 ]; then
         fail "$(printf '%-22s %s line %s cites [%s], the tree has the middleware on lines %s, %s and %s' \
           'log site' "$doc" "$line" "$cited" "$LOG_ADD_LINE" "$LOG_DEF_LINE" "$LOG_PRINT_LINE")"
         LOG_BAD_SITE=1
@@ -3297,58 +3297,68 @@ log_claim_check() {
   esac
 }
 
-# Every claim the design documents make.
+# The claims a document makes.
 #
 # A claim is a paragraph: the run of lines a reader reads as one sentence. A
 # table row is a claim of its own, because a table says one thing per row. A
 # graph says one thing per line, because a graph has no paragraphs.
-check_log_claims() {
-  local doc line claim="" claim_line=0 n=0 dot=0
-  for doc in "${ARCH_DOCS[@]}"; do
-    # A document that describes the past is a record of the past. Its claims
-    # are about the tree as it was, so they are not checked against the tree
-    # as it is.
-    not_in "$doc" "$MARKED_DOCS"
-    [ -n "$NOT_IN" ] || continue
-    case "$doc" in *.dot) dot=1 ;; *) dot=0 ;; esac
-    n=0
-    claim=""
-    claim_line=0
-    while IFS= read -r line || [ -n "$line" ]; do
-      n=$((n + 1))
-      if [ "$dot" -eq 1 ]; then
-        log_claim_check "$doc" "$n" "$line"
-        continue
-      fi
-      case "$line" in
-        \|*)
-          if [ -n "$claim" ]; then
-            log_claim_check "$doc" "$claim_line" "$claim"
-            claim=""
-          fi
-          log_claim_check "$doc" "$n" "$line"
-          claim_line="$n"
-          continue
-          ;;
-      esac
-      # a line with nothing on it ends the paragraph
-      if [ -z "${line//[[:space:]]/}" ]; then
+#
+# DOC_CLAIMS holds them, one per line, as "line<TAB>text".
+DOC_CLAIMS=""
+doc_claims() {
+  local file="$1" line claim="" claim_line=0 n=0 dot=0
+  DOC_CLAIMS=""
+  case "$file" in *.dot) dot=1 ;; esac
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    if [ "$dot" -eq 1 ]; then
+      DOC_CLAIMS="$DOC_CLAIMS$n"$'\t'"$line"$'\n'
+      continue
+    fi
+    case "$line" in
+      \|*)
         if [ -n "$claim" ]; then
-          log_claim_check "$doc" "$claim_line" "$claim"
+          DOC_CLAIMS="$DOC_CLAIMS$claim_line"$'\t'"$claim"$'\n'
           claim=""
         fi
+        DOC_CLAIMS="$DOC_CLAIMS$n"$'\t'"$line"$'\n'
         continue
-      fi
+        ;;
+    esac
+    # a line with nothing on it ends the paragraph
+    if [ -z "${line//[[:space:]]/}" ]; then
       if [ -n "$claim" ]; then
-        claim="$claim $line"
-      else
-        claim="$line"
-        claim_line="$n"
+        DOC_CLAIMS="$DOC_CLAIMS$claim_line"$'\t'"$claim"$'\n'
+        claim=""
       fi
-    done < "$doc"
-    if [ -n "$claim" ]; then
-      log_claim_check "$doc" "$claim_line" "$claim"
+      continue
     fi
+    if [ -n "$claim" ]; then
+      claim="$claim $line"
+    else
+      claim="$line"
+      claim_line="$n"
+    fi
+  done < "$file"
+  if [ -n "$claim" ]; then
+    DOC_CLAIMS="$DOC_CLAIMS$claim_line"$'\t'"$claim"$'\n'
+  fi
+}
+
+# Every claim the design documents make, checked against the tree.
+#
+# A document that describes the past is a record of the past: its claims are
+# about the tree as it was, so they are not checked against the tree as it is.
+check_log_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      log_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
   done
 }
 
@@ -3368,6 +3378,229 @@ if [ "$LOG_BAD_STREAM" -eq 0 ]; then
 fi
 if [ "$LOG_BAD_SITE" -eq 0 ]; then
   ok "log site" "maked_app.mbt:$LOG_PRINT_LINE"
+fi
+
+# --- the environment variables -------------------------------------------------
+#
+# The server reads four environment variables, and it reads all four in one
+# file: cmd/server/main.mbt. A row that points at that file and names the
+# variables is stating the set the server reads, and a partial set is a set
+# that is wrong: a reader who sets MAKED_PORT and MAKED_DB because the
+# document listed them is left guessing about MAKED_HOST.
+#
+# The names come out of the tree. An env_or call names the variable it reads
+# and the line it reads it on.
+#
+# The shorthand MAKED_PORT/HOST/DB/DIST is expanded into the four names it
+# stands for, so a row that uses it is read like any other.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+ENV_VARS=""
+code_env_vars() {
+  local file="cmd/server/main.mbt"
+  local n=0 line rest name
+  ENV_VARS=""
+  while IFS= read -r line; do
+    n=$((n + 1))
+    case "$line" in
+      *'env_or("'*) ;;
+      *) continue ;;
+    esac
+    rest="${line#*env_or(\"}"
+    name="${rest%%\"*}"
+    ENV_VARS="$ENV_VARS $name"
+  done < "$file"
+}
+
+# The lines the tree mentions a variable on.
+#
+# A variable is mentioned where it is read, and where the server talks about
+# it -- the warning it prints when the host is not the default, for one. A row
+# that points at the file has to point at a line the variable is on.
+ENV_VAR_MENTIONS=""
+env_var_mentions() {
+  local name="$1" file="cmd/server/main.mbt"
+  local n=0 line
+  ENV_VAR_MENTIONS=""
+  while IFS= read -r line; do
+    n=$((n + 1))
+    case "$line" in
+      *"$name"*) ENV_VAR_MENTIONS="$ENV_VAR_MENTIONS $n" ;;
+    esac
+  done < "$file"
+}
+
+# The environment variables a claim names.
+#
+# The names are the tree's: MAKED_ and then capitals. A shorthand list --
+# MAKED_PORT/HOST/DB/DIST -- is expanded into the names it stands for, one
+# name at a time, because the prefix carries over.
+#
+# DOC_VARS holds the answer.
+DOC_VARS=""
+doc_claim_vars() {
+  local text="$1" rest name word
+  DOC_VARS=""
+  while [ -n "$text" ]; do
+    case "$text" in
+      *MAKED_[A-Z_]*) ;;
+      *) break ;;
+    esac
+    rest="${text#*MAKED_}"
+    name="MAKED_${rest%%[!A-Z_]*}"
+    text="${rest#"${name#MAKED_}"}"
+    DOC_VARS="$DOC_VARS $name"
+    while :; do
+      case "$text" in
+        /*)
+          text="${text#/}"
+          word="${text%%[!A-Z_]*}"
+          text="${text#"$word"}"
+          DOC_VARS="$DOC_VARS MAKED_$word"
+          ;;
+        *) break ;;
+      esac
+    done
+  done
+}
+
+# A list without its leading space.
+#
+# TRIMMED holds the answer.
+TRIMMED=""
+trim() {
+  local text="$1"
+  while :; do
+    case "$text" in
+      " "*) text="${text# }" ;;
+      *) break ;;
+    esac
+  done
+  TRIMMED="$text"
+}
+
+# The variables of the server that a claim names.
+#
+# DOC_SERVER_VARS holds them, and DOC_OTHER_VARS holds the ones the claim
+# names that the server does not read.
+DOC_SERVER_VARS=""
+DOC_OTHER_VARS=""
+doc_server_vars() {
+  local claim="$1" name
+  DOC_SERVER_VARS=""
+  DOC_OTHER_VARS=""
+  doc_claim_vars "$claim"
+  for name in $DOC_VARS; do
+    case " $ENV_VARS " in
+      *" $name "*) DOC_SERVER_VARS="$DOC_SERVER_VARS $name" ;;
+      *) DOC_OTHER_VARS="$DOC_OTHER_VARS $name" ;;
+    esac
+  done
+  trim "$DOC_SERVER_VARS"; DOC_SERVER_VARS="$TRIMMED"
+  trim "$DOC_OTHER_VARS"; DOC_OTHER_VARS="$TRIMMED"
+}
+
+ENV_BAD_VARS=0
+ENV_BAD_SITE=0
+
+# One claim, checked against the tree.
+env_claim_check() {
+  local doc="$1" line="$2" claim="$3" cited name count=0 total=0
+  local cites=0 target covered
+  # the claim has to be about the environment variables at all: it points at
+  # the file the server reads them in, or it names the function that reads
+  # them
+  case "$claim" in
+    *'cmd/server/main.mbt:'*) cites=1 ;;
+    *env_or*) cites=1 ;;
+    *) return ;;
+  esac
+  doc_server_vars "$claim"
+  # a claim that points at the server's file must not name a variable the
+  # server does not read
+  case "$claim" in
+    *'cmd/server/main.mbt:'*)
+      if [ -n "$DOC_OTHER_VARS" ]; then
+        fail "$(printf '%-22s %s line %s names [%s], and the server does not read them' \
+          'env vars' "$doc" "$line" "$DOC_OTHER_VARS")"
+        ENV_BAD_VARS=1
+      fi
+      ;;
+  esac
+  for name in $DOC_SERVER_VARS; do
+    count=$((count + 1))
+  done
+  for name in $ENV_VARS; do
+    total=$((total + 1))
+  done
+  # a claim that names two or more of them is stating the set
+  if [ "$count" -ge 2 ] && [ "$count" -ne "$total" ]; then
+    trim "$ENV_VARS"
+    fail "$(printf '%-22s %s line %s names [%s], the server reads [%s]' \
+      'env vars' "$doc" "$line" "$DOC_SERVER_VARS" "$TRIMMED")"
+    ENV_BAD_VARS=1
+  fi
+  # the claim has to point at a line the variable is on
+  case "$claim" in
+    *'cmd/server/main.mbt:'*) ;;
+    *) return ;;
+  esac
+  cited="${claim#*cmd/server/main.mbt:}"
+  cited="${cited%%\`*}"
+  cited="${cited%%|*}"
+  cited="${cited// /}"
+  for name in $DOC_SERVER_VARS; do
+    env_var_mentions "$name"
+    covered=0
+    for target in $ENV_VAR_MENTIONS; do
+      citation_covers "$cited" "$target"
+      if [ "$CITATION_COVERS" -eq 1 ]; then
+        covered=1
+        break
+      fi
+    done
+    if [ "$covered" -eq 0 ]; then
+      trim "$ENV_VAR_MENTIONS"
+      fail "$(printf '%-22s %s line %s cites [%s], the tree mentions %s on lines %s' \
+        'env var site' "$doc" "$line" "$cited" "$name" "$TRIMMED")"
+      ENV_BAD_SITE=1
+    fi
+  done
+}
+
+# Every claim the design documents make, checked against the environment.
+check_env_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      env_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+code_env_vars
+
+if [ -z "$ENV_VARS" ]; then
+  fail "$(printf '%-22s the tree does not read any environment variable, or it does not read them the way this gate reads them' \
+    'env vars')"
+  ENV_BAD_VARS=1
+  ENV_BAD_SITE=1
+else
+  check_env_claims
+fi
+
+if [ "$ENV_BAD_VARS" -eq 0 ]; then
+  trim "$ENV_VARS"
+  ok "env vars" "$TRIMMED"
+fi
+if [ "$ENV_BAD_SITE" -eq 0 ]; then
+  ok "env var site" "cmd/server/main.mbt"
 fi
 
 echo ""

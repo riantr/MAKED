@@ -60,7 +60,7 @@ files. Confidence is **high** unless noted otherwise.
 
 | Claim | Source | Confidence |
 |-------|--------|------------|
-| cmd/server: reads MAKED_PORT, MAKED_DB, MAKED_DIST from env | `cmd/server/main.mbt:42-45` | high |
+| cmd/server: reads MAKED_PORT, MAKED_HOST, MAKED_DB, MAKED_DIST from env | `cmd/server/main.mbt:42-45` | high |
 | cmd/server: assembles moonback Module with static_files + spa_fallback + routes | `cmd/server/main.mbt:74-85` | high |
 | cmd/web: mounts frontend.app via rabbita | `cmd/web/main.mbt:9` | high |
 | cmd/web produces single self-contained main.js | `cmd/web/main.mbt:1-6` | high |
