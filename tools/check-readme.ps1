@@ -870,6 +870,65 @@ if (-not (Test-Path (Join-Path $PWD 'LICENSE'))) {
   $failures++
 }
 
+# --- the ports the document names ----------------------------------------------
+#
+# The README tells the reader which port to open, and it says so in seven
+# places: the URL after `docker compose up`, the URL after the server is
+# started, the URL in two curl commands, and the mapping in the `docker run`
+# command. Those are the ports the reader types, and they have to be the
+# port the server actually listens on.
+#
+# The agent's server is a different server, and its port is the one the
+# README itself sets: MAKED_MCP_PORT=8735. So a port the README writes is
+# allowed when it is the server's default port or the port the README sets
+# for the agent's server -- and for nothing else.
+#
+# The server's default port comes from the code, the same place the
+# environment-variable table gets it from.
+
+function Get-CodeDefaultPort {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'cmd/server/main.mbt'), $enc)
+  $m = [regex]::Match($text, 'env_or\("MAKED_PORT", "([0-9]+)"\)')
+  if ($m.Success) { $m.Groups[1].Value } else { '' }
+}
+
+# The ports the README sets for the agent's server.
+function Get-DocMcpPorts {
+  $out = @()
+  foreach ($m in [regex]::Matches($readme, 'MAKED_MCP_PORT=([0-9]+)')) { $out += $m.Groups[1].Value }
+  $out
+}
+
+# Every port the README writes: the ones in its URLs and the two sides of
+# the mapping in its docker command.
+function Get-DocPorts {
+  $out = @()
+  foreach ($m in [regex]::Matches($readme, '127\.0\.0\.1:([0-9]+)')) { $out += $m.Groups[1].Value }
+  foreach ($m in [regex]::Matches($readme, '\-p ([0-9]+):([0-9]+)')) {
+    $out += $m.Groups[1].Value
+    $out += $m.Groups[2].Value
+  }
+  $out
+}
+
+$defaultPort = Get-CodeDefaultPort
+$allowedPorts = @($defaultPort) + @(Get-DocMcpPorts)
+$wrongPort = @()
+foreach ($port in (Get-DocPorts)) {
+  if ($allowedPorts -cnotcontains $port) { $wrongPort += $port }
+}
+if ([string]::IsNullOrEmpty($defaultPort)) {
+  Write-Output ("  {0,-20} the server does not name a default port" -f 'Port')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($wrongPort.Count -gt 0) {
+  Write-Output ("  {0,-20} these are not the ports the project uses: {1}" -f 'Port', ($wrongPort -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Port', $defaultPort)
+}
+
 # --- the file formats and the corpus kinds -----------------------------------
 #
 # The README has a table of the files a reader can change, and every row names

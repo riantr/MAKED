@@ -816,6 +816,57 @@ else
   fail "$(printf '%-20s the LICENSE file does not name %s' 'License file' "$MODULE_LICENSE")"
 fi
 
+# --- the ports the document names ----------------------------------------------
+#
+# The README tells the reader which port to open, and it says so in seven
+# places: the URL after `docker compose up`, the URL after the server is
+# started, the URL in two curl commands, and the mapping in the `docker run`
+# command. Those are the ports the reader types, and they have to be the
+# port the server actually listens on.
+#
+# The agent's server is a different server, and its port is the one the
+# README itself sets: MAKED_MCP_PORT=8735. So a port the README writes is
+# allowed when it is the server's default port or the port the README sets
+# for the agent's server -- and for nothing else.
+#
+# The server's default port comes from the code, the same place the
+# environment-variable table gets it from.
+
+code_default_port() {
+  grep -ohE 'env_or\("MAKED_PORT", "[0-9]+"\)' cmd/server/main.mbt \
+    | sed -E 's/.*"([0-9]+)".*/\1/' | head -1 || true
+}
+
+# The ports the README sets for the agent's server.
+doc_mcp_ports() {
+  grep -oE 'MAKED_MCP_PORT=[0-9]+' "$README" | sed -E 's/.*=//' || true
+}
+
+# Every port the README writes: the ones in its URLs and the two sides of
+# the mapping in its docker command.
+doc_ports() {
+  grep -oE '127\.0\.0\.1:[0-9]+' "$README" | sed -E 's/.*://' || true
+  grep -oE '\-p [0-9]+:[0-9]+' "$README" | sed -E 's/\-p //' | tr ':' '\n' || true
+}
+
+DEFAULT_PORT=$(code_default_port)
+ALLOWED_PORTS=$( { printf '%s\n' "$DEFAULT_PORT"; doc_mcp_ports; } )
+WRONG_PORT=""
+while IFS= read -r port; do
+  [ -n "$port" ] || continue
+  if ! printf '%s\n' "$ALLOWED_PORTS" | grep -qxF "$port"; then
+    WRONG_PORT="$WRONG_PORT $port"
+  fi
+done <<< "$(doc_ports)"
+if [ -z "$DEFAULT_PORT" ]; then
+  fail "$(printf '%-20s the server does not name a default port' 'Port')"
+elif [ -n "$WRONG_PORT" ]; then
+  fail "$(printf '%-20s these are not the ports the project uses:%s' \
+    'Port' "$WRONG_PORT")"
+else
+  printf '  ok      %-20s %s\n' 'Port' "$DEFAULT_PORT"
+fi
+
 # --- the file formats and the corpus kinds -----------------------------------
 #
 # The README has a table of the files a reader can change, and every row names
