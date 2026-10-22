@@ -3125,6 +3125,246 @@ else
     'research builtin slots' "$(printf '%s' "$IN_COMMON" | sed -e 's/^ *//')")"
 fi
 
+# --- the log ------------------------------------------------------------------
+#
+# The request log is the one line the logging middleware writes after the
+# handler returns. The tree writes it with eprintln, and eprintln writes to
+# stderr; println writes to stdout. A document that says the log goes to
+# stdout sends the reader to a stream the server never writes to.
+#
+# Four facts come out of the tree:
+#
+#   LOG_STREAM      the stream the request log goes to
+#   LOG_PRINT_LINE  the line the request log is written on
+#   LOG_ADD_LINE    the line the app adds the middleware on
+#   LOG_DEF_LINE    the line the middleware is defined on
+#
+# The documents are checked against all four. The stream is checked in every
+# claim that names one. The line is checked in every row that cites the file
+# the log is written in.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+LOG_STREAM=""
+LOG_PRINT_LINE=""
+LOG_ADD_LINE=""
+LOG_DEF_LINE=""
+
+code_log_lines() {
+  local file="backend/maked_app.mbt"
+  local n=0 line
+  while IFS= read -r line; do
+    n=$((n + 1))
+    case "$line" in
+      *'add_middleware(logging_middleware())'*)
+        [ -n "$LOG_ADD_LINE" ] || LOG_ADD_LINE="$n"
+        ;;
+    esac
+    case "$line" in
+      *'fn logging_middleware()'*)
+        [ -n "$LOG_DEF_LINE" ] || LOG_DEF_LINE="$n"
+        ;;
+    esac
+    case "$line" in
+      *'req.verb()'*)
+        case "$line" in
+          *eprintln\(*)
+            [ -n "$LOG_PRINT_LINE" ] || { LOG_PRINT_LINE="$n"; LOG_STREAM="stderr"; }
+            ;;
+          *println\(*)
+            [ -n "$LOG_PRINT_LINE" ] || { LOG_PRINT_LINE="$n"; LOG_STREAM="stdout"; }
+            ;;
+        esac
+        ;;
+    esac
+  done < "$file"
+}
+
+# The design documents: every markdown file and every graph.
+ARCH_DOCS=()
+while IFS= read -r f; do
+  ARCH_DOCS+=("$f")
+done < <(printf '%s\n' architecture/*.md architecture/*.dot | LC_ALL=C sort)
+
+# The stream a claim names, if it names one.
+#
+# The tree's words for the log are the call that writes it (eprintln, or
+# println) and the streams those calls write to (stderr, or stdout). A claim
+# that names one of them names the stream the log goes to. eprintln writes to
+# stderr, so it is taken out before the streams are read.
+#
+# A claim that names BOTH streams is a claim that tells them apart, and it is
+# left alone: a sentence about the start-up banner on stdout and the request
+# log on stderr is two true things.
+#
+# DOC_STREAM holds the answer: stdout, stderr, or nothing.
+DOC_STREAM=""
+doc_claim_stream() {
+  local claim="$1" rest out=0 err=0
+  DOC_STREAM=""
+  case "$claim" in
+    *stdout*|*stderr*|*println*) ;;
+    *) return ;;
+  esac
+  rest="${claim//eprintln/}"
+  case "$rest" in *stdout*) out=1 ;; esac
+  case "$rest" in *println*) out=1 ;; esac
+  case "$claim" in *stderr*) err=1 ;; esac
+  case "$claim" in *eprintln*) err=1 ;; esac
+  if [ "$out" -eq 1 ] && [ "$err" -eq 0 ]; then
+    DOC_STREAM="stdout"
+  elif [ "$err" -eq 1 ] && [ "$out" -eq 0 ]; then
+    DOC_STREAM="stderr"
+  fi
+}
+
+# The numbers a row cites, and whether one of them is the line asked for.
+#
+# A citation is a line, a range of lines, or a few of both: "65", "11-29",
+# "16, 61". A row that cites the file the log is written in has to cite the
+# line the log is written on.
+LOG_COVERS=0
+log_citation_covers() {
+  local text="$1" target="$2" a b
+  LOG_COVERS=0
+  while [[ "$text" =~ ([0-9]+)(-([0-9]+))? ]]; do
+    a="${BASH_REMATCH[1]}"
+    b="${BASH_REMATCH[3]}"
+    [ -n "$b" ] || b="$a"
+    if [ "$a" -le "$target" ] && [ "$target" -le "$b" ]; then
+      LOG_COVERS=1
+      return
+    fi
+    text="${text#*"${BASH_REMATCH[0]}"}"
+  done
+}
+
+LOG_BAD_STREAM=0
+LOG_BAD_SITE=0
+
+# One claim, checked against the tree.
+log_claim_check() {
+  local doc="$1" line="$2" claim="$3" cited
+  # the stream the claim names
+  doc_claim_stream "$claim"
+  if [ -n "$DOC_STREAM" ] && [ "$DOC_STREAM" != "$LOG_STREAM" ]; then
+    fail "$(printf '%-22s %s line %s says the log goes to %s, the tree writes it to %s' \
+      'log stream' "$doc" "$line" "$DOC_STREAM" "$LOG_STREAM")"
+    LOG_BAD_STREAM=1
+  fi
+  # the line the claim points at: only a table row carries a citation
+  case "$claim" in
+    \|*) ;;
+    *) return ;;
+  esac
+  case "$claim" in
+    *'backend/maked_app.mbt:'*) ;;
+    *) return ;;
+  esac
+  cited="${claim#*backend/maked_app.mbt:}"
+  cited="${cited%%\`*}"
+  cited="${cited%%|*}"
+  cited="${cited// /}"
+  # the claim states where the log is written
+  case "${claim,,}" in
+    *print*)
+      log_citation_covers "$cited" "$LOG_PRINT_LINE"
+      if [ "$LOG_COVERS" -eq 0 ]; then
+        fail "$(printf '%-22s %s line %s cites [%s], the tree writes the request log on line %s' \
+          'log site' "$doc" "$line" "$cited" "$LOG_PRINT_LINE")"
+        LOG_BAD_SITE=1
+      fi
+      ;;
+  esac
+  # the claim states where the middleware lives: the line the app adds it on,
+  # the line it is defined on, or the line it writes the log on
+  case "${claim,,}" in
+    *logging_middleware*|*'logging middleware'*)
+      log_citation_covers "$cited" "$LOG_ADD_LINE"
+      if [ "$LOG_COVERS" -eq 0 ]; then
+        log_citation_covers "$cited" "$LOG_DEF_LINE"
+      fi
+      if [ "$LOG_COVERS" -eq 0 ]; then
+        log_citation_covers "$cited" "$LOG_PRINT_LINE"
+      fi
+      if [ "$LOG_COVERS" -eq 0 ]; then
+        fail "$(printf '%-22s %s line %s cites [%s], the tree has the middleware on lines %s, %s and %s' \
+          'log site' "$doc" "$line" "$cited" "$LOG_ADD_LINE" "$LOG_DEF_LINE" "$LOG_PRINT_LINE")"
+        LOG_BAD_SITE=1
+      fi
+      ;;
+  esac
+}
+
+# Every claim the design documents make.
+#
+# A claim is a paragraph: the run of lines a reader reads as one sentence. A
+# table row is a claim of its own, because a table says one thing per row. A
+# graph says one thing per line, because a graph has no paragraphs.
+check_log_claims() {
+  local doc line claim="" claim_line=0 n=0 dot=0
+  for doc in "${ARCH_DOCS[@]}"; do
+    case "$doc" in *.dot) dot=1 ;; *) dot=0 ;; esac
+    n=0
+    claim=""
+    claim_line=0
+    while IFS= read -r line || [ -n "$line" ]; do
+      n=$((n + 1))
+      if [ "$dot" -eq 1 ]; then
+        log_claim_check "$doc" "$n" "$line"
+        continue
+      fi
+      case "$line" in
+        \|*)
+          if [ -n "$claim" ]; then
+            log_claim_check "$doc" "$claim_line" "$claim"
+            claim=""
+          fi
+          log_claim_check "$doc" "$n" "$line"
+          claim_line="$n"
+          continue
+          ;;
+      esac
+      # a line with nothing on it ends the paragraph
+      if [ -z "${line//[[:space:]]/}" ]; then
+        if [ -n "$claim" ]; then
+          log_claim_check "$doc" "$claim_line" "$claim"
+          claim=""
+        fi
+        continue
+      fi
+      if [ -n "$claim" ]; then
+        claim="$claim $line"
+      else
+        claim="$line"
+        claim_line="$n"
+      fi
+    done < "$doc"
+    if [ -n "$claim" ]; then
+      log_claim_check "$doc" "$claim_line" "$claim"
+    fi
+  done
+}
+
+code_log_lines
+
+if [ -z "$LOG_STREAM" ] || [ -z "$LOG_PRINT_LINE" ]; then
+  fail "$(printf '%-22s the tree does not write a request log, or it does not write it the way this gate reads it' \
+    'log stream')"
+  LOG_BAD_STREAM=1
+  LOG_BAD_SITE=1
+else
+  check_log_claims
+fi
+
+if [ "$LOG_BAD_STREAM" -eq 0 ]; then
+  ok "log stream" "$LOG_STREAM"
+fi
+if [ "$LOG_BAD_SITE" -eq 0 ]; then
+  ok "log site" "maked_app.mbt:$LOG_PRINT_LINE"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

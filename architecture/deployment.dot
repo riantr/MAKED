@@ -37,7 +37,7 @@ digraph maked_deployment {
         mw_routes [label="Route trie\n/api/* → handlers\n/*rest → JSON 404", fillcolor="#d4e6f1"]
         mw_static [label="Static files\ndist/* → file content", fillcolor="#d4e6f1"]
         mw_spa [label="SPA fallback\nbrowser nav → index.html", fillcolor="#d4e6f1"]
-        mw_log [label="Logging\nprintln per request", fillcolor="#d4e6f1"]
+        mw_log [label="Logging\nstderr per request", fillcolor="#d4e6f1"]
       }
 
       subgraph cluster_handlers {

@@ -41,7 +41,7 @@ document adds evidence for the evolution recommendations.
 | Claim | Evidence | Confidence |
 |-------|----------|------------|
 | No /health endpoint | `backend/api.mbt` has 4 routes, none is /health | high |
-| Logging is println, not structured | `backend/maked_app.mbt:38` (`println(...)`) | high |
+| Logging is eprintln, not structured | `backend/maked_app.mbt:65` (`eprintln(...)`) | high |
 | SQLite WAL not configured | No `PRAGMA journal_mode` in `backend/database.mbt` | high |
 | No TLS termination | Server binds to 127.0.0.1, no TLS config | high |
 | No reverse proxy config | No Caddyfile, nginx.conf, or similar | high |
@@ -51,7 +51,7 @@ document adds evidence for the evolution recommendations.
 | Claim | Evidence | Confidence |
 |-------|----------|------------|
 | No write API exists | `backend/api.mbt` has only GET routes | high |
-| No auth middleware | `backend/maked_app.mbt:19` adds only logging_middleware | high |
+| No auth middleware | `backend/maked_app.mbt:16` adds only logging_middleware | high |
 | No input sanitization | `frontend/views.mbt:96` uses inner_html directly | high |
 | inner_html is safe only because backend is sole writer | `frontend/views.mbt:89-94` (comment explains) | high |
 | No audit log table | `backend/database.mbt:74-88` creates only `pages` table | high |

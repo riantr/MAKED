@@ -46,7 +46,7 @@
 | Request::param adapts StringView → String | `backend/request.mbt:33` | high |
 | page_by_slug: prepare → reset → bind → step → finalize | `backend/database.mbt:298` | high |
 | Response::send dispatches on Body enum (Empty/Text/Json) | `backend/response.mbt:24-34` | high |
-| logging_middleware prints after handler returns | `backend/maked_app.mbt:61` | high |
+| logging_middleware prints after handler returns | `backend/maked_app.mbt:65` | high |
 
 ## Flow 5: Data flow
 

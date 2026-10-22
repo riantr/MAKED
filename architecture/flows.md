@@ -106,7 +106,7 @@ Browser → GET /api/pages/model
         → finalize()
       → Some(page) → Response::json(page.to_json())
       → response.send(res) → res.send_json(body, status=200)
-    → println("GET /api/pages/model -> 200")
+    → eprintln("GET /api/pages/model -> 200")
   ← 200 {"slug": "model", "title": "Model", ...}
 ```
 

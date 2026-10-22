@@ -3246,6 +3246,187 @@ if ($researchCommon.Count -eq 0) {
   Write-Fail ("{0,-22} the table and the built-in model share [{1}]" -f 'research builtin slots', ($researchCommon -join ' '))
 }
 
+# --- the log ------------------------------------------------------------------
+#
+# The request log is the one line the logging middleware writes after the
+# handler returns. The tree writes it with eprintln, and eprintln writes to
+# stderr; println writes to stdout. A document that says the log goes to
+# stdout sends the reader to a stream the server never writes to.
+#
+# Four facts come out of the tree:
+#
+#   $logStream      the stream the request log goes to
+#   $logPrintLine   the line the request log is written on
+#   $logAddLine     the line the app adds the middleware on
+#   $logDefLine     the line the middleware is defined on
+#
+# The documents are checked against all four. The stream is checked in every
+# claim that names one. The line is checked in every row that cites the file
+# the log is written in.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:logStream = ''
+$script:logPrintLine = 0
+$script:logAddLine = 0
+$script:logDefLine = 0
+$script:logBadStream = $false
+$script:logBadSite = $false
+
+function Get-TreeLogLines {
+  $path = Join-Path $PWD 'backend/maked_app.mbt'
+  $lines = [System.IO.File]::ReadAllLines($path, $enc)
+  $stream = ''; $print = 0; $add = 0; $def = 0
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    $l = $lines[$i]
+    $n = $i + 1
+    if ($add -eq 0 -and $l.Contains('add_middleware(logging_middleware())')) { $add = $n }
+    if ($def -eq 0 -and $l.Contains('fn logging_middleware()')) { $def = $n }
+    if ($print -eq 0 -and $l.Contains('req.verb()')) {
+      if ($l.Contains('eprintln(')) { $stream = 'stderr'; $print = $n }
+      elseif ($l.Contains('println(')) { $stream = 'stdout'; $print = $n }
+    }
+  }
+  @{ stream = $stream; print = $print; add = $add; def = $def }
+}
+
+# The design documents: every markdown file and every graph.
+[string[]]$archDocs = @(
+  Get-ChildItem -Path (Join-Path $PWD 'architecture') -File |
+    Where-Object { $_.Extension -eq '.md' -or $_.Extension -eq '.dot' } |
+    ForEach-Object { 'architecture/' + $_.Name }
+)
+[Array]::Sort($archDocs, [System.StringComparer]::Ordinal)
+
+# The claims a document makes.
+#
+# A claim is a paragraph: the run of lines a reader reads as one sentence. A
+# table row is a claim of its own, because a table says one thing per row. A
+# graph says one thing per line, because a graph has no paragraphs.
+function Get-DocClaims($path) {
+  $lines = [System.IO.File]::ReadAllLines((Join-Path $PWD $path), $enc)
+  $isDot = $path.EndsWith('.dot')
+  $claims = @()
+  $claim = ''
+  $claimLine = 0
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    $l = $lines[$i]
+    $n = $i + 1
+    if ($isDot) {
+      $claims += ,@{ line = $n; text = $l }
+      continue
+    }
+    if ($l.StartsWith('|')) {
+      if ($claim -ne '') { $claims += ,@{ line = $claimLine; text = $claim }; $claim = '' }
+      $claims += ,@{ line = $n; text = $l }
+      $claimLine = $n
+      continue
+    }
+    if ($l.Trim() -eq '') {
+      if ($claim -ne '') { $claims += ,@{ line = $claimLine; text = $claim }; $claim = '' }
+      continue
+    }
+    if ($claim -ne '') { $claim = $claim + ' ' + $l } else { $claim = $l; $claimLine = $n }
+  }
+  if ($claim -ne '') { $claims += ,@{ line = $claimLine; text = $claim } }
+  $claims
+}
+
+# The stream a claim names, if it names one.
+#
+# The tree's words for the log are the call that writes it (eprintln, or
+# println) and the streams those calls write to (stderr, or stdout). A claim
+# that names one of them names the stream the log goes to. eprintln writes to
+# stderr, so it is taken out before the streams are read.
+#
+# A claim that names BOTH streams is a claim that tells them apart, and it is
+# left alone: a sentence about the start-up banner on stdout and the request
+# log on stderr is two true things.
+function Get-ClaimStream($claim) {
+  if ($claim -cnotmatch 'stdout|stderr|println') { return '' }
+  $rest = $claim.Replace('eprintln', '')
+  $out = ($rest -cmatch 'stdout') -or ($rest -cmatch 'println')
+  $err = ($claim -cmatch 'stderr') -or ($claim -cmatch 'eprintln')
+  if ($out -and -not $err) { return 'stdout' }
+  if ($err -and -not $out) { return 'stderr' }
+  ''
+}
+
+# The numbers a row cites, and whether one of them is the line asked for.
+#
+# A citation is a line, a range of lines, or a few of both: "65", "11-29",
+# "16, 61". A row that cites the file the log is written in has to cite the
+# line the log is written on.
+function Test-CitationCovers($text, $target) {
+  foreach ($m in [regex]::Matches($text, '([0-9]+)(?:-([0-9]+))?')) {
+    $a = [int]$m.Groups[1].Value
+    $b = $a
+    if ($m.Groups[2].Success) { $b = [int]$m.Groups[2].Value }
+    if ($a -le $target -and $target -le $b) { return $true }
+  }
+  $false
+}
+
+# One claim, checked against the tree.
+function Test-LogClaim($doc, $line, $claim) {
+  # the stream the claim names
+  $stated = Get-ClaimStream $claim
+  if ($stated -ne '' -and $stated -ne $script:logStream) {
+    Write-Fail ("{0,-22} {1} line {2} says the log goes to {3}, the tree writes it to {4}" -f 'log stream', $doc, $line, $stated, $script:logStream)
+    $script:logBadStream = $true
+  }
+
+  # the line the claim points at: only a table row carries a citation
+  if (-not $claim.StartsWith('|')) { return }
+  if ($claim -cnotmatch 'backend/maked_app\.mbt:') { return }
+  $cited = $claim -replace '^.*backend/maked_app\.mbt:', ''
+  $cited = ($cited -split '`')[0]
+  $cited = ($cited -split '\|')[0]
+  $cited = $cited.Replace(' ', '')
+
+  # the claim states where the log is written
+  if ($claim -imatch 'print') {
+    if (-not (Test-CitationCovers $cited $script:logPrintLine)) {
+      Write-Fail ("{0,-22} {1} line {2} cites [{3}], the tree writes the request log on line {4}" -f 'log site', $doc, $line, $cited, $script:logPrintLine)
+      $script:logBadSite = $true
+    }
+  }
+
+  # the claim states where the middleware lives: the line the app adds it on,
+  # the line it is defined on, or the line it writes the log on
+  if ($claim -imatch 'logging[ _]middleware') {
+    $covers = (Test-CitationCovers $cited $script:logAddLine) -or
+              (Test-CitationCovers $cited $script:logDefLine) -or
+              (Test-CitationCovers $cited $script:logPrintLine)
+    if (-not $covers) {
+      Write-Fail ("{0,-22} {1} line {2} cites [{3}], the tree has the middleware on lines {4}, {5} and {6}" -f 'log site', $doc, $line, $cited, $script:logAddLine, $script:logDefLine, $script:logPrintLine)
+      $script:logBadSite = $true
+    }
+  }
+}
+
+$logFacts = Get-TreeLogLines
+$script:logStream = $logFacts.stream
+$script:logPrintLine = $logFacts.print
+$script:logAddLine = $logFacts.add
+$script:logDefLine = $logFacts.def
+
+if ($script:logStream -eq '' -or $script:logPrintLine -eq 0) {
+  Write-Fail ("{0,-22} the tree does not write a request log, or it does not write it the way this gate reads it" -f 'log stream')
+  $script:logBadStream = $true
+  $script:logBadSite = $true
+} else {
+  foreach ($doc in $archDocs) {
+    foreach ($claim in (Get-DocClaims $doc)) {
+      Test-LogClaim $doc $claim.line $claim.text
+    }
+  }
+}
+
+if (-not $script:logBadStream) { Write-Ok 'log stream' $script:logStream }
+if (-not $script:logBadSite) { Write-Ok 'log site' ("maked_app.mbt:{0}" -f $script:logPrintLine) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

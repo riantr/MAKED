@@ -45,7 +45,7 @@ SQLite) and a JavaScript frontend (rabbita SPA).
 - **Deployment**: the container image is built on every push, but there is no
   IaC and no hosted environment.
 - **Monitoring/observability**: request logging is one line per request to
-  stdout. No metrics, tracing, or alerting.
+  stderr. No metrics, tracing, or alerting.
 - **Users**: no analytics, no auth. Unknown whether anyone besides the
   developer uses this.
 

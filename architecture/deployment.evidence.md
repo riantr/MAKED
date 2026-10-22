@@ -40,7 +40,7 @@
 | Gap | Evidence | Confidence |
 |-----|----------|------------|
 | No systemd unit | `find` for *.service returns nothing | high |
-| No structured logging | `println` in `backend/maked_app.mbt:61` is the only log output | high |
+| No structured logging | The request log is one `eprintln` line per request (`backend/maked_app.mbt:65`) | high |
 | No metrics/observability | No prometheus, open telemetry, or stats imports | high |
 | No backup strategy | No cron, no WAL config, no backup code | high |
 

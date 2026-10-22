@@ -122,7 +122,7 @@ digraph maked_flows {
     a5 [label="5. db.page_by_slug('model')\n   prepare → reset → bind → step → finalize", fillcolor="#d4e6f1"]
     a6 [label="6. page.to_json()\n   Response::json", fillcolor="#d4e6f1"]
     a7 [label="7. response.send(res)\n   send_json(200)", fillcolor="#d4e6f1"]
-    a8 [label="8. println log line", fillcolor="#d4e6f1"]
+    a8 [label="8. stderr log line", fillcolor="#d4e6f1"]
   }
 
   browser -> a1

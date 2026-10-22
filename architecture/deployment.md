@@ -130,6 +130,6 @@ API, does not connect to any remote database, and does not phone home.
 |-----|--------|----------------|
 | No process manager (systemd/supervisor) | Server dies with terminal | Add systemd unit or use a process manager |
 | No TLS termination | HTTP only | Add reverse proxy (nginx/caddy) for production |
-| No structured logging | One-line println per request | Add JSON logging middleware |
+| No structured logging | One-line stderr log per request | Add JSON logging middleware |
 | No metrics/observability | No visibility into performance | Add Prometheus metrics or similar |
 | No backup strategy for SQLite | Data loss if file deleted | Add periodic backup or WAL mode + replication |
