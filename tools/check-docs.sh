@@ -557,7 +557,7 @@ check_references() {
   # The references are collected in the order the document states them, and
   # a reference that appears twice is one reference. The PowerShell twin
   # walks the document the same way, so the two report in the same order.
-  while [[ "$rest" =~ \`([A-Za-z0-9_./-]+\.(mbt|moon\.pkg|ps1|sh|mod|dsl|dot|md)):([0-9]+)(-([0-9]+))?\` ]]; do
+  while [[ "$rest" =~ \`([A-Za-z0-9_./-]+\.(mbt|moon\.pkg|ps1|sh|mod|dsl|dot|md)|Dockerfile):([0-9]+)(-([0-9]+))?\` ]]; do
     file="${BASH_REMATCH[1]}"
     line="${BASH_REMATCH[3]}"
     if [ -n "${BASH_REMATCH[4]}" ]; then
@@ -1731,6 +1731,131 @@ doc_deploy_settings() {
 check_sets "deployment settings" "$CODE_SETTINGS" "$(doc_deploy_settings)"
 
 check_references "$DEPLOY_MD"
+
+# --- the paths the build writes, and the health check the image declares ------
+#
+# The deployment document says where the build puts its output, and it used to
+# name a path the build never produces: the server is written under
+# _build/native/release/build/cmd/server/, not under _build/native/release/cmd/.
+# A reader who went looking for the file the document named would find
+# nothing, and nothing in the document would say why.
+#
+# The tree is the scripts. They are the things that copy a file and run a
+# file, so they are the things that name the paths -- and a path a script
+# names is a path the build writes. The gate scripts are left out of the
+# scan: they read the tree, they do not build from it, and a gate that named
+# a path would be legitimising the very path it is here to catch.
+#
+# The comparison is one way. A document does not have to list every file the
+# build writes, but every path it does list has to be one the tree writes.
+
+tree_build_outputs() {
+  grep -rhoaE '_build/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*' \
+    --exclude='check-*.sh' --exclude='check-*.ps1' \
+    build.ps1 Dockerfile tools .github 2>/dev/null \
+    | LC_ALL=C sort -u || true
+}
+
+doc_build_outputs() {
+  grep -ohaE '_build/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*' \
+    "$DEPLOY_MD" "$DEPLOY" "$AGENT_DOC" "$AGENTS_DOC" 2>/dev/null \
+    | LC_ALL=C sort -u || true
+}
+
+# Every path the document states has to be a path the tree builds.
+check_build_outputs() {
+  local label="$1" stated="$2" built="$3" missing
+  not_in "$stated" "$built"; missing=$NOT_IN
+  if [ -z "$missing" ]; then
+    count_lines "$stated"
+    ok "$label" "$COUNT_LINES"
+    return
+  fi
+  fail "$(printf '%-22s the document states [%s], and the tree builds no such path' \
+    "$label" "$missing")"
+}
+
+TREE_BUILD_OUTPUTS=$(tree_build_outputs)
+DOC_BUILD_OUTPUTS=$(doc_build_outputs)
+
+check_build_outputs "Build outputs" "$DOC_BUILD_OUTPUTS" "$TREE_BUILD_OUTPUTS"
+
+# --- the health check the image declares -------------------------------------
+#
+# The deployment document listed "No health check endpoint" as a gap. The image
+# declares one: the Dockerfile's HEALTHCHECK polls GET /api/status, and the
+# server serves that route. The gap was not a gap, and a document that says
+# there is no way to monitor liveness sends a reader looking for one.
+#
+# The tree is the Dockerfile, because the health check is what the image
+# declares, and the document has to state the same endpoint.
+#
+# The document's health claim is read from the sentences that talk about the
+# health check and not from the whole document: a path named in an unrelated
+# sentence is not the health check, and reading it as one would let a document
+# pass by naming the right path in the wrong place. The sentences are cut on
+# the full stop, so a sentence that wraps across two lines is still one
+# sentence.
+#
+# The absence claim is checked separately, because a document can state the
+# right endpoint and still go on saying there is no way to monitor liveness.
+
+code_health_paths() {
+  grep -A3 '^HEALTHCHECK' Dockerfile 2>/dev/null \
+    | grep -oaE 'https?://[^"[:space:]]+' \
+    | sed -E 's#^https?://[^/]+##' \
+    | LC_ALL=C sort -u || true
+}
+
+doc_health_paths() {
+  tr '\n' ' ' < "$DEPLOY_MD" | tr -s ' ' \
+    | sed -E 's/\. /.\n/g' \
+    | grep -i 'health' \
+    | grep -oaE '/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*' \
+    | sed -E 's/\.+$//' \
+    | LC_ALL=C sort -u || true
+}
+
+# The endpoint the image health-checks has to be one the document states.
+check_health_paths() {
+  local label="$1" code="$2" doc="$3" missing
+  not_in "$code" "$doc"; missing=$NOT_IN
+  if [ -z "$missing" ]; then
+    count_lines "$code"
+    ok "$label" "$COUNT_LINES"
+    return
+  fi
+  join_lines "$doc"; local doc_text="$JOIN_LINES"
+  fail "$(printf '%-22s the image health-checks [%s], the document states [%s]' \
+    "$label" "$missing" "$doc_text")"
+}
+
+CODE_HEALTH_PATHS=$(code_health_paths)
+DOC_HEALTH_PATHS=$(doc_health_paths)
+
+if [ -z "$CODE_HEALTH_PATHS" ]; then
+  fail "$(printf '%-22s the image declares no health check to compare the document with' \
+    'Health check')"
+else
+  check_health_paths "Health check" "$CODE_HEALTH_PATHS" "$DOC_HEALTH_PATHS"
+fi
+
+# The gaps table must not keep a row that denies a health check. The row is
+# found by its own shape -- a table row whose first cell denies something and
+# names the health check -- so a sentence about the health check elsewhere in
+# the document is not read as one.
+doc_health_gaps() {
+  grep -icE '^\|[^|]*\bno\b[^|]*health' "$DEPLOY_MD" || true
+}
+
+DOC_HEALTH_GAPS=$(doc_health_gaps)
+
+if [ "$DOC_HEALTH_GAPS" = "0" ]; then
+  ok "Health check gap" "$DOC_HEALTH_GAPS"
+else
+  fail "$(printf '%-22s the document lists %s gap row(s) that deny a health check' \
+    'Health check gap' "$DOC_HEALTH_GAPS")"
+fi
 
 # --- architecture/system-model.md: the shape the system is drawn with -------
 #

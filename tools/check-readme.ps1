@@ -1735,6 +1735,58 @@ if ($codeRefusalStatus -eq '') {
 } else {
   Test-Claim 'Refusal status' $codeRefusalStatus $docRefusalStatus
 }
+# --- the paths the build writes ------------------------------------------------
+#
+# The README tells a reader how to start the MCP server, and the command it
+# gives names a file under _build/. A path the build does not produce is a
+# command that fails with "file not found" and nothing else, so the README's
+# path has to be one the tree's scripts name.
+#
+# The tree is the scripts: build.ps1 stages the bundle, the Dockerfile finds
+# both outputs, the integration suite runs the server and the MCP command. The
+# gate scripts are left out -- they read the tree, they do not build from it.
+
+function Get-TreeBuildOutputs {
+  $out = @()
+  $files = @()
+  foreach ($root in @('build.ps1', 'Dockerfile')) {
+    if (Test-Path $root) { $files += (Get-Item $root) }
+  }
+  foreach ($dir in @('tools', '.github')) {
+    if (Test-Path $dir) {
+      $files += @(Get-ChildItem -Path $dir -Recurse -File | Where-Object {
+        $_.Name -notlike 'check-*.sh' -and $_.Name -notlike 'check-*.ps1'
+      })
+    }
+  }
+  foreach ($f in $files) {
+    $text = [System.IO.File]::ReadAllText($f.FullName, $enc)
+    foreach ($m in [regex]::Matches($text, '_build/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*')) {
+      $out += $m.Value
+    }
+  }
+  Sort-Set $out
+}
+
+function Get-DocBuildOutputs {
+  $out = @()
+  foreach ($m in [regex]::Matches($readme, '_build/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*')) {
+    $out += $m.Value
+  }
+  Sort-Set $out
+}
+
+$treeBuildOutputs = Get-TreeBuildOutputs
+$docBuildOutputs = Get-DocBuildOutputs
+$buildMissing = @($docBuildOutputs | Where-Object { $treeBuildOutputs -cnotcontains $_ })
+
+if ($buildMissing.Count -eq 0) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Build outputs', $docBuildOutputs.Count)
+} else {
+  Write-Output ("  {0,-20} the document states [{1}], and the tree builds no such path" -f 'Build outputs', ($buildMissing -join ' '))
+  Write-Output "*** FAIL ***"
+  $script:failures++
+}
 # --- the ring's order ----------------------------------------------------------
 #
 # The ring is a ring, and the ORDER is the claim: Model before Data before

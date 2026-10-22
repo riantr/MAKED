@@ -1681,6 +1681,61 @@ if [ -z "$CODE_REFUSAL_STATUS" ]; then
 else
   check_claim "Refusal status" "$CODE_REFUSAL_STATUS" "$DOC_REFUSAL_STATUS"
 fi
+# --- the paths the build writes ------------------------------------------------
+#
+# The README tells a reader how to start the MCP server, and the command it
+# gives names a file under _build/. A path the build does not produce is a
+# command that fails with "file not found" and nothing else, so the README's
+# path has to be one the tree's scripts name.
+#
+# The tree is the scripts: build.ps1 stages the bundle, the Dockerfile finds
+# both outputs, the integration suite runs the server and the MCP command. The
+# gate scripts are left out -- they read the tree, they do not build from it.
+
+tree_build_outputs() {
+  grep -rhoaE '_build/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*' \
+    --exclude='check-*.sh' --exclude='check-*.ps1' \
+    build.ps1 Dockerfile tools .github 2>/dev/null \
+    | LC_ALL=C sort -u || true
+}
+
+doc_build_outputs() {
+  grep -ohaE '_build/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*' "$README" 2>/dev/null \
+    | LC_ALL=C sort -u || true
+}
+
+# The members of the first list that are not in the second.
+missing_from() {
+  local source="$1" other="$2" line candidate found out=""
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    found=0
+    while IFS= read -r candidate; do
+      [ -n "$candidate" ] || continue
+      if [ "$candidate" = "$line" ]; then
+        found=1
+        break
+      fi
+    done <<< "$other"
+    if [ "$found" -eq 0 ]; then
+      if [ -z "$out" ]; then out="$line"; else out="$out $line"; fi
+    fi
+  done <<< "$source"
+  MISSING_FROM="$out"
+}
+
+TREE_BUILD_OUTPUTS=$(tree_build_outputs)
+DOC_BUILD_OUTPUTS=$(doc_build_outputs)
+
+missing_from "$DOC_BUILD_OUTPUTS" "$TREE_BUILD_OUTPUTS"
+
+if [ -z "$MISSING_FROM" ]; then
+  printf '  ok      %-20s %s\n' 'Build outputs' \
+    "$(printf '%s\n' "$DOC_BUILD_OUTPUTS" | grep -c . || true)"
+else
+  fail "$(printf '%-20s the document states [%s], and the tree builds no such path' \
+    'Build outputs' "$MISSING_FROM")"
+fi
 # --- the ring's order ----------------------------------------------------------
 #
 # The ring is a ring, and the ORDER is the claim: Model before Data before

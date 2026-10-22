@@ -409,7 +409,7 @@ foreach ($pin in $pins) {
 
 function Test-References($doc) {
   $text = [System.IO.File]::ReadAllText((Join-Path $PWD $doc), $enc)
-  $refs = [regex]::Matches($text, '`([A-Za-z0-9_./-]+\.(?:mbt|moon\.pkg|ps1|sh|mod|dsl|dot|md)):(\d+)(?:-(\d+))?`')
+  $refs = [regex]::Matches($text, '`([A-Za-z0-9_./-]+\.(?:mbt|moon\.pkg|ps1|sh|mod|dsl|dot|md)|Dockerfile):(\d+)(?:-(\d+))?`')
   $seen = @{}
   # The count is of DISTINCT references, the way the bash twin counts them:
   # two references that point at the same line are one reference, and two
@@ -1685,6 +1685,145 @@ function Get-DocDeploySettings {
 Test-Sets 'deployment settings' $codeSettings (Get-DocDeploySettings)
 
 Test-References $deployMd
+
+# --- the paths the build writes, and the health check the image declares ------
+#
+# The deployment document says where the build puts its output, and it used to
+# name a path the build never produces: the server is written under
+# _build/native/release/build/cmd/server/, not under _build/native/release/cmd/.
+#
+# The tree is the scripts. They are the things that copy a file and run a
+# file, so they are the things that name the paths -- and a path a script
+# names is a path the build writes. The gate scripts are left out of the
+# scan: they read the tree, they do not build from it, and a gate that named
+# a path would be legitimising the very path it is here to catch.
+#
+# The comparison is one way. A document does not have to list every file the
+# build writes, but every path it does list has to be one the tree writes.
+
+function Get-TreeBuildOutputs {
+  $out = @()
+  $files = @()
+  foreach ($root in @('build.ps1', 'Dockerfile')) {
+    if (Test-Path $root) { $files += (Get-Item $root) }
+  }
+  foreach ($dir in @('tools', '.github')) {
+    if (Test-Path $dir) {
+      $files += @(Get-ChildItem -Path $dir -Recurse -File | Where-Object {
+        $_.Name -notlike 'check-*.sh' -and $_.Name -notlike 'check-*.ps1'
+      })
+    }
+  }
+  foreach ($f in $files) {
+    $text = [System.IO.File]::ReadAllText($f.FullName, $enc)
+    foreach ($m in [regex]::Matches($text, '_build/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*')) {
+      $out += $m.Value
+    }
+  }
+  Sort-Set $out
+}
+
+function Get-DocBuildOutputs {
+  $out = @()
+  foreach ($doc in @($deployMd, $deploy, $agentDoc, $agentsDoc)) {
+    $text = [System.IO.File]::ReadAllText((Join-Path $PWD $doc), $enc)
+    foreach ($m in [regex]::Matches($text, '_build/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*')) {
+      $out += $m.Value
+    }
+  }
+  Sort-Set $out
+}
+
+# Every path the document states has to be a path the tree builds.
+function Test-BuildOutputs($label, $stated, $built) {
+  $s = Get-NonEmpty $stated
+  $b = Get-NonEmpty $built
+  $missing = @($s | Where-Object { $b -cnotcontains $_ })
+  if ($missing.Count -eq 0) {
+    Write-Ok $label $s.Count
+    return
+  }
+  Write-Fail ("{0,-22} the document states [{1}], and the tree builds no such path" -f $label, ($missing -join ' '))
+}
+
+Test-BuildOutputs 'Build outputs' (Get-DocBuildOutputs) (Get-TreeBuildOutputs)
+
+# --- the health check the image declares -------------------------------------
+#
+# The deployment document listed "No health check endpoint" as a gap. The image
+# declares one: the Dockerfile's HEALTHCHECK polls GET /api/status, and the
+# server serves that route.
+#
+# The document's health claim is read from the sentences that talk about the
+# health check and not from the whole document: a path named in an unrelated
+# sentence is not the health check. The sentences are cut on the full stop, so
+# a sentence that wraps across two lines is still one sentence.
+#
+# The absence claim is checked separately, because a document can state the
+# right endpoint and still go on saying there is no way to monitor liveness.
+
+function Get-CodeHealthPaths {
+  $out = @()
+  $lines = [System.IO.File]::ReadAllLines((Join-Path $PWD 'Dockerfile'), $enc)
+  for ($i = 0; $i -lt $lines.Length; $i++) {
+    if ($lines[$i] -match '^HEALTHCHECK') {
+      for ($j = $i; $j -lt ($i + 4) -and $j -lt $lines.Length; $j++) {
+        foreach ($m in [regex]::Matches($lines[$j], 'https?://[^"\s]+')) {
+          $out += ($m.Value -replace '^https?://[^/]+', '')
+        }
+      }
+      break
+    }
+  }
+  Sort-Set $out
+}
+
+function Get-DocHealthPaths {
+  $out = @()
+  $text = ([System.IO.File]::ReadAllText((Join-Path $PWD $deployMd), $enc)) -replace "`r?`n", ' '
+  $text = $text -replace ' +', ' '
+  foreach ($sentence in ($text -split '\. ')) {
+    if ($sentence -notmatch '(?i)health') { continue }
+    foreach ($m in [regex]::Matches($sentence, '/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*')) {
+      $out += ($m.Value -replace '\.+$', '')
+    }
+  }
+  Sort-Set $out
+}
+
+# The endpoint the image health-checks has to be one the document states.
+function Test-HealthPaths($label, $code, $doc) {
+  $c = Get-NonEmpty $code
+  $d = Get-NonEmpty $doc
+  $missing = @($c | Where-Object { $d -cnotcontains $_ })
+  if ($missing.Count -eq 0) {
+    Write-Ok $label $c.Count
+    return
+  }
+  Write-Fail ("{0,-22} the image health-checks [{1}], the document states [{2}]" -f $label, ($missing -join ' '), ($d -join ' '))
+}
+
+$codeHealthPaths = Get-CodeHealthPaths
+$docHealthPaths = Get-DocHealthPaths
+
+if ($codeHealthPaths.Count -eq 0) {
+  Write-Fail ("{0,-22} the image declares no health check to compare the document with" -f 'Health check')
+} else {
+  Test-HealthPaths 'Health check' $codeHealthPaths $docHealthPaths
+}
+
+# The gaps table must not keep a row that denies a health check. The row is
+# found by its own shape -- a table row whose first cell denies something and
+# names the health check -- so a sentence about the health check elsewhere in
+# the document is not read as one.
+$deployText = [System.IO.File]::ReadAllText((Join-Path $PWD $deployMd), $enc)
+$docHealthGaps = @($deployText -split "`r?`n" | Where-Object { $_ -match '(?i)^\|[^|]*\bno\b[^|]*health' }).Count
+
+if ($docHealthGaps -eq 0) {
+  Write-Ok 'Health check gap' $docHealthGaps
+} else {
+  Write-Fail ("{0,-22} the document lists {1} gap row(s) that deny a health check" -f 'Health check gap', $docHealthGaps)
+}
 
 # --- architecture/system-model.md: the shape the system is drawn with -------
 #

@@ -48,22 +48,26 @@ serves the API, static files, and SPA fallback.
 
 ```
 moon build --release --target native cmd/server
-  → _build/native/release/cmd/server.cjs (or native binary)
+  → _build/native/release/build/cmd/server/server
+    (server.exe on Windows)
 ```
 
 ### Frontend (js)
 
 ```
 moon build --release --target js cmd/web
-  → frontend/dist/main.js (single self-contained bundle, no imports)
+  → _build/js/release/build/cmd/web/web.js
 ```
+
+`build.ps1` copies that file to `frontend/dist/main.js`, which is the file the
+server serves. It is a single self-contained bundle, with no imports.
 
 ### Static assets
 
 | File | Source | Purpose |
 |------|--------|---------|
-| `frontend/dist/index.html` | Hand-written or generated | SPA shell |
-| `frontend/dist/main.js` | `moon build cmd/web` | Rabbita SPA bundle |
+| `frontend/dist/index.html` | Hand-written | SPA shell |
+| `frontend/dist/main.js` | `build.ps1`, from `_build/js/release/build/cmd/web/web.js` | Rabbita SPA bundle |
 | `frontend/dist/styles.css` | Hand-written | Site stylesheet |
 
 ### Run
@@ -86,6 +90,10 @@ docker compose up --build
 
 The image is built by `Dockerfile`; `docker-compose.yml` runs it with the
 database on a volume so the reader's own work survives the container.
+
+The image declares its own liveness check: `HEALTHCHECK` polls
+`GET /api/status`, so the container's health is the server's own status
+route.
 
 ## Runtime topology
 
@@ -122,7 +130,6 @@ API, does not connect to any remote database, and does not phone home.
 |-----|--------|----------------|
 | No process manager (systemd/supervisor) | Server dies with terminal | Add systemd unit or use a process manager |
 | No TLS termination | HTTP only | Add reverse proxy (nginx/caddy) for production |
-| No health check endpoint | No way to monitor liveness | Add `GET /health` returning `{"status": "ok"}` |
 | No structured logging | One-line println per request | Add JSON logging middleware |
 | No metrics/observability | No visibility into performance | Add Prometheus metrics or similar |
 | No backup strategy for SQLite | Data loss if file deleted | Add periodic backup or WAL mode + replication |
