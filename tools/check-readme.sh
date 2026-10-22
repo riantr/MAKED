@@ -631,6 +631,91 @@ else
   printf '  ok      %-20s %s\n' 'Referenced versions' "$(doc_versions | grep -c . || true)"
 fi
 
+# --- the file formats and the corpus kinds -----------------------------------
+#
+# The README has a table of the files a reader can change, and every row names
+# the format that file is written in. Those formats are the code's: a file
+# written in another one is refused at start-up, so a reader who copied the
+# wrong format out of the document finds out at the worst possible moment --
+# when the server refuses to start and says the format is not one it knows.
+#
+# The corpus's sentence says which kinds a source can have, and the code
+# decides that too: a kind the code does not know is a corpus the server
+# refuses to read.
+#
+# Both are compared by MEMBERSHIP: the order the two sets are written in says
+# nothing, and a message that differs between the twins is a message nobody
+# can trust.
+
+# The formats the code defines. Each is a constant in the backend, and the
+# constant is what a file's "format" field is compared against.
+code_formats() {
+  grep -h -oE 'pub const [A-Z_]+_FORMAT : String = "[^"]+"' backend/*.mbt \
+    | sed -E 's/.*= "([^"]+)"/\1/' \
+    | LC_ALL=C sort -u
+}
+
+# The formats the document names, in the table of the files a reader can
+# change. The rows are the ones that name the environment variable that points
+# at the file, so a format mentioned in an example elsewhere in the document is
+# not read as a claim about the table.
+doc_formats() {
+  grep -E '^\|.*MAKED_(MODEL|RESEARCH|SOCIETY|CORPUS)' "$README" \
+    | grep -oE 'maked\.[a-z]+\.v[0-9]+' \
+    | LC_ALL=C sort -u
+}
+
+# The kinds the code accepts for a corpus, as they are written in a file. The
+# function that renders a kind is the one place the code says what the words
+# are.
+code_corpus_kinds() {
+  awk '
+    match($0, /^pub fn corpus_kind_text/) { inside = 1; next }
+    inside && match($0, /^}/) { inside = 0 }
+    inside && match($0, /=>/) {
+      line = $0
+      if (match(line, /"[^"]+"/)) {
+        print substr(line, RSTART + 1, RLENGTH - 2)
+      }
+    }
+  ' backend/corpus.mbt | LC_ALL=C sort -u
+}
+
+# The kinds the document names, in the sentence that says what a kind can be.
+doc_corpus_kinds() {
+  grep -oE '`kind` is [^.]*' "$README" \
+    | sed -E 's/^`kind` is //' \
+    | grep -oE '`[^`]+`' \
+    | sed -E 's/^`//; s/`$//' \
+    | LC_ALL=C sort -u
+}
+
+CODE_FORMATS=$(code_formats)
+DOC_FORMATS=$(doc_formats)
+if [ -z "$CODE_FORMATS" ]; then
+  fail "$(printf '%-20s no file format could be derived from the code' 'File formats')"
+elif same_members "$CODE_FORMATS" "$DOC_FORMATS"; then
+  printf '  ok      %-20s %s\n' 'File formats' "$(printf '%s\n' "$CODE_FORMATS" | grep -c .)"
+else
+  fail "$(printf '%-20s the tree says [%s], the table says [%s]' \
+    'File formats' \
+    "$(printf '%s\n' "$CODE_FORMATS" | tr '\n' ' ' | sed -e 's/ *$//')" \
+    "$(printf '%s\n' "$DOC_FORMATS" | tr '\n' ' ' | sed -e 's/ *$//')")"
+fi
+
+CODE_CORPUS_KINDS=$(code_corpus_kinds)
+DOC_CORPUS_KINDS=$(doc_corpus_kinds)
+if [ -z "$CODE_CORPUS_KINDS" ]; then
+  fail "$(printf '%-20s no corpus kind could be derived from the code' 'Corpus kinds')"
+elif same_members "$CODE_CORPUS_KINDS" "$DOC_CORPUS_KINDS"; then
+  printf '  ok      %-20s %s\n' 'Corpus kinds' "$(printf '%s\n' "$CODE_CORPUS_KINDS" | grep -c .)"
+else
+  fail "$(printf '%-20s the tree says [%s], the document says [%s]' \
+    'Corpus kinds' \
+    "$(printf '%s\n' "$CODE_CORPUS_KINDS" | tr '\n' ' ' | sed -e 's/ *$//')" \
+    "$(printf '%s\n' "$DOC_CORPUS_KINDS" | tr '\n' ' ' | sed -e 's/ *$//')")"
+fi
+
 # --- the counts the document spells out -------------------------------------
 #
 # The README says some of its counts in words -- "seven tools", "ten pages",

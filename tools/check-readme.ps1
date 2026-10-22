@@ -663,6 +663,107 @@ if ($wrongVersion.Count -gt 0) {
   Write-Output ("  ok      {0,-20} {1}" -f 'Referenced versions', (Get-DocVersions).Count)
 }
 
+# --- the file formats and the corpus kinds -----------------------------------
+#
+# The README has a table of the files a reader can change, and every row names
+# the format that file is written in. Those formats are the code's: a file
+# written in another one is refused at start-up, so a reader who copied the
+# wrong format out of the document finds out at the worst possible moment --
+# when the server refuses to start and says the format is not one it knows.
+#
+# The corpus's sentence says which kinds a source can have, and the code
+# decides that too: a kind the code does not know is a corpus the server
+# refuses to read.
+#
+# Both are compared by MEMBERSHIP: the order the two sets are written in says
+# nothing, and a message that differs between the twins is a message nobody
+# can trust.
+
+# The formats the code defines. Each is a constant in the backend, and the
+# constant is what a file's "format" field is compared against.
+function Get-CodeFormats {
+  $out = @()
+  foreach ($file in @(Get-ChildItem (Join-Path $PWD 'backend') -Filter '*.mbt' -File)) {
+    $text = [System.IO.File]::ReadAllText($file.FullName, $enc)
+    foreach ($m in [regex]::Matches($text, 'pub const [A-Z_]+_FORMAT : String = "([^"]+)"')) {
+      $out += $m.Groups[1].Value
+    }
+  }
+  Sort-Set $out
+}
+
+# The formats the document names, in the table of the files a reader can
+# change. The rows are the ones that name the environment variable that points
+# at the file, so a format mentioned in an example elsewhere in the document is
+# not read as a claim about the table.
+function Get-DocFormats {
+  $out = @()
+  foreach ($line in ($readme -split "`r?`n")) {
+    if ($line -notmatch '^\|.*MAKED_(MODEL|RESEARCH|SOCIETY|CORPUS)') { continue }
+    foreach ($m in [regex]::Matches($line, 'maked\.[a-z]+\.v[0-9]+')) {
+      $out += $m.Value
+    }
+  }
+  Sort-Set $out
+}
+
+# The kinds the code accepts for a corpus, as they are written in a file. The
+# function that renders a kind is the one place the code says what the words
+# are.
+function Get-CodeCorpusKinds {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/corpus.mbt'), $enc)
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^pub fn corpus_kind_text') { $inside = $true; continue }
+    if ($inside -and $line -match '^\}') { $inside = $false }
+    if ($inside -and $line -match '=>') {
+      $m = [regex]::Match($line, '"([^"]+)"')
+      if ($m.Success) { $out += $m.Groups[1].Value }
+    }
+  }
+  Sort-Set $out
+}
+
+# The kinds the document names, in the sentence that says what a kind can be.
+function Get-DocCorpusKinds {
+  $out = @()
+  foreach ($m in [regex]::Matches($readme, '`kind` is ([^.]*)')) {
+    foreach ($k in [regex]::Matches($m.Groups[1].Value, '`([^`]+)`')) {
+      $out += $k.Groups[1].Value
+    }
+  }
+  Sort-Set $out
+}
+
+$codeFormats = @(Get-CodeFormats)
+$docFormats = @(Get-DocFormats)
+if ($codeFormats.Count -eq 0) {
+  Write-Output ("  {0,-20} no file format could be derived from the code" -f 'File formats')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $codeFormats $docFormats) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'File formats', $codeFormats.Count)
+} else {
+  Write-Output ("  {0,-20} the tree says [{1}], the table says [{2}]" -f 'File formats', ($codeFormats -join ' '), ($docFormats -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+}
+
+$codeCorpusKinds = @(Get-CodeCorpusKinds)
+$docCorpusKinds = @(Get-DocCorpusKinds)
+if ($codeCorpusKinds.Count -eq 0) {
+  Write-Output ("  {0,-20} no corpus kind could be derived from the code" -f 'Corpus kinds')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $codeCorpusKinds $docCorpusKinds) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Corpus kinds', $codeCorpusKinds.Count)
+} else {
+  Write-Output ("  {0,-20} the tree says [{1}], the document says [{2}]" -f 'Corpus kinds', ($codeCorpusKinds -join ' '), ($docCorpusKinds -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+}
+
 # --- the counts the document spells out -------------------------------------
 #
 # The README says some of its counts in words -- "seven tools", "ten pages",
