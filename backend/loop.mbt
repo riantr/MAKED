@@ -1402,6 +1402,50 @@ pub fn slots_json(lang : Lang) -> Json {
 }
 
 ///|
+/// The group's vocabulary: the states the group machine has, in the order it
+/// reads them, with their designation and gloss in the language asked for.
+///
+/// The group state the loop computes is one of these, and the vocabulary
+/// belongs to the pyroduct package -- so it is read from the package rather
+/// than written down here. A list written down in this file would be a second
+/// copy of a machine that already exists somewhere else, and a second copy is
+/// a list that can be wrong without anybody noticing.
+pub fn group_states_info(lang : Lang) -> Array[(String, String, String)] {
+  let result = []
+  for state in @group.all_states() {
+    result.push(
+      (
+        state.en_designation(),
+        lang.pick(state.en_designation(), state.designation()),
+        lang.pick(state.en_gloss(), state.gloss()),
+      ),
+    )
+  }
+  result
+}
+
+///|
+/// The group's vocabulary in the JSON shape the status response carries.
+///
+/// It travels with the status for the same reason the slots do: one request
+/// is enough to render the whole loop panel, and a vocabulary that has to be
+/// fetched separately is one a client can fail to fetch. It also means the
+/// number of group states is something a reader -- or a gate -- can ask for,
+/// instead of a number only the document knows.
+pub fn group_states_json(lang : Lang) -> Json {
+  let items = []
+  for (english, designation, gloss) in group_states_info(lang) {
+    let item : Json = {
+      "name": english,
+      "designation": designation,
+      "gloss": gloss,
+    }
+    items.push(item)
+  }
+  [..items]
+}
+
+///|
 /// JSON shape for the loop status API.
 ///
 /// `current_position` and `drive_slot` are read from the domain's **actual**
@@ -1491,6 +1535,10 @@ pub fn LoopState::to_json(self : LoopState, lang : Lang) -> Json {
       English => self.group_state.en_gloss()
       Chinese => self.group_state.gloss()
     },
+    // The group's vocabulary, for the same reason the slots are here: a
+    // client that has to ask a second question to learn how many group
+    // states there are is a client that can be told the wrong number.
+    "group_states": group_states_json(lang),
     // The third layer. In English the name is the vocabulary file's, and in
     // Chinese it is pyroduct's own -- the same split the positions and the
     // slots make: the file is the reader's words, the Chinese is the

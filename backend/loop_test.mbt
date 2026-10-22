@@ -1038,3 +1038,32 @@ test "the slot id round-trips with slot_from_english" {
     }
   }
 }
+
+///|
+/// The status carries the group's whole vocabulary.
+///
+/// The group machine is the pyroduct package's, so the states it has are
+/// read from the package rather than written down here -- and the status
+/// carries them for the same reason it carries the whole slot vocabulary:
+/// one request is enough, and a reader can then ask how many group states
+/// there are instead of taking a document's word for it.
+///
+/// What is asserted is the shape and the agreement with the package, not a
+/// number: how many group states there are belongs to the document check,
+/// which compares the document with the vocabulary the server served. A
+/// number written here would be a second place the same fact is watched, and
+/// the two could disagree.
+test "the status carries the group's whole vocabulary" {
+  let state = @backend.LoopState::new()
+  let json = state.to_json(@backend.Lang::english())
+  let states = json_array(json, "group_states")
+  let info = @backend.group_states_info(@backend.Lang::english())
+  // The status carries all of them, not only the one the loop is in.
+  assert_eq(states.length(), info.length())
+  assert_true(info.length() > 0)
+  for item in states {
+    assert_true(json_str(item, "name") != "")
+    assert_true(json_str(item, "designation") != "")
+    assert_true(json_str(item, "gloss") != "")
+  }
+}

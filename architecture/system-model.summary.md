@@ -35,9 +35,9 @@ SQLite) and a JavaScript frontend (rabbita SPA).
 5. **Elm-style frontend**: rabbita TEA (Model/Update/View/Subscription). One
    HTTP request at startup, then client-side routing via History API.
 
-6. **Well-tested invariants**: 561 tests across backend and frontend, focused
+6. **Well-tested invariants**: 562 tests across backend and frontend, focused
    on silent-failure modes (SQLite statement lifecycle, ring geometry, JSON
-   decoding total functions), plus 229 mutation anchors and 369 integration
+   decoding total functions), plus 229 mutation anchors and 370 integration
    checks against a server that is really running.
 
 ## Gaps and unknowns

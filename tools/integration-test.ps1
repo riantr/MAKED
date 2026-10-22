@@ -55,6 +55,14 @@ $script:failed = 0
 $script:collectivePositions = -1
 $script:collectiveTransitions = -1
 
+# The group's vocabulary, as the server served it: how many states the group
+# machine has, and what they are called. The same reason as the collective's
+# numbers: the group machine is the pyroduct package's, not this
+# repository's, so the document can only be checked against it where it is.
+# Minus one means "not served", which is a failure and not a count.
+$script:groupStates = -1
+$script:groupStateNames = @()
+
 function Assert-True {
   param([string]$Desc, [bool]$Condition, [string]$Detail = "")
   if ($Condition) {
@@ -648,6 +656,21 @@ try {
   Assert-HasField "the status carries the open slots" $loop "open_slots"
   Assert-HasField "the status carries the eight-slot vocabulary" $loop "slots"
   Assert-ArrayLength "the vocabulary is eight slots long" $loop "slots" 8
+
+  # The group's vocabulary travels with the status, so that the number of
+  # group states is something a reader -- or the document check at the end of
+  # this run -- can ask for, instead of a number only the document knows.
+  Assert-HasField "the status carries the group's vocabulary" $loop "group_states"
+  # The nulls are filtered out on purpose: a missing field arrives as a null,
+  # and a null counted as a state is a state the vocabulary does not have.
+  # How many states there are is not checked here -- that number belongs to
+  # the document check, which compares it with what the document says.
+  $groupVocabulary = @($loop.group_states | Where-Object { $null -ne $_ })
+  # Kept for the document check at the end of the run, after the server is
+  # gone: a number that nobody can ask any more is a number the document
+  # cannot be checked against.
+  $script:groupStates = $groupVocabulary.Count
+  $script:groupStateNames = @($groupVocabulary | ForEach-Object { $_.name })
 
   $step = Post-Json "/api/loop/step"
   Assert-Status "a step is a 200" 200 $step
@@ -2255,5 +2278,70 @@ if (Test-Path $readmePath) {
   }
   Write-Host ""
   Write-Host ("README.md's collective ({0} positions, {1} transitions) matches the one the server served." -f $script:collectivePositions, $script:collectiveTransitions)
+
+  # The group's shape: how many states the group machine has.
+  #
+  # The row of the three layers says how many group states there are, and the
+  # machine that has them is the pyroduct package's -- not this repository. So
+  # the number is checked here, where the vocabulary is, the same way the
+  # collective's transitions are.
+  #
+  # The row also names the states the loop can land in. A name the vocabulary
+  # does not have is a name about nowhere, and that is checked here too: the
+  # names are the document's, the vocabulary is the server's.
+  #
+  # The em dash and the arrow are written as escapes, because this file is
+  # ASCII and the document is not.
+  $groupProblems = @()
+  $groupClaims = 0
+  $groupRow = [regex]::Match($readme, '\|\s*\*\*Group\*\*\s*\|(?<body>[^\|]*)\|')
+  if (-not $groupRow.Success) {
+    $groupProblems += "the document no longer has a row for the group"
+  } else {
+    $groupBody = $groupRow.Groups['body'].Value
+    if ($script:groupStates -lt 1) {
+      $groupProblems += "the server did not serve the group's vocabulary"
+    }
+    # "(20 states)".
+    $groupCount = [regex]::Match($groupBody, '\((?<n>[0-9]+) states\)')
+    if (-not $groupCount.Success) {
+      $groupProblems += "the document no longer states how many group states there are"
+    } else {
+      $groupClaims += 1
+      $n = [int]$groupCount.Groups['n'].Value
+      if ($n -ne $script:groupStates) {
+        $groupProblems += ("the document says {0} group states; the vocabulary the server served has {1}" -f $n, $script:groupStates)
+      }
+    }
+    # "Scattered -> Converging -> ...", the states the row names.
+    $groupNamed = [regex]::Match($groupBody, '\u2014\s*(?<names>[^\(]+)\(')
+    if (-not $groupNamed.Success) {
+      $groupProblems += "the document no longer names the group states"
+    } else {
+      $groupClaims += 1
+      $named = @($groupNamed.Groups['names'].Value -split '\u2192' |
+        ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+      foreach ($name in $named) {
+        if ($script:groupStateNames -cnotcontains $name) {
+          $groupProblems += ("the document names the group state '{0}', which the vocabulary does not have" -f $name)
+        }
+      }
+    }
+  }
+
+  if ($groupClaims -eq 0) {
+    $groupProblems += "the document no longer states the group's shape"
+  }
+
+  if ($groupProblems.Count -gt 0) {
+    Write-Host ""
+    Write-Host "*** FAIL ***"
+    Write-Host "README.md does not state the group's shape as it is:"
+    foreach ($problem in $groupProblems) { Write-Host ("  " + $problem) }
+    Write-Host "Update the README, or find out why the group moved."
+    exit 1
+  }
+  Write-Host ""
+  Write-Host ("README.md's group ({0} states, named as the vocabulary names them) matches the one the server served." -f $script:groupStates)
 }
 exit 0
