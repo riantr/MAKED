@@ -919,6 +919,31 @@ backend_file_formats() {
     ' "$f"
   done | LC_ALL=C sort -u
 }
+# The files the discovery document names, each with the variable that names
+# it, as "file variable".
+#
+# The file is what the document calls it -- "the machine", "the corpus" --
+# and the variable is the one that points at it. Both are read from the
+# discovery document, which is what the server answers with.
+code_file_names() {
+  tr '\n' ' ' < backend/agent.mbt \
+    | grep -oE '"what": "[^"]+", *"variable": "MAKED_[A-Z_]+"' \
+    | sed -E 's/"what": "([^"]+)", *"variable": "([^"]+)"/\1|\2/' \
+    | awk -F'|' '{ gsub(/^[ \t]+|[ \t]+$/, "", $1); print tolower($1), $2 }' \
+    | LC_ALL=C sort -u || true
+}
+
+# The same files as AGENT.md's table gives them, each with the variable it
+# names.
+#
+# The row is read as a pair: the first column names the file, and the
+# variable in the second column is the one that points at it.
+doc_file_names() {
+  grep -oE '^\| [^|]+ \| `MAKED_[A-Z_]+` \|' "$AGENT_DOC" \
+    | sed -E 's/^\| ([^|]+) \| `(MAKED_[A-Z_]+)` \|/\1|\2/' \
+    | awk -F'|' '{ gsub(/^[ \t]+|[ \t]+$/, "", $1); print tolower($1), $2 }' \
+    | LC_ALL=C sort -u || true
+}
 # The protocol version the discovery document names.
 code_protocol() {
   grep -oE '"mcp": "[0-9]{4}-[0-9]{2}-[0-9]{2}"' backend/agent.mbt \
@@ -970,6 +995,13 @@ check_sets "agent files (code)" "$CODE_FILE_VARS" "$CODE_ENV_READS"
 # names wrongly is a format it tells an agent to write and then refuses --
 # and the variables being right does not make the formats right.
 check_sets "agent file formats" "$(code_file_formats)" "$(backend_file_formats)"
+
+# The document has to name the RIGHT variable for each file. The variables
+# are checked as a set above, and a set does not say which file each one
+# names: a table that gives the machine the corpus's variable still has the
+# same four variables in it, and a reader who follows it points MAKED_MODEL
+# at the wrong file.
+check_sets "agent file names" "$(code_file_names)" "$(doc_file_names)"
 
 # Every protocol version the document states has to be the one the server
 # speaks, and it has to state it at all.

@@ -782,6 +782,35 @@ function Get-BackendFileFormats {
   }
   Sort-Set $out
 }
+# The files the discovery document names, each with the variable that names
+# it, as "file variable".
+#
+# The file is what the document calls it -- "the machine", "the corpus" --
+# and the variable is the one that points at it. Both are read from the
+# discovery document, which is what the server answers with.
+function Get-CodeFileNames {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/agent.mbt'), $enc)
+  $flat = $text -replace "`r?`n", ' '
+  foreach ($m in [regex]::Matches($flat, '"what": "([^"]+)", *"variable": "(MAKED_[A-Z_]+)"')) {
+    $out += ("{0} {1}" -f $m.Groups[1].Value.ToLowerInvariant(), $m.Groups[2].Value)
+  }
+  Sort-Set $out
+}
+
+# The same files as AGENT.md's table gives them, each with the variable it
+# names.
+#
+# The row is read as a pair: the first column names the file, and the
+# variable in the second column is the one that points at it.
+function Get-DocFileNames {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $agentDoc), $enc)
+  foreach ($m in [regex]::Matches($text, '(?m)^\| ([^|]+) \| `(MAKED_[A-Z_]+)` \|')) {
+    $out += ("{0} {1}" -f $m.Groups[1].Value.Trim().ToLowerInvariant(), $m.Groups[2].Value)
+  }
+  Sort-Set $out
+}
 # The protocol version the discovery document names.
 function Get-CodeProtocol {
   $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/agent.mbt'), $enc)
@@ -831,6 +860,13 @@ Test-Sets 'agent files (code)' $codeFileVars (Get-CodeEnvReads)
 # names wrongly is a format it tells an agent to write and then refuses --
 # and the variables being right does not make the formats right.
 Test-Sets 'agent file formats' (Get-CodeFileFormats) (Get-BackendFileFormats)
+
+# The document has to name the RIGHT variable for each file. The variables
+# are checked as a set above, and a set does not say which file each one
+# names: a table that gives the machine the corpus's variable still has the
+# same four variables in it, and a reader who follows it points MAKED_MODEL
+# at the wrong file.
+Test-Sets 'agent file names' (Get-CodeFileNames) (Get-DocFileNames)
 
 # Every protocol version the document states has to be the one the server
 # speaks, and it has to state it at all.
