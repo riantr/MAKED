@@ -1967,6 +1967,79 @@ Test-WordCount 'project package count' 'project packages' $treeProjectPackageCou
 Test-Sets 'dependency package list' $treeProjectPackages (Get-DocDependencyPackages)
 Test-Sets 'project package list' $treeProjectPackages (Get-DocProjectPackages)
 
+# --- the edges inside the project ----------------------------------------------
+#
+# The dependency document says which package depends on which, in three
+# places: the diagram, the internal dependencies table, and the coupling
+# assessment. The tree says it too, in the manifests: a package that imports
+# another one of the project's packages depends on it.
+#
+# The tree's edge is a pair of package names, and each of the three places is
+# read into that shape, because the three do not spell it the same way.
+#
+# Every place is read. A document that says the right thing in the table and
+# the wrong thing in the diagram has a wrong diagram.
+
+function Get-TreeInternalEdges {
+  $out = @()
+  foreach ($root in @('backend', 'frontend', 'cmd')) {
+    foreach ($f in (Get-ChildItem (Join-Path $PWD $root) -Recurse -Filter 'moon.pkg' -File)) {
+      $pkg = $f.FullName.Substring($PWD.Path.Length + 1).Replace('\', '/')
+      $pkg = $pkg -replace '/moon\.pkg$', ''
+      $text = [System.IO.File]::ReadAllText($f.FullName, $enc)
+      foreach ($m in [regex]::Matches($text, '"riantr/MAKED/([a-z]+(?:/[a-z]+)?)"')) {
+        $out += ("{0} {1}" -f $pkg, $m.Groups[1].Value)
+      }
+    }
+  }
+  Sort-Set $out
+}
+
+# The edges the internal dependencies table states: the package in the first
+# cell and the package it depends on in the second.
+function Get-DocTableEdges {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $depsMd), $enc)
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^\|\s*Package\s*\|') { $inside = $true; continue }
+    if (-not $inside) { continue }
+    if ($line -notmatch '^\|') { break }
+    $cells = ($line -replace '^\|\s*', '') -split '\|'
+    $first = ($cells[0] -replace '`', '').Trim() -replace '/$', ''
+    if ($first -ceq 'root moon.pkg') { $first = 'root' }
+    $second = ($cells[1] -replace '`', '').Trim()
+    if ($first -cmatch '^[a-z]+(/[a-z]+)?$' -and $second -cmatch '^[a-z]+(/[a-z]+)?$') {
+      $out += ("{0} {1}" -f $first, $second)
+    }
+  }
+  Sort-Set $out
+}
+
+# The edges the diagram states: a line inside a fenced block that starts with
+# a package name and names the package it depends on after the arrow. The
+# fence is what keeps the prose out: a sentence that starts with a word and
+# carries two more words looks exactly like an edge to a pattern.
+function Get-DocDiagramEdges {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $depsMd), $enc)
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -ceq '```') { $inside = -not $inside; continue }
+    if (-not $inside) { continue }
+    $m = [regex]::Match($line, '^[a-z]+(/[a-z]+)? +[^ ]+ +[a-z]+(/[a-z]+)?')
+    if ($m.Success) {
+      $out += ($m.Value -replace ' +[^ ]+ +', ' ')
+    }
+  }
+  Sort-Set $out
+}
+
+$treeInternalEdges = @(Get-TreeInternalEdges)
+
+Test-Sets 'package dependencies' $treeInternalEdges (Get-DocTableEdges)
+Test-Sets 'dependency diagram' $treeInternalEdges (Get-DocDiagramEdges)
+
 # --- architecture/flows.md: the paths the requests take ----------------------
 #
 # The flow document traces what happens on the way in and out, and it counts

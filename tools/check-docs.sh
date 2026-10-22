@@ -1993,6 +1993,77 @@ check_sets "dependency package list" "$TREE_PROJECT_PACKAGES" \
 check_sets "project package list" "$TREE_PROJECT_PACKAGES" \
   "$(doc_project_packages)"
 
+# --- the edges inside the project ----------------------------------------------
+#
+# The dependency document says which package depends on which, and it says it
+# in three places: the diagram, the internal dependencies table, and the
+# coupling assessment. The tree says it too, in the manifests: a package that
+# imports another one of the project's packages depends on it.
+#
+# The edges rotted the same way the package list did -- the agent's server was
+# added and the document did not say so -- and a reader planning a change
+# would not know that the agent's server reads the pages and the database.
+#
+# The tree's edge is a pair of package names, and each of the three places is
+# read into that shape, because the three do not spell it the same way.
+#
+# Every place is read. A document that says the right thing in the table and
+# the wrong thing in the diagram has a wrong diagram.
+
+tree_internal_edges() {
+  local pkg dep
+  for pkg in $(find backend frontend cmd -name moon.pkg -type f 2>/dev/null \
+    | sed -E 's|/moon\.pkg$||'); do
+    for dep in $(grep -oE '"riantr/MAKED/[a-z]+(/[a-z]+)?"' "$pkg/moon.pkg" 2>/dev/null \
+      | sed -E 's|"riantr/MAKED/||; s|"||'); do
+      printf '%s %s\n' "$pkg" "$dep"
+    done
+  done | LC_ALL=C sort -u
+}
+
+# The edges the internal dependencies table states: the package in the first
+# cell and the package it depends on in the second.
+doc_table_edges() {
+  awk '
+    /^\|[[:space:]]*Package[[:space:]]*\|/ { inside = 1; next }
+    inside && /^\|/ {
+      first = $0
+      sub(/^\|[[:space:]]*/, "", first)
+      sub(/[[:space:]]*\|.*$/, "", first)
+      gsub(/`/, "", first)
+      sub(/\/$/, "", first)
+      sub(/^root moon\.pkg$/, "root", first)
+      rest = $0
+      sub(/^\|[^|]*\|/, "", rest)
+      second = rest
+      sub(/^[[:space:]]*/, "", second)
+      sub(/[[:space:]]*\|.*$/, "", second)
+      gsub(/`/, "", second)
+      if (first ~ /^[a-z]+(\/[a-z]+)?$/ && second ~ /^[a-z]+(\/[a-z]+)?$/) {
+        print first " " second
+      }
+    }
+    inside && !/^\|/ { exit }
+  ' "$DEPS_MD" | LC_ALL=C sort -u
+}
+
+# The edges the diagram states: a line inside a fenced block that starts with
+# a package name and names the package it depends on after the arrow. The
+# fence is what keeps the prose out: a sentence that starts with a word and
+# carries two more words looks exactly like an edge to a pattern.
+doc_diagram_edges() {
+  awk '
+    /^```$/ { inside = !inside; next }
+    inside { print }
+  ' "$DEPS_MD" | grep -oE '^[a-z]+(/[a-z]+)? +[^ ]+ +[a-z]+(/[a-z]+)?' \
+    | sed -E 's/ +[^ ]+ +/ /' | LC_ALL=C sort -u
+}
+
+TREE_INTERNAL_EDGES=$(tree_internal_edges)
+
+check_sets "package dependencies" "$TREE_INTERNAL_EDGES" "$(doc_table_edges)"
+check_sets "dependency diagram" "$TREE_INTERNAL_EDGES" "$(doc_diagram_edges)"
+
 # --- architecture/flows.md: the paths the requests take ----------------------
 #
 # The flow document traces what happens on the way in and out, and it counts
