@@ -595,6 +595,55 @@ function Get-DocTools {
   Sort-Set $out
 }
 
+# The arguments each tool takes, as "tool argument" pairs.
+#
+# The tool says which schema it has, and the schema says which arguments it
+# has, so the two are followed rather than copied. The schema functions come
+# first in the file and the tool specs after, so one pass is enough: the
+# schemas are collected as they are met, and the tool specs are answered from
+# what was collected.
+function Get-CodeToolArgs {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/agent.mbt'), $enc)
+  $props = @{}
+  $tool = ''
+  $fn = ''
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^fn (agent_[a-z_]*)\(\) -> Json \{') {
+      $fn = $Matches[1]
+      $inside = $true
+      $props[$fn] = @()
+      continue
+    }
+    if ($inside -and $line -match '^\}') { $inside = $false }
+    if ($inside -and $line -match '^      "([a-z_]+)": \{$') {
+      $props[$fn] += $Matches[1]
+      continue
+    }
+    if ($line -match '^      name: "(maked_[a-z_]+)",') { $tool = $Matches[1]; continue }
+    if ($line -match '^      arguments: (agent_[a-z_]*)\(\),') {
+      $schema = $Matches[1]
+      foreach ($arg in @($props[$schema])) { $out += ("{0} {1}" -f $tool, $arg) }
+    }
+  }
+  Sort-Set $out
+}
+
+# The arguments AGENT.md's table gives each tool, as "tool argument" pairs.
+# The arguments sit in the second column, and a tool that takes none says so
+# with a dash rather than with an empty cell.
+function Get-DocToolArgs {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $agentDoc), $enc)
+  foreach ($m in [regex]::Matches($text, '(?m)^\| `(maked_[a-z_]+)` \| ([^|]*)\|')) {
+    $tool = $m.Groups[1].Value
+    foreach ($a in [regex]::Matches($m.Groups[2].Value, '`([^`]+)`')) {
+      $out += ("{0} {1}" -f $tool, $a.Groups[1].Value)
+    }
+  }
+  Sort-Set $out
+}
 # The endpoints the discovery document lists, as "METHOD path".
 function Get-CodeEndpoints {
   $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/agent.mbt'), $enc)
@@ -686,8 +735,15 @@ function Get-DocProtocols {
 
 $codeTools = Get-CodeTools
 $docTools = Get-DocTools
+$codeToolArgs = Get-CodeToolArgs
+$docToolArgs = Get-DocToolArgs
 
 Test-Sets 'agent tools' $codeTools $docTools
+
+# The arguments the document gives each tool have to be the arguments the
+# tool takes. An agent that reads a table without an argument will not send
+# it, and the answer it gets back is not the answer it asked for.
+Test-Sets 'agent arguments' $codeToolArgs $docToolArgs
 
 Test-WordCount 'agent tools (words)' 'tools' $codeTools.Count $agentDoc
 

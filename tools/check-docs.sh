@@ -755,6 +755,65 @@ doc_tools() {
     | sed -E 's/^\| `([^`]+)`.*/\1/' | LC_ALL=C sort -u || true
 }
 
+# The arguments each tool takes, as "tool argument" pairs.
+#
+# The tool says which schema it has, and the schema says which arguments it
+# has, so the two are followed rather than copied. The schema functions come
+# first in the file and the tool specs after, so one pass is enough: the
+# schemas are collected as they are met, and the tool specs are answered from
+# what was collected.
+code_tool_args() {
+  awk '
+    match($0, /^fn agent_[a-z_]*\(\) -> Json \{/) {
+      fn = $0
+      sub(/^fn /, "", fn)
+      sub(/\(\).*/, "", fn)
+      inside = 1
+      next
+    }
+    inside && match($0, /^}/) { inside = 0 }
+    inside && match($0, /^      "[a-z_]+": \{$/) {
+      key = $0
+      sub(/^      "/, "", key)
+      sub(/": \{$/, "", key)
+      props[fn] = props[fn] (props[fn] == "" ? "" : " ") key
+      next
+    }
+    match($0, /^      name: "maked_[a-z_]+",/) {
+      tool = $0
+      sub(/^      name: "/, "", tool)
+      sub(/",$/, "", tool)
+      next
+    }
+    match($0, /^      arguments: agent_[a-z_]*\(\),/) {
+      fn = $0
+      sub(/^      arguments: /, "", fn)
+      sub(/\(\),$/, "", fn)
+      args[tool] = fn
+    }
+    END {
+      for (t in args) {
+        n = split(props[args[t]], list, " ")
+        for (i = 1; i <= n; i++) {
+          if (list[i] != "") printf "%s %s\n", t, list[i]
+        }
+      }
+    }
+  ' backend/agent.mbt | LC_ALL=C sort -u
+}
+
+# The arguments AGENT.md's table gives each tool, as "tool argument" pairs.
+# The arguments sit in the second column, and a tool that takes none says so
+# with a dash rather than with an empty cell.
+doc_tool_args() {
+  grep -oE '^\| `maked_[a-z_]+` \| [^|]*\|' "$AGENT_DOC" \
+    | sed -E 's/^\| `([^`]+)` \| ([^|]*)\|/\1|\2/' \
+    | while IFS='|' read -r tool cell; do
+        for arg in $(printf '%s' "$cell" | grep -oE '`[^`]+`' | tr -d '`'); do
+          printf '%s %s\n' "$tool" "$arg"
+        done
+      done | LC_ALL=C sort -u
+}
 # The endpoints the discovery document lists, as "METHOD path".
 code_endpoints() {
   tr '\n' ' ' < backend/agent.mbt \
@@ -813,6 +872,8 @@ doc_protocols() {
 
 CODE_TOOLS=$(code_tools)
 DOC_TOOLS=$(doc_tools)
+CODE_TOOL_ARGS=$(code_tool_args)
+DOC_TOOL_ARGS=$(doc_tool_args)
 CODE_ENDPOINTS=$(code_endpoints)
 DOC_ENDPOINTS=$(doc_endpoints)
 DOC_ENDPOINT_TOOLS=$(doc_endpoint_tools)
@@ -823,6 +884,11 @@ CODE_PROTOCOL=$(code_protocol)
 DOC_PROTOCOLS=$(doc_protocols)
 
 check_sets "agent tools" "$CODE_TOOLS" "$DOC_TOOLS"
+
+# The arguments the document gives each tool have to be the arguments the
+# tool takes. An agent that reads a table without an argument will not send
+# it, and the answer it gets back is not the answer it asked for.
+check_sets "agent arguments" "$CODE_TOOL_ARGS" "$DOC_TOOL_ARGS"
 
 count_lines "$CODE_TOOLS"
 check_word_count "agent tools (words)" "tools" "$COUNT_LINES" "$AGENT_DOC"
