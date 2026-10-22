@@ -899,6 +899,57 @@ if ($codeAssets.Count -eq 0) {
   $failures++
 }
 
+# --- the container image ------------------------------------------------------
+#
+# The README's `docker run` names the image the release publishes, and the
+# publish workflow is what pushes it. The two have to be the same image: a
+# reader who runs "docker run ghcr.io/riantr/maked:latest" against a
+# registry that holds no such image gets a manifest error and no idea why.
+#
+# The workflow's tags are the source, and only the PATH of a tag is read.
+# The workflow pushes the image under the release's own version and under
+# "latest", so every tag it pushes is one a reader can ask for, and the
+# tag in the document is not the thing that can be wrong. The path is: it
+# has to be lower case, and it has to be the package the release pushed.
+
+function Get-CodeImages {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD '.github/workflows/publish.yml'), $enc)
+  $out = @()
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match 'ghcr\.io/') {
+      $value = $line.Trim()
+      $value = $value -replace ':.*$', ''
+      $out += $value
+    }
+  }
+  Sort-Set $out
+}
+
+# The images the README names.
+function Get-DocImages {
+  $out = @()
+  foreach ($m in [regex]::Matches($readme, 'ghcr\.io/[a-z0-9/_.-]+')) { $out += $m.Groups[0].Value }
+  Sort-Set $out
+}
+
+$codeImages = @(Get-CodeImages)
+$docImages = @(Get-DocImages)
+if ($codeImages.Count -eq 0) {
+  Write-Output ("  {0,-20} no image could be derived from the workflow" -f 'Container image')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($docImages.Count -eq 0) {
+  Write-Output ("  {0,-20} the document names no image" -f 'Container image')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $codeImages $docImages) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Container image', $codeImages.Count)
+} else {
+  Write-Output ("  {0,-20} the workflow says [{1}], the document says [{2}]" -f 'Container image', ($codeImages -join ' '), ($docImages -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+}
+
 # --- the license the document names -------------------------------------------
 #
 # The README says which license the project is under, and the manifest says
