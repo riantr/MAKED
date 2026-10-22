@@ -738,6 +738,49 @@ else
   ok "container port" "$DEFAULT_PORT"
 fi
 
+# --- what the Dockerfile says about itself -------------------------------------
+#
+# The Dockerfile's header is a document like any other: it tells the reader
+# how to run the image, and it states two things about the file that have
+# to be true.
+#
+# The healthcheck asks the server a question, and the question has to be
+# one the server answers. A healthcheck that asks for a route that is not
+# there fails every time, and the container is reported unhealthy while the
+# server inside it is working perfectly.
+#
+# The two stages have to be built on the same image, and the file says so:
+# a binary built against a newer glibc than the runtime image has fails at
+# start-up with a version error that reads like a corrupt download.
+
+HEALTHCHECK_PATHS=$(grep -oE '/api/[a-z0-9/_-]+' Dockerfile | LC_ALL=C sort -u || true)
+if [ -z "$HEALTHCHECK_PATHS" ]; then
+  fail "$(printf '%-22s the Dockerfile asks the server nothing' 'healthcheck')"
+else
+  UNKNOWN_PATH=""
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    if ! printf '%s\n' "$TREE_ENDPOINTS" | awk '{ print $2 }' | grep -qxF "$path"; then
+      UNKNOWN_PATH="$UNKNOWN_PATH $path"
+    fi
+  done <<< "$HEALTHCHECK_PATHS"
+  if [ -n "$UNKNOWN_PATH" ]; then
+    fail "$(printf '%-22s the server does not serve:%s' 'healthcheck' "$UNKNOWN_PATH")"
+  else
+    ok "healthcheck" "$(printf '%s\n' "$HEALTHCHECK_PATHS" | tr '\n' ' ' | sed -e 's/ *$//')"
+  fi
+fi
+
+BASE_IMAGES=$(grep -oE '^FROM [^ ]+' Dockerfile | sed -E 's/^FROM //' | LC_ALL=C sort -u || true)
+if [ -z "$BASE_IMAGES" ]; then
+  fail "$(printf '%-22s no base image could be derived from the Dockerfile' 'base image')"
+elif [ "$(printf '%s\n' "$BASE_IMAGES" | grep -c .)" -gt 1 ]; then
+  fail "$(printf '%-22s the stages are built on different images: [%s]' \
+    'base image' "$(printf '%s\n' "$BASE_IMAGES" | tr '\n' ' ' | sed -e 's/ *$//')")"
+else
+  ok "base image" "$(printf '%s\n' "$BASE_IMAGES" | head -1)"
+fi
+
 # --- the documents that describe the past -------------------------------------
 #
 # Seven documents were written to record the analysis that produced the

@@ -612,6 +612,56 @@ if ([string]::IsNullOrEmpty($defaultPort)) {
   Write-Ok 'container port' $defaultPort
 }
 
+# --- what the Dockerfile says about itself -------------------------------------
+#
+# The Dockerfile's header is a document like any other: it tells the reader
+# how to run the image, and it states two things about the file that have
+# to be true.
+#
+# The healthcheck asks the server a question, and the question has to be
+# one the server answers. A healthcheck that asks for a route that is not
+# there fails every time, and the container is reported unhealthy while the
+# server inside it is working perfectly.
+#
+# The two stages have to be built on the same image, and the file says so:
+# a binary built against a newer glibc than the runtime image has fails at
+# start-up with a version error that reads like a corrupt download.
+
+$dockerfile = [System.IO.File]::ReadAllText((Join-Path $PWD 'Dockerfile'), $enc)
+
+$healthcheckPaths = @()
+foreach ($m in [regex]::Matches($dockerfile, '/api/[a-z0-9/_-]+')) { $healthcheckPaths += $m.Groups[0].Value }
+$healthcheckPaths = @(Sort-Set $healthcheckPaths)
+
+$routePaths = @()
+foreach ($endpoint in (Get-TreeEndpoints)) { $routePaths += ($endpoint -split ' ')[1] }
+
+if ($healthcheckPaths.Count -eq 0) {
+  Write-Fail ("{0,-22} the Dockerfile asks the server nothing" -f 'healthcheck')
+} else {
+  $unknownPath = @()
+  foreach ($path in $healthcheckPaths) {
+    if ($routePaths -cnotcontains $path) { $unknownPath += $path }
+  }
+  if ($unknownPath.Count -gt 0) {
+    Write-Fail ("{0,-22} the server does not serve: {1}" -f 'healthcheck', ($unknownPath -join ' '))
+  } else {
+    Write-Ok 'healthcheck' ($healthcheckPaths -join ' ')
+  }
+}
+
+$baseImages = @()
+foreach ($m in [regex]::Matches($dockerfile, '(?m)^FROM (\S+)')) { $baseImages += $m.Groups[1].Value }
+$baseImages = @(Sort-Set $baseImages)
+
+if ($baseImages.Count -eq 0) {
+  Write-Fail ("{0,-22} no base image could be derived from the Dockerfile" -f 'base image')
+} elseif ($baseImages.Count -gt 1) {
+  Write-Fail ("{0,-22} the stages are built on different images: [{1}]" -f 'base image', ($baseImages -join ' '))
+} else {
+  Write-Ok 'base image' $baseImages[0]
+}
+
 # --- the documents that describe the past -------------------------------------
 #
 # Seven documents were written to record the analysis that produced the
