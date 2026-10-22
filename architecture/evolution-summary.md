@@ -22,7 +22,7 @@ By using the Architecture Visualization plugin for the analysis, **6 evolution s
 
 **Impact**: the core functionality was unusable — clicking the front-end Step button left the state unchanged.
 
-**Resolution**: drive slots are no longer hard-coded per domain; they are now derived from the pyroduct transition table at runtime (`drive_slot(state)` prefers an edge whose outcome is `Moved`, otherwise the first exitable slot), and the API reports `blocked` / `undecided` honestly instead of rotating a cursor that changes no position. See "Slice 1 Completed" in `architecture-evolution-roadmap.md`.
+**Resolution**: drive slots are no longer hard-coded per domain; they are now derived from the pyroduct transition table at runtime (`drive_slot(state)` prefers an edge whose outcome is `Moved`, otherwise the first exitable slot), and the API reports `blocked` / `undecided` honestly instead of rotating a cursor that changes no position. See "Slice 1 Completed" in `architecture/evolution-roadmap.md`.
 
 ### 2. Test coverage blind spot
 **Status**: all 76 unit tests pass, but API integration tests are missing.
@@ -149,10 +149,10 @@ Slice 2 (integration tests)   ───┘                               ├─�
 
 ## Deliverables
 
-1. **`architecture-evolution-roadmap.md`**: the detailed evolution roadmap, containing the approach, effort, risks and validation signals of the 6 slices
-2. **`current-vs-target-architecture.dot`**: comparison diagram of the current architecture against the target architecture (Graphviz DOT format)
-3. **`migration-dependency-graph.dot`**: migration dependency graph, showing the dependencies between slices and the critical path
-4. **`evolution-summary.md`**: this document, summarising the core findings and the next steps
+1. **`architecture/evolution-roadmap.md`**: the detailed evolution roadmap, containing the approach, effort, risks and validation signals of the 6 slices
+2. **`architecture/current-vs-target.dot`**: comparison diagram of the current architecture against the target architecture (Graphviz DOT format)
+3. **`architecture/migration-dependency.dot`**: migration dependency graph, showing the dependencies between slices and the critical path
+4. **`architecture/evolution-summary.md`**: this document, summarising the core findings and the next steps
 
 ## Tool Usage Summary
 

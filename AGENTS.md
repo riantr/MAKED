@@ -134,8 +134,8 @@ Model Context Protocol details.
   claim says is the dangerous kind: it looks verified. So the documents say
   what the claim IS next to the pointer, and the gate checks the mechanical
   half. FOUR of them describe the PAST -- `architecture/evolution.md`,
-  `architecture/evolution.evidence.md`, `evolution-summary.md` and
-  `architecture-evolution-roadmap.md` keep the reasoning for the migration
+  `architecture/evolution.evidence.md`, `architecture/evolution-summary.md` and
+  `architecture/evolution-roadmap.md` keep the reasoning for the migration
   slices -- and they carry a header saying so rather than being rewritten;
   rewriting them would destroy the reason the slices exist. The gate checks
   the header too, because a header is easy to lose in an edit and a claim

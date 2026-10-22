@@ -635,10 +635,48 @@ check_exists "publish workflow" ".github/workflows/publish.yml"
 #
 # The gate checks the header, because a header is easy to lose in an edit,
 # and a claim that is history without saying so is a lie.
+#
+# The marker is also how a document opts out of the count checks: the graphs
+# that say they describe the past are the ones that are not counted against
+# the tree. That is the right way round -- the document says what it is --
+# but it means the marker has to be checked against something. A graph that
+# claimed to be history and was not one of the seven would slip out of the
+# count checks without anybody noticing, so the gate knows which documents
+# are history, and the two sets have to be the same set.
+#
+# The documents are read once: the marker is looked for in each of them, and
+# the answer is used for the header check and for the check that the two sets
+# are the same set.
+
+# The documents the gate knows as history.
+PAST_DOCS="architecture/evolution.md
+architecture/evolution.evidence.md
+architecture/evolution.dot
+architecture/evolution-summary.md
+architecture/evolution-roadmap.md
+architecture/current-vs-target.dot
+architecture/migration-dependency.dot"
+
+# The documents that carry the marker, as the tree says it. Every document
+# in the architecture folder is a candidate: the marker is what makes one of
+# them history.
+marked_documents() {
+  local file
+  for file in architecture/*.md architecture/*.dot; do
+    [ -e "$file" ] || continue
+    if grep -qF 'This document describes the past.' "$file"; then
+      printf '%s\n' "$file"
+    fi
+  done | LC_ALL=C sort -u
+}
+
+MARKED_DOCS=$(marked_documents)
 
 check_past_header() {
   local doc="$1"
-  if grep -qF 'This document describes the past.' "$doc"; then
+  # The marker has already been looked for: the answer is in MARKED_DOCS.
+  not_in "$doc" "$MARKED_DOCS"
+  if [ -z "$NOT_IN" ]; then
     ok "past header" "$doc"
   else
     fail "$(printf '%-22s %s does not say that it describes the past' \
@@ -646,16 +684,14 @@ check_past_header() {
   fi
 }
 
-for doc in architecture/evolution.md architecture/evolution.evidence.md \
-           architecture/evolution.dot evolution-summary.md \
-           architecture-evolution-roadmap.md \
-           current-vs-target-architecture.dot migration-dependency-graph.dot; do
+while IFS= read -r doc; do
+  [ -n "$doc" ] || continue
   check_past_header "$doc"
-done
+done <<< "$PAST_DOCS"
 
 # The three graphs say it in their title as well, because a title is what a
-# reader sees once the graph is rendered. A graph that keeps the marker in
-# its source and loses it from its picture has lost it for half its readers,
+# reader sees once the graph is rendered. A graph that keeps the marker in its
+# source and loses it from its picture has lost it for half its readers,
 # and the source comment does not travel with the SVG.
 check_past_title() {
   local doc="$1"
@@ -667,10 +703,28 @@ check_past_title() {
   fi
 }
 
-for doc in architecture/evolution.dot current-vs-target-architecture.dot \
-           migration-dependency-graph.dot; do
-  check_past_title "$doc"
-done
+# The graphs are the documents on the list that are graphs.
+while IFS= read -r doc; do
+  [ -n "$doc" ] || continue
+  case "$doc" in
+    *.dot) check_past_title "$doc" ;;
+  esac
+done <<< "$PAST_DOCS"
+
+# Every document that carries the marker is one the gate knows as history. A
+# document that is not on the list has slipped out of the count checks.
+check_past_documents() {
+  not_in "$MARKED_DOCS" "$PAST_DOCS"
+  if [ -z "$NOT_IN" ]; then
+    count_lines "$MARKED_DOCS"
+    ok "past documents" "$COUNT_LINES"
+    return
+  fi
+  fail "$(printf '%-22s the tree says [%s] describes the past, and the gate does not know it' \
+    'past documents' "$NOT_IN")"
+}
+
+check_past_documents
 
 # --- AGENT.md: the document for another agent -------------------------------
 #

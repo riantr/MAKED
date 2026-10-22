@@ -39,10 +39,10 @@ _maked_wsl_probe*
 # Docs and tooling that the image does not need. README.md and LICENSE stay in
 # the context: moon.mod names the README, and a missing file that a tool
 # expects is a worse problem than a few kilobytes of context.
-architecture-evolution-roadmap.md
-current-vs-target-architecture.dot
-evolution-summary.md
-migration-dependency-graph.dot
+architecture/evolution-roadmap.md
+architecture/current-vs-target.dot
+architecture/evolution-summary.md
+architecture/migration-dependency.dot
 build.ps1
 ci.sh
 tools

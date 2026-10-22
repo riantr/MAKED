@@ -477,20 +477,57 @@ Test-Exists 'publish workflow' '.github/workflows/publish.yml'
 #
 # The gate checks the header, because a header is easy to lose in an edit,
 # and a claim that is history without saying so is a lie.
+#
+# The marker is also how a document opts out of the count checks: the graphs
+# that say they describe the past are the ones that are not counted against
+# the tree. That is the right way round -- the document says what it is --
+# but it means the marker has to be checked against something. A graph that
+# claimed to be history and was not one of the seven would slip out of the
+# count checks without anybody noticing, so the gate knows which documents
+# are history, and the two sets have to be the same set.
+#
+# The documents are read once: the marker is looked for in each of them, and
+# the answer is used for the header check and for the check that the two sets
+# are the same set.
+
+# The documents the gate knows as history.
+$pastDocs = @(
+  'architecture/evolution.md'
+  'architecture/evolution.evidence.md'
+  'architecture/evolution.dot'
+  'architecture/evolution-summary.md'
+  'architecture/evolution-roadmap.md'
+  'architecture/current-vs-target.dot'
+  'architecture/migration-dependency.dot'
+)
+
+# The documents that carry the marker, as the tree says it. Every document
+# in the architecture folder is a candidate: the marker is what makes one of
+# them history.
+function Get-MarkedDocuments {
+  $out = @()
+  foreach ($file in @(Get-ChildItem -Path 'architecture' -File |
+      Where-Object { $_.Extension -eq '.md' -or $_.Extension -eq '.dot' })) {
+    $text = [System.IO.File]::ReadAllText($file.FullName, $enc)
+    if ($text.Contains('This document describes the past.')) {
+      $out += ('architecture/' + $file.Name)
+    }
+  }
+  Sort-Set $out
+}
+
+$markedDocs = @(Get-MarkedDocuments)
 
 function Test-PastHeader($doc) {
-  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $doc), $enc)
-  if ($text.Contains('This document describes the past.')) {
+  # The marker has already been looked for: the answer is in $markedDocs.
+  if ($markedDocs -ccontains $doc) {
     Write-Ok 'past header' $doc
   } else {
     Write-Fail ("{0,-22} {1} does not say that it describes the past" -f 'past header', $doc)
   }
 }
 
-foreach ($doc in @('architecture/evolution.md', 'architecture/evolution.evidence.md',
-                    'architecture/evolution.dot', 'evolution-summary.md',
-                    'architecture-evolution-roadmap.md',
-                    'current-vs-target-architecture.dot', 'migration-dependency-graph.dot')) {
+foreach ($doc in $pastDocs) {
   Test-PastHeader $doc
 }
 
@@ -507,9 +544,18 @@ function Test-PastTitle($doc) {
   }
 }
 
-foreach ($doc in @('architecture/evolution.dot', 'current-vs-target-architecture.dot',
-                    'migration-dependency-graph.dot')) {
-  Test-PastTitle $doc
+# The graphs are the documents on the list that are graphs.
+foreach ($doc in $pastDocs) {
+  if ($doc.EndsWith('.dot')) { Test-PastTitle $doc }
+}
+
+# Every document that carries the marker is one the gate knows as history. A
+# document that is not on the list has slipped out of the count checks.
+$unknownPast = @($markedDocs | Where-Object { $pastDocs -cnotcontains $_ })
+if ($unknownPast.Count -eq 0) {
+  Write-Ok 'past documents' $markedDocs.Count
+} else {
+  Write-Fail ("{0,-22} the tree says [{1}] describes the past, and the gate does not know it" -f 'past documents', ($unknownPast -join ' '))
 }
 
 # --- AGENT.md: the document for another agent -------------------------------
