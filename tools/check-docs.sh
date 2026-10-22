@@ -886,6 +886,13 @@ check_past_documents() {
 
 check_past_documents
 
+# The number of documents that describe the past, as AGENTS.md states it. The
+# word is read like any other count: "SEVEN of them describe the PAST" is a
+# claim about the tree, and the tree has seven. It was four once, and the
+# three graphs that joined the history were never counted.
+check_word_count "agent guide past" "of them describe the PAST" \
+  "$(printf '%s\n' "$MARKED_DOCS" | grep -c .)" "$AGENTS_DOC"
+
 # --- AGENT.md: the document for another agent -------------------------------
 #
 # The discovery document at `GET /api/agent` is what an agent reads, and

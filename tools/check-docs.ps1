@@ -757,6 +757,12 @@ if ($unknownPast.Count -eq 0) {
   Write-Fail ("{0,-22} the tree says [{1}] describes the past, and the gate does not know it" -f 'past documents', ($unknownPast -join ' '))
 }
 
+# The number of documents that describe the past, as AGENTS.md states it. The
+# word is read like any other count: "SEVEN of them describe the PAST" is a
+# claim about the tree, and the tree has seven. It was four once, and the
+# three graphs that joined the history were never counted.
+Test-WordCount 'agent guide past' 'of them describe the PAST' $markedDocs.Count $agentsDoc
+
 # --- AGENT.md: the document for another agent -------------------------------
 #
 # The discovery document at `GET /api/agent` is what an agent reads, and
