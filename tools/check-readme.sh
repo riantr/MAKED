@@ -775,6 +775,55 @@ else
     "$(printf '%s\n' "$DOC_FILE_FORMATS" | tr '\n' ' ' | sed -e 's/ *$//')")"
 fi
 
+# The names the CI workflow gives its jobs. A job is written as a key with a
+# name under it, and the name is what the runner shows and what a reader
+# looks for in the list of things that have to be green.
+#
+# The step names are written as "- name:", so the four spaces of a job's own
+# name are what tells the two apart.
+code_job_names() {
+  awk '
+    /^jobs:/ { inside = 1; next }
+    inside && /^    name: / { print substr($0, 11) }
+  ' .github/workflows/ci.yml | LC_ALL=C sort -u
+}
+
+# The names the README gives them, in the sentence that lists the jobs. The
+# sentence is found by its own shape -- "jobs, all of which have to be
+# green" -- so a job named in some other part of the document is not read as
+# a claim about this list. The list runs onto the line below, so that line is
+# read as well.
+doc_job_names() {
+  awk '
+    /jobs, all of which have to be green/ { grab = 2 }
+    grab > 0 {
+      line = $0
+      while (match(line, /\*\*[^*]+\*\*/)) {
+        print substr(line, RSTART + 2, RLENGTH - 4)
+        line = substr(line, RSTART + RLENGTH)
+      }
+      grab--
+    }
+  ' "$README" | LC_ALL=C sort -u
+}
+
+# The names of the CI jobs. The COUNT of them is checked as a word further
+# down, and a count of six is not the same claim as the six names: a job
+# that is renamed leaves the count right and the name wrong, and a reader
+# watching the pipeline for "Build (js)" is watching for a job that is not
+# there.
+CODE_JOB_NAMES=$(code_job_names)
+DOC_JOB_NAMES=$(doc_job_names)
+if [ -z "$CODE_JOB_NAMES" ]; then
+  fail "$(printf '%-20s no job name could be derived from the workflow' 'CI jobs')"
+elif same_members "$CODE_JOB_NAMES" "$DOC_JOB_NAMES"; then
+  printf '  ok      %-20s %s\n' 'CI jobs' "$(printf '%s\n' "$CODE_JOB_NAMES" | grep -c .)"
+else
+  fail "$(printf '%-20s the tree says [%s], the document says [%s]' \
+    'CI jobs' \
+    "$(printf '%s\n' "$CODE_JOB_NAMES" | tr '\n' ' ' | sed -e 's/ *$//')" \
+    "$(printf '%s\n' "$DOC_JOB_NAMES" | tr '\n' ' ' | sed -e 's/ *$//')")"
+fi
 CODE_CORPUS_KINDS=$(code_corpus_kinds)
 DOC_CORPUS_KINDS=$(doc_corpus_kinds)
 if [ -z "$CODE_CORPUS_KINDS" ]; then

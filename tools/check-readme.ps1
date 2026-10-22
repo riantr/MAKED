@@ -817,6 +817,58 @@ if ($codeFileFormats.Count -eq 0) {
   $failures++
 }
 
+# The names the CI workflow gives its jobs. A job is written as a key with a
+# name under it, and the name is what the runner shows and what a reader
+# looks for in the list of things that have to be green.
+#
+# The step names are written as "- name:", so the four spaces of a job's own
+# name are what tells the two apart.
+function Get-CodeJobNames {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD '.github/workflows/ci.yml'), $enc)
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^jobs:') { $inside = $true; continue }
+    if ($inside -and $line -match '^    name: (.+)$') { $out += $Matches[1] }
+  }
+  Sort-Set $out
+}
+
+# The names the README gives them, in the sentence that lists the jobs. The
+# sentence is found by its own shape -- "jobs, all of which have to be
+# green" -- so a job named in some other part of the document is not read as
+# a claim about this list. The list runs onto the line below, so that line is
+# read as well.
+function Get-DocJobNames {
+  $out = @()
+  $grab = 0
+  foreach ($line in ($readme -split "`r?`n")) {
+    if ($grab -eq 0 -and $line -match 'jobs, all of which have to be green') { $grab = 2 }
+    if ($grab -eq 0) { continue }
+    foreach ($m in [regex]::Matches($line, '\*\*([^*]+)\*\*')) { $out += $m.Groups[1].Value }
+    $grab--
+  }
+  Sort-Set $out
+}
+
+# The names of the CI jobs. The COUNT of them is checked as a word further
+# down, and a count of six is not the same claim as the six names: a job
+# that is renamed leaves the count right and the name wrong, and a reader
+# watching the pipeline for "Build (js)" is watching for a job that is not
+# there.
+$codeJobNames = @(Get-CodeJobNames)
+$docJobNames = @(Get-DocJobNames)
+if ($codeJobNames.Count -eq 0) {
+  Write-Output ("  {0,-20} no job name could be derived from the workflow" -f 'CI jobs')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $codeJobNames $docJobNames) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'CI jobs', $codeJobNames.Count)
+} else {
+  Write-Output ("  {0,-20} the tree says [{1}], the document says [{2}]" -f 'CI jobs', ($codeJobNames -join ' '), ($docJobNames -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+}
 $codeCorpusKinds = @(Get-CodeCorpusKinds)
 $docCorpusKinds = @(Get-DocCorpusKinds)
 if ($codeCorpusKinds.Count -eq 0) {
