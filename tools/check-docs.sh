@@ -685,6 +685,59 @@ check_exists "compose file" "docker-compose.yml"
 check_exists "CI workflow" ".github/workflows/ci.yml"
 check_exists "publish workflow" ".github/workflows/publish.yml"
 
+# --- the port the container publishes ------------------------------------------
+#
+# The port is one number in this project, and it is written in five places:
+# the server's default, the Dockerfile's environment, the Dockerfile's EXPOSE
+# line, the compose file's environment, and the mapping the compose file
+# publishes. They all have to be the same one.
+#
+# The Dockerfile sets MAKED_PORT itself, so a container keeps working even
+# when the server's default moves -- which is exactly why the drift is
+# invisible. The reader is told to open one port and the container listens
+# on another, and the symptom is a browser that waits and then says the
+# connection was refused.
+#
+# The server's default is the source: it is the port the server listens on
+# when nothing sets it, and every other number has to be that one.
+
+code_default_port() {
+  grep -ohE 'env_or\("MAKED_PORT", "[0-9]+"\)' cmd/server/main.mbt \
+    | sed -E 's/.*"([0-9]+)".*/\1/' | head -1 || true
+}
+
+# The ports the Dockerfile writes: the one it sets, the one it exposes, and
+# the mapping in the command its own header tells the reader to run.
+dockerfile_ports() {
+  grep -oE 'MAKED_PORT=[0-9]+' Dockerfile | sed -E 's/.*=//' || true
+  grep -oE '^EXPOSE [0-9]+' Dockerfile | sed -E 's/^EXPOSE //' || true
+  grep -oE '\-p [0-9]+:[0-9]+' Dockerfile | sed -E 's/\-p //' | tr ':' '\n' || true
+}
+
+# The ports the compose file writes: the one it sets and the two sides of
+# the mapping it publishes.
+compose_ports() {
+  grep -oE 'MAKED_PORT: "[0-9]+"' docker-compose.yml | sed -E 's/.*: "//; s/"$//' || true
+  grep -oE '"[0-9]+:[0-9]+"' docker-compose.yml | tr -d '"' | tr ':' '\n' || true
+}
+
+DEFAULT_PORT=$(code_default_port)
+WRONG_PORT=""
+while IFS= read -r port; do
+  [ -n "$port" ] || continue
+  if [ "$port" != "$DEFAULT_PORT" ]; then
+    WRONG_PORT="$WRONG_PORT $port"
+  fi
+done <<< "$( { dockerfile_ports; compose_ports; } )"
+if [ -z "$DEFAULT_PORT" ]; then
+  fail "$(printf '%-22s the server does not name a default port' 'container port')"
+elif [ -n "$WRONG_PORT" ]; then
+  fail "$(printf '%-22s the server uses %s, and these ports are not it:%s' \
+    'container port' "$DEFAULT_PORT" "$WRONG_PORT")"
+else
+  ok "container port" "$DEFAULT_PORT"
+fi
+
 # --- the documents that describe the past -------------------------------------
 #
 # Seven documents were written to record the analysis that produced the

@@ -550,6 +550,68 @@ Test-Exists 'compose file' 'docker-compose.yml'
 Test-Exists 'CI workflow' '.github/workflows/ci.yml'
 Test-Exists 'publish workflow' '.github/workflows/publish.yml'
 
+# --- the port the container publishes ------------------------------------------
+#
+# The port is one number in this project, and it is written in five places:
+# the server's default, the Dockerfile's environment, the Dockerfile's EXPOSE
+# line, the compose file's environment, and the mapping the compose file
+# publishes. They all have to be the same one.
+#
+# The Dockerfile sets MAKED_PORT itself, so a container keeps working even
+# when the server's default moves -- which is exactly why the drift is
+# invisible. The reader is told to open one port and the container listens
+# on another, and the symptom is a browser that waits and then says the
+# connection was refused.
+#
+# The server's default is the source: it is the port the server listens on
+# when nothing sets it, and every other number has to be that one.
+
+function Get-CodeDefaultPort {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'cmd/server/main.mbt'), $enc)
+  $m = [regex]::Match($text, 'env_or\("MAKED_PORT", "([0-9]+)"\)')
+  if ($m.Success) { $m.Groups[1].Value } else { '' }
+}
+
+# The ports the Dockerfile writes: the one it sets, the one it exposes, and
+# the mapping in the command its own header tells the reader to run.
+function Get-DockerfilePorts {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'Dockerfile'), $enc)
+  foreach ($m in [regex]::Matches($text, 'MAKED_PORT=([0-9]+)')) { $out += $m.Groups[1].Value }
+  foreach ($m in [regex]::Matches($text, '(?m)^EXPOSE ([0-9]+)')) { $out += $m.Groups[1].Value }
+  foreach ($m in [regex]::Matches($text, '\-p ([0-9]+):([0-9]+)')) {
+    $out += $m.Groups[1].Value
+    $out += $m.Groups[2].Value
+  }
+  $out
+}
+
+# The ports the compose file writes: the one it sets and the two sides of
+# the mapping it publishes.
+function Get-ComposePorts {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'docker-compose.yml'), $enc)
+  foreach ($m in [regex]::Matches($text, 'MAKED_PORT: "([0-9]+)"')) { $out += $m.Groups[1].Value }
+  foreach ($m in [regex]::Matches($text, '"([0-9]+):([0-9]+)"')) {
+    $out += $m.Groups[1].Value
+    $out += $m.Groups[2].Value
+  }
+  $out
+}
+
+$defaultPort = Get-CodeDefaultPort
+$wrongPort = @()
+foreach ($port in (@(Get-DockerfilePorts) + @(Get-ComposePorts))) {
+  if ($port -cne $defaultPort) { $wrongPort += $port }
+}
+if ([string]::IsNullOrEmpty($defaultPort)) {
+  Write-Fail ("{0,-22} the server does not name a default port" -f 'container port')
+} elseif ($wrongPort.Count -gt 0) {
+  Write-Fail ("{0,-22} the server uses {1}, and these ports are not it: {2}" -f 'container port', $defaultPort, ($wrongPort -join ' '))
+} else {
+  Write-Ok 'container port' $defaultPort
+}
+
 # --- the documents that describe the past -------------------------------------
 #
 # Seven documents were written to record the analysis that produced the
