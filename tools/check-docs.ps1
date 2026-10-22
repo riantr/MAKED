@@ -420,7 +420,11 @@ function Test-References($doc) {
     $file = $ref.Groups[1].Value
     $last = if ($ref.Groups[3].Success) { [int]$ref.Groups[3].Value } else { [int]$ref.Groups[2].Value }
     if (-not $distinct.ContainsKey($ref.Value)) { $distinct[$ref.Value] = $true }
-    $key = "$file`:$last"
+    # The key is the reference AS WRITTEN, minus the backticks: a range stays
+    # a range. The bash twin keys the same way, so the two check the same
+    # references, skip the same repeats and say the same thing when one of
+    # them points at nothing.
+    $key = ($ref.Value -replace '`', '')
     if ($seen.ContainsKey($key)) { continue }
     $seen[$key] = $true
     $path = Join-Path $PWD $file
@@ -2039,6 +2043,102 @@ $treeInternalEdges = @(Get-TreeInternalEdges)
 
 Test-Sets 'package dependencies' $treeInternalEdges (Get-DocTableEdges)
 Test-Sets 'dependency diagram' $treeInternalEdges (Get-DocDiagramEdges)
+
+# --- the keys the page carries ------------------------------------------------
+#
+# The change impact table says which key the backend writes and which key the
+# frontend reads, one row per key, and those two columns are the contract
+# between the two halves of the project: a key the backend stopped writing is
+# a field the frontend silently reads as its fallback, and a key the frontend
+# stopped reading is a field nobody sees.
+#
+# The tree is the contract. The backend's keys are the ones Page::to_json
+# writes, and the frontend's keys are the ones page_from_json reads. The
+# document has to state the same two sets, because the table is where a
+# reader looks to see what a change to the page shape will move.
+#
+# The two columns are read separately, because they are two claims: the
+# backend's keys and the frontend's keys are the same set today, and a
+# document that says so in one column and not in the other is wrong in one of
+# them.
+
+# The lines of a function body: from the line that starts it to the line that
+# closes the value it returns. The closing line is the one indented by two
+# spaces, which is where the block the keys live in ends.
+function Get-FunctionLines($path, $startPattern) {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $path), $enc)
+  $out = @()
+  $inside = $false
+  foreach ($line in ($text -split "`n")) {
+    if ($line -match $startPattern) { $inside = $true }
+    if (-not $inside) { continue }
+    if ($line -match '^  \}') { break }
+    $out += $line
+  }
+  $out
+}
+
+# The keys the backend writes: the ones Page::to_json puts in the JSON.
+function Get-TreePageJsonKeys {
+  $out = @()
+  foreach ($line in (Get-FunctionLines 'backend/pages.mbt' 'pub fn Page::to_json')) {
+    foreach ($m in [regex]::Matches($line, '"([a-z_]+)":')) {
+      $out += $m.Groups[1].Value
+    }
+  }
+  Sort-Set $out
+}
+
+# The keys the frontend reads: the ones page_from_json asks the JSON for.
+function Get-TreePageDecoderKeys {
+  $out = @()
+  foreach ($line in (Get-FunctionLines 'frontend/page.mbt' 'fn page_from_json')) {
+    foreach ($m in [regex]::Matches($line, 'get_(?:string|bool|int)\(json, "([a-z_]+)"')) {
+      $out += $m.Groups[1].Value
+    }
+  }
+  Sort-Set $out
+}
+
+# The keys the change impact table says the backend writes: the second cell
+# of every row of that table.
+function Get-DocPageJsonKeys {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $deps), $enc)
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^\|\s*Backend function\s*\|') { $inside = $true; continue }
+    if (-not $inside) { continue }
+    if ($line -notmatch '^\|') { break }
+    $cells = ($line -replace '^\|\s*', '') -split '\|'
+    $cell = ($cells[1] -replace '[\s"`]', '')
+    if ($cell -cmatch '^[a-z_]+$') { $out += $cell }
+  }
+  Sort-Set $out
+}
+
+# The keys the same table says the frontend reads: the quoted key inside the
+# consumer in the third cell.
+function Get-DocPageDecoderKeys {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $deps), $enc)
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^\|\s*Backend function\s*\|') { $inside = $true; continue }
+    if (-not $inside) { continue }
+    if ($line -notmatch '^\|') { break }
+    $cells = ($line -replace '^\|\s*', '') -split '\|'
+    $m = [regex]::Match([string]$cells[2], '"([a-z_]+)"')
+    if ($m.Success) { $out += $m.Groups[1].Value }
+  }
+  Sort-Set $out
+}
+
+$treePageJsonKeys = @(Get-TreePageJsonKeys)
+$treePageDecoderKeys = @(Get-TreePageDecoderKeys)
+
+Test-Sets 'page json keys' $treePageJsonKeys (Get-DocPageJsonKeys)
+Test-Sets 'page decoder keys' $treePageDecoderKeys (Get-DocPageDecoderKeys)
 
 # --- architecture/flows.md: the paths the requests take ----------------------
 #

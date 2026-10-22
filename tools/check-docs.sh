@@ -2064,6 +2064,71 @@ TREE_INTERNAL_EDGES=$(tree_internal_edges)
 check_sets "package dependencies" "$TREE_INTERNAL_EDGES" "$(doc_table_edges)"
 check_sets "dependency diagram" "$TREE_INTERNAL_EDGES" "$(doc_diagram_edges)"
 
+# --- the keys the page carries ------------------------------------------------
+#
+# The change impact table says which key the backend writes and which key the
+# frontend reads, one row per key, and those two columns are the contract
+# between the two halves of the project: a key the backend stopped writing is
+# a field the frontend silently reads as its fallback, and a key the frontend
+# stopped reading is a field nobody sees.
+#
+# The tree is the contract. The backend's keys are the ones Page::to_json
+# writes, and the frontend's keys are the ones page_from_json reads. The
+# document has to state the same two sets, because the table is where a
+# reader looks to see what a change to the page shape will move.
+#
+# The two columns are read separately, because they are two claims: the
+# backend's keys and the frontend's keys are the same set today, and a
+# document that says so in one column and not in the other is wrong in one of
+# them.
+
+code_page_json_keys() {
+  awk '
+    /pub fn Page::to_json/ { inside = 1 }
+    inside && /^  \}/ { exit }
+    inside { print }
+  ' backend/pages.mbt | grep -oE '"[a-z_]+":' | tr -d '":' | LC_ALL=C sort -u
+}
+
+code_page_decoder_keys() {
+  awk '
+    /fn page_from_json/ { inside = 1 }
+    inside && /^  \}/ { exit }
+    inside { print }
+  ' frontend/page.mbt | grep -oE 'get_(string|bool|int)\(json, "[a-z_]+"' \
+    | grep -oE '"[a-z_]+"' | tr -d '"' | LC_ALL=C sort -u
+}
+
+# The keys the change impact table says the backend writes: the second cell
+# of every row of that table.
+doc_page_json_keys() {
+  awk -F'|' '
+    /^\|[[:space:]]*Backend function[[:space:]]*\|/ { inside = 1; next }
+    inside && /^\|/ {
+      cell = $3
+      gsub(/[[:space:]"`]/, "", cell)
+      if (cell ~ /^[a-z_]+$/) print cell
+    }
+    inside && !/^\|/ { exit }
+  ' "$DEPS" | LC_ALL=C sort -u
+}
+
+# The keys the same table says the frontend reads: the quoted key inside the
+# consumer in the third cell.
+doc_page_decoder_keys() {
+  awk -F'|' '
+    /^\|[[:space:]]*Backend function[[:space:]]*\|/ { inside = 1; next }
+    inside && /^\|/ {
+      cell = $4
+      if (match(cell, /"[a-z_]+"/)) print substr(cell, RSTART + 1, RLENGTH - 2)
+    }
+    inside && !/^\|/ { exit }
+  ' "$DEPS" | LC_ALL=C sort -u
+}
+
+check_sets "page json keys" "$(code_page_json_keys)" "$(doc_page_json_keys)"
+check_sets "page decoder keys" "$(code_page_decoder_keys)" "$(doc_page_decoder_keys)"
+
 # --- architecture/flows.md: the paths the requests take ----------------------
 #
 # The flow document traces what happens on the way in and out, and it counts
