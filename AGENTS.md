@@ -113,7 +113,7 @@ Model Context Protocol details.
   and every library version it names has to be the one the manifest pins --
   a version the reader would install is not the one this project runs.
   The counts the README writes as WORDS are checked the same way: "seven
-  tools", "ten pages", "Six jobs" and the rest are derived from the tree and
+  tools", "ten pages" and the rest are derived from the tree and
   compared with what the document says, because a count written as a word is
   a count like any other, and a gate that only reads digits lets the words
   rot. The five domain names are checked as a set as well, because a count
@@ -199,3 +199,39 @@ Model Context Protocol details.
   $p = "<abs path>"; $t = [System.IO.File]::ReadAllText($p)
   [System.IO.File]::WriteAllText($p, $t.Replace("`r`n", "`n"), (New-Object System.Text.UTF8Encoding($false)))
   ```
+
+## The pipeline, the hook and the batteries
+
+The pipeline is small on purpose. Six jobs, all of which have to be green: **Test**, **Gates**,
+**Build (native)**, **Build (js)**, **Integration**, **Container**.
+
+The **Gates** job runs the checks the unit tests cannot: the shape of every API response, the
+way the modules compose, the static analysis, the dynamic analysis against a running server, the
+dependency versions, and the two documents that state what the tree has. The dynamic analysis used
+to look for a server and skip its live checks when it found none, so those checks had never run
+anywhere; the gate now starts its own server and asks it.
+
+A green test is not evidence, and the mutation batteries are what turn that into something. Each
+mutation deliberately breaks one behaviour and asserts the suite goes red, and the harness
+distinguishes three outcomes:
+
+- **KILLED** — the tests ran and went red. The behaviour is guarded.
+- **SURVIVED** — the tests ran and stayed green. The behaviour is not guarded, and the guard
+  has to be written.
+- **BROKE** — the mutation did not compile, or the test binary aborted. Nothing was proved.
+  This is not a kill, and it is counted as a survivor.
+
+The third one is the trap: a mutation that fails to compile used to be reported as a kill, because
+the harness only asked whether the exit code was non-zero. Four of this project's mutations were
+false kills for exactly that reason. Now a mutation has to show that it ran the tests before it
+counts.
+
+The repository also ships a hook that type-checks the project before a commit is created:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The hook is [`.githooks/pre-commit`](.githooks/pre-commit), and
+[`.githooks/README.md`](.githooks/README.md) says what it runs. It runs `moon check`, which is
+the fast half of the gate; `bash ci.sh` is the whole of it.

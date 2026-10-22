@@ -1432,6 +1432,81 @@ Test-WordCount 'agent guide tools' 'tools' $codeTools.Count $agentsDoc
 
 Test-StatedNumber 'agent guide mutations' $mutationTotal `
   (Get-FlatNumber $agentsFlat 're-run the suites ([0-9]+) times') 'AGENTS.md'
+# --- the pipeline and the batteries: how the project is built and verified ----
+#
+# The README is the package's front page, and the contributor's guide is
+# AGENTS.md. The claims about the pipeline, the hook and the batteries
+# belong to the contributor, so they live in the contributor's guide and the
+# gate watches them there. A fact is watched in one place only, and the
+# place moved with the claim.
+#
+# The job names come from the CI workflow. The COUNT is a count in words as
+# well as a count in a list: a job that is renamed leaves the count right
+# and the name wrong, and a reader watching the pipeline for "Build (js)" is
+# watching for a job that is not there.
+
+function Get-CodeJobNames {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD '.github/workflows/ci.yml'), $enc)
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^jobs:') { $inside = $true; continue }
+    if ($inside -and $line -match '^    name: (.+)$') { $out += $Matches[1] }
+  }
+  Sort-Set $out
+}
+
+function Get-DocJobNames {
+  $out = @()
+  $grab = 0
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $agentsDoc), $enc)
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($grab -eq 0 -and $line -match 'jobs, all of which have to be green') { $grab = 2 }
+    if ($grab -eq 0) { continue }
+    foreach ($m in [regex]::Matches($line, '\*\*([^*]+)\*\*')) { $out += $m.Groups[1].Value }
+    $grab--
+  }
+  Sort-Set $out
+}
+
+function Get-CodeJobCount {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD '.github/workflows/ci.yml'), $enc)
+  $count = 0
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^jobs:') { $inside = $true; continue }
+    if ($inside -and $line -match '^  [A-Za-z0-9_-]+:') { $count++ }
+  }
+  $count
+}
+
+function Get-TreeHooks {
+  $out = @()
+  $dir = Join-Path $PWD '.githooks'
+  if (Test-Path $dir) {
+    foreach ($f in (Get-ChildItem $dir -File)) { $out += $f.Name }
+  }
+  Sort-Set $out
+}
+
+function Get-DocHooks {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $agentsDoc), $enc)
+  foreach ($m in [regex]::Matches($text, '\.githooks/([A-Za-z0-9_.-]+)')) {
+    $out += $m.Groups[1].Value
+  }
+  Sort-Set $out
+}
+
+$jobCount = Get-CodeJobCount
+
+Test-WordCount 'agent guide jobs' 'jobs' $jobCount $agentsDoc
+
+Test-Sets 'CI jobs' (Get-CodeJobNames) (Get-DocJobNames)
+
+# The hook the guide names, and the note beside it. A hook the guide does
+# not mention is a hook a reader never finds.
+Test-Sets 'Git hooks' (Get-TreeHooks) (Get-DocHooks)
 
 # --- architecture/deployment.md: the topology a reader deploys ----------------
 #

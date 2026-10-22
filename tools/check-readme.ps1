@@ -1296,58 +1296,6 @@ if ($codeFileFormats.Count -eq 0) {
   $failures++
 }
 
-# The names the CI workflow gives its jobs. A job is written as a key with a
-# name under it, and the name is what the runner shows and what a reader
-# looks for in the list of things that have to be green.
-#
-# The step names are written as "- name:", so the four spaces of a job's own
-# name are what tells the two apart.
-function Get-CodeJobNames {
-  $out = @()
-  $text = [System.IO.File]::ReadAllText((Join-Path $PWD '.github/workflows/ci.yml'), $enc)
-  $inside = $false
-  foreach ($line in ($text -split "`r?`n")) {
-    if ($line -match '^jobs:') { $inside = $true; continue }
-    if ($inside -and $line -match '^    name: (.+)$') { $out += $Matches[1] }
-  }
-  Sort-Set $out
-}
-
-# The names the README gives them, in the sentence that lists the jobs. The
-# sentence is found by its own shape -- "jobs, all of which have to be
-# green" -- so a job named in some other part of the document is not read as
-# a claim about this list. The list runs onto the line below, so that line is
-# read as well.
-function Get-DocJobNames {
-  $out = @()
-  $grab = 0
-  foreach ($line in ($readme -split "`r?`n")) {
-    if ($grab -eq 0 -and $line -match 'jobs, all of which have to be green') { $grab = 2 }
-    if ($grab -eq 0) { continue }
-    foreach ($m in [regex]::Matches($line, '\*\*([^*]+)\*\*')) { $out += $m.Groups[1].Value }
-    $grab--
-  }
-  Sort-Set $out
-}
-
-# The names of the CI jobs. The COUNT of them is checked as a word further
-# down, and a count of six is not the same claim as the six names: a job
-# that is renamed leaves the count right and the name wrong, and a reader
-# watching the pipeline for "Build (js)" is watching for a job that is not
-# there.
-$codeJobNames = @(Get-CodeJobNames)
-$docJobNames = @(Get-DocJobNames)
-if ($codeJobNames.Count -eq 0) {
-  Write-Output ("  {0,-20} no job name could be derived from the workflow" -f 'CI jobs')
-  Write-Output "*** FAIL ***"
-  $failures++
-} elseif (Test-SameMembers $codeJobNames $docJobNames) {
-  Write-Output ("  ok      {0,-20} {1}" -f 'CI jobs', $codeJobNames.Count)
-} else {
-  Write-Output ("  {0,-20} the tree says [{1}], the document says [{2}]" -f 'CI jobs', ($codeJobNames -join ' '), ($docJobNames -join ' '))
-  Write-Output "*** FAIL ***"
-  $failures++
-}
 $codeCorpusKinds = @(Get-CodeCorpusKinds)
 $docCorpusKinds = @(Get-DocCorpusKinds)
 if ($codeCorpusKinds.Count -eq 0) {
@@ -1566,18 +1514,6 @@ function Get-PlatformCount {
   ([regex]::Matches($text, '(?m)^[ \t]*- os: ')).Count
 }
 
-# The jobs in the CI workflow.
-function Get-JobCount {
-  $text = [System.IO.File]::ReadAllText((Join-Path $PWD '.github/workflows/ci.yml'), $enc)
-  $count = 0
-  $inside = $false
-  foreach ($line in ($text -split "`n")) {
-    if ($line -match '^jobs:') { $inside = $true; continue }
-    if ($inside -and $line -match '^  [A-Za-z0-9_-]+:') { $count++ }
-  }
-  $count
-}
-
 # The mutation suites.
 function Get-SuiteCount {
   (Get-ChildItem (Join-Path $PWD 'tools') -Filter 'mutate-*.ps1' -File).Count
@@ -1629,7 +1565,6 @@ $pageShape = Get-PageShape
 $pageCount = $domainCount + $pageShape[0] + $pageShape[1]
 $packageCount = Get-PackageCount
 $platformCount = Get-PlatformCount
-$jobCount = Get-JobCount
 $suiteCount = Get-SuiteCount
 $languageCount = Get-LanguageCount
 $exampleShape = Get-ExampleShape
@@ -1648,7 +1583,6 @@ $claims = @(
   [pscustomobject]@{ label = 'Pages';             expected = $pageCount;          patterns = @('the | pages the server holds', 'the | page the server holds', 'the | public pages', 'the | public page') }
   [pscustomobject]@{ label = 'Packages';          expected = $packageCount;       patterns = @('ships | packages', 'ships | package') }
   [pscustomobject]@{ label = 'Platforms';         expected = $platformCount;      patterns = @('build for | platforms', 'build for | platform') }
-  [pscustomobject]@{ label = 'Jobs';              expected = $jobCount;           patterns = @('| jobs, all of which', '| job, all of which') }
   [pscustomobject]@{ label = 'Suites';            expected = $suiteCount;         patterns = @('across the | suites', 'across the | suite') }
   [pscustomobject]@{ label = 'Languages';         expected = $languageCount;      patterns = @('| languages', '| language') }
   [pscustomobject]@{ label = 'Example domains';   expected = $exampleShape[0];    patterns = @('| domains,') }
@@ -1809,45 +1743,6 @@ Test-CollectiveClaim 'Phases' (Get-CountOrZero $collectiveCounts 'phases') @(
 Test-CollectiveClaim 'Triggers' (Get-CountOrZero $collectiveCounts 'triggers') @(
   'the vocabulary sentence|collective.s [0-9]+ positions, [0-9]+ phases and ([0-9]+) triggers'
 )
-
-# --- the hooks ---------------------------------------------------------------
-#
-# The repository ships a git hook, and a hook the README does not mention is a
-# hook a reader never finds. The files in .githooks are derived from the
-# tree, the paths the README names are derived from the document, and the two
-# sets have to be the same.
-
-function Get-TreeHooks {
-  $out = @()
-  $dir = Join-Path $PWD '.githooks'
-  if (Test-Path $dir) {
-    foreach ($f in (Get-ChildItem $dir -File)) { $out += $f.Name }
-  }
-  Sort-Set $out
-}
-
-function Get-DocHooks {
-  $out = @()
-  foreach ($m in [regex]::Matches($readme, '\.githooks/([A-Za-z0-9_.-]+)')) {
-    $out += $m.Groups[1].Value
-  }
-  Sort-Set $out
-}
-
-$treeHooks = Get-TreeHooks
-$docHooks = Get-DocHooks
-
-if ($treeHooks.Count -eq 0) {
-  Write-Output ("  {0,-20} the tree has no hooks to name" -f 'Git hooks')
-  Write-Output "*** FAIL ***"
-  $failures++
-} elseif (Test-SameMembers $treeHooks $docHooks) {
-  Write-Output ("  ok      {0,-20} {1}" -f 'Git hooks', $treeHooks.Count)
-} else {
-  Write-Output ("  {0,-20} the tree has [{1}], the document names [{2}]" -f 'Git hooks', ($treeHooks -join ' '), ($docHooks -join ' '))
-  Write-Output "*** FAIL ***"
-  $failures++
-}
 
 Write-Output ""
 if ($failures -gt 0) {

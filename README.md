@@ -288,23 +288,19 @@ The Chinese is the table's own rather than MAKED's translation of it: a
 position is called 立位 because pyroduct calls it that, and the sentences are
 written in Chinese rather than translated from the English ones.
 
-`GET /api/model` needs no parameter. The model carries both vocabularies, so
-a client can choose for itself.
-
-A model file with no Chinese in it is still read, and a reader who asks for
-Chinese gets the English names rather than a blank. That is the only rule
-about the fallback.
+`GET /api/model` needs no parameter, because the model carries both
+vocabularies and a client can choose for itself. A model file with no
+Chinese in it is still read, and a reader who asks for Chinese gets the
+English names rather than a blank. That is the only rule about the fallback.
 
 The collective (`/api/society`) answers in Chinese as well: its position
 names, its glosses and its phases are pyroduct's own, because the
 vocabulary file — the reader's own words — is written in English.
 
 The measures and the export answer in Chinese as well, and the export is
-the one that matters most: it is the thing the reader takes away, and a
-document that stayed in English would be the last English surface a reader
-meets. The document is written twice rather than translated — a translation
-keeps the shape of the original, and the shape of an English report is not
-the shape a Chinese reader expects.
+the one that matters most: it is the thing the reader takes away, and it is
+written twice rather than translated, because the shape of an English report
+is not the shape a Chinese reader expects.
 
 ```
 GET  /api/sessions/1/export?format=md&lang=zh
@@ -330,7 +326,6 @@ owns come back from the server in the language that was asked for.
 
 The choice is not remembered across a reload. It is a question the reader
 asks of the page, and a page that has just been opened has not been asked.
-
 The export links carry the language with them, so the document a reader
 downloads is in the language the page is in.
 
@@ -338,8 +333,7 @@ There is nothing left in English for a reader to work around. The pages are
 written in both languages and the server sends the one that was asked for, so
 the prose of the five domain pages is Chinese in a Chinese interface. That
 prose is the project's own writing rather than the machine's, which is why it
-lives in the database beside the English of it instead of being translated at
-the last moment.
+lives in the database beside the English of it.
 
 ### The agent's server
 
@@ -648,53 +642,6 @@ moon test --target js frontend      # the frontend
 bash ci.sh                          # everything, including the slow gates
 ```
 
-### The pre-commit hook
-
-The repository ships a hook that type-checks the project before a commit is
-created:
-
-```bash
-git config core.hooksPath .githooks
-```
-
-The hook is [`.githooks/pre-commit`](.githooks/pre-commit), and
-[`.githooks/README.md`](.githooks/README.md) says what it runs. It runs
-`moon check`, which is the fast half of the gate; `bash ci.sh` is the whole of
-it.
-
-### What the mutation harness actually means
-
-A green test is not evidence. Each mutation deliberately breaks one behaviour and asserts
-the suite goes red. The harness distinguishes three outcomes:
-
-- **KILLED** — the tests ran and went red. The behaviour is guarded.
-- **SURVIVED** — the tests ran and stayed green. The behaviour is not guarded, and the
-  guard has to be written.
-- **BROKE** — the mutation did not compile, or the test binary aborted. Nothing was proved.
-  This is not a kill, and it is counted as a survivor.
-
-The third one is the trap: a mutation that fails to compile used to be reported as a kill,
-because the harness only asked whether the exit code was non-zero. Four of this project's
-mutations were false kills for exactly that reason. Now a mutation has to show that it ran
-the tests before it counts.
-
-### CI
-
-Six jobs, all of which have to be green: **Test**, **Gates**, **Build (native)**, **Build (js)**,
-**Integration**, **Container**.
-
-The **Gates** job runs the checks the unit tests cannot: the shape of every API response, the
-way the modules compose, the static analysis, the dynamic analysis against a running server, the
-dependency versions, and the two documents that state what the tree has. The dynamic analysis used
-to look for a server and skip its live checks when it found none, so those checks had never run
-anywhere; the gate now starts its own server and asks it.
-
-The other gates — the mutation batteries, the coverage report, the benchmarks and the formal
-verification — are in `ci.sh`, which is the local equivalent of the pipeline and its slower half.
-The mutation batteries are the slow ones for a reason: they rewrite the source and re-run the
-suites two hundred and twenty-nine times, which is an hour of CI for a check that a push does not
-change.
-
 ## Common Pitfalls and Best Practices
 
 ### ✅ DO:
@@ -721,31 +668,18 @@ change.
 
 ### ❌ DON'T:
 
-1. **Don't hard-code a drive slot.** Which slot can push a position is a property of the
-   transition table. Five semantically "corresponding" slots, hard-coded, turned out to have
-   no outgoing edge at all: stepping the loop eighteen times left every position unchanged
-   while the page looked perfectly normal.
-
-   ```moonbit nocheck
-   // ❌ a slot chosen by meaning
-   let slot = if domain == "model" { "co-being" } else { "action" }
-
-   // ✅ a slot the table says has a way out
-   let slot = model.drive_slot(position)
-   ```
-
-2. **Don't treat the ring order as evidence that anything moved.** The ring order
+1. **Don't treat the ring order as evidence that anything moved.** The ring order
    M → D → E → A → K is the order the logo draws. It is presentation, not state.
 
-3. **Don't mix the protocols on one stream.** The agent's server speaks MCP on stdout.
+2. **Don't mix the protocols on one stream.** The agent's server speaks MCP on stdout.
    Diagnostics belong on stderr — a line of prose in the middle of a protocol stream is a
    line the client cannot parse, and the reason MAKED refused to start is lost in the noise.
 
-4. **Don't read a file you cannot read whole.** MAKED refuses a file it cannot read rather
+3. **Don't read a file you cannot read whole.** MAKED refuses a file it cannot read rather
    than half-reading it, and the start-up stops. Keep that: a half-read machine answers
    every request confidently and wrongly.
 
-5. **Don't hand a table to a machine it does not fit.** A rule that names a slot the
+4. **Don't hand a table to a machine it does not fit.** A rule that names a slot the
    machine does not have is a rule about nowhere, and reading it would mean inventing a slot
    to hold it.
 
@@ -771,6 +705,9 @@ change.
 3. Add tests for new behaviour
 4. Ensure all gates pass with `bash ci.sh`
 5. Submit a pull request
+
+The contributor's guide is [AGENTS.md](AGENTS.md): what the gates check, how the mutation
+batteries work, and the pre-commit hook.
 
 The gates that matter most are the two that check the tests themselves: `moon fmt --check`
 (the formatter rewrites the source, and a mutation anchor that pointed at a line the

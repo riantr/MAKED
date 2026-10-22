@@ -1192,55 +1192,6 @@ else
     "$(printf '%s\n' "$DOC_FILE_FORMATS" | tr '\n' ' ' | sed -e 's/ *$//')")"
 fi
 
-# The names the CI workflow gives its jobs. A job is written as a key with a
-# name under it, and the name is what the runner shows and what a reader
-# looks for in the list of things that have to be green.
-#
-# The step names are written as "- name:", so the four spaces of a job's own
-# name are what tells the two apart.
-code_job_names() {
-  awk '
-    /^jobs:/ { inside = 1; next }
-    inside && /^    name: / { print substr($0, 11) }
-  ' .github/workflows/ci.yml | LC_ALL=C sort -u
-}
-
-# The names the README gives them, in the sentence that lists the jobs. The
-# sentence is found by its own shape -- "jobs, all of which have to be
-# green" -- so a job named in some other part of the document is not read as
-# a claim about this list. The list runs onto the line below, so that line is
-# read as well.
-doc_job_names() {
-  awk '
-    /jobs, all of which have to be green/ { grab = 2 }
-    grab > 0 {
-      line = $0
-      while (match(line, /\*\*[^*]+\*\*/)) {
-        print substr(line, RSTART + 2, RLENGTH - 4)
-        line = substr(line, RSTART + RLENGTH)
-      }
-      grab--
-    }
-  ' "$README" | LC_ALL=C sort -u
-}
-
-# The names of the CI jobs. The COUNT of them is checked as a word further
-# down, and a count of six is not the same claim as the six names: a job
-# that is renamed leaves the count right and the name wrong, and a reader
-# watching the pipeline for "Build (js)" is watching for a job that is not
-# there.
-CODE_JOB_NAMES=$(code_job_names)
-DOC_JOB_NAMES=$(doc_job_names)
-if [ -z "$CODE_JOB_NAMES" ]; then
-  fail "$(printf '%-20s no job name could be derived from the workflow' 'CI jobs')"
-elif same_members "$CODE_JOB_NAMES" "$DOC_JOB_NAMES"; then
-  printf '  ok      %-20s %s\n' 'CI jobs' "$(printf '%s\n' "$CODE_JOB_NAMES" | grep -c .)"
-else
-  fail "$(printf '%-20s the tree says [%s], the document says [%s]' \
-    'CI jobs' \
-    "$(printf '%s\n' "$CODE_JOB_NAMES" | tr '\n' ' ' | sed -e 's/ *$//')" \
-    "$(printf '%s\n' "$DOC_JOB_NAMES" | tr '\n' ' ' | sed -e 's/ *$//')")"
-fi
 CODE_CORPUS_KINDS=$(code_corpus_kinds)
 DOC_CORPUS_KINDS=$(doc_corpus_kinds)
 if [ -z "$CODE_CORPUS_KINDS" ]; then
@@ -1487,13 +1438,6 @@ fi
 # The platforms a release is built for.
 PLATFORM_COUNT=$(grep -cE '^[[:space:]]*- os: ' .github/workflows/publish.yml)
 
-# The jobs in the CI workflow.
-JOB_COUNT=$(awk '
-  /^jobs:/ { inside = 1; next }
-  inside && /^  [A-Za-z0-9_-]+:/ { n++ }
-  END { print n + 0 }
-' .github/workflows/ci.yml)
-
 # The mutation suites.
 SUITE_FILES=(tools/mutate-*.ps1)
 SUITE_COUNT=${#SUITE_FILES[@]}
@@ -1532,7 +1476,6 @@ CLAIM_SPECS=$(
   printf 'Pages\t%s\tthe | pages the server holds\tthe | page the server holds\tthe | public pages\tthe | public page\n' "$PAGE_COUNT"
   printf 'Packages\t%s\tships | packages\tships | package\n' "$PACKAGE_COUNT"
   printf 'Platforms\t%s\tbuild for | platforms\tbuild for | platform\n' "$PLATFORM_COUNT"
-  printf 'Jobs\t%s\t| jobs, all of which\t| job, all of which\n' "$JOB_COUNT"
   printf 'Suites\t%s\tacross the | suites\tacross the | suite\n' "$SUITE_COUNT"
   printf 'Languages\t%s\t| languages\t| language\n' "$LANGUAGE_COUNT"
   printf 'Example domains\t%s\t| domains,\n' "$EXAMPLE_DOMAINS"
@@ -1761,37 +1704,6 @@ check_collective_claim "Phases" "$COLLECTIVE_PHASES" \
 
 check_collective_claim "Triggers" "$COLLECTIVE_TRIGGERS" \
   'the vocabulary sentence|collective.s [0-9]+ positions, [0-9]+ phases and ([0-9]+) triggers'
-
-# --- the hooks ---------------------------------------------------------------
-#
-# The repository ships a git hook, and a hook the README does not mention is a
-# hook a reader never finds. The files in .githooks are derived from the
-# tree, the paths the README names are derived from the document, and the two
-# sets have to be the same.
-
-tree_hooks() {
-  find .githooks -maxdepth 1 -type f -print 2>/dev/null \
-    | sed -E 's|^\./||; s|^\.githooks/||' | LC_ALL=C sort -u
-}
-
-doc_hooks() {
-  grep -oE '\.githooks/[A-Za-z0-9_.-]+' "$README" \
-    | sed -E 's|^\.githooks/||' | LC_ALL=C sort -u || true
-}
-
-TREE_HOOKS=$(tree_hooks)
-DOC_HOOKS=$(doc_hooks)
-
-if [ -z "$TREE_HOOKS" ]; then
-  fail "$(printf '%-20s the tree has no hooks to name' 'Git hooks')"
-elif same_members "$TREE_HOOKS" "$DOC_HOOKS"; then
-  printf '  ok      %-20s %s\n' 'Git hooks' "$(printf '%s\n' "$TREE_HOOKS" | grep -c .)"
-else
-  fail "$(printf '%-20s the tree has [%s], the document names [%s]' \
-    'Git hooks' \
-    "$(printf '%s\n' "$TREE_HOOKS" | tr '\n' ' ' | sed -e 's/ *$//')" \
-    "$(printf '%s\n' "$DOC_HOOKS" | tr '\n' ' ' | sed -e 's/ *$//')")"
-fi
 
 echo ""
 if [ "$FAILURES" -gt 0 ]; then

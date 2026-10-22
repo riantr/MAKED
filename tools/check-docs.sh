@@ -1515,6 +1515,70 @@ check_word_count "agent guide tools" "tools" "$COUNT_LINES" "$AGENTS_DOC"
 
 check_stated "agent guide mutations" "$MUTATION_TOTAL" \
   "$(flat_number "$AGENTS_FLAT" 're-run the suites ([0-9]+) times')" "AGENTS.md"
+# --- the pipeline and the batteries: how the project is built and verified ----
+#
+# The README is the package's front page, and the contributor's guide is
+# AGENTS.md. The claims about the pipeline, the hook and the batteries
+# belong to the contributor, so they live in the contributor's guide and the
+# gate watches them there. A fact is watched in one place only, and the
+# place moved with the claim.
+#
+# The job names come from the CI workflow. The COUNT is a count in words as
+# well as a count in a list: a job that is renamed leaves the count right
+# and the name wrong, and a reader watching the pipeline for "Build (js)" is
+# watching for a job that is not there.
+#
+# The carriage returns go first: a file edited on Windows is the same file,
+# and a gate that reads it differently depending on the line endings is a
+# gate that lies.
+
+code_job_names() {
+  tr -d '\r' < .github/workflows/ci.yml | awk '
+    /^jobs:/ { inside = 1; next }
+    inside && /^    name: / { print substr($0, 11) }
+  ' | LC_ALL=C sort -u
+}
+
+doc_job_names() {
+  tr -d '\r' < "$AGENTS_DOC" | awk '
+    /jobs, all of which have to be green/ { grab = 2 }
+    grab > 0 {
+      line = $0
+      while (match(line, /\*\*[^*]+\*\*/)) {
+        print substr(line, RSTART + 2, RLENGTH - 4)
+        line = substr(line, RSTART + RLENGTH)
+      }
+      grab--
+    }
+  ' | LC_ALL=C sort -u
+}
+
+job_count() {
+  tr -d '\r' < .github/workflows/ci.yml | awk '
+    /^jobs:/ { inside = 1; next }
+    inside && /^  [A-Za-z0-9_-]+:/ { n++ }
+    END { print n + 0 }
+  '
+}
+
+check_word_count "agent guide jobs" "jobs" "$(job_count)" "$AGENTS_DOC"
+
+check_sets "CI jobs" "$(code_job_names)" "$(doc_job_names)"
+
+# The hook the guide names, and the note beside it. A hook the guide does
+# not mention is a hook a reader never finds.
+
+tree_hooks() {
+  find .githooks -maxdepth 1 -type f -print 2>/dev/null \
+    | sed -E 's|^\./||; s|^\.githooks/||' | LC_ALL=C sort -u
+}
+
+doc_hooks() {
+  tr -d '\r' < "$AGENTS_DOC" | grep -oE '\.githooks/[A-Za-z0-9_.-]+' \
+    | sed -E 's|^\.githooks/||' | LC_ALL=C sort -u || true
+}
+
+check_sets "Git hooks" "$(tree_hooks)" "$(doc_hooks)"
 
 # --- architecture/deployment.md: the topology a reader deploys ----------------
 #
