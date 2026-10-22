@@ -3905,6 +3905,210 @@ if [ "$COLOR_BAD_SITE" -eq 0 ]; then
   ok "node color site" "logo.mbt:$CODE_COLOR_LINES"
 fi
 
+# --- the pointers reach the code they name -------------------------------------
+#
+# A row that cites a file and names a function of that file is pointing at
+# that function. A citation that lands outside it points at something else,
+# and the reader who follows it lands in the wrong place -- usually at a
+# neighbour that looks close enough to be believed.
+#
+# A function's block runs from the line that defines it to the line before the
+# next definition, because that is the range a reader thinks of as "the
+# function". A row that names more than one function of the file is about the
+# relationship between them, and the pointer may be to either, so such a row
+# is left alone.
+#
+# The history fallback is the one name the tree says NOT to use, and it says
+# so in a comment. A document that says the same has to point at that
+# comment.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+# The definitions of the file being read: the lines that define a function,
+# in file order, and the number of lines in the file.
+DEF_LINES=()
+DEF_NAMES=()
+DEF_FILE=""
+DEF_COUNT=0
+
+code_definitions() {
+  local file="$1" out line name
+  if [ "$DEF_FILE" = "$file" ]; then return; fi
+  DEF_FILE="$file"
+  DEF_LINES=()
+  DEF_NAMES=()
+  DEF_COUNT=0
+  out=$(awk '
+    /^[ \t]*(pub(\([a-z]+\))?[ \t]+)?(async[ \t]+)?fn[ \t]+[A-Za-z_]/ {
+      tmp = $0
+      sub(/^[ \t]*(pub(\([a-z]+\))?[ \t]+)?(async[ \t]+)?fn[ \t]+/, "", tmp)
+      split(tmp, parts, /[ \t(]/)
+      printf "%d\t%s\n", NR, parts[1]
+    }
+    END { printf "#\t%d\n", NR }
+  ' "$file" || true)
+  while IFS=$'\t' read -r line name; do
+    [ -n "$name" ] || continue
+    if [ "$line" = "#" ]; then
+      DEF_COUNT="$name"
+      continue
+    fi
+    DEF_LINES+=("$line")
+    DEF_NAMES+=("$name")
+  done <<< "$out"
+}
+
+# The block a function occupies.
+DEF_START=0
+DEF_END=0
+def_range() {
+  local name="$1" i
+  DEF_START=0
+  DEF_END=0
+  for i in "${!DEF_NAMES[@]}"; do
+    if [ "${DEF_NAMES[$i]}" = "$name" ]; then
+      DEF_START="${DEF_LINES[$i]}"
+      if [ $((i + 1)) -lt "${#DEF_NAMES[@]}" ]; then
+        DEF_END=$(( ${DEF_LINES[$((i + 1))]} - 1 ))
+      else
+        DEF_END="$DEF_COUNT"
+      fi
+      return
+    fi
+  done
+}
+
+# The source a claim cites: the file and the lines it cites.
+CITE_RE='`([A-Za-z0-9_./-]+\.mbt):([0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*)`'
+CITE_FILE=""
+CITE_SPEC=""
+CITE_TEXT=""
+cite_source() {
+  local claim="$1"
+  CITE_FILE=""
+  CITE_SPEC=""
+  CITE_TEXT=""
+  [[ "$claim" =~ $CITE_RE ]] || return
+  CITE_FILE="${BASH_REMATCH[1]}"
+  CITE_SPEC="${BASH_REMATCH[2]}"
+  CITE_TEXT="${claim//"${BASH_REMATCH[0]}"/}"
+}
+
+# The words a claim is made of.
+#
+# A name that carries a dot is one name: "main.js" is a file, and the
+# function "main" is not it.
+CLAIM_TOKENS=""
+TOKEN_RE='([A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)?(\.[A-Za-z_][A-Za-z0-9_]*)*)'
+claim_tokens() {
+  local text="$1" rest="$1"
+  CLAIM_TOKENS=""
+  while [[ "$rest" =~ $TOKEN_RE ]]; do
+    if [ -z "$CLAIM_TOKENS" ]; then
+      CLAIM_TOKENS="${BASH_REMATCH[1]}"
+    else
+      CLAIM_TOKENS="$CLAIM_TOKENS ${BASH_REMATCH[1]}"
+    fi
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+  done
+}
+
+# The lines the tree mentions the history fallback on.
+HISTORY_LINES=""
+code_history_lines() {
+  HISTORY_LINES=$(grep -nF 'history_fallback' backend/maked_app.mbt \
+    | cut -d: -f1 | tr '\n' ' ' || true)
+  trim "$HISTORY_LINES"; HISTORY_LINES="$TRIMMED"
+}
+
+POINTER_BAD=0
+FALLBACK_BAD=0
+POINTER_CHECKED=0
+
+# One claim, checked against the tree.
+pointer_claim_check() {
+  local doc="$1" line="$2" claim="$3" fn count=0 named="" part a b covered target
+  cite_source "$claim"
+  [ -n "$CITE_FILE" ] || return
+  [ -f "$CITE_FILE" ] || return
+  POINTER_CHECKED=$((POINTER_CHECKED + 1))
+  claim_tokens "$CITE_TEXT"
+  code_definitions "$CITE_FILE"
+  # the functions of that file the claim names
+  for fn in "${DEF_NAMES[@]}"; do
+    case " $CLAIM_TOKENS " in
+      *" $fn "*)
+        count=$((count + 1))
+        named="$fn"
+        ;;
+    esac
+  done
+  # the claim that says the history fallback is not used points at that note
+  case " $CLAIM_TOKENS " in
+    *' history_fallback '*)
+      code_history_lines
+      covered=0
+      for target in $HISTORY_LINES; do
+        citation_covers "$CITE_SPEC" "$target"
+        if [ "$CITATION_COVERS" -eq 1 ]; then
+          covered=1
+          break
+        fi
+      done
+      if [ "$covered" -eq 0 ]; then
+        fail "$(printf '%-22s %s line %s cites [%s:%s], but the tree says it on lines %s' \
+          'fallback site' "$doc" "$line" "$CITE_FILE" "$CITE_SPEC" "$HISTORY_LINES")"
+        FALLBACK_BAD=1
+      fi
+      ;;
+  esac
+  # a claim that names one function of the file has to point inside it
+  [ "$count" -eq 1 ] || return
+  def_range "$named"
+  [ "$DEF_START" -gt 0 ] || return
+  covered=0
+  for part in ${CITE_SPEC//,/ }; do
+    case "$part" in
+      *-*) a="${part%-*}"; b="${part#*-}" ;;
+      *) a="$part"; b="$part" ;;
+    esac
+    if [ "$a" -le "$DEF_END" ] && [ "$DEF_START" -le "$b" ]; then
+      covered=1
+      break
+    fi
+  done
+  if [ "$covered" -eq 0 ]; then
+    fail "$(printf '%-22s %s line %s cites [%s:%s], but %s is on lines %s-%s' \
+      'code pointer' "$doc" "$line" "$CITE_FILE" "$CITE_SPEC" "$named" "$DEF_START" "$DEF_END")"
+    POINTER_BAD=1
+  fi
+}
+
+# Every claim the design documents make, checked against the code they cite.
+check_pointer_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      pointer_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+code_history_lines
+check_pointer_claims
+
+if [ "$POINTER_BAD" -eq 0 ]; then
+  ok "code pointer" "$POINTER_CHECKED pointers"
+fi
+if [ "$FALLBACK_BAD" -eq 0 ]; then
+  ok "fallback site" "maked_app.mbt:$HISTORY_LINES"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

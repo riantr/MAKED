@@ -3802,6 +3802,168 @@ if ($script:codeNodeColors -eq '') {
 if (-not $script:colorBadWords) { Write-Ok 'node colors' $script:codeNodeColors }
 if (-not $script:colorBadSite) { Write-Ok 'node color site' ('logo.mbt:' + ($script:codeColorLines -join ' ')) }
 
+# --- the pointers reach the code they name -------------------------------------
+#
+# A row that cites a file and names a function of that file is pointing at
+# that function. A citation that lands outside it points at something else,
+# and the reader who follows it lands in the wrong place -- usually at a
+# neighbour that looks close enough to be believed.
+#
+# A function's block runs from the line that defines it to the line before the
+# next definition, because that is the range a reader thinks of as "the
+# function". A row that names more than one function of the file is about the
+# relationship between them, and the pointer may be to either, so such a row
+# is left alone.
+#
+# The history fallback is the one name the tree says NOT to use, and it says
+# so in a comment. A document that says the same has to point at that
+# comment.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:pointerBad = $false
+$script:fallbackBad = $false
+$script:pointerChecked = 0
+
+# The definitions of the file being read.
+$script:defFile = ''
+$script:defLines = @()
+$script:defNames = @()
+$script:defCount = 0
+$script:defStart = 0
+$script:defEnd = 0
+
+# The source a claim cites: the file and the lines it cites.
+$script:citeFile = ''
+$script:citeSpec = ''
+$script:citeText = ''
+$citeRe = '`([A-Za-z0-9_./-]+\.mbt):([0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*)`'
+
+# The lines the tree mentions the history fallback on.
+$script:historyLines = @()
+
+function Get-FileDefinitions($file) {
+  if ($script:defFile -ceq $file) { return }
+  $script:defFile = $file
+  $script:defLines = @()
+  $script:defNames = @()
+  $lines = [System.IO.File]::ReadAllLines((Join-Path $PWD $file), $enc)
+  $script:defCount = $lines.Count
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    $l = $lines[$i]
+    if ($l -notmatch '^\s*(pub(\([a-z]+\))?\s+)?(async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)?)') { continue }
+    $script:defLines += ($i + 1)
+    $script:defNames += $Matches[4]
+  }
+}
+
+# The block a function occupies.
+function Get-FunctionRange($name) {
+  $script:defStart = 0
+  $script:defEnd = 0
+  for ($i = 0; $i -lt $script:defNames.Count; $i++) {
+    if ($script:defNames[$i] -ceq $name) {
+      $script:defStart = $script:defLines[$i]
+      if ($i + 1 -lt $script:defNames.Count) {
+        $script:defEnd = $script:defLines[$i + 1] - 1
+      } else {
+        $script:defEnd = $script:defCount
+      }
+      return
+    }
+  }
+}
+
+function Get-CitedSource($claim) {
+  $script:citeFile = ''
+  $script:citeSpec = ''
+  $script:citeText = ''
+  $m = [regex]::Match($claim, $citeRe)
+  if (-not $m.Success) { return }
+  $script:citeFile = $m.Groups[1].Value
+  $script:citeSpec = $m.Groups[2].Value
+  $script:citeText = $claim.Replace($m.Value, '')
+}
+
+# The words a claim is made of.
+#
+# A name that carries a dot is one name: "main.js" is a file, and the
+# function "main" is not it.
+function Get-ClaimTokens($text) {
+  $out = @()
+  foreach ($m in [regex]::Matches($text, '[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)?(\.[A-Za-z_][A-Za-z0-9_]*)*')) { $out += $m.Value }
+  $out
+}
+
+function Get-HistoryLines {
+  $path = Join-Path $PWD 'backend/maked_app.mbt'
+  $lines = [System.IO.File]::ReadAllLines($path, $enc)
+  $out = @()
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($lines[$i].Contains('history_fallback')) { $out += ($i + 1) }
+  }
+  $script:historyLines = $out
+}
+
+# One claim, checked against the tree.
+function Test-PointerClaim($doc, $line, $claim) {
+  Get-CitedSource $claim
+  if ($script:citeFile -eq '') { return }
+  if (-not (Test-Path (Join-Path $PWD $script:citeFile))) { return }
+  $script:pointerChecked++
+  $tokens = @(Get-ClaimTokens $script:citeText)
+  Get-FileDefinitions $script:citeFile
+  # the functions of that file the claim names
+  $count = 0
+  $named = ''
+  foreach ($fn in $script:defNames) {
+    if ($tokens -ccontains $fn) { $count++; $named = $fn }
+  }
+  # the claim that says the history fallback is not used points at that note
+  if ($tokens -ccontains 'history_fallback') {
+    Get-HistoryLines
+    $covered = $false
+    foreach ($target in $script:historyLines) {
+      if (Test-CitationCovers $script:citeSpec $target) { $covered = $true; break }
+    }
+    if (-not $covered) {
+      Write-Fail ("{0,-22} {1} line {2} cites [{3}:{4}], but the tree says it on lines {5}" -f 'fallback site', $doc, $line, $script:citeFile, $script:citeSpec, ($script:historyLines -join ' '))
+      $script:fallbackBad = $true
+    }
+  }
+  # a claim that names one function of the file has to point inside it
+  if ($count -ne 1) { return }
+  Get-FunctionRange $named
+  if ($script:defStart -le 0) { return }
+  $covered = $false
+  foreach ($part in ($script:citeSpec -split ',')) {
+    $p = $part.Trim()
+    if ($p -match '^([0-9]+)-([0-9]+)$') { $a = [int]$Matches[1]; $b = [int]$Matches[2] }
+    else { $a = [int]$p; $b = $a }
+    if ($a -le $script:defEnd -and $script:defStart -le $b) { $covered = $true; break }
+  }
+  if (-not $covered) {
+    Write-Fail ("{0,-22} {1} line {2} cites [{3}:{4}], but {5} is on lines {6}-{7}" -f 'code pointer', $doc, $line, $script:citeFile, $script:citeSpec, $named, $script:defStart, $script:defEnd)
+    $script:pointerBad = $true
+  }
+}
+
+Get-HistoryLines
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-PointerClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:pointerBad) { Write-Ok 'code pointer' ("{0} pointers" -f $script:pointerChecked) }
+if (-not $script:fallbackBad) { Write-Ok 'fallback site' ('maked_app.mbt:' + ($script:historyLines -join ' ')) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

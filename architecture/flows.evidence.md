@@ -21,8 +21,8 @@
 |------|--------|------------|
 | Middleware order: static_files → spa_fallback → routes | `cmd/server/main.mbt:79-84` | high |
 | spa_fallback checks: GET/HEAD, not /api/*, no dot in last segment | `backend/maked_app.mbt:91` | high |
-| spa_fallback reads dist/index.html via async fs | `backend/maked_app.mbt:81` | high |
-| History fallback deliberately NOT used (would mask API 404s) | `backend/maked_app.mbt:88` | high |
+| spa_fallback reads dist/index.html via async fs | `backend/maked_app.mbt:91-115` | high |
+| The `history_fallback` is deliberately NOT used (would mask API 404s) | `backend/maked_app.mbt:74-80` | high |
 | rabbita mount triggers start() which issues GET /api/bootstrap | `frontend/app.mbt:707` | high |
 | bootstrap returns `{"pages": [...], "entries": [...], "entry_domains": [...], "session_state": {...}}` | `backend/api.mbt:61-76` | high |
 | on_url_changed fires on mount when routing is configured | `frontend/app.mbt:1198` | high |
@@ -45,7 +45,7 @@
 | Route pattern /api/pages/:slug captures slug param | `backend/api.mbt:79` | high |
 | Request::param adapts StringView → String | `backend/request.mbt:33` | high |
 | page_by_slug: prepare → reset → bind → step → finalize | `backend/database.mbt:298` | high |
-| Response::send dispatches on Body enum (Empty/Text/Json) | `backend/response.mbt:24-34` | high |
+| Response::send dispatches on Body enum (Empty/Text/Json) | `backend/response.mbt:81-106` | high |
 | logging_middleware prints after handler returns | `backend/maked_app.mbt:65` | high |
 
 ## Flow 5: Data flow
