@@ -1642,6 +1642,129 @@ if ($domainNames.Count -eq 0 -or $docDomainNames.Count -eq 0) {
   $failures++
 }
 
+# --- the ring's order ----------------------------------------------------------
+#
+# The ring is a ring, and the ORDER is the claim: Model before Data before
+# Experience. The README states it in two vocabularies -- the lowercase ids
+# in the sentence that names the five domains, and the titles in the
+# headline that draws the ring -- and the set comparison above does not see
+# an order at all: a ring written in a different order has the same five
+# names in it.
+#
+# The tree's ring is the tuples, in the order they are written. The
+# document's ids are read from the sentence that names the domains, in the
+# order it writes them.
+#
+# The titles are the other half, and they are read in two ways. The WHOLE
+# sequence has to be there: the document states the ring in titles, and a
+# document that stopped doing so would be saying less than it says now.
+# And every RUN of the tree's titles the document writes has to be a
+# contiguous part of the ring -- "Model Data" is the ring's first two, and
+# "Data Model" is not the ring at all. The runs are found with the tree's
+# own titles, so a run of capitalised words that is not the ring (the
+# group states, a table header) is not read as one.
+#
+# Every run is read, not just one of them: the ring is drawn in two places
+# in the README, and a wrong drawing in one of them is a wrong drawing.
+
+function Get-CodeRingIds {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/pages.mbt'), $enc)
+  foreach ($m in [regex]::Matches($text, '\("([a-z]+)", "[^"]+", "[A-Z]"')) {
+    $out += $m.Groups[1].Value
+  }
+  ($out -join ' ')
+}
+
+function Get-CodeRingTitles {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/pages.mbt'), $enc)
+  foreach ($m in [regex]::Matches($text, '\("[a-z]+", "([^"]+)", "[A-Z]"')) {
+    $out += $m.Groups[1].Value
+  }
+  ($out -join ' ')
+}
+
+# The tree's titles as an alternation, to find the runs with.
+function Get-RingTitleAlternation($titles) {
+  $parts = @($titles -split ' ' | Where-Object { $_ -ne '' })
+  if ($parts.Count -eq 0) { return '' }
+  '(' + ([string]::Join('|', $parts)) + ')'
+}
+
+# The pattern the whole sequence is found by, built from the tree's titles:
+# each title, separated by things that are not letters.
+function Get-RingTitlePattern($titles) {
+  $parts = @($titles -split ' ' | Where-Object { $_ -ne '' })
+  if ($parts.Count -eq 0) { return '' }
+  if ($parts.Count -eq 1) { return $parts[0] }
+  $parts[0] + '[^A-Za-z0-9]+' + ([string]::Join('[^A-Za-z0-9]+', $parts[1..($parts.Count - 1)]))
+}
+
+# The ids the document states, in the order it states them.
+function Get-DocRingIds {
+  $out = @()
+  foreach ($m in [regex]::Matches($readme, 'The [A-Za-z]+ domains are ([^.]*)')) {
+    foreach ($s in [regex]::Matches($m.Groups[1].Value, '`([a-z]+)`')) { $out += $s.Groups[1].Value }
+  }
+  ($out -join ' ')
+}
+
+# The runs of the tree's titles the document writes, one per line.
+function Get-DocRingRuns($titles) {
+  $alt = Get-RingTitleAlternation $titles
+  if ($alt -eq '') { return @() }
+  $run = $alt + '([^A-Za-z0-9]+' + $alt + ')*'
+  $text = ($readme -replace "`n", ' ') -replace ' +', ' '
+  $out = @()
+  foreach ($m in [regex]::Matches($text, $run)) {
+    $seq = @()
+    foreach ($t in [regex]::Matches($m.Value, $alt)) { $seq += $t.Value }
+    $out += ($seq -join ' ')
+  }
+  Sort-Set $out
+}
+
+$codeRingIds = Get-CodeRingIds
+$codeRingTitles = Get-CodeRingTitles
+$docRingIds = Get-DocRingIds
+$ringTitlePattern = Get-RingTitlePattern $codeRingTitles
+$docFlatOrder = ($readme -replace "`n", ' ') -replace ' +', ' '
+$docRingRuns = @(Get-DocRingRuns $codeRingTitles)
+$ringTitleFound = [regex]::IsMatch($docFlatOrder, $ringTitlePattern)
+
+if ($codeRingIds -eq '') {
+  Write-Output ("  {0,-20} no domain could be derived from the ring" -f 'Ring order')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($docRingIds -eq '') {
+  Write-Output ("  {0,-20} the document does not state the domains in order" -f 'Ring order')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($codeRingIds -cne $docRingIds) {
+  Write-Output ("  {0,-20} the tree says [{1}], the document says [{2}]" -f 'Ring order', $codeRingIds, $docRingIds)
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (-not $ringTitleFound) {
+  Write-Output ("  {0,-20} the tree says [{1}], the document does not state them in that order" -f 'Ring order', $codeRingTitles)
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  $haystack = ' ' + $codeRingTitles + ' '
+  $badRun = ''
+  foreach ($run in $docRingRuns) {
+    if ($run -eq '') { continue }
+    if (-not $haystack.Contains(' ' + $run + ' ')) { $badRun = $badRun + $run + ' ' }
+  }
+  if ($badRun -ne '') {
+    $badRun = $badRun.TrimEnd()
+    Write-Output ("  {0,-20} the tree says [{1}], the document writes the ring as [{2}]" -f 'Ring order', $codeRingTitles, $badRun)
+    Write-Output "*** FAIL ***"
+    $failures++
+  } else {
+    Write-Output ("  ok      {0,-20} {1}" -f 'Ring order', $codeRingIds)
+  }
+}
 # --- the ring's letters --------------------------------------------------------
 #
 # The ring has a letter for each domain -- M for Model, D for Data -- and the

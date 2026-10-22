@@ -1589,6 +1589,128 @@ else
 fi
 
 
+# --- the ring's order ----------------------------------------------------------
+#
+# The ring is a ring, and the ORDER is the claim: Model before Data before
+# Experience. The README states it in two vocabularies -- the lowercase ids
+# in the sentence that names the five domains, and the titles in the
+# headline that draws the ring -- and the set comparison above does not see
+# an order at all: a ring written in a different order has the same five
+# names in it.
+#
+# The tree's ring is the tuples, in the order they are written. The
+# document's ids are read from the sentence that names the domains, in the
+# order it writes them.
+#
+# The titles are the other half, and they are read in two ways. The WHOLE
+# sequence has to be there: the document states the ring in titles, and a
+# document that stopped doing so would be saying less than it says now.
+# And every RUN of the tree's titles the document writes has to be a
+# contiguous part of the ring -- "Model Data" is the ring's first two, and
+# "Data Model" is not the ring at all. The runs are found with the tree's
+# own titles, so a run of capitalised words that is not the ring (the
+# group states, a table header) is not read as one.
+#
+# Every run is read, not just one of them: the ring is drawn in two places
+# in the README, and a wrong drawing in one of them is a wrong drawing.
+
+code_ring_ids() {
+  grep -oE '\("[a-z]+", "[^"]+", "[A-Z]"' backend/pages.mbt \
+    | sed -E 's/\("([a-z]+)".*/\1/' | tr '\n' ' ' | sed -e 's/ *$//'
+}
+
+code_ring_titles() {
+  grep -oE '\("[a-z]+", "[^"]+", "[A-Z]"' backend/pages.mbt \
+    | sed -E 's/\("[a-z]+", "([^"]+)".*/\1/' | tr '\n' ' ' | sed -e 's/ *$//'
+}
+
+# The tree's titles as an alternation, to find the runs with.
+ring_title_alternation() {
+  local titles="$1" out="" title
+  for title in $titles; do
+    if [ -z "$out" ]; then out="$title"; else out="$out|$title"; fi
+  done
+  printf '(%s)' "$out"
+}
+
+# The pattern the whole sequence is found by, built from the tree's titles:
+# each title, separated by things that are not letters.
+ring_title_pattern() {
+  local titles="$1" first=1 pattern="" title
+  for title in $titles; do
+    if [ "$first" -eq 1 ]; then
+      pattern="$title"
+      first=0
+    else
+      pattern="$pattern[^A-Za-z0-9]+$title"
+    fi
+  done
+  printf '%s' "$pattern"
+}
+
+# The ids the document states, in the order it states them.
+doc_ring_ids() {
+  awk '
+    {
+      if (!match($0, /The [A-Za-z]+ domains are/)) next
+      line = substr($0, RSTART + RLENGTH)
+      sub(/\..*/, "", line)
+      while (match(line, /`[a-z]+`/)) {
+        printf "%s ", substr(line, RSTART + 1, RLENGTH - 2)
+        line = substr(line, RSTART + RLENGTH)
+      }
+    }
+  ' "$README" | sed -e 's/ *$//'
+}
+
+# The runs of the tree's titles the document writes, one per line.
+doc_ring_runs() {
+  local titles="$1" alt run
+  alt=$(ring_title_alternation "$titles")
+  [ -n "$alt" ] || return 0
+  run="$alt([^A-Za-z0-9]+$alt)*"
+  tr '\n' ' ' < "$README" | tr -s ' ' \
+    | grep -oE "$run" \
+    | while IFS= read -r match; do
+        [ -n "$match" ] || continue
+        printf '%s\n' "$(printf '%s' "$match" | grep -oE "$alt" | tr '\n' ' ' | sed -e 's/ *$//')"
+      done | LC_ALL=C sort -u
+}
+
+CODE_RING_IDS=$(code_ring_ids)
+CODE_RING_TITLES=$(code_ring_titles)
+DOC_RING_IDS=$(doc_ring_ids)
+RING_TITLE_PATTERN=$(ring_title_pattern "$CODE_RING_TITLES")
+RING_TITLE_FOUND=$(tr '\n' ' ' < "$README" | tr -s ' ' \
+  | grep -oE "$RING_TITLE_PATTERN" || true)
+DOC_RING_RUNS=$(doc_ring_runs "$CODE_RING_TITLES")
+
+if [ -z "$CODE_RING_IDS" ]; then
+  fail "$(printf '%-20s no domain could be derived from the ring' 'Ring order')"
+elif [ -z "$DOC_RING_IDS" ]; then
+  fail "$(printf '%-20s the document does not state the domains in order' 'Ring order')"
+elif [ "$CODE_RING_IDS" != "$DOC_RING_IDS" ]; then
+  fail "$(printf '%-20s the tree says [%s], the document says [%s]' \
+    'Ring order' "$CODE_RING_IDS" "$DOC_RING_IDS")"
+elif [ -z "$RING_TITLE_FOUND" ]; then
+  fail "$(printf '%-20s the tree says [%s], the document does not state them in that order' \
+    'Ring order' "$CODE_RING_TITLES")"
+else
+  BAD_RUN=""
+  while IFS= read -r run; do
+    [ -n "$run" ] || continue
+    case " $CODE_RING_TITLES " in
+      *" $run "*) ;;
+      *) BAD_RUN="$BAD_RUN$run " ;;
+    esac
+  done <<< "$DOC_RING_RUNS"
+  if [ -n "$BAD_RUN" ]; then
+    fail "$(printf '%-20s the tree says [%s], the document writes the ring as [%s]' \
+      'Ring order' "$CODE_RING_TITLES" "$(printf '%s' "$BAD_RUN" | sed -e 's/ *$//')")"
+  else
+    printf '  ok      %-20s %s\n' 'Ring order' "$CODE_RING_IDS"
+  fi
+fi
 # --- the ring's letters --------------------------------------------------------
 #
 # The ring has a letter for each domain -- M for Model, D for Data -- and the
