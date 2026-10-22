@@ -1203,6 +1203,89 @@ if ([string]::IsNullOrEmpty($codeAgentPath)) {
   Write-Ok 'agent server path' $codeAgentPath
 }
 
+# --- the language switch the guide states ---------------------------------------
+#
+# AGENT.md tells an agent which language codes it may send, and the code is
+# the source of the answer: Lang::code() gives the code each language
+# answers to, and lang_from_query() says what an absent parameter means.
+# Nothing compared the two, so a guide that named a code the server does
+# not recognise would have been no more wrong than a README that did.
+#
+# The sentence is found by its own shape -- the words that introduce the
+# codes -- and the codes are the quoted ones in it. The last one is the
+# default's, because that is where the sentence puts it.
+
+function Get-CodeLangPairs {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/i18n.mbt'), $enc)
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^pub fn Lang::code\(') { $inside = $true; continue }
+    if ($inside -and $line -match '^\}') { break }
+    if ($inside -and $line -match '^\s*([A-Z][A-Za-z]*) => "([^"]+)"') {
+      $out += ($Matches[1] + ' ' + $Matches[2])
+    }
+  }
+  $out
+}
+
+function Get-CodeLangDefault {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/i18n.mbt'), $enc)
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^pub fn lang_from_query\(') { $inside = $true; continue }
+    if ($inside -and $line -match 'None => ([A-Z][A-Za-z]*)') { return $Matches[1] }
+  }
+  ''
+}
+
+# The code a language answers to.
+function Get-LangCodeOf($variant, $pairs) {
+  foreach ($pair in $pairs) {
+    $parts = $pair -split ' '
+    if ($parts[0] -ceq $variant) { return $parts[1] }
+  }
+  ''
+}
+
+# The codes the guide states.
+function Get-DocLangCodes {
+  $text = ([System.IO.File]::ReadAllText((Join-Path $PWD $agentDoc), $enc)) -replace "`n", ' '
+  $text = $text -replace ' +', ' '
+  $out = @()
+  foreach ($m in [regex]::Matches($text, 'is the language to answer in[^.]*\.')) {
+    foreach ($c in [regex]::Matches($m.Value, '`"([a-z]+)"`')) { $out += $c.Groups[1].Value }
+  }
+  ($out -join ' ')
+}
+
+$codeLangPairs = @(Get-CodeLangPairs)
+$codeLangDefault = Get-CodeLangDefault
+$docLangCodes = Get-DocLangCodes
+$codeLangCodesList = (Sort-Set @($codeLangPairs | ForEach-Object { ($_ -split ' ')[1] })) -join ' '
+$docLangDefaultCode = ''
+$docLangCodeList = @($docLangCodes -split ' ') | Where-Object { $_ -ne '' }
+if ($docLangCodeList.Count -gt 0) {
+  $docLangDefaultCode = $docLangCodeList[-1]
+  if ($docLangCodeList.Count -gt 1) {
+    $docLangCodesList = (Sort-Set @($docLangCodeList[0..($docLangCodeList.Count - 2)])) -join ' '
+  } else {
+    $docLangCodesList = ''
+  }
+}
+$codeLangDefaultCode = Get-LangCodeOf $codeLangDefault $codeLangPairs
+
+if ($codeLangCodesList -eq '') {
+  Write-Fail ("{0,-22} no language could be derived from the code" -f 'agent language switch')
+} elseif ($docLangCodes -eq '') {
+  Write-Fail ("{0,-22} the document does not state the language codes" -f 'agent language switch')
+} elseif ($docLangCodesList -cne $codeLangCodesList) {
+  Write-Fail ("{0,-22} the tree says [{1}], the document says [{2}]" -f 'agent language switch', $codeLangCodesList, $docLangCodesList)
+} elseif ($docLangDefaultCode -cne $codeLangDefaultCode) {
+  Write-Fail ("{0,-22} an absent parameter means [{1}], the document says [{2}]" -f 'agent language switch', $codeLangDefaultCode, $docLangDefaultCode)
+} else {
+  Write-Ok 'agent language switch' $codeLangCodesList
+}
 # --- packaging/RUN.txt: the note in the archive -----------------------------
 #
 # The note is what a reader has after the toolchain is gone, so the variables

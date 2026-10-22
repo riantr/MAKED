@@ -1765,6 +1765,125 @@ if ($codeRingIds -eq '') {
     Write-Output ("  ok      {0,-20} {1}" -f 'Ring order', $codeRingIds)
   }
 }
+# --- the language switch -------------------------------------------------------
+#
+# The server answers in two languages, and the parameter that asks for one is
+# a claim about the code: the table says that `zh` asks for the Chinese and
+# that an absent parameter means the English. Nothing compared the table
+# with the code, so a document that said `cn` while the code answered to
+# `zh` would have gone unnoticed -- and the reader would send a parameter
+# the server does not recognise.
+#
+# The code is the source: Lang::code() gives the code each language answers
+# to, and lang_from_query() says what an absent parameter means. The
+# document's rows are found by their own shape -- a row whose second cell
+# is one of the code's language names -- so a row that is not part of the
+# table is not read as one.
+#
+# The row that says "no parameter" is the one whose parameter is written
+# between ASTERISKS, the same convention the environment-variable table
+# uses for "*(unset)*". A parameter that is a value is written in
+# backticks. The asterisks are the signal, and they have to survive the
+# reading: a marker that reads as a bare word ("absent") is a word the
+# server would answer to in English, which is not what the row says.
+
+function Get-CodeLangPairs {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/i18n.mbt'), $enc)
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^pub fn Lang::code\(') { $inside = $true; continue }
+    if ($inside -and $line -match '^\}') { break }
+    if ($inside -and $line -match '^\s*([A-Z][A-Za-z]*) => "([^"]+)"') {
+      $out += ($Matches[1] + ' ' + $Matches[2])
+    }
+  }
+  $out
+}
+
+function Get-CodeLangDefault {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/i18n.mbt'), $enc)
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^pub fn lang_from_query\(') { $inside = $true; continue }
+    if ($inside -and $line -match 'None => ([A-Z][A-Za-z]*)') { return $Matches[1] }
+  }
+  ''
+}
+
+# The code a language answers to.
+function Get-LangCodeOf($variant, $pairs) {
+  foreach ($pair in $pairs) {
+    $parts = $pair -split ' '
+    if ($parts[0] -ceq $variant) { return $parts[1] }
+  }
+  ''
+}
+
+# The rows the document states: "parameter language", read from the rows
+# whose second cell is one of the code's language names. The parameter cell
+# keeps its asterisks, because they are what says "no parameter".
+function Get-DocLangRows($pairs) {
+  $out = @()
+  foreach ($pair in $pairs) {
+    $variant = ($pair -split ' ')[0]
+    $pattern = '(?m)^\|([^|\r\n]*)\|\s*' + $variant + '\s*\|'
+    foreach ($m in [regex]::Matches($readme, $pattern)) {
+      $param = $m.Groups[1].Value -replace '`', ''
+      $param = $param.Trim()
+      if ($param -eq '') { continue }
+      $out += ($param + "`t" + $variant)
+    }
+  }
+  $out
+}
+
+$codeLangPairs = @(Get-CodeLangPairs)
+$codeLangDefault = Get-CodeLangDefault
+$docLangRows = @(Get-DocLangRows $codeLangPairs)
+
+$langProblem = ''
+$langDefaultStated = 0
+foreach ($row in $docLangRows) {
+  $parts = $row -split "`t"
+  $param = $parts[0]
+  $variant = $parts[1]
+  $code = Get-LangCodeOf $variant $codeLangPairs
+  if ($code -eq '') {
+    $langProblem = "the tree has no language named $variant"
+  } elseif ($param.Contains('*')) {
+    $langDefaultStated = 1
+    if ($variant -cne $codeLangDefault) {
+      $langProblem = "an absent parameter means $codeLangDefault, the document says $variant"
+    }
+  } else {
+    if ($param -cne $code) {
+      $langProblem = "the tree asks for $variant with $code, the document says $param"
+    }
+  }
+  if ($langProblem -ne '') { break }
+}
+
+if ($codeLangPairs.Count -eq 0) {
+  Write-Output ("  {0,-20} no language could be derived from the code" -f 'Language switch')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($docLangRows.Count -eq 0) {
+  Write-Output ("  {0,-20} the document does not state the language switch" -f 'Language switch')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($langDefaultStated -eq 0) {
+  Write-Output ("  {0,-20} the document does not state what an absent parameter means" -f 'Language switch')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($langProblem -ne '') {
+  Write-Output ("  {0,-20} {1}" -f 'Language switch', $langProblem)
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  $langCodes = @($codeLangPairs | ForEach-Object { ($_ -split ' ')[1] }) -join ' '
+  Write-Output ("  ok      {0,-20} {1}" -f 'Language switch', $langCodes)
+}
 # --- the ring's letters --------------------------------------------------------
 #
 # The ring has a letter for each domain -- M for Model, D for Data -- and the

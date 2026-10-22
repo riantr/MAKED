@@ -1711,6 +1711,125 @@ else
     printf '  ok      %-20s %s\n' 'Ring order' "$CODE_RING_IDS"
   fi
 fi
+# --- the language switch -------------------------------------------------------
+#
+# The server answers in two languages, and the parameter that asks for one is
+# a claim about the code: the table says that `zh` asks for the Chinese and
+# that an absent parameter means the English. Nothing compared the table
+# with the code, so a document that said `cn` while the code answered to
+# `zh` would have gone unnoticed -- and the reader would send a parameter
+# the server does not recognise.
+#
+# The code is the source: Lang::code() gives the code each language answers
+# to, and lang_from_query() says what an absent parameter means. The
+# document's rows are found by their own shape -- a row whose second cell
+# is one of the code's language names -- so a row that is not part of the
+# table is not read as one.
+#
+# The row that says "no parameter" is the one whose parameter is written
+# between ASTERISKS, the same convention the environment-variable table
+# uses for "*(unset)*". A parameter that is a value is written in
+# backticks. The asterisks are the signal, and they have to survive the
+# reading: a marker that reads as a bare word ("absent") is a word the
+# server would answer to in English, which is not what the row says.
+
+code_lang_pairs() {
+  awk '
+    /^pub fn Lang::code\(/ { inside = 1; next }
+    inside && /^}/ { exit }
+    inside && match($0, /^[[:space:]]*[A-Z][A-Za-z]* => "[^"]+"/) {
+      line = substr($0, RSTART, RLENGTH)
+      sub(/^[[:space:]]*/, "", line)
+      variant = line
+      sub(/ =>.*$/, "", variant)
+      code = line
+      sub(/^.*=> "/, "", code)
+      sub(/"$/, "", code)
+      print variant " " code
+    }
+  ' backend/i18n.mbt
+}
+
+code_lang_default() {
+  awk '
+    /^pub fn lang_from_query\(/ { inside = 1; next }
+    inside && match($0, /None => [A-Z][A-Za-z]*/) {
+      line = substr($0, RSTART, RLENGTH)
+      sub(/^None => /, "", line)
+      print line
+      exit
+    }
+  ' backend/i18n.mbt
+}
+
+# The code a language answers to.
+lang_code_of() {
+  local variant="$1" pairs="$2" pair
+  while IFS= read -r pair; do
+    [ -n "$pair" ] || continue
+    if [ "${pair%% *}" = "$variant" ]; then
+      printf '%s' "${pair##* }"
+      return 0
+    fi
+  done <<< "$pairs"
+  return 1
+}
+
+# The rows the document states: "parameter language", read from the rows
+# whose second cell is one of the code's language names. The parameter cell
+# keeps its asterisks, because they are what says "no parameter".
+doc_lang_rows() {
+  local pairs="$1" pair variant
+  while IFS= read -r pair; do
+    [ -n "$pair" ] || continue
+    variant="${pair%% *}"
+    grep -oE "^\|[^|]*\|[[:space:]]*$variant[[:space:]]*\|" "$README" \
+      | sed -E "s/^\|([^|]*)\|.*/\1/" \
+      | sed -E 's/`//g' \
+      | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' \
+      | while IFS= read -r param; do
+          [ -n "$param" ] || continue
+          printf '%s\t%s\n' "$param" "$variant"
+        done
+  done <<< "$pairs"
+}
+
+CODE_LANG_PAIRS=$(code_lang_pairs)
+CODE_LANG_DEFAULT=$(code_lang_default)
+DOC_LANG_ROWS=$(doc_lang_rows "$CODE_LANG_PAIRS")
+
+LANG_PROBLEM=""
+LANG_DEFAULT_STATED=0
+while IFS=$'\t' read -r param variant; do
+  [ -n "$param" ] || continue
+  code=$(lang_code_of "$variant" "$CODE_LANG_PAIRS")
+  if [ -z "$code" ]; then
+    LANG_PROBLEM="the tree has no language named $variant"
+  elif printf '%s' "$param" | grep -qF '*'; then
+    LANG_DEFAULT_STATED=1
+    if [ "$variant" != "$CODE_LANG_DEFAULT" ]; then
+      LANG_PROBLEM="an absent parameter means $CODE_LANG_DEFAULT, the document says $variant"
+    fi
+  else
+    if [ "$param" != "$code" ]; then
+      LANG_PROBLEM="the tree asks for $variant with $code, the document says $param"
+    fi
+  fi
+  [ -z "$LANG_PROBLEM" ] || break
+done <<< "$DOC_LANG_ROWS"
+
+if [ -z "$CODE_LANG_PAIRS" ]; then
+  fail "$(printf '%-20s no language could be derived from the code' 'Language switch')"
+elif [ -z "$DOC_LANG_ROWS" ]; then
+  fail "$(printf '%-20s the document does not state the language switch' 'Language switch')"
+elif [ "$LANG_DEFAULT_STATED" -eq 0 ]; then
+  fail "$(printf '%-20s the document does not state what an absent parameter means' 'Language switch')"
+elif [ -n "$LANG_PROBLEM" ]; then
+  fail "$(printf '%-20s %s' 'Language switch' "$LANG_PROBLEM")"
+else
+  printf '  ok      %-20s %s\n' 'Language switch' \
+    "$(printf '%s\n' "$CODE_LANG_PAIRS" | awk '{ print $2 }' | tr '\n' ' ' | sed -e 's/ *$//')"
+fi
 # --- the ring's letters --------------------------------------------------------
 #
 # The ring has a letter for each domain -- M for Model, D for Data -- and the

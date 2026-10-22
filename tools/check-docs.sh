@@ -1295,6 +1295,90 @@ else
   ok "agent server path" "$CODE_AGENT_PATH"
 fi
 
+# --- the language switch the guide states ---------------------------------------
+#
+# AGENT.md tells an agent which language codes it may send, and the code is
+# the source of the answer: Lang::code() gives the code each language
+# answers to, and lang_from_query() says what an absent parameter means.
+# Nothing compared the two, so a guide that named a code the server does
+# not recognise would have been no more wrong than a README that did.
+#
+# The sentence is found by its own shape -- the words that introduce the
+# codes -- and the codes are the quoted ones in it. The last one is the
+# default's, because that is where the sentence puts it.
+
+code_lang_pairs() {
+  awk '
+    /^pub fn Lang::code\(/ { inside = 1; next }
+    inside && /^}/ { exit }
+    inside && match($0, /^[[:space:]]*[A-Z][A-Za-z]* => "[^"]+"/) {
+      line = substr($0, RSTART, RLENGTH)
+      sub(/^[[:space:]]*/, "", line)
+      variant = line
+      sub(/ =>.*$/, "", variant)
+      code = line
+      sub(/^.*=> "/, "", code)
+      sub(/"$/, "", code)
+      print variant " " code
+    }
+  ' backend/i18n.mbt
+}
+
+code_lang_default() {
+  awk '
+    /^pub fn lang_from_query\(/ { inside = 1; next }
+    inside && match($0, /None => [A-Z][A-Za-z]*/) {
+      line = substr($0, RSTART, RLENGTH)
+      sub(/^None => /, "", line)
+      print line
+      exit
+    }
+  ' backend/i18n.mbt
+}
+
+# The code a language answers to.
+lang_code_of() {
+  local variant="$1" pairs="$2" pair
+  while IFS= read -r pair; do
+    [ -n "$pair" ] || continue
+    if [ "${pair%% *}" = "$variant" ]; then
+      printf '%s' "${pair##* }"
+      return 0
+    fi
+  done <<< "$pairs"
+  return 1
+}
+
+# The codes the guide states.
+doc_lang_codes() {
+  tr '\n' ' ' < "$AGENT_DOC" | tr -s ' ' \
+    | grep -oE 'is the language to answer in[^.]*\.' \
+    | grep -oE '`"[a-z]+"`' | tr -d '`"' | tr '\n' ' ' | sed -e 's/ *$//'
+}
+
+CODE_LANG_PAIRS=$(code_lang_pairs)
+CODE_LANG_DEFAULT=$(code_lang_default)
+DOC_LANG_CODES=$(doc_lang_codes)
+CODE_LANG_CODES_LIST=$(printf '%s\n' "$CODE_LANG_PAIRS" | awk '{ print $2 }' \
+  | LC_ALL=C sort -u | tr '\n' ' ' | sed -e 's/ *$//')
+DOC_LANG_CODES_LIST=$(printf '%s\n' "$DOC_LANG_CODES" | sed -E 's/[[:space:]]+[^[:space:]]+$//' \
+  | tr ' ' '\n' | LC_ALL=C sort -u | tr '\n' ' ' | sed -e 's/ *$//')
+DOC_LANG_DEFAULT_CODE=$(printf '%s\n' "$DOC_LANG_CODES" | awk '{ print $NF }')
+CODE_LANG_DEFAULT_CODE=$(lang_code_of "$CODE_LANG_DEFAULT" "$CODE_LANG_PAIRS")
+
+if [ -z "$CODE_LANG_CODES_LIST" ]; then
+  fail "$(printf '%-22s no language could be derived from the code' 'agent language switch')"
+elif [ -z "$DOC_LANG_CODES" ]; then
+  fail "$(printf '%-22s the document does not state the language codes' 'agent language switch')"
+elif [ "$DOC_LANG_CODES_LIST" != "$CODE_LANG_CODES_LIST" ]; then
+  fail "$(printf '%-22s the tree says [%s], the document says [%s]' \
+    'agent language switch' "$CODE_LANG_CODES_LIST" "$DOC_LANG_CODES_LIST")"
+elif [ "$DOC_LANG_DEFAULT_CODE" != "$CODE_LANG_DEFAULT_CODE" ]; then
+  fail "$(printf '%-22s an absent parameter means [%s], the document says [%s]' \
+    'agent language switch' "$CODE_LANG_DEFAULT_CODE" "$DOC_LANG_DEFAULT_CODE")"
+else
+  ok "agent language switch" "$CODE_LANG_CODES_LIST"
+fi
 # --- packaging/RUN.txt: the note in the archive -----------------------------
 #
 # The note is what a reader has after the toolchain is gone, so the variables
