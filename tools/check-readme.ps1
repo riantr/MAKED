@@ -534,6 +534,59 @@ if ($brokenLinks.Count -gt 0) {
   Write-Output ("  ok      {0,-20} {1}" -f 'Document links', $linkCount)
 }
 
+# --- the commands the document names -------------------------------------------
+#
+# The README's first commands are the ones a reader runs before anything
+# else: `moon run --release --target native cmd/server`, and the same for
+# the agent's server. A command that names a package the tree does not have
+# fails on the first try, with an error about a directory that is not there.
+#
+# The packages are the ones under cmd/ that carry a manifest of their own.
+# The document may name fewer of them than there are -- the browser app is
+# served by the same process as the API and has no command of its own -- but
+# every package it names has to be there.
+
+function Get-CodeCmdPackages {
+  $out = @()
+  foreach ($dir in @(Get-ChildItem -Path (Join-Path $PWD 'cmd') -Directory)) {
+    if (Test-Path (Join-Path $dir.FullName 'moon.pkg')) {
+      $out += ('cmd/' + $dir.Name)
+    }
+  }
+  Sort-Set $out
+}
+
+# The command packages the README names.
+function Get-DocCmdPackages {
+  $out = @()
+  foreach ($m in [regex]::Matches($readme, 'cmd/[a-z][a-z0-9_-]*')) { $out += $m.Groups[0].Value }
+  Sort-Set $out
+}
+
+$codeCmds = @(Get-CodeCmdPackages)
+$docCmds = @(Get-DocCmdPackages)
+if ($codeCmds.Count -eq 0) {
+  Write-Output ("  {0,-20} no command package could be derived from the tree" -f 'Commands')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($docCmds.Count -eq 0) {
+  Write-Output ("  {0,-20} the document names no command" -f 'Commands')
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  $missingCmd = @()
+  foreach ($pkg in $docCmds) {
+    if ($codeCmds -cnotcontains $pkg) { $missingCmd += $pkg }
+  }
+  if ($missingCmd.Count -gt 0) {
+    Write-Output ("  {0,-20} the document names commands the tree does not have: {1}" -f 'Commands', ($missingCmd -join ' '))
+    Write-Output "*** FAIL ***"
+    $failures++
+  } else {
+    Write-Output ("  ok      {0,-20} {1}" -f 'Commands', $docCmds.Count)
+  }
+}
+
 # --- the API map ------------------------------------------------------------
 #
 # The README carries a table of every route the server registers, and that

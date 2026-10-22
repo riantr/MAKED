@@ -494,6 +494,52 @@ else
   printf '  ok      %-20s %s\n' 'Document links' "$LINK_COUNT"
 fi
 
+# --- the commands the document names -------------------------------------------
+#
+# The README's first commands are the ones a reader runs before anything
+# else: `moon run --release --target native cmd/server`, and the same for
+# the agent's server. A command that names a package the tree does not have
+# fails on the first try, with an error about a directory that is not there.
+#
+# The packages are the ones under cmd/ that carry a manifest of their own.
+# The document may name fewer of them than there are -- the browser app is
+# served by the same process as the API and has no command of its own -- but
+# every package it names has to be there.
+
+code_cmd_packages() {
+  for dir in cmd/*/; do
+    [ -f "${dir}moon.pkg" ] || continue
+    printf '%s\n' "${dir%/}"
+  done | LC_ALL=C sort -u
+}
+
+# The command packages the README names.
+doc_cmd_packages() {
+  grep -oE 'cmd/[a-z][a-z0-9_-]*' "$README" | LC_ALL=C sort -u || true
+}
+
+CODE_CMDS=$(code_cmd_packages)
+DOC_CMDS=$(doc_cmd_packages)
+if [ -z "$CODE_CMDS" ]; then
+  fail "$(printf '%-20s no command package could be derived from the tree' 'Commands')"
+elif [ -z "$DOC_CMDS" ]; then
+  fail "$(printf '%-20s the document names no command' 'Commands')"
+else
+  MISSING_CMD=""
+  while IFS= read -r pkg; do
+    [ -n "$pkg" ] || continue
+    if ! printf '%s\n' "$CODE_CMDS" | grep -qxF "$pkg"; then
+      MISSING_CMD="$MISSING_CMD $pkg"
+    fi
+  done <<< "$DOC_CMDS"
+  if [ -n "$MISSING_CMD" ]; then
+    fail "$(printf '%-20s the document names commands the tree does not have:%s' \
+      'Commands' "$MISSING_CMD")"
+  else
+    printf '  ok      %-20s %s\n' 'Commands' "$(printf '%s\n' "$DOC_CMDS" | grep -c .)"
+  fi
+fi
+
 # --- the API map ------------------------------------------------------------
 #
 # The README carries a table of every route the server registers, and that
