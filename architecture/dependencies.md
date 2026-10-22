@@ -144,7 +144,7 @@ in one language.
 | Affected | What breaks |
 |----------|-------------|
 | `frontend/views.mbt` | `logo()`, `logo_mark()` |
-| `frontend/frontend_test.mbt` | node_xy, node_percent, nodes tests (6 tests) |
+| `frontend/frontend_test.mbt` | node_xy, node_percent, nodes tests (4 tests) |
 
 **Key risk**: ring geometry. The tests pin literal coordinates, so a geometry
 change requires updating both the implementation and the expected_centres()

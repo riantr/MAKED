@@ -2064,6 +2064,46 @@ TREE_INTERNAL_EDGES=$(tree_internal_edges)
 check_sets "package dependencies" "$TREE_INTERNAL_EDGES" "$(doc_table_edges)"
 check_sets "dependency diagram" "$TREE_INTERNAL_EDGES" "$(doc_diagram_edges)"
 
+# --- the logo's tests ----------------------------------------------------------
+#
+# The blast radius of the mark says how many tests pin it. It said six, and
+# there are four: the test blocks that name node_xy, node_percent or nodes.
+# A count that is wrong here is a count that sends a reader looking for six
+# tests and finding four.
+#
+# The tests are counted as BLOCKS, not as assertions and not as lines: a block
+# starts at a test declaration and ends at the brace that closes it. The
+# file's own header names the same three functions, so a reader that counted
+# by name alone would count the comment as well.
+
+CODE_LOGO_TESTS=0
+code_logo_tests() {
+  local file="frontend/frontend_test.mbt"
+  local line body="" inside=0 count=0
+  while IFS= read -r line; do
+    if [ "$inside" -eq 0 ]; then
+      case "$line" in
+        'test "'*) inside=1; body="$line" ;;
+      esac
+      continue
+    fi
+    body="$body
+$line"
+    if [ "$line" = "}" ]; then
+      case "$body" in
+        *node_xy*|*node_percent*|*nodes\(\)*) count=$((count + 1)) ;;
+      esac
+      inside=0
+      body=""
+    fi
+  done < "$file"
+  CODE_LOGO_TESTS="$count"
+}
+
+code_logo_tests
+check_claim_number "logo tests" 'node_xy, node_percent, nodes tests \(([0-9]+) tests\)' \
+  "$CODE_LOGO_TESTS" "$DEPS_MD"
+
 # --- the keys the page carries ------------------------------------------------
 #
 # The change impact table says which key the backend writes and which key the

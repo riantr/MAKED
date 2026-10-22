@@ -2044,6 +2044,46 @@ $treeInternalEdges = @(Get-TreeInternalEdges)
 Test-Sets 'package dependencies' $treeInternalEdges (Get-DocTableEdges)
 Test-Sets 'dependency diagram' $treeInternalEdges (Get-DocDiagramEdges)
 
+# --- the logo's tests ----------------------------------------------------------
+#
+# The blast radius of the mark says how many tests pin it. It said six, and
+# there are four: the test blocks that name node_xy, node_percent or nodes.
+# A count that is wrong here is a count that sends a reader looking for six
+# tests and finding four.
+#
+# The tests are counted as BLOCKS, not as assertions and not as lines: a block
+# starts at a test declaration and ends at the brace that closes it. The
+# file's own header names the same three functions, so a reader that counted
+# by name alone would count the comment as well.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+function Get-TreeLogoTests {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'frontend/frontend_test.mbt'), $enc)
+  $count = 0
+  $inside = $false
+  $body = ''
+  foreach ($line in ($text -split "`n")) {
+    if (-not $inside) {
+      if ($line.StartsWith('test "')) { $inside = $true; $body = $line }
+      continue
+    }
+    $body = $body + "`n" + $line
+    if ($line -ceq '}') {
+      if ($body -cmatch 'node_xy|node_percent|nodes\(\)') { $count = $count + 1 }
+      $inside = $false
+      $body = ''
+    }
+  }
+  $count
+}
+
+$treeLogoTests = Get-TreeLogoTests
+
+Test-ClaimNumber 'logo tests' 'node_xy, node_percent, nodes tests \(([0-9]+) tests\)' `
+  $treeLogoTests $depsMd
+
 # --- the keys the page carries ------------------------------------------------
 #
 # The change impact table says which key the backend writes and which key the
