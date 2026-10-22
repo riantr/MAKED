@@ -707,6 +707,59 @@ function Get-DocFormats {
   Sort-Set $out
 }
 
+# The formats the code declares, paired with the variable that names the file
+# they are for, as "variable format".
+#
+# Each backend file owns ONE format constant and reads ONE environment
+# variable, so the pair is read from the file that holds both: the model file
+# declares the format a model is written in and is the file MAKED_MODEL names.
+# A file that owns more than one of either is not paired -- the gate would
+# rather say it cannot tell than guess.
+function Get-CodeFileFormats {
+  $out = @()
+  foreach ($file in @(Get-ChildItem (Join-Path $PWD 'backend') -Filter '*.mbt' -File)) {
+    $text = [System.IO.File]::ReadAllText($file.FullName, $enc)
+    $formats = @()
+    foreach ($m in [regex]::Matches($text, 'pub const [A-Z_]+_FORMAT : String = "([^"]+)"')) {
+      $formats += $m.Groups[1].Value
+    }
+    $vars = @()
+    foreach ($m in [regex]::Matches($text, 'get_env_var\("(MAKED_[A-Z_]+)"\)')) {
+      $vars += $m.Groups[1].Value
+    }
+    $vars = @($vars | Sort-Object -Unique)
+    if ($formats.Count -eq 1 -and $vars.Count -eq 1) {
+      $out += ("{0} {1}" -f $vars[0], $formats[0])
+    }
+  }
+  Sort-Set $out
+}
+
+# The formats the document names, paired with the variable that names the
+# file, as "variable format".
+#
+# The formats on their own are checked above, and a set of four formats does
+# not say which file is written in which. A table that gives the machine the
+# corpus's format still holds all four formats, and a reader who follows it
+# writes a file the server refuses to read.
+#
+# The row is read as a pair: the variable names the file, and the format in
+# the same row is the one that file has to be written in.
+function Get-DocFileFormats {
+  $out = @()
+  foreach ($line in ($readme -split "`r?`n")) {
+    if ($line -notmatch '^\|.*MAKED_(MODEL|RESEARCH|SOCIETY|CORPUS)') { continue }
+    $cells = $line -split '\|'
+    $variable = ''
+    $format = ''
+    foreach ($cell in $cells) {
+      if ($cell -match 'MAKED_(MODEL|RESEARCH|SOCIETY|CORPUS)') { $variable = $Matches[0] }
+      if ($cell -match 'maked\.[a-z]+\.v[0-9]+') { $format = $Matches[0] }
+    }
+    if ($variable -ne '' -and $format -ne '') { $out += ("{0} {1}" -f $variable, $format) }
+  }
+  Sort-Set $out
+}
 # The kinds the code accepts for a corpus, as they are written in a file. The
 # function that renders a kind is the one place the code says what the words
 # are.
@@ -746,6 +799,20 @@ if ($codeFormats.Count -eq 0) {
   Write-Output ("  ok      {0,-20} {1}" -f 'File formats', $codeFormats.Count)
 } else {
   Write-Output ("  {0,-20} the tree says [{1}], the table says [{2}]" -f 'File formats', ($codeFormats -join ' '), ($docFormats -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+}
+
+$codeFileFormats = @(Get-CodeFileFormats)
+$docFileFormats = @(Get-DocFileFormats)
+if ($codeFileFormats.Count -eq 0) {
+  Write-Output ("  {0,-20} no file and format could be derived from the code" -f 'File pairings')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $codeFileFormats $docFileFormats) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'File pairings', $codeFileFormats.Count)
+} else {
+  Write-Output ("  {0,-20} the tree says [{1}], the table says [{2}]" -f 'File pairings', ($codeFileFormats -join ' '), ($docFileFormats -join ' '))
   Write-Output "*** FAIL ***"
   $failures++
 }

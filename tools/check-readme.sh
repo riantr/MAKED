@@ -665,6 +665,65 @@ doc_formats() {
     | LC_ALL=C sort -u
 }
 
+# The formats the code declares, paired with the variable that names the file
+# they are for, as "variable format".
+#
+# Each backend file owns ONE format constant and reads ONE environment
+# variable, so the pair is read from the file that holds both: the model file
+# declares the format a model is written in and is the file MAKED_MODEL names.
+# A file that owns more than one of either is not paired -- the gate would
+# rather say it cannot tell than guess.
+code_file_formats() {
+  for f in backend/*.mbt; do
+    awk '
+      match($0, /pub const [A-Z_]+_FORMAT : String = "[^"]+"/) {
+        s = substr($0, RSTART, RLENGTH)
+        sub(/.*= "/, "", s)
+        sub(/"$/, "", s)
+        formats[nf++] = s
+      }
+      match($0, /get_env_var\("MAKED_[A-Z_]+"\)/) {
+        s = substr($0, RSTART, RLENGTH)
+        sub(/.*\("/, "", s)
+        sub(/"\)$/, "", s)
+        vars[nv++] = s
+      }
+      END {
+        if (nf == 1 && nv == 1) printf "%s %s\n", vars[0], formats[0]
+      }
+    ' "$f"
+  done | LC_ALL=C sort -u
+}
+
+# The formats the document names, paired with the variable that names the
+# file, as "variable format".
+#
+# The formats on their own are checked above, and a set of four formats does
+# not say which file is written in which. A table that gives the machine the
+# corpus's format still holds all four formats, and a reader who follows it
+# writes a file the server refuses to read.
+#
+# The row is read as a pair: the variable names the file, and the format in
+# the same row is the one that file has to be written in.
+doc_file_formats() {
+  grep -E '^\|.*MAKED_(MODEL|RESEARCH|SOCIETY|CORPUS)' "$README" \
+    | awk '{
+        variable = ""
+        format = ""
+        n = split($0, cells, "|")
+        for (i = 1; i <= n; i++) {
+          c = cells[i]
+          if (match(c, /MAKED_(MODEL|RESEARCH|SOCIETY|CORPUS)/)) {
+            variable = substr(c, RSTART, RLENGTH)
+          }
+          if (match(c, /maked\.[a-z]+\.v[0-9]+/)) {
+            format = substr(c, RSTART, RLENGTH)
+          }
+        }
+        if (variable != "" && format != "") printf "%s %s\n", variable, format
+      }' \
+    | LC_ALL=C sort -u
+}
 # The kinds the code accepts for a corpus, as they are written in a file. The
 # function that renders a kind is the one place the code says what the words
 # are.
@@ -701,6 +760,19 @@ else
     'File formats' \
     "$(printf '%s\n' "$CODE_FORMATS" | tr '\n' ' ' | sed -e 's/ *$//')" \
     "$(printf '%s\n' "$DOC_FORMATS" | tr '\n' ' ' | sed -e 's/ *$//')")"
+fi
+
+CODE_FILE_FORMATS=$(code_file_formats)
+DOC_FILE_FORMATS=$(doc_file_formats)
+if [ -z "$CODE_FILE_FORMATS" ]; then
+  fail "$(printf '%-20s no file and format could be derived from the code' 'File pairings')"
+elif same_members "$CODE_FILE_FORMATS" "$DOC_FILE_FORMATS"; then
+  printf '  ok      %-20s %s\n' 'File pairings' "$(printf '%s\n' "$CODE_FILE_FORMATS" | grep -c .)"
+else
+  fail "$(printf '%-20s the tree says [%s], the table says [%s]' \
+    'File pairings' \
+    "$(printf '%s\n' "$CODE_FILE_FORMATS" | tr '\n' ' ' | sed -e 's/ *$//')" \
+    "$(printf '%s\n' "$DOC_FILE_FORMATS" | tr '\n' ' ' | sed -e 's/ *$//')")"
 fi
 
 CODE_CORPUS_KINDS=$(code_corpus_kinds)
