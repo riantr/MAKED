@@ -1589,6 +1589,50 @@ else
 fi
 
 
+# --- the status a refusal comes back with -------------------------------------
+#
+# The README's error handling says what a refusal looks like, and the one
+# number in it is the status: a slot that does not exist comes back as `400`.
+# Nothing compared that with the code, so a README that said `404` would have
+# gone unnoticed -- and a reader writing a client against the document would
+# have been reading the wrong status.
+#
+# The tree is the source. The branch that answers for a slot that does not
+# exist is the one that names the slot, and the status it answers with is the
+# status the document has to state. The naming of the slot is guarded by the
+# integration suite, which asks the running server and reads the name back;
+# the status is a number in the document, so it is checked here.
+#
+# The claim is found by its own shape -- the sentence about a slot that does
+# not exist -- so a status code written anywhere else in the document is not
+# read as this one. The sentence is read from the whole document at once,
+# because it wraps across two lines.
+
+code_refusal_status() {
+  awk '
+    /UnknownSlot\(name\) => \{/ { inside = 1; next }
+    inside && match($0, /status=[0-9]+/) {
+      print substr($0, RSTART + 7, RLENGTH - 7)
+      exit
+    }
+    inside && /^[ \t]*\}/ { exit }
+  ' backend/api.mbt
+}
+
+doc_refusal_status() {
+  tr '\n' ' ' < "$README" | tr -s ' ' \
+    | grep -oE 'slot that does not exist comes back as `[0-9]{3}`' \
+    | grep -oE '[0-9]{3}' | head -1 || true
+}
+
+CODE_REFUSAL_STATUS=$(code_refusal_status)
+DOC_REFUSAL_STATUS=$(doc_refusal_status)
+
+if [ -z "$CODE_REFUSAL_STATUS" ]; then
+  fail "$(printf '%-20s the tree does not say what a refusal answers with' 'Refusal status')"
+else
+  check_claim "Refusal status" "$CODE_REFUSAL_STATUS" "$DOC_REFUSAL_STATUS"
+fi
 # --- the ring's order ----------------------------------------------------------
 #
 # The ring is a ring, and the ORDER is the claim: Model before Data before

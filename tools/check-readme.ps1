@@ -1642,6 +1642,52 @@ if ($domainNames.Count -eq 0 -or $docDomainNames.Count -eq 0) {
   $failures++
 }
 
+# --- the status a refusal comes back with -------------------------------------
+#
+# The README's error handling says what a refusal looks like, and the one
+# number in it is the status: a slot that does not exist comes back as `400`.
+# Nothing compared that with the code, so a README that said `404` would have
+# gone unnoticed -- and a reader writing a client against the document would
+# have been reading the wrong status.
+#
+# The tree is the source. The branch that answers for a slot that does not
+# exist is the one that names the slot, and the status it answers with is the
+# status the document has to state. The naming of the slot is guarded by the
+# integration suite, which asks the running server and reads the name back;
+# the status is a number in the document, so it is checked here.
+#
+# The claim is found by its own shape -- the sentence about a slot that does
+# not exist -- so a status code written anywhere else in the document is not
+# read as this one. The sentence is read from the whole document at once,
+# because it wraps across two lines.
+
+function Get-CodeRefusalStatus {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/api.mbt'), $enc)
+  $inside = $false
+  foreach ($line in ($text -split "`n")) {
+    if ($line -cmatch 'UnknownSlot\(name\) => \{') { $inside = $true; continue }
+    if ($inside -and $line -cmatch 'status=([0-9]+)') { return $Matches[1] }
+    if ($inside -and $line -cmatch '^[ \t]*\}') { return '' }
+  }
+  ''
+}
+
+function Get-DocRefusalStatus {
+  $flat = ($readme -replace "`n", ' ') -replace ' +', ' '
+  $m = [regex]::Match($flat, 'slot that does not exist comes back as `([0-9]{3})`')
+  if ($m.Success) { $m.Groups[1].Value } else { '' }
+}
+
+$codeRefusalStatus = Get-CodeRefusalStatus
+$docRefusalStatus = Get-DocRefusalStatus
+
+if ($codeRefusalStatus -eq '') {
+  Write-Output ("  {0,-20} the tree does not say what a refusal answers with" -f 'Refusal status')
+  Write-Output "*** FAIL ***"
+  $script:failures++
+} else {
+  Test-Claim 'Refusal status' $codeRefusalStatus $docRefusalStatus
+}
 # --- the ring's order ----------------------------------------------------------
 #
 # The ring is a ring, and the ORDER is the claim: Model before Data before
