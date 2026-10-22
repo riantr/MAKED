@@ -2084,6 +2084,44 @@ $treeLogoTests = Get-TreeLogoTests
 Test-ClaimNumber 'logo tests' 'node_xy, node_percent, nodes tests \(([0-9]+) tests\)' `
   $treeLogoTests $depsMd
 
+# --- the ring's geometry --------------------------------------------------------
+#
+# The evidence document states the ring's geometry in one cell: how many nodes
+# the ring has, how far the ring reaches, and how big the square the mark is
+# drawn in. All three are the tree's -- the logo file holds them as
+# constants, and the test file pins them as literals -- and a reader who took
+# the numbers and drew the mark would draw a different one.
+#
+# The viewBox is written the way a viewBox is written, "200x200", so the
+# tree's single VIEW constant is what both halves of that have to be.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+# The nodes the mark draws: the tuples in nodes().
+function Get-TreeLogoNodes {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'frontend/logo.mbt'), $enc)
+  ([regex]::Matches($text, '(?m)^\s*\("[A-Z]", "#[0-9a-fA-F]+"')).Count
+}
+
+# The value of a constant in the logo file.
+function Get-TreeLogoConst($name) {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'frontend/logo.mbt'), $enc)
+  $m = [regex]::Match($text, "const $name : Int32 = ([0-9]+)")
+  if ($m.Success) { $m.Groups[1].Value } else { '' }
+}
+
+$treeLogoNodes = Get-TreeLogoNodes
+$treeLogoRadius = Get-TreeLogoConst 'RING_R'
+$treeLogoView = Get-TreeLogoConst 'VIEW'
+
+Test-ClaimNumber 'logo nodes' '([0-9]+) nodes clockwise from top' `
+  $treeLogoNodes $evidence
+Test-ClaimNumber 'ring radius' 'radius ([0-9]+), viewBox' `
+  $treeLogoRadius $evidence
+Test-ClaimNumber 'logo viewBox' 'viewBox ([0-9]+x[0-9]+)' `
+  ("{0}x{0}" -f $treeLogoView) $evidence
+
 # --- the keys the page carries ------------------------------------------------
 #
 # The change impact table says which key the backend writes and which key the

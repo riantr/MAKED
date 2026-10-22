@@ -2104,6 +2104,40 @@ code_logo_tests
 check_claim_number "logo tests" 'node_xy, node_percent, nodes tests \(([0-9]+) tests\)' \
   "$CODE_LOGO_TESTS" "$DEPS_MD"
 
+# --- the ring's geometry --------------------------------------------------------
+#
+# The evidence document states the ring's geometry in one cell: how many nodes
+# the ring has, how far the ring reaches, and how big the square the mark is
+# drawn in. All three are the tree's -- the logo file holds them as
+# constants, and the test file pins them as literals -- and a reader who took
+# the numbers and drew the mark would draw a different one.
+#
+# The viewBox is written the way a viewBox is written, "200x200", so the
+# tree's single VIEW constant is what both halves of that have to be.
+
+# The nodes the mark draws: the tuples in nodes().
+code_logo_nodes() {
+  grep -cE '^[[:space:]]*\("[A-Z]", "#[0-9a-fA-F]+"' frontend/logo.mbt || true
+}
+
+# The value of a constant in the logo file.
+code_logo_const() {
+  local name="$1"
+  grep -oE "const $name : Int32 = [0-9]+" frontend/logo.mbt | head -1 \
+    | grep -oE '[0-9]+$' || true
+}
+
+CODE_LOGO_NODES=$(code_logo_nodes)
+CODE_LOGO_RADIUS=$(code_logo_const RING_R)
+CODE_LOGO_VIEW=$(code_logo_const VIEW)
+
+check_claim_number "logo nodes" '([0-9]+) nodes clockwise from top' \
+  "$CODE_LOGO_NODES" "$EVIDENCE"
+check_claim_number "ring radius" 'radius ([0-9]+), viewBox' \
+  "$CODE_LOGO_RADIUS" "$EVIDENCE"
+check_claim_number "logo viewBox" 'viewBox ([0-9]+x[0-9]+)' \
+  "${CODE_LOGO_VIEW}x${CODE_LOGO_VIEW}" "$EVIDENCE"
+
 # --- the keys the page carries ------------------------------------------------
 #
 # The change impact table says which key the backend writes and which key the

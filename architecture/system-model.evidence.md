@@ -52,8 +52,8 @@ files. Confidence is **high** unless noted otherwise.
 | Page struct mirrors backend, decodes JSON totally | `frontend/page.mbt:16-131` | high |
 | Views: header, domain cards, page view, not found, loading, error | `frontend/views.mbt:28-200` | high |
 | Logo: SVG ring + taijitu, HTML letter overlay | `frontend/logo.mbt:1-201` | high |
-| Ring geometry: 5 nodes clockwise from top, radius 68, viewBox 200x200 | `frontend/logo.mbt:42-70` | high |
-| Node colors: M indigo, D green, E red, A yellow, K grey | `frontend/logo.mbt:31-39` | high |
+| Ring geometry: 5 nodes clockwise from top, radius 68, viewBox 200x200 | `frontend/logo.mbt:32-70` | high |
+| Node colors: M indigo, D green, E red, A yellow, K grey | `frontend/logo.mbt:32-40` | high |
 | `dangerous_inner_html` used for page bodies (safe: backend is sole writer) | `frontend/views.mbt:141-157` | high |
 
 ## Entry points
