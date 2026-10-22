@@ -7,11 +7,12 @@ change-impact analysis for each project package.
 
 ## Package dependency graph
 
-The project has five packages. Dependencies flow strictly downward:
+The project has six packages. Dependencies flow strictly downward:
 
 ```
 cmd/server ──→ backend ──→ moonback, sqlite3, async/*
 cmd/web   ──→ frontend ──→ rabbita/*
+cmd/mcp   ──→ backend ──→ colmugx/mcp, async/*
 ```
 
 There are **no cycles**. Backend and frontend share no direct dependency; they
@@ -25,6 +26,7 @@ communicate only through the JSON API contract at runtime.
 | `frontend/` | (none) | rabbita, rabbita/cmd, rabbita/html, rabbita/http, rabbita/nav, rabbita/sub, rabbita/svg, rabbita/url, core (json, math, string) |
 | `cmd/server/` | backend | moonback, async, async/fs, core/env, core/string |
 | `cmd/web/` | frontend | rabbita |
+| `cmd/mcp/` | backend | colmugx/mcp, colmugx/mcp/protocol/tool, colmugx/mcp/protocol/types, colmugx/mcp/runtime, async, async/io, async/stdio, core (debug, env, json, string) |
 | root `moon.pkg` | (empty) | (none) |
 
 ### External dependency tree
@@ -46,7 +48,7 @@ colmugx/mcp@0.18.1                  ← The agent's server
 
 ### If you change `backend/pages.mbt`
 
-**Blast radius**: backend, frontend (via JSON contract)
+**Blast radius**: backend, cmd/mcp, frontend (via JSON contract)
 
 | Affected | What breaks | Severity |
 |----------|-------------|----------|
@@ -63,7 +65,7 @@ the JSON contract has no schema validation.
 
 ### If you change `backend/database.mbt`
 
-**Blast radius**: backend only
+**Blast radius**: backend, cmd/mcp
 
 | Affected | What breaks |
 |----------|-------------|
@@ -119,7 +121,7 @@ match `backend/pages.mbt`'s `Page::to_json()` keys. No compile-time check.
 
 ### If you change `backend/pages.mbt`
 
-**Blast radius**: backend, frontend (via JSON contract)
+**Blast radius**: backend, cmd/mcp, frontend (via JSON contract)
 
 | Affected | What breaks |
 |----------|-------------|
@@ -166,3 +168,4 @@ literals in the test.
 | frontend → rabbita | **High** — TEA signatures, Html type, subscription model, HTTP client. |
 | cmd/server → backend | **Low** — Three function calls: create_app, to_module, static_files. |
 | cmd/web → frontend | **Minimal** — One function call: app(). |
+| cmd/mcp → backend | **Low** — The loop's tools, read through the backend's agent module. |

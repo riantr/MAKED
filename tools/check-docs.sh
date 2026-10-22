@@ -1890,6 +1890,70 @@ check_word_count "system model pages" "public pages" "$PAGE_COUNT" "$SYSTEM_MODE
 check_exists "system model backend" "cmd/server/main.mbt"
 check_exists "system model frontend" "cmd/web/main.mbt"
 
+# --- the packages the project has ---------------------------------------------
+#
+# The dependency documents say how many packages the project is made of, and
+# the list they wrote down is the one the project started with: the agent's
+# server (cmd/mcp) was added after they were written, and the documents still
+# say the project has five packages. A reader planning a change would not
+# know the package exists.
+#
+# The tree is the manifests. Every moon.pkg is a package, the module's own
+# one included -- the documents count it, so the tree is counted the same way.
+#
+# The COUNT and the LIST are checked, and they are checked in each document
+# separately. The count is what a reader takes away; the list is what a reader
+# reads to find a package. A document can state the right count and the wrong
+# list, and the other way round, so neither check can stand in for the other.
+
+tree_project_packages() {
+  {
+    find . -maxdepth 1 -name moon.pkg -type f -print
+    find backend frontend cmd -name moon.pkg -type f -print 2>/dev/null
+  } | sed -E 's|^\./||; s|/moon\.pkg$||; s|^moon\.pkg$|root|' \
+    | LC_ALL=C sort -u
+}
+
+# The list the evidence document states: the names after "project packages: ".
+doc_project_packages() {
+  grep -oE 'project packages: [^|]+' "$EVIDENCE" \
+    | sed -E 's/^project packages: //' \
+    | tr ',' '\n' | sed -E 's/[[:space:]]+//g' | grep -v '^$' \
+    | LC_ALL=C sort -u
+}
+
+# The packages the dependency table names: the first cell of every row of the
+# internal dependencies table.
+doc_dependency_packages() {
+  awk '
+    /^\|[[:space:]]*Package[[:space:]]*\|/ { inside = 1; next }
+    inside && /^\|/ {
+      cell = $0
+      sub(/^\|[[:space:]]*/, "", cell)
+      sub(/[[:space:]]*\|.*$/, "", cell)
+      gsub(/`/, "", cell)
+      sub(/\/$/, "", cell)
+      sub(/^root moon\.pkg$/, "root", cell)
+      print cell
+    }
+    inside && !/^\|/ { exit }
+  ' "$DEPS_MD" | grep -E '^[a-z]+(/[a-z]+)?$' | LC_ALL=C sort -u
+}
+
+TREE_PROJECT_PACKAGES=$(tree_project_packages)
+count_lines "$TREE_PROJECT_PACKAGES"
+TREE_PROJECT_PACKAGE_COUNT=$COUNT_LINES
+
+check_word_count "dependency package count" "packages" \
+  "$TREE_PROJECT_PACKAGE_COUNT" "$DEPS_MD"
+check_word_count "project package count" "project packages" \
+  "$TREE_PROJECT_PACKAGE_COUNT" "$EVIDENCE"
+
+check_sets "dependency package list" "$TREE_PROJECT_PACKAGES" \
+  "$(doc_dependency_packages)"
+check_sets "project package list" "$TREE_PROJECT_PACKAGES" \
+  "$(doc_project_packages)"
+
 # --- architecture/flows.md: the paths the requests take ----------------------
 #
 # The flow document traces what happens on the way in and out, and it counts

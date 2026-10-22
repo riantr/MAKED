@@ -1856,6 +1856,72 @@ Test-WordCount 'system model pages' 'public pages' $pageCount $systemModelMd
 Test-Exists 'system model backend' 'cmd/server/main.mbt'
 Test-Exists 'system model frontend' 'cmd/web/main.mbt'
 
+# --- the packages the project has ---------------------------------------------
+#
+# The dependency documents say how many packages the project is made of, and
+# the list they wrote down is the one the project started with: the agent's
+# server (cmd/mcp) was added after they were written.
+#
+# The tree is the manifests. Every moon.pkg is a package, the module's own
+# one included -- the documents count it, so the tree is counted the same way.
+#
+# The COUNT and the LIST are checked, and they are checked in each document
+# separately: the count is what a reader takes away, and the list is what a
+# reader reads to find a package.
+
+function Get-TreeProjectPackages {
+  $out = @()
+  foreach ($root in @('backend', 'frontend', 'cmd')) {
+    foreach ($f in (Get-ChildItem (Join-Path $PWD $root) -Recurse -Filter 'moon.pkg' -File)) {
+      $rel = $f.FullName.Substring($PWD.Path.Length + 1).Replace('\', '/')
+      $out += ($rel -replace '/moon\.pkg$', '')
+    }
+  }
+  if (Test-Path (Join-Path $PWD 'moon.pkg')) { $out += 'root' }
+  Sort-Set $out
+}
+
+# The list the evidence document states: the names after "project packages: ".
+function Get-DocProjectPackages {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $evidence), $enc)
+  foreach ($m in [regex]::Matches($text, 'project packages: ([^|]+)')) {
+    foreach ($part in ($m.Groups[1].Value -split ',')) {
+      $name = $part.Trim()
+      if ($name -ne '') { $out += $name }
+    }
+  }
+  Sort-Set $out
+}
+
+# The packages the dependency table names: the first cell of every row of the
+# internal dependencies table.
+function Get-DocDependencyPackages {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $depsMd), $enc)
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^\|\s*Package\s*\|') { $inside = $true; continue }
+    if (-not $inside) { continue }
+    if ($line -notmatch '^\|') { break }
+    $cell = ($line -replace '^\|\s*', '') -replace '\s*\|.*$', ''
+    $cell = $cell -replace '`', ''
+    $cell = $cell -replace '/$', ''
+    if ($cell -ceq 'root moon.pkg') { $cell = 'root' }
+    if ($cell -cmatch '^[a-z]+(/[a-z]+)?$') { $out += $cell }
+  }
+  Sort-Set $out
+}
+
+$treeProjectPackages = Get-TreeProjectPackages
+$treeProjectPackageCount = @($treeProjectPackages).Count
+
+Test-WordCount 'dependency package count' 'packages' $treeProjectPackageCount $depsMd
+Test-WordCount 'project package count' 'project packages' $treeProjectPackageCount $evidence
+
+Test-Sets 'dependency package list' $treeProjectPackages (Get-DocDependencyPackages)
+Test-Sets 'project package list' $treeProjectPackages (Get-DocProjectPackages)
+
 # --- architecture/flows.md: the paths the requests take ----------------------
 #
 # The flow document traces what happens on the way in and out, and it counts

@@ -9,7 +9,7 @@ files. Confidence is **high** unless noted otherwise.
 |-------|--------|------------|
 | Module name is `riantr/MAKED` | `moon.mod` | high |
 | Two targets: `js+native` | `moon.mod:43` | high |
-| Five project packages: root, backend, frontend, cmd/server, cmd/web | `moon.pkg` files (5 found, excluding `.mooncakes/`) | high |
+| Six project packages: root, backend, frontend, cmd/server, cmd/web, cmd/mcp | `moon.pkg` files (excluding `.mooncakes/`) | high |
 | Backend is native-only | `backend/moon.pkg:33` (`supported_targets = "native"`) | high |
 | Frontend is js-only | `frontend/moon.pkg:34` (`supported_targets = "js"`) | high |
 | cmd/server is native executable | `cmd/server/moon.pkg:1,12` | high |
