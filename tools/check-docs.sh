@@ -2129,6 +2129,180 @@ doc_page_decoder_keys() {
 check_sets "page json keys" "$(code_page_json_keys)" "$(doc_page_json_keys)"
 check_sets "page decoder keys" "$(code_page_decoder_keys)" "$(doc_page_decoder_keys)"
 
+# --- the order the chain runs in ----------------------------------------------
+#
+# A request to the server meets three things before it reaches a handler: the
+# static file middleware, the SPA fallback middleware and the route module.
+# The order they meet is not the order they are written in. moonback appends
+# every middleware to one list, chains that list in declaration order with the
+# first registered outermost, and hands the router to the chain as the
+# handler -- so the chain runs
+#
+#   static_files -> spa_fallback -> routes
+#
+# while the code registers them the other way round: the routes first, then
+# the two middlewares. The documents had the registration order and called it
+# the runtime order, which sent a reader looking for the router before the
+# static files -- the opposite of what happens.
+#
+# The rule was read from moonback 0.8.9: module.mbt appends each middleware to
+# the app's list, middleware.mbt chains that list in declaration order and
+# compose() puts the current middleware in front, and app.mbt gives the chain
+# the router as the handler. The pin is watched, so a different moonback
+# cannot change the answer without the rule being read again.
+
+CHAIN_RULE_MOONBACK="0.8.9"
+CHAIN_ORDER=""
+CHAIN_MOONBACK_PIN=""
+CHAIN_FLOWS="architecture/flows.md"
+
+# The parts of the chain, in the order the tree runs them.
+#
+# The registrations are read in the order the file writes them. A middleware
+# registered with add_middleware is one of the chain, in the order it was
+# registered; the module registered with use_ is the route module, and the
+# router is the last thing a request meets. The word used for each is the
+# tree's: the function it was built from, when the file builds it from one.
+code_chain_order() {
+  local file="cmd/server/main.mbt"
+  local kind name func middlewares="" route=""
+  while read -r kind name; do
+    [ -n "$name" ] || continue
+    func=$(grep -oE "let $name = @[A-Za-z_.]+\.[a-z_]+\(" "$file" | head -1 \
+      | sed -E 's/^.*\.([a-z_]+)\($/\1/')
+    [ -n "$func" ] || func="$name"
+    if [ "$kind" = "use_" ]; then
+      route="$func"
+    else
+      middlewares="$middlewares $func"
+    fi
+  done < <(grep -oE 'ctx\.(use_|add_middleware)\([a-z_]+\)' "$file" \
+    | sed -E 's/ctx\.(use_|add_middleware)\(([a-z_]+)\)/\1 \2/')
+  CHAIN_ORDER="$(printf '%s' "$middlewares $route" | sed -e 's/^ *//' -e 's/ *$//')"
+}
+
+# The version of moonback the project pins.
+code_moonback_pin() {
+  local line
+  CHAIN_MOONBACK_PIN=""
+  while IFS= read -r line; do
+    case "$line" in
+      *'"moonbitlang/moonback@'*)
+        CHAIN_MOONBACK_PIN="${line#*@}"
+        CHAIN_MOONBACK_PIN="${CHAIN_MOONBACK_PIN%%\"*}"
+        return
+        ;;
+    esac
+  done < moon.mod
+}
+
+# The parts a text names, in the order the text names them.
+#
+# Each part is placed where the text first says it, and the parts are then
+# read in that order. A text that names them in the wrong order comes out in
+# the wrong order, and a text that says one part twice keeps it where it
+# first said it.
+DOC_CHAIN_ORDER=""
+doc_chain_order() {
+  local text="$1" name prefix
+  DOC_CHAIN_ORDER=""
+  {
+    for name in $CHAIN_ORDER; do
+      case "$text" in
+        *"$name"*)
+          prefix="${text%%"$name"*}"
+          printf '%010d %s\n' "${#prefix}" "$name"
+          ;;
+      esac
+    done
+  } | sort -n | cut -d' ' -f2- | tr '\n' ' ' | sed -e 's/ *$//'
+}
+
+# The chain the flow document traces: the numbered list under the line that
+# says the chain runs outermost first.
+#
+# The list is the run of items numbered 1, 2, 3 in a row. The next list in the
+# document starts at 1 again, so the run ends where the numbering stops
+# counting up -- which is how the reader knows it has read one list and not
+# two.
+DOC_FLOW_CHAIN=""
+doc_flow_chain() {
+  local line inside=0 want=1 num
+  DOC_FLOW_CHAIN=""
+  while IFS= read -r line; do
+    if [ "$inside" -eq 0 ]; then
+      case "$line" in
+        *"moonback middleware chain (outermost first)"*) inside=1 ;;
+      esac
+      continue
+    fi
+    if [[ "$line" =~ ^[[:space:]]+([0-9]+)\. ]]; then
+      num="${BASH_REMATCH[1]}"
+      if [ "$num" -ne "$want" ]; then break; fi
+      want=$((want + 1))
+      DOC_FLOW_CHAIN="$DOC_FLOW_CHAIN$line
+"
+      continue
+    fi
+    # a line under the item above, or the answer going back to the browser
+    case "$line" in
+      [[:space:]]*) continue ;;
+      *) break ;;
+    esac
+  done < "$CHAIN_FLOWS"
+}
+
+# Every place that states the order must state the tree's order.
+#
+# A table cell that names every part of the chain states the order they run
+# in, so it has to state the tree's. The flow document says it in a list
+# rather than a table, so that list is read as well.
+check_chain_order() {
+  local label="middleware order"
+  local bad=0
+  local doc line cell name all order
+  for doc in "$EVIDENCE" "architecture/flows.evidence.md" "$DEPLOY"; do
+    while IFS= read -r line; do
+      case "$line" in "|"*) ;; *) continue ;; esac
+      cell="${line#|}"
+      cell="${cell%%|*}"
+      all=1
+      for name in $CHAIN_ORDER; do
+        case "$cell" in *"$name"*) ;; *) all=0 ;; esac
+      done
+      [ "$all" -eq 1 ] || continue
+      order="$(doc_chain_order "$cell")"
+      if [ "$order" != "$CHAIN_ORDER" ]; then
+        fail "$(printf '%-22s %s states [%s], the tree runs [%s]' \
+          "$label" "$(basename "$doc")" "$order" "$CHAIN_ORDER")"
+        bad=1
+      fi
+    done < "$doc"
+  done
+  doc_flow_chain
+  order="$(doc_chain_order "$DOC_FLOW_CHAIN")"
+  if [ "$order" != "$CHAIN_ORDER" ]; then
+    fail "$(printf '%-22s %s states [%s], the tree runs [%s]' \
+      "$label" "$(basename "$CHAIN_FLOWS")" "$order" "$CHAIN_ORDER")"
+    bad=1
+  fi
+  if [ "$bad" -eq 0 ]; then
+    ok "$label" "$CHAIN_ORDER"
+  fi
+}
+
+code_chain_order
+code_moonback_pin
+
+if [ "$CHAIN_MOONBACK_PIN" = "$CHAIN_RULE_MOONBACK" ]; then
+  ok "chain rule" "moonback $CHAIN_MOONBACK_PIN"
+else
+  fail "$(printf '%-22s the chain rule was read from moonback %s and moon.mod now pins %s -- read the rule again' \
+    "chain rule" "$CHAIN_RULE_MOONBACK" "$CHAIN_MOONBACK_PIN")"
+fi
+
+check_chain_order
+
 # --- architecture/flows.md: the paths the requests take ----------------------
 #
 # The flow document traces what happens on the way in and out, and it counts

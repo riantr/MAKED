@@ -10,7 +10,7 @@
 | SQLite path from MAKED_DB env (default maked.db) | `cmd/server/main.mbt:44` | high |
 | Static files from MAKED_DIST env (default frontend/dist) | `cmd/server/main.mbt:45` | high |
 | Warns if dist directory not found at startup | `cmd/server/main.mbt:46-47` | high |
-| Middleware order: routes → static → spa_fallback | `cmd/server/main.mbt:74-80` | high |
+| Middleware order: static_files → spa_fallback → routes | `cmd/server/main.mbt:79-84` | high |
 | No TLS, no reverse proxy; MAKED_HOST widens the reach | `cmd/server/main.mbt:63-67` | high |
 | The image health-checks `GET /api/status`, and the server serves that route | `Dockerfile:101-102`, `backend/api.mbt:19` | high |
 

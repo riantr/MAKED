@@ -51,10 +51,10 @@ Schema creation and content seeding are synchronous and idempotent.
 ```
 Browser → GET /about
   → moonback middleware chain (outermost first):
-    1. routes module: no match for /about (not an /api/ path)
-    2. static_files: no file at dist/about → passes through
-    3. spa_fallback: GET, not /api/*, no dot in last segment → wants_spa_shell = true
+    1. static_files: no file at dist/about → passes through
+    2. spa_fallback: GET, not /api/*, no dot in last segment → wants_spa_shell = true
        → read dist/index.html → 200 text/html
+    3. routes: the route module; the shell above already answered this request
   ← Browser receives index.html
   → <script src="main.js"> loads
   → rabbita.new(app).mount("app")

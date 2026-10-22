@@ -13,13 +13,13 @@
 | home_page and not_found_page seeded separately | `backend/maked_app.mbt:17` | high |
 | logging_middleware is the only middleware | `backend/maked_app.mbt:16, 61` | high |
 | to_module registers catch-all GET /*rest for JSON 404 | `backend/app.mbt:146-149` | high |
-| Middleware order: routes → static → spa_fallback | `cmd/server/main.mbt:74-80` | high |
+| Middleware order: static_files → spa_fallback → routes | `cmd/server/main.mbt:79-84` | high |
 
 ## Flow 2: Cold load
 
 | Step | Source | Confidence |
 |------|--------|------------|
-| moonback middleware chain: routes first, then static, then spa | `cmd/server/main.mbt:74-80` | high |
+| Middleware order: static_files → spa_fallback → routes | `cmd/server/main.mbt:79-84` | high |
 | spa_fallback checks: GET/HEAD, not /api/*, no dot in last segment | `backend/maked_app.mbt:91` | high |
 | spa_fallback reads dist/index.html via async fs | `backend/maked_app.mbt:81` | high |
 | History fallback deliberately NOT used (would mask API 404s) | `backend/maked_app.mbt:88` | high |

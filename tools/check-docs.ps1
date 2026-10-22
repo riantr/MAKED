@@ -2140,6 +2140,157 @@ $treePageDecoderKeys = @(Get-TreePageDecoderKeys)
 Test-Sets 'page json keys' $treePageJsonKeys (Get-DocPageJsonKeys)
 Test-Sets 'page decoder keys' $treePageDecoderKeys (Get-DocPageDecoderKeys)
 
+# --- the order the chain runs in ----------------------------------------------
+#
+# A request to the server meets three things before it reaches a handler: the
+# static file middleware, the SPA fallback middleware and the route module.
+# The order they meet is not the order they are written in. moonback appends
+# every middleware to one list, chains that list in declaration order with the
+# first registered outermost, and hands the router to the chain as the
+# handler -- so the chain runs
+#
+#   static_files -> spa_fallback -> routes
+#
+# while the code registers them the other way round: the routes first, then
+# the two middlewares. The documents had the registration order and called it
+# the runtime order, which sent a reader looking for the router before the
+# static files -- the opposite of what happens.
+#
+# The rule was read from moonback 0.8.9: module.mbt appends each middleware to
+# the app's list, middleware.mbt chains that list in declaration order and
+# compose() puts the current middleware in front, and app.mbt gives the chain
+# the router as the handler. The pin is watched, so a different moonback
+# cannot change the answer without the rule being read again.
+
+$chainRuleMoonback = '0.8.9'
+$chainFlows = 'architecture/flows.md'
+
+# The parts of the chain, in the order the tree runs them.
+#
+# The registrations are read in the order the file writes them. A middleware
+# registered with add_middleware is one of the chain, in the order it was
+# registered; the module registered with use_ is the route module, and the
+# router is the last thing a request meets. The word used for each is the
+# tree's: the function it was built from, when the file builds it from one.
+function Get-TreeChainOrder {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'cmd/server/main.mbt'), $enc)
+  $middlewares = @()
+  $route = ''
+  foreach ($line in ($text -split "`n")) {
+    $m = [regex]::Match($line, 'ctx\.(use_|add_middleware)\(([a-z_]+)\)')
+    if (-not $m.Success) { continue }
+    $name = $m.Groups[2].Value
+    $built = [regex]::Match($text, "let $name = @[A-Za-z_.]+\.([a-z_]+)\(")
+    $word = if ($built.Success) { $built.Groups[1].Value } else { $name }
+    if ($m.Groups[1].Value -ceq 'use_') { $route = $word } else { $middlewares += $word }
+  }
+  $parts = @()
+  $parts += $middlewares
+  if ($route -ne '') { $parts += $route }
+  $parts -join ' '
+}
+
+# The version of moonback the project pins.
+function Get-MoonbackPin {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'moon.mod'), $enc)
+  $m = [regex]::Match($text, '"moonbitlang/moonback@([^"]+)"')
+  if ($m.Success) { $m.Groups[1].Value } else { '' }
+}
+
+# The parts a text names, in the order the text names them.
+#
+# Each part is placed where the text first says it, and the parts are then
+# read in that order. A text that names them in the wrong order comes out in
+# the wrong order, and a text that says one part twice keeps it where it
+# first said it.
+function Get-DocChainOrder($text, $parts) {
+  $found = @()
+  foreach ($name in ($parts -split ' ')) {
+    if ($name -eq '') { continue }
+    $pos = $text.IndexOf($name)
+    if ($pos -ge 0) { $found += [PSCustomObject]@{ Pos = $pos; Name = $name } }
+  }
+  $names = @($found | Sort-Object -Property Pos | ForEach-Object { $_.Name })
+  $names -join ' '
+}
+
+# The chain the flow document traces: the numbered list under the line that
+# says the chain runs outermost first.
+#
+# The list is the run of items numbered 1, 2, 3 in a row. The next list in the
+# document starts at 1 again, so the run ends where the numbering stops
+# counting up -- which is how the reader knows it has read one list and not
+# two.
+function Get-DocFlowChain {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $chainFlows), $enc)
+  $out = @()
+  $inside = $false
+  $want = 1
+  foreach ($line in ($text -split "`n")) {
+    if (-not $inside) {
+      if ($line.Contains('moonback middleware chain (outermost first)')) { $inside = $true }
+      continue
+    }
+    $m = [regex]::Match($line, '^\s+([0-9]+)\.')
+    if ($m.Success) {
+      $num = [int]$m.Groups[1].Value
+      if ($num -ne $want) { break }
+      $want = $want + 1
+      $out += $line
+      continue
+    }
+    if ($line -match '^\s') { continue }
+    break
+  }
+  $out -join "`n"
+}
+
+# Every place that states the order must state the tree's order.
+#
+# A table cell that names every part of the chain states the order they run
+# in, so it has to state the tree's. The flow document says it in a list
+# rather than a table, so that list is read as well.
+function Test-ChainOrder($label, $expected, $docs) {
+  $bad = $false
+  foreach ($doc in $docs) {
+    $text = [System.IO.File]::ReadAllText((Join-Path $PWD $doc), $enc)
+    foreach ($line in ($text -split "`r?`n")) {
+      if (-not $line.StartsWith('|')) { continue }
+      $cell = $line.Substring(1)
+      $bar = $cell.IndexOf('|')
+      if ($bar -ge 0) { $cell = $cell.Substring(0, $bar) }
+      $all = $true
+      foreach ($name in ($expected -split ' ')) {
+        if ($name -eq '') { continue }
+        if (-not $cell.Contains($name)) { $all = $false }
+      }
+      if (-not $all) { continue }
+      $order = Get-DocChainOrder $cell $expected
+      if ($order -cne $expected) {
+        Write-Fail ("{0,-22} {1} states [{2}], the tree runs [{3}]" -f $label, (Split-Path -Leaf $doc), $order, $expected)
+        $bad = $true
+      }
+    }
+  }
+  $order = Get-DocChainOrder (Get-DocFlowChain) $expected
+  if ($order -cne $expected) {
+    Write-Fail ("{0,-22} {1} states [{2}], the tree runs [{3}]" -f $label, (Split-Path -Leaf $chainFlows), $order, $expected)
+    $bad = $true
+  }
+  if (-not $bad) { Write-Ok $label $expected }
+}
+
+$treeChainOrder = Get-TreeChainOrder
+$chainMoonbackPin = Get-MoonbackPin
+
+if ($chainMoonbackPin -ceq $chainRuleMoonback) {
+  Write-Ok 'chain rule' ("moonback {0}" -f $chainMoonbackPin)
+} else {
+  Write-Fail ("{0,-22} the chain rule was read from moonback {1} and moon.mod now pins {2} -- read the rule again" -f 'chain rule', $chainRuleMoonback, $chainMoonbackPin)
+}
+
+Test-ChainOrder 'middleware order' $treeChainOrder @($evidence, 'architecture/flows.evidence.md', $deploy)
+
 # --- architecture/flows.md: the paths the requests take ----------------------
 #
 # The flow document traces what happens on the way in and out, and it counts
