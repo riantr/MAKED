@@ -24,6 +24,7 @@
 | spa_fallback reads dist/index.html via async fs | `backend/maked_app.mbt:81` | high |
 | History fallback deliberately NOT used (would mask API 404s) | `backend/maked_app.mbt:88` | high |
 | rabbita mount triggers start() which issues GET /api/bootstrap | `frontend/app.mbt:707` | high |
+| bootstrap returns `{"pages": [...], "entries": [...], "entry_domains": [...], "session_state": {...}}` | `backend/api.mbt:61-76` | high |
 | on_url_changed fires on mount when routing is configured | `frontend/app.mbt:1198` | high |
 | slug_of maps /about → about, / → index | `frontend/app.mbt:256` | high |
 

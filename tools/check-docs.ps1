@@ -2328,6 +2328,96 @@ Test-StatedNumber 'agent guide workflow' $workflowScripts.Count `
 
 Test-WorkflowScripts 'workflow scripts' $workflowScripts $ciScripts
 
+# --- the keys the bootstrap carries -------------------------------------------
+#
+# The server writes four keys into the body of GET /api/bootstrap, and the
+# flow document shows that body to the reader. It showed three of them and
+# called the last one "session", which is not a key at all, and left out
+# entry_domains -- so a reader planning a change to the payload was planning
+# it against a shape the server never sends.
+#
+# The place is found by its own shape: a line that shows a JSON object
+# literal -- a brace, a quoted name with a colon, a closing brace -- and that
+# names more than one of the tree's keys. The client asking for a page names
+# one key and is not the payload; the list of SQLite columns names two and
+# shows no literal.
+
+# The keys the server writes into the bootstrap body.
+function Get-TreeBootstrapKeys {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/api.mbt'), $enc)
+  $inRoute = $false
+  $inside = $false
+  $names = @()
+  foreach ($line in ($text -split "`n")) {
+    if ($line -match 'app\.get\("/api/bootstrap"') { $inRoute = $true }
+    if ($inRoute -and $line -match 'let body : Json = \{') { $inside = $true }
+    if ($inside -and $line -match '^\s*\}$') { break }
+    if ($inside) {
+      foreach ($m in [regex]::Matches($line, '"([a-z_]+)":')) {
+        $names += $m.Groups[1].Value
+      }
+    }
+  }
+  (Sort-Set $names) -join ' '
+}
+
+# The keys a place states: the quoted names that carry a colon, which is the
+# shape a JSON object literal has.
+function Get-DocBootstrapKeys($text) {
+  $names = @()
+  foreach ($m in [regex]::Matches($text, '"([a-z_]+)":')) {
+    $names += $m.Groups[1].Value
+  }
+  (Sort-Set $names) -join ' '
+}
+
+# Every place that states the payload must state the tree's keys, and a
+# document that stops stating the payload altogether is a document that has
+# lost the claim.
+function Test-BootstrapKeys($label, $expected, $docs) {
+  $bad = $false
+  foreach ($doc in $docs) {
+    $text = [System.IO.File]::ReadAllText((Join-Path $PWD $doc), $enc)
+    $found = $false
+    foreach ($line in ($text -split "`r?`n")) {
+      # the shape: a JSON object literal
+      if ($line -notmatch '\{.*"[a-z_]+":.*\}') { continue }
+      # and more than one of the tree's keys
+      $count = 0
+      foreach ($name in ($expected -split ' ')) {
+        if ($name -eq '') { continue }
+        if ($line.Contains($name)) { $count = $count + 1 }
+      }
+      if ($count -lt 2) { continue }
+      $found = $true
+      $names = Get-DocBootstrapKeys $line
+      $missing = @()
+      $extra = @()
+      foreach ($name in ($expected -split ' ')) {
+        if ($name -eq '') { continue }
+        if (" $names " -cnotlike "* $name *") { $missing += $name }
+      }
+      foreach ($name in ($names -split ' ')) {
+        if ($name -eq '') { continue }
+        if (" $expected " -cnotlike "* $name *") { $extra += $name }
+      }
+      if ($missing.Count -gt 0 -or $extra.Count -gt 0) {
+        Write-Fail ("{0,-22} {1} states [{2}], the tree writes [{3}]" -f $label, (Split-Path -Leaf $doc), $names, $expected)
+        $bad = $true
+      }
+    }
+    if (-not $found) {
+      Write-Fail ("{0,-22} {1} does not state the bootstrap payload" -f $label, (Split-Path -Leaf $doc))
+      $bad = $true
+    }
+  }
+  if (-not $bad) { Write-Ok $label $expected }
+}
+
+$treeBootstrapKeys = Get-TreeBootstrapKeys
+
+Test-BootstrapKeys 'bootstrap keys' $treeBootstrapKeys @($flowsMd, 'architecture/flows.evidence.md')
+
 # --- architecture/*.dot: the graphs against the tree -------------------------
 #
 # The graphs are pictures of the tree, and a picture rots the way a document

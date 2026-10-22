@@ -63,7 +63,7 @@ Browser → GET /about
       → routes module: matches GET /api/bootstrap
       → logging_middleware: logs "GET /api/bootstrap -> 200"
       → handler: db.all_pages() → map to_json → Response::json
-      ← 200 {"pages": [...], "entries": [...], "session": {...}}
+      ← 200 {"pages": [...], "entries": [...], "entry_domains": [...], "session_state": {...}}
     → Loaded(Ok(json)) → update: decode_pages, loaded = true
     → on_url_changed fires with current URL /about
     → UrlChanged → update: current = slug_of("/about") = "about"

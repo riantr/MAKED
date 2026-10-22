@@ -2340,6 +2340,91 @@ check_stated "agent guide workflow" "$WORKFLOW_GATES" \
 
 check_workflow_scripts "workflow scripts" "$WORKFLOW_SCRIPTS" "$CI_SCRIPTS"
 
+# --- the keys the bootstrap carries -------------------------------------------
+#
+# The server writes four keys into the body of GET /api/bootstrap, and the
+# flow document shows that body to the reader. It showed three of them and
+# called the last one "session", which is not a key at all, and left out
+# entry_domains -- so a reader planning a change to the payload was planning
+# it against a shape the server never sends.
+#
+# The place is found by its own shape: a line that shows a JSON object
+# literal -- a brace, a quoted name with a colon, a closing brace -- and that
+# names more than one of the tree's keys. The client asking for a page names
+# one key and is not the payload; the list of SQLite columns names two and
+# shows no literal.
+
+TREE_BOOTSTRAP_KEYS=""
+
+# The keys the server writes into the bootstrap body.
+code_bootstrap_keys() {
+  awk '
+    /app\.get\("\/api\/bootstrap"/ { inroute = 1 }
+    inroute && /let body : Json = \{/ { inside = 1 }
+    inside && /^[[:space:]]*\}$/ { exit }
+    inside { print }
+  ' backend/api.mbt | grep -oE '"[a-z_]+":' | tr -d '":' | LC_ALL=C sort -u \
+    | tr '\n' ' ' | sed -e 's/^ *//' -e 's/ *$//'
+}
+
+# The keys a place states: the quoted names that carry a colon, which is the
+# shape a JSON object literal has.
+DOC_BOOTSTRAP_KEYS=""
+doc_bootstrap_keys() {
+  local text="$1"
+  DOC_BOOTSTRAP_KEYS=$(printf '%s' "$text" | grep -oE '"[a-z_]+":' \
+    | tr -d '":' | LC_ALL=C sort -u | tr '\n' ' ' | sed -e 's/^ *//' -e 's/ *$//')
+}
+
+# Every place that states the payload must state the tree's keys, and a
+# document that stops stating the payload altogether is a document that has
+# lost the claim.
+check_bootstrap_keys() {
+  local label="bootstrap keys"
+  local bad=0
+  local doc line count name names missing extra found
+  for doc in "$FLOWS_MD" "architecture/flows.evidence.md"; do
+    found=0
+    while IFS= read -r line; do
+      # the shape: a JSON object literal
+      [[ "$line" =~ \{.*\"[a-z_]+\":.*\} ]] || continue
+      # and more than one of the tree's keys
+      count=0
+      for name in $TREE_BOOTSTRAP_KEYS; do
+        case "$line" in *"$name"*) count=$((count + 1)) ;; esac
+      done
+      [ "$count" -ge 2 ] || continue
+      found=1
+      doc_bootstrap_keys "$line"
+      names="$DOC_BOOTSTRAP_KEYS"
+      missing=""
+      extra=""
+      for name in $TREE_BOOTSTRAP_KEYS; do
+        case " $names " in *" $name "*) ;; *) missing="$missing $name" ;; esac
+      done
+      for name in $names; do
+        case " $TREE_BOOTSTRAP_KEYS " in *" $name "*) ;; *) extra="$extra $name" ;; esac
+      done
+      if [ -n "$missing" ] || [ -n "$extra" ]; then
+        fail "$(printf '%-22s %s states [%s], the tree writes [%s]' \
+          "$label" "$(basename "$doc")" "$names" "$TREE_BOOTSTRAP_KEYS")"
+        bad=1
+      fi
+    done < "$doc"
+    if [ "$found" -eq 0 ]; then
+      fail "$(printf '%-22s %s does not state the bootstrap payload' \
+        "$label" "$(basename "$doc")")"
+      bad=1
+    fi
+  done
+  if [ "$bad" -eq 0 ]; then
+    ok "$label" "$TREE_BOOTSTRAP_KEYS"
+  fi
+}
+
+TREE_BOOTSTRAP_KEYS="$(code_bootstrap_keys)"
+check_bootstrap_keys
+
 # --- architecture/*.dot: the graphs against the tree --------------------------
 #
 # The graphs are pictures of the tree, and a picture rots the way a document
