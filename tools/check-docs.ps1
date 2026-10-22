@@ -1286,6 +1286,48 @@ if ($codeLangCodesList -eq '') {
 } else {
   Write-Ok 'agent language switch' $codeLangCodesList
 }
+# --- the protocol fields the guide states ---------------------------------------
+#
+# AGENT.md tells an agent how to wire itself up, and the fields every
+# request's `params._meta` has to carry are the contract: an agent that
+# spells one of them differently has every request it makes refused. The
+# guide states them and MAKED's own discovery document states them, and
+# nothing compared the two -- so a guide that spelled a field name
+# differently would have gone unnoticed, and every request an agent made
+# with it would have been refused.
+#
+# The discovery document is the source, because the discovery document is
+# what the server ANSWERS with. Its note is where the protocol fields are
+# written down, so that is where they are read from.
+#
+# The fields are found by the namespace they live in, which is specific
+# enough to be read out of the whole guide: a name in another namespace is
+# the name of something else.
+
+function Get-CodeProtocolFields {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/agent.mbt'), $enc)
+  $m = [regex]::Match($text, '(?s)"protocol": \{(.*?)\n[ \t]*\},')
+  if (-not $m.Success) { return @() }
+  $out = @()
+  foreach ($t in [regex]::Matches($m.Groups[1].Value, '`(io\.modelcontextprotocol/[A-Za-z]+)`')) { $out += $t.Groups[1].Value }
+  Sort-Set $out
+}
+
+function Get-DocProtocolFields {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $agentDoc), $enc)
+  $out = @()
+  foreach ($t in [regex]::Matches($text, '`(io\.modelcontextprotocol/[A-Za-z]+)`')) { $out += $t.Groups[1].Value }
+  Sort-Set $out
+}
+
+$codeProtocolFields = @(Get-CodeProtocolFields)
+$docProtocolFields = @(Get-DocProtocolFields)
+
+if ($codeProtocolFields.Count -eq 0 -or $docProtocolFields.Count -eq 0) {
+  Write-Fail ("{0,-22} the protocol fields could not be found on both sides" -f 'agent protocol fields')
+} else {
+  Test-Sets 'agent protocol fields' $codeProtocolFields $docProtocolFields
+}
 # --- packaging/RUN.txt: the note in the archive -----------------------------
 #
 # The note is what a reader has after the toolchain is gone, so the variables

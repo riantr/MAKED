@@ -1642,6 +1642,53 @@ if ($domainNames.Count -eq 0 -or $docDomainNames.Count -eq 0) {
   $failures++
 }
 
+# --- the protocol fields --------------------------------------------------------
+#
+# The README tells an agent how to wire itself up, and the fields every
+# request's `params._meta` has to carry are the contract: an agent that
+# spells one of them differently has every request it makes refused. The
+# README states them and MAKED's own discovery document states them, and
+# nothing compared the two -- so a README that spelled a field name
+# differently would have gone unnoticed, and every request an agent made
+# with it would have been refused.
+#
+# The discovery document is the source, because the discovery document is
+# what the server ANSWERS with. Its note is where the protocol fields are
+# written down, so that is where they are read from.
+#
+# The fields are found by the namespace they live in, which is specific
+# enough to be read out of the whole document: a name in another namespace
+# is the name of something else.
+
+function Get-CodeProtocolFields {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/agent.mbt'), $enc)
+  $m = [regex]::Match($text, '(?s)"protocol": \{(.*?)\n[ \t]*\},')
+  if (-not $m.Success) { return @() }
+  $out = @()
+  foreach ($t in [regex]::Matches($m.Groups[1].Value, '`(io\.modelcontextprotocol/[A-Za-z]+)`')) { $out += $t.Groups[1].Value }
+  Sort-Set $out
+}
+
+function Get-DocProtocolFields {
+  $out = @()
+  foreach ($t in [regex]::Matches($readme, '`(io\.modelcontextprotocol/[A-Za-z]+)`')) { $out += $t.Groups[1].Value }
+  Sort-Set $out
+}
+
+$codeProtocolFields = @(Get-CodeProtocolFields)
+$docProtocolFields = @(Get-DocProtocolFields)
+
+if ($codeProtocolFields.Count -eq 0 -or $docProtocolFields.Count -eq 0) {
+  Write-Output ("  {0,-20} the protocol fields could not be found on both sides" -f 'Protocol fields')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $codeProtocolFields $docProtocolFields) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Protocol fields', $codeProtocolFields.Count)
+} else {
+  Write-Output ("  {0,-20} the tree names [{1}], the document names [{2}]" -f 'Protocol fields', ($codeProtocolFields -join ' '), ($docProtocolFields -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+}
 # --- the status a refusal comes back with -------------------------------------
 #
 # The README's error handling says what a refusal looks like, and the one

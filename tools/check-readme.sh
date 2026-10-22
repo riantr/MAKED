@@ -1589,6 +1589,54 @@ else
 fi
 
 
+# --- the protocol fields --------------------------------------------------------
+#
+# The README tells an agent how to wire itself up, and the fields every
+# request's `params._meta` has to carry are the contract: an agent that
+# spells one of them differently has every request it makes refused. The
+# README states them and MAKED's own discovery document states them, and
+# nothing compared the two -- so a README that spelled a field name
+# differently would have gone unnoticed, and every request an agent made
+# with it would have been refused.
+#
+# The discovery document is the source, because the discovery document is
+# what the server ANSWERS with. Its note is where the protocol fields are
+# written down, so that is where they are read from.
+#
+# The fields are found by the namespace they live in, which is specific
+# enough to be read out of the whole document: a name in another namespace
+# is the name of something else.
+
+code_protocol_fields() {
+  awk '
+    /"protocol": \{/ { inside = 1; next }
+    inside && /^[ \t]*\},/ { exit }
+    inside { print }
+  ' backend/agent.mbt \
+    | grep -oE '`io\.modelcontextprotocol/[A-Za-z]+`' \
+    | tr -d '`' \
+    | LC_ALL=C sort -u
+}
+
+doc_protocol_fields() {
+  grep -oE '`io\.modelcontextprotocol/[A-Za-z]+`' "$README" \
+    | tr -d '`' \
+    | LC_ALL=C sort -u
+}
+
+CODE_PROTOCOL_FIELDS=$(code_protocol_fields)
+DOC_PROTOCOL_FIELDS=$(doc_protocol_fields)
+
+if [ -z "$CODE_PROTOCOL_FIELDS" ] || [ -z "$DOC_PROTOCOL_FIELDS" ]; then
+  fail "$(printf '%-20s the protocol fields could not be found on both sides' 'Protocol fields')"
+elif same_members "$CODE_PROTOCOL_FIELDS" "$DOC_PROTOCOL_FIELDS"; then
+  printf '  ok      %-20s %s\n' 'Protocol fields' "$(printf '%s\n' "$CODE_PROTOCOL_FIELDS" | grep -c .)"
+else
+  fail "$(printf '%-20s the tree names [%s], the document names [%s]' \
+    'Protocol fields' \
+    "$(printf '%s\n' "$CODE_PROTOCOL_FIELDS" | tr '\n' ' ' | sed -e 's/ *$//')" \
+    "$(printf '%s\n' "$DOC_PROTOCOL_FIELDS" | tr '\n' ' ' | sed -e 's/ *$//')")"
+fi
 # --- the status a refusal comes back with -------------------------------------
 #
 # The README's error handling says what a refusal looks like, and the one
