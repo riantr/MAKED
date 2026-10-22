@@ -59,15 +59,16 @@ moon build --release --target js cmd/web
   → _build/js/release/build/cmd/web/web.js
 ```
 
-`build.ps1` copies that file to `frontend/dist/main.js`, which is the file the
-server serves. It is a single self-contained bundle, with no imports.
+`build.ps1`, `ci.yml` and the `Dockerfile` copy that file to
+`frontend/dist/main.js`, which is the file the server serves. It is a single
+self-contained bundle, with no imports.
 
 ### Static assets
 
 | File | Source | Purpose |
 |------|--------|---------|
 | `frontend/dist/index.html` | Hand-written | SPA shell |
-| `frontend/dist/main.js` | `build.ps1`, from `_build/js/release/build/cmd/web/web.js` | Rabbita SPA bundle |
+| `frontend/dist/main.js` | `build.ps1`, `ci.yml` and the `Dockerfile`, from `_build/js/release/build/cmd/web/web.js` | Rabbita SPA bundle |
 | `frontend/dist/styles.css` | Hand-written | Site stylesheet |
 
 ### Run

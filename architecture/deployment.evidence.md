@@ -25,7 +25,7 @@
 | frontend/dist contains index.html, main.js, styles.css | `frontend/dist/` directory listing | high |
 | Native build output is `_build/native/release/build/cmd/server/server` | `tools/contract-test.sh:100` | high |
 | Js build output is `_build/js/release/build/cmd/web/web.js` | `build.ps1:26` | high |
-| Only `build.ps1` stages the bundle into `frontend/dist/main.js` | `build.ps1:26-28` | high |
+| `build.ps1`, `ci.yml` and the `Dockerfile` stage the bundle into `frontend/dist/main.js` | `build.ps1:28`, `.github/workflows/ci.yml:240`, `Dockerfile:63` | high |
 
 ## Network boundaries
 

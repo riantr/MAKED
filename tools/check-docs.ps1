@@ -3571,6 +3571,102 @@ if ($script:envVars.Count -eq 0) {
 if (-not $script:envBadVars) { Write-Ok 'env vars' ($script:envVars -join ' ') }
 if (-not $script:envBadSite) { Write-Ok 'env var site' 'cmd/server/main.mbt' }
 
+# --- who stages the browser bundle ---------------------------------------------
+#
+# The browser bundle is one file: frontend/dist/main.js. The tree stages it in
+# three places -- the build script, the CI workflow and the image -- and a
+# document that says one of them is the only one sends a contributor to a
+# place where the bundle is not, and states a fact about the build that is
+# wrong.
+#
+# The tree's answer is read from the tree's build scripts: a file that copies
+# the bundle the tree builds (web.js) to the path the server serves. The
+# release workflow copies the bundle into the release archive instead, and
+# that path is a longer one, so it is not one of them.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:stageFiles = @()
+$script:stageNames = @()
+$script:stageCandidates = @()
+$script:stageBad = $false
+
+function Get-TreeStageFiles {
+  $files = @()
+  foreach ($root in @('build.ps1', 'Dockerfile', 'tools', '.github')) {
+    $path = Join-Path $PWD $root
+    if (-not (Test-Path $path)) { continue }
+    $item = Get-Item $path
+    if ($item.PSIsContainer) {
+      $files += @(Get-ChildItem -Path $path -File -Recurse |
+        Where-Object { $_.Name -notlike 'check-*.sh' -and $_.Name -notlike 'check-*.ps1' })
+    } else {
+      $files += $item
+    }
+  }
+  $out = @()
+  $candidates = @()
+  foreach ($f in $files) {
+    $text = [System.IO.File]::ReadAllText($f.FullName, $enc)
+    if ($text -notmatch 'web\.js') { continue }
+    $rel = $f.FullName.Substring($PWD.Path.Length + 1).Replace('\', '/')
+    $candidates += $rel.Split('/')[-1]
+    if ($text -notmatch '[^A-Za-z0-9_/]frontend/dist/main\.js') { continue }
+    $out += $rel
+  }
+  $script:stageCandidates = @(Sort-Set $candidates)
+  Sort-Set $out
+}
+
+# The staging files a claim names.
+#
+# A document names a file by its name: "ci.yml", not the whole path. The
+# names are read from the candidates -- every build file that knows about the
+# bundle -- so that a document naming a place the tree does not stage it is
+# caught as well as one naming too few.
+function Get-ClaimStageFiles($claim) {
+  $out = @()
+  foreach ($base in $script:stageCandidates) {
+    if ($claim.Contains($base)) { $out += $base }
+  }
+  $out
+}
+
+# One claim, checked against the tree.
+function Test-StageClaim($doc, $line, $claim) {
+  # the claim has to be about the place the bundle is staged
+  if (-not $claim.Contains('frontend/dist/main.js')) { return }
+  $named = @(Get-ClaimStageFiles $claim)
+  if ($named.Count -eq 0) { return }
+  # a claim that names one of them is naming the places, and it has to name
+  # all of them
+  if ($named.Count -ne $script:stageFiles.Count) {
+    Write-Fail ("{0,-22} {1} line {2} names [{3}], the tree stages the bundle in [{4}]" -f 'bundle staging', $doc, $line, ($named -join ' '), ($script:stageNames -join ' '))
+    $script:stageBad = $true
+  }
+}
+
+$script:stageFiles = @(Get-TreeStageFiles)
+$script:stageNames = @(Sort-Set @($script:stageFiles | ForEach-Object { $_.Split('/')[-1] }))
+
+if ($script:stageFiles.Count -eq 0) {
+  Write-Fail ("{0,-22} the tree does not stage the browser bundle, or it does not stage it the way this gate reads it" -f 'bundle staging')
+  $script:stageBad = $true
+} else {
+  foreach ($doc in @($archDocs + $agentsDoc)) {
+    # A document that describes the past is a record of the past. Its claims
+    # are about the tree as it was, so they are not checked against the tree
+    # as it is.
+    if ($markedDocs -ccontains $doc) { continue }
+    foreach ($claim in (Get-DocClaims $doc)) {
+      Test-StageClaim $doc $claim.line $claim.text
+    }
+  }
+}
+
+if (-not $script:stageBad) { Write-Ok 'bundle staging' ($script:stageNames -join ' ') }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

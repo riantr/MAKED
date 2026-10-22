@@ -59,10 +59,14 @@ Model Context Protocol details.
 
 ## Build and verify
 
-- **`.\build.ps1` is the only thing that stages the browser bundle.**
+- **`.\build.ps1` stages the browser bundle for a local run.**
   `moon build --release --target js cmd/web` writes
   `_build/js/release/build/cmd/web/web.js`; the server serves `frontend/dist/`,
-  and only `build.ps1` copies one to the other. Verifying the UI in a browser
+  and `build.ps1` copies one to the other. The `ci.yml` workflow and the
+  `Dockerfile` copy it to the same place, so the tree has three places that
+  stage the bundle, and a change to one of them wants the same change in the
+  other two.
+  Verifying the UI in a browser
   after a bare `moon build` tests the *previous* bundle, with no error anywhere
   to say so. It reports success and leaves `frontend/dist/main.js` untouched.
 

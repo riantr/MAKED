@@ -3466,7 +3466,7 @@ doc_claim_vars() {
   done
 }
 
-# A list without its leading space.
+# A list without its leading or trailing space.
 #
 # TRIMMED holds the answer.
 TRIMMED=""
@@ -3475,6 +3475,12 @@ trim() {
   while :; do
     case "$text" in
       " "*) text="${text# }" ;;
+      *) break ;;
+    esac
+  done
+  while :; do
+    case "$text" in
+      *" ") text="${text% }" ;;
       *) break ;;
     esac
   done
@@ -3601,6 +3607,113 @@ if [ "$ENV_BAD_VARS" -eq 0 ]; then
 fi
 if [ "$ENV_BAD_SITE" -eq 0 ]; then
   ok "env var site" "cmd/server/main.mbt"
+fi
+
+# --- who stages the browser bundle ---------------------------------------------
+#
+# The browser bundle is one file: frontend/dist/main.js. The tree stages it in
+# three places -- the build script, the CI workflow and the image -- and a
+# document that says one of them is the only one sends a contributor to a
+# place where the bundle is not, and states a fact about the build that is
+# wrong.
+#
+# The tree's answer is read from the tree's build scripts: a file that copies
+# the bundle the tree builds (web.js) to the path the server serves. The
+# release workflow copies the bundle into the release archive instead, and
+# that path is a longer one, so it is not one of them.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+STAGE_FILES=""
+STAGE_NAMES=""
+STAGE_CANDIDATES=""
+code_stage_files() {
+  local file base candidates="" names=""
+  STAGE_FILES=""
+  STAGE_NAMES=""
+  STAGE_CANDIDATES=""
+  for file in $(grep -rl --exclude='check-*.sh' --exclude='check-*.ps1' \
+      -e 'web\.js' build.ps1 Dockerfile tools .github 2>/dev/null | LC_ALL=C sort -u); do
+    base="${file##*/}"
+    candidates="$candidates$base"$'\n'
+    if grep -qE '[^A-Za-z0-9_/]frontend/dist/main\.js' "$file" 2>/dev/null; then
+      STAGE_FILES="$STAGE_FILES $file"
+      names="$names$base"$'\n'
+    fi
+  done
+  STAGE_CANDIDATES=$(printf '%s' "$candidates" | LC_ALL=C sort -u | tr '\n' ' ')
+  STAGE_NAMES=$(printf '%s' "$names" | LC_ALL=C sort -u | tr '\n' ' ')
+  trim "$STAGE_CANDIDATES"; STAGE_CANDIDATES="$TRIMMED"
+  trim "$STAGE_NAMES"; STAGE_NAMES="$TRIMMED"
+}
+
+# The staging files a claim names.
+#
+# A document names a file by its name: "ci.yml", not the whole path. The
+# names are read from the candidates -- every build file that knows about the
+# bundle -- so that a document naming a place the tree does not stage it is
+# caught as well as one naming too few.
+DOC_STAGE_FILES=""
+doc_claim_stage_files() {
+  local claim="$1" base
+  DOC_STAGE_FILES=""
+  for base in $STAGE_CANDIDATES; do
+    case "$claim" in
+      *"$base"*) DOC_STAGE_FILES="$DOC_STAGE_FILES $base" ;;
+    esac
+  done
+  trim "$DOC_STAGE_FILES"; DOC_STAGE_FILES="$TRIMMED"
+}
+
+STAGE_BAD=0
+
+# One claim, checked against the tree.
+stage_claim_check() {
+  local doc="$1" line="$2" claim="$3" file count=0 total=0
+  # the claim has to be about the place the bundle is staged
+  case "$claim" in
+    *'frontend/dist/main.js'*) ;;
+    *) return ;;
+  esac
+  doc_claim_stage_files "$claim"
+  for file in $DOC_STAGE_FILES; do count=$((count + 1)); done
+  for file in $STAGE_FILES; do total=$((total + 1)); done
+  # a claim that names one of them is naming the places, and it has to name
+  # all of them
+  if [ "$count" -gt 0 ] && [ "$count" -ne "$total" ]; then
+    fail "$(printf '%-22s %s line %s names [%s], the tree stages the bundle in [%s]' \
+      'bundle staging' "$doc" "$line" "$DOC_STAGE_FILES" "$STAGE_NAMES")"
+    STAGE_BAD=1
+  fi
+}
+
+# The documents that name the bundle, and the tree's places that stage it.
+check_stage_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}" "$AGENTS_DOC"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      stage_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+code_stage_files
+
+if [ -z "$STAGE_FILES" ]; then
+  fail "$(printf '%-22s the tree does not stage the browser bundle, or it does not stage it the way this gate reads it' \
+    'bundle staging')"
+  STAGE_BAD=1
+else
+  check_stage_claims
+fi
+
+if [ "$STAGE_BAD" -eq 0 ]; then
+  ok "bundle staging" "$STAGE_NAMES"
 fi
 
 echo ""
