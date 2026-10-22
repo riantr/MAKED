@@ -740,6 +740,48 @@ function Get-DocFileVars {
   Sort-Set $out
 }
 
+# The formats the discovery document pairs with the variables it names, as
+# "variable format".
+#
+# The discovery document is what the server ANSWERS with, so a format it
+# names wrongly is a format it tells an agent to write and then refuses.
+function Get-CodeFileFormats {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/agent.mbt'), $enc)
+  $flat = $text -replace "`r?`n", ' '
+  foreach ($m in [regex]::Matches($flat, '"variable": "(MAKED_[A-Z_]+)", *"format": "([^"]+)"')) {
+    $out += ("{0} {1}" -f $m.Groups[1].Value, $m.Groups[2].Value)
+  }
+  Sort-Set $out
+}
+
+# The formats the backend actually accepts, paired with the variable that
+# names the file, as "variable format".
+#
+# Each backend file owns ONE format constant and reads ONE environment
+# variable, so the pair is read from the file that holds both: the model file
+# declares the format a model is written in and is the file MAKED_MODEL names.
+# A file that owns more than one of either is not paired -- the gate would
+# rather say it cannot tell than guess.
+function Get-BackendFileFormats {
+  $out = @()
+  foreach ($file in @(Get-ChildItem (Join-Path $PWD 'backend') -Filter '*.mbt' -File)) {
+    $text = [System.IO.File]::ReadAllText($file.FullName, $enc)
+    $formats = @()
+    foreach ($m in [regex]::Matches($text, 'pub const [A-Z_]+_FORMAT : String = "([^"]+)"')) {
+      $formats += $m.Groups[1].Value
+    }
+    $vars = @()
+    foreach ($m in [regex]::Matches($text, 'get_env_var\("(MAKED_[A-Z_]+)"\)')) {
+      $vars += $m.Groups[1].Value
+    }
+    $vars = @($vars | Sort-Object -Unique)
+    if ($formats.Count -eq 1 -and $vars.Count -eq 1) {
+      $out += ("{0} {1}" -f $vars[0], $formats[0])
+    }
+  }
+  Sort-Set $out
+}
 # The protocol version the discovery document names.
 function Get-CodeProtocol {
   $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/agent.mbt'), $enc)
@@ -783,6 +825,12 @@ Test-WordCount 'agent files (words)' 'files' $codeFileVars.Count $agentDoc
 
 # The discovery document has to offer the variables the code reads.
 Test-Sets 'agent files (code)' $codeFileVars (Get-CodeEnvReads)
+
+# And the format it pairs with each of them has to be the one the loader
+# accepts. The document is what the server answers with, so a format it
+# names wrongly is a format it tells an agent to write and then refuses --
+# and the variables being right does not make the formats right.
+Test-Sets 'agent file formats' (Get-CodeFileFormats) (Get-BackendFileFormats)
 
 # Every protocol version the document states has to be the one the server
 # speaks, and it has to state it at all.

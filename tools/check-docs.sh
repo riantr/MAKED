@@ -878,6 +878,47 @@ doc_file_vars() {
     | grep -oE 'MAKED_[A-Z_]+' | LC_ALL=C sort -u || true
 }
 
+# The formats the discovery document pairs with the variables it names, as
+# "variable format".
+#
+# The discovery document is what the server ANSWERS with, so a format it
+# names wrongly is a format it tells an agent to write and then refuses.
+code_file_formats() {
+  tr '\n' ' ' < backend/agent.mbt \
+    | grep -oE '"variable": "MAKED_[A-Z_]+", *"format": "[^"]+"' \
+    | sed -E 's/"variable": "([^"]+)", *"format": "([^"]+)"/\1 \2/' \
+    | LC_ALL=C sort -u || true
+}
+
+# The formats the backend actually accepts, paired with the variable that
+# names the file, as "variable format".
+#
+# Each backend file owns ONE format constant and reads ONE environment
+# variable, so the pair is read from the file that holds both: the model file
+# declares the format a model is written in and is the file MAKED_MODEL names.
+# A file that owns more than one of either is not paired -- the gate would
+# rather say it cannot tell than guess.
+backend_file_formats() {
+  for f in backend/*.mbt; do
+    awk '
+      match($0, /pub const [A-Z_]+_FORMAT : String = "[^"]+"/) {
+        s = substr($0, RSTART, RLENGTH)
+        sub(/.*= "/, "", s)
+        sub(/"$/, "", s)
+        formats[nf++] = s
+      }
+      match($0, /get_env_var\("MAKED_[A-Z_]+"\)/) {
+        s = substr($0, RSTART, RLENGTH)
+        sub(/.*\("/, "", s)
+        sub(/"\)$/, "", s)
+        vars[nv++] = s
+      }
+      END {
+        if (nf == 1 && nv == 1) printf "%s %s\n", vars[0], formats[0]
+      }
+    ' "$f"
+  done | LC_ALL=C sort -u
+}
 # The protocol version the discovery document names.
 code_protocol() {
   grep -oE '"mcp": "[0-9]{4}-[0-9]{2}-[0-9]{2}"' backend/agent.mbt \
@@ -923,6 +964,12 @@ check_word_count "agent files (words)" "files" "$COUNT_LINES" "$AGENT_DOC"
 
 # The discovery document has to offer the variables the code reads.
 check_sets "agent files (code)" "$CODE_FILE_VARS" "$CODE_ENV_READS"
+
+# And the format it pairs with each of them has to be the one the loader
+# accepts. The document is what the server answers with, so a format it
+# names wrongly is a format it tells an agent to write and then refuses --
+# and the variables being right does not make the formats right.
+check_sets "agent file formats" "$(code_file_formats)" "$(backend_file_formats)"
 
 # Every protocol version the document states has to be the one the server
 # speaks, and it has to state it at all.
