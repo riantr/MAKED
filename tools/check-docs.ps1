@@ -3667,6 +3667,141 @@ if ($script:stageFiles.Count -eq 0) {
 
 if (-not $script:stageBad) { Write-Ok 'bundle staging' ($script:stageNames -join ' ') }
 
+# --- the node colours ---------------------------------------------------------
+#
+# The mark draws five nodes, and the tree names the colour each one keeps in
+# the logo file's own comment: the sentence that starts "Each node keeps the
+# colour" and ends at the first full stop. The colours are a human gloss --
+# the tree pins the hexes, not the words -- so the words are read out of the
+# tree and compared with the words the documents use.
+#
+# A claim is a colour claim when it talks about colours at all. A claim that
+# does not is left alone: "A page is served" is not a claim about the colour
+# of a node, and reading it as one would be reading a word as a thing.
+#
+# A claim that names two or more of the colours is stating the list, and the
+# list has to be the tree's list: one colour too few leaves a reader guessing
+# what the last node looks like. A claim that names one of them is stating
+# that one, and it only has to be true.
+#
+# A claim that points at the logo file has to point at a line the tree names
+# the colours on.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:codeLetters = @()
+$script:codeColorPairs = @()
+$script:codeNodeColors = ''
+$script:codeColorWords = @()
+$script:codeColorLines = @()
+$script:colorBadWords = $false
+$script:colorBadSite = $false
+
+# A claim that talks about colours says so in so many words.
+$colorTrigger = '([^A-Za-z0-9_])(colou?rs?)([^A-Za-z0-9_]|$)'
+
+function Get-TreeNodeColors {
+  $path = Join-Path $PWD 'frontend/logo.mbt'
+  $text = [System.IO.File]::ReadAllText($path, $enc)
+  $letters = @()
+  foreach ($m in [regex]::Matches($text, '\("([A-Z])",')) { $letters += $m.Groups[1].Value }
+  if ($letters.Count -eq 0) { return }
+  $script:codeLetters = $letters
+  $flat = $text -replace "\r?\n", ' '
+  $sm = [regex]::Match($flat, 'Each node keeps the colour[^.]*\.')
+  if (-not $sm.Success) { return }
+  $class = '[' + ($letters -join '') + ']'
+  $re = '([^A-Za-z0-9_])(' + $class + ') ([a-z]+)'
+  $pairs = @()
+  foreach ($m in [regex]::Matches(' ' + $sm.Value, $re)) {
+    $pairs += ($m.Groups[2].Value + ' ' + $m.Groups[3].Value)
+  }
+  if ($pairs.Count -eq 0) { return }
+  $script:codeColorPairs = $pairs
+  $script:codeNodeColors = ($pairs -join ' ')
+  $words = @()
+  foreach ($pair in $pairs) { $words += $pair.Split(' ')[1] }
+  $script:codeColorWords = $words
+  $lines = [System.IO.File]::ReadAllLines($path, $enc)
+  $out = @()
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    foreach ($pair in $pairs) {
+      if ($lines[$i].Contains($pair)) { $out += ($i + 1); break }
+    }
+  }
+  $script:codeColorLines = $out
+}
+
+# The colours a claim states.
+function Get-ClaimColors($claim) {
+  $out = @()
+  if ($script:codeLetters.Count -eq 0) { return $out }
+  $class = '[' + ($script:codeLetters -join '') + ']'
+  $re = '([^A-Za-z0-9_])(' + $class + ') ([a-z]+)'
+  foreach ($m in [regex]::Matches(' ' + $claim, $re)) {
+    $out += ($m.Groups[2].Value + ' ' + $m.Groups[3].Value)
+  }
+  $out
+}
+
+# One claim, checked against the tree.
+function Test-ColorClaim($doc, $line, $claim) {
+  # the claim has to be about the colours at all
+  if ((' ' + $claim) -notmatch $colorTrigger) { return }
+  $pairs = @(Get-ClaimColors $claim)
+  if ($pairs.Count -eq 0) { return }
+  # every colour the claim states has to be one the tree states
+  $wrong = @($pairs | Where-Object { $script:codeColorPairs -cnotcontains $_ })
+  if ($wrong.Count -gt 0) {
+    Write-Fail ("{0,-22} {1} line {2} states [{3}], the tree says [{4}]" -f 'node colors', $doc, $line, ($wrong -join ' '), $script:codeNodeColors)
+    $script:colorBadWords = $true
+    return
+  }
+  # a claim that names two or more of them is stating the list, and the list
+  # has to be the whole list
+  if ($pairs.Count -ge 2 -and $pairs.Count -ne $script:codeColorPairs.Count) {
+    Write-Fail ("{0,-22} {1} line {2} states [{3}], the tree says [{4}]" -f 'node colors', $doc, $line, ($pairs -join ' '), $script:codeNodeColors)
+    $script:colorBadWords = $true
+    return
+  }
+  # and the pointer has to land on a line the tree names the colours on
+  if (-not $claim.Contains('frontend/logo.mbt:')) { return }
+  $cited = $claim -replace '^.*frontend/logo\.mbt:', ''
+  $cited = ($cited -split '`')[0]
+  $cited = ($cited -split '\|')[0]
+  $cited = $cited.Replace(' ', '')
+
+  foreach ($target in $script:codeColorLines) {
+    if (-not (Test-CitationCovers $cited $target)) {
+      Write-Fail ("{0,-22} {1} line {2} cites [{3}], the tree names the colours on lines {4}" -f 'node color site', $doc, $line, $cited, ($script:codeColorLines -join ' '))
+      $script:colorBadSite = $true
+      return
+    }
+  }
+}
+
+Get-TreeNodeColors
+
+if ($script:codeNodeColors -eq '') {
+  Write-Fail ("{0,-22} the tree does not name the node colours, or it does not name them the way this gate reads them" -f 'node colors')
+  $script:colorBadWords = $true
+  $script:colorBadSite = $true
+} else {
+  foreach ($doc in @($archDocs + $agentsDoc)) {
+    # A document that describes the past is a record of the past. Its claims
+    # are about the tree as it was, so they are not checked against the tree
+    # as it is.
+    if ($markedDocs -ccontains $doc) { continue }
+    foreach ($claim in (Get-DocClaims $doc)) {
+      Test-ColorClaim $doc $claim.line $claim.text
+    }
+  }
+}
+
+if (-not $script:colorBadWords) { Write-Ok 'node colors' $script:codeNodeColors }
+if (-not $script:colorBadSite) { Write-Ok 'node color site' ('logo.mbt:' + ($script:codeColorLines -join ' ')) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

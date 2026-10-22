@@ -3716,6 +3716,195 @@ if [ "$STAGE_BAD" -eq 0 ]; then
   ok "bundle staging" "$STAGE_NAMES"
 fi
 
+# --- the node colours ----------------------------------------------------------
+#
+# The mark draws five nodes, and the tree names the colour each one keeps in
+# the logo file's own comment: the sentence that starts "Each node keeps the
+# colour" and ends at the first full stop. The colours are a human gloss --
+# the tree pins the hexes, not the words -- so the words are read out of the
+# tree and compared with the words the documents use.
+#
+# A claim is a colour claim when it talks about colours at all. A claim that
+# does not is left alone: "A page is served" is not a claim about the colour
+# of a node, and reading it as one would be reading a word as a thing.
+#
+# A claim that names two or more of the colours is stating the list, and the
+# list has to be the tree's list: one colour too few leaves a reader guessing
+# what the last node looks like. A claim that names one of them is stating
+# that one, and it only has to be true.
+#
+# A claim that points at the logo file has to point at a line the tree names
+# the colours on.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+# The letters the mark draws, out of the tuples in nodes().
+CODE_LETTERS=""
+# The sentence the tree names the colours in.
+CODE_COLOR_SENTENCE=""
+# The colours the tree states: "M indigo", "D green", and so on.
+CODE_COLOR_PAIRS=()
+CODE_NODE_COLORS=""
+CODE_COLOR_SET=""
+CODE_COLOR_WORDS=""
+# The lines the tree names the colours on.
+CODE_COLOR_LINES=""
+
+# A pair is a node letter, a space, and a word. The letter has to be one of
+# the tree's, and it has to stand on its own: the letter in the middle of a
+# longer word is part of that word, not a node. The pattern is built from the
+# tree's letters once they are known.
+PAIR_RE=""
+# A claim that talks about colours says so in so many words.
+COLOR_TRIGGER_RE='([^A-Za-z0-9_])(colou?rs?)([^A-Za-z0-9_]|$)'
+
+code_node_colors() {
+  local letter pair word line n=0 rest
+  CODE_LETTERS=""
+  CODE_COLOR_SENTENCE=""
+  CODE_COLOR_PAIRS=()
+  CODE_NODE_COLORS=""
+  CODE_COLOR_SET=""
+  CODE_COLOR_WORDS=""
+  CODE_COLOR_LINES=""
+  # the letters the mark draws
+  while IFS= read -r letter; do
+    [ -n "$letter" ] || continue
+    if [ -z "$CODE_LETTERS" ]; then CODE_LETTERS="$letter"; else CODE_LETTERS="$CODE_LETTERS $letter"; fi
+  done < <(grep -oE '\("[A-Z]",' frontend/logo.mbt | grep -oE '[A-Z]' || true)
+  [ -n "$CODE_LETTERS" ] || return
+  # the sentence the tree names the colours in
+  CODE_COLOR_SENTENCE=$(tr '\n' ' ' < frontend/logo.mbt \
+    | grep -oE 'Each node keeps the colour[^.]*\.' | head -1 || true)
+  [ -n "$CODE_COLOR_SENTENCE" ] || return
+  # the pairs it states
+  PAIR_RE="([^A-Za-z0-9_])([${CODE_LETTERS// /}]) ([a-z]+)"
+  rest=" $CODE_COLOR_SENTENCE"
+  while [[ "$rest" =~ $PAIR_RE ]]; do
+    pair="${BASH_REMATCH[2]} ${BASH_REMATCH[3]}"
+    CODE_COLOR_PAIRS+=("$pair")
+    if [ -z "$CODE_NODE_COLORS" ]; then CODE_NODE_COLORS="$pair"; else CODE_NODE_COLORS="$CODE_NODE_COLORS $pair"; fi
+    if [ -z "$CODE_COLOR_SET" ]; then CODE_COLOR_SET="$pair"; else CODE_COLOR_SET="$CODE_COLOR_SET"$'\n'"$pair"; fi
+    word="${pair#* }"
+    if [ -z "$CODE_COLOR_WORDS" ]; then CODE_COLOR_WORDS="$word"; else CODE_COLOR_WORDS="$CODE_COLOR_WORDS $word"; fi
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+  done
+  # the lines the tree names them on
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    for pair in "${CODE_COLOR_PAIRS[@]}"; do
+      case "$line" in
+        *"$pair"*)
+          CODE_COLOR_LINES="$CODE_COLOR_LINES $n"
+          break
+          ;;
+      esac
+    done
+  done < frontend/logo.mbt
+  trim "$CODE_COLOR_LINES"; CODE_COLOR_LINES="$TRIMMED"
+}
+
+# The colours a claim states.
+DOC_NODE_COLORS=""
+DOC_COLOR_SET=""
+DOC_COLOR_COUNT=0
+doc_claim_colors() {
+  local claim="$1" pair rest
+  DOC_NODE_COLORS=""
+  DOC_COLOR_SET=""
+  DOC_COLOR_COUNT=0
+  [ -n "$PAIR_RE" ] || return
+  rest=" $claim"
+  while [[ "$rest" =~ $PAIR_RE ]]; do
+    pair="${BASH_REMATCH[2]} ${BASH_REMATCH[3]}"
+    if [ -z "$DOC_NODE_COLORS" ]; then DOC_NODE_COLORS="$pair"; else DOC_NODE_COLORS="$DOC_NODE_COLORS $pair"; fi
+    if [ -z "$DOC_COLOR_SET" ]; then DOC_COLOR_SET="$pair"; else DOC_COLOR_SET="$DOC_COLOR_SET"$'\n'"$pair"; fi
+    DOC_COLOR_COUNT=$((DOC_COLOR_COUNT + 1))
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+  done
+}
+
+COLOR_BAD_WORDS=0
+COLOR_BAD_SITE=0
+
+# One claim, checked against the tree.
+color_claim_check() {
+  local doc="$1" line="$2" claim="$3" cited target lower
+  # the claim has to be about the colours at all
+  lower="${claim,,}"
+  [[ " $lower" =~ $COLOR_TRIGGER_RE ]] || return
+  doc_claim_colors "$claim"
+  [ "$DOC_COLOR_COUNT" -gt 0 ] || return
+  # every colour the claim states has to be one the tree states
+  not_in "$DOC_COLOR_SET" "$CODE_COLOR_SET"
+  if [ -n "$NOT_IN" ]; then
+    join_lines "$NOT_IN"; local stated="$JOIN_LINES"
+    fail "$(printf '%-22s %s line %s states [%s], the tree says [%s]' \
+      'node colors' "$doc" "$line" "$stated" "$CODE_NODE_COLORS")"
+    COLOR_BAD_WORDS=1
+    return
+  fi
+  # a claim that names two or more of them is stating the list, and the list
+  # has to be the whole list
+  if [ "$DOC_COLOR_COUNT" -ge 2 ] && [ "$DOC_COLOR_COUNT" -ne "${#CODE_COLOR_PAIRS[@]}" ]; then
+    fail "$(printf '%-22s %s line %s states [%s], the tree says [%s]' \
+      'node colors' "$doc" "$line" "$DOC_NODE_COLORS" "$CODE_NODE_COLORS")"
+    COLOR_BAD_WORDS=1
+    return
+  fi
+  # and the pointer has to land on a line the tree names the colours on
+  case "$claim" in
+    *'frontend/logo.mbt:'*) ;;
+    *) return ;;
+  esac
+  cited="${claim#*frontend/logo.mbt:}"
+  cited="${cited%%\`*}"
+  cited="${cited%%|*}"
+  cited="${cited// /}"
+  for target in $CODE_COLOR_LINES; do
+    citation_covers "$cited" "$target"
+    if [ "$CITATION_COVERS" -eq 0 ]; then
+      fail "$(printf '%-22s %s line %s cites [%s], the tree names the colours on lines %s' \
+        'node color site' "$doc" "$line" "$cited" "$CODE_COLOR_LINES")"
+      COLOR_BAD_SITE=1
+      return
+    fi
+  done
+}
+
+# Every claim the design documents make, checked against the colours.
+check_color_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}" "$AGENTS_DOC"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      color_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+code_node_colors
+
+if [ -z "$CODE_NODE_COLORS" ]; then
+  fail "$(printf '%-22s the tree does not name the node colours, or it does not name them the way this gate reads them' \
+    'node colors')"
+  COLOR_BAD_WORDS=1
+  COLOR_BAD_SITE=1
+else
+  check_color_claims
+fi
+
+if [ "$COLOR_BAD_WORDS" -eq 0 ]; then
+  ok "node colors" "$CODE_NODE_COLORS"
+fi
+if [ "$COLOR_BAD_SITE" -eq 0 ]; then
+  ok "node color site" "logo.mbt:$CODE_COLOR_LINES"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."
