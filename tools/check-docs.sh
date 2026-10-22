@@ -1422,6 +1422,45 @@ if [ -z "$CODE_PROTOCOL_FIELDS" ] || [ -z "$DOC_PROTOCOL_FIELDS" ]; then
 else
   check_sets "agent protocol fields" "$CODE_PROTOCOL_FIELDS" "$DOC_PROTOCOL_FIELDS"
 fi
+
+# --- the export formats the guide shows ----------------------------------------
+#
+# The guide shows the export URL an agent can call, and the format value in it
+# has to be one the server answers. An export that asks for a format the
+# handler does not know comes back as a 400 with "unknown_format", and an
+# agent that copied the line finds that out the hard way.
+#
+# The tree is the handler, and the comparison is one way: the handler knows
+# more formats than the guide shows.
+
+code_export_formats() {
+  awk '
+    /app\.get\("\/api\/sessions\/:id\/export"/ { inside = 1 }
+    inside && /^  \}\)$/ { exit }
+    inside { print }
+  ' backend/api.mbt | grep -oE 'Some\("[a-z]+"\)' | grep -oE '"[a-z]+"' | tr -d '"' \
+    | LC_ALL=C sort -u
+}
+
+doc_export_formats() {
+  grep -oE 'format=[a-z]+' "$AGENT_DOC" | sed -E 's/^format=//' \
+    | LC_ALL=C sort -u
+}
+
+CODE_EXPORT_FORMATS=$(code_export_formats)
+DOC_EXPORT_FORMATS=$(doc_export_formats)
+
+not_in "$DOC_EXPORT_FORMATS" "$CODE_EXPORT_FORMATS"
+EXPORT_FORMATS_MISSING="$NOT_IN"
+
+if [ -z "$EXPORT_FORMATS_MISSING" ]; then
+  count_lines "$DOC_EXPORT_FORMATS"
+  ok "agent export formats" "$COUNT_LINES"
+else
+  fail "$(printf '%-22s the guide asks for [%s], and the server does not answer it' \
+    'agent export formats' "$EXPORT_FORMATS_MISSING")"
+fi
+
 # --- packaging/RUN.txt: the note in the archive -----------------------------
 #
 # The note is what a reader has after the toolchain is gone, so the variables

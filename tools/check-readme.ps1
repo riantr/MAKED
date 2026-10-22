@@ -1787,6 +1787,53 @@ if ($buildMissing.Count -eq 0) {
   Write-Output "*** FAIL ***"
   $script:failures++
 }
+# --- the export formats the document uses --------------------------------------
+#
+# The README shows the export URL a reader can copy, and the format values in
+# it have to be ones the server answers. An export that asks for a format the
+# handler does not know comes back as a 400 with "unknown_format", and a
+# reader who copied the line finds that out the hard way.
+#
+# The tree is the handler: the values it matches on are the values it answers.
+# The document is the examples: every format value the document writes has to
+# be one of them. The comparison is one way, because the handler knows more
+# formats than the document shows.
+
+function Get-CodeExportFormats {
+  $out = @()
+  $lines = [System.IO.File]::ReadAllLines((Join-Path $PWD 'backend/api.mbt'), $enc)
+  $inside = $false
+  foreach ($line in $lines) {
+    if ($line -cmatch 'app\.get\("/api/sessions/:id/export"') { $inside = $true }
+    if ($inside -and $line -ceq '  })') { break }
+    if ($inside) {
+      foreach ($m in [regex]::Matches($line, 'Some\("([a-z]+)"\)')) {
+        $out += $m.Groups[1].Value
+      }
+    }
+  }
+  Sort-Set $out
+}
+
+function Get-DocExportFormats {
+  $out = @()
+  foreach ($m in [regex]::Matches($readme, 'format=([a-z]+)')) {
+    $out += $m.Groups[1].Value
+  }
+  Sort-Set $out
+}
+
+$codeExportFormats = Get-CodeExportFormats
+$docExportFormats = Get-DocExportFormats
+$exportMissing = @($docExportFormats | Where-Object { $codeExportFormats -cnotcontains $_ })
+
+if ($exportMissing.Count -eq 0) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Export formats', $docExportFormats.Count)
+} else {
+  Write-Output ("  {0,-20} the document asks for [{1}], and the server does not answer it" -f 'Export formats', ($exportMissing -join ' '))
+  Write-Output "*** FAIL ***"
+  $script:failures++
+}
 # --- the ring's order ----------------------------------------------------------
 #
 # The ring is a ring, and the ORDER is the claim: Model before Data before

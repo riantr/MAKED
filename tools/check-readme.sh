@@ -1736,6 +1736,45 @@ else
   fail "$(printf '%-20s the document states [%s], and the tree builds no such path' \
     'Build outputs' "$MISSING_FROM")"
 fi
+# --- the export formats the document uses --------------------------------------
+#
+# The README shows the export URL a reader can copy, and the format values in
+# it have to be ones the server answers. An export that asks for a format the
+# handler does not know comes back as a 400 with "unknown_format", and a
+# reader who copied the line finds that out the hard way.
+#
+# The tree is the handler: the values it matches on are the values it answers.
+# The document is the examples: every format value the document writes has to
+# be one of them. The comparison is one way, because the handler knows more
+# formats than the document shows, and the document shows the two a reader
+# wants.
+
+code_export_formats() {
+  awk '
+    /app\.get\("\/api\/sessions\/:id\/export"/ { inside = 1 }
+    inside && /^  \}\)$/ { exit }
+    inside { print }
+  ' backend/api.mbt | grep -oE 'Some\("[a-z]+"\)' | grep -oE '"[a-z]+"' | tr -d '"' \
+    | LC_ALL=C sort -u
+}
+
+doc_export_formats() {
+  grep -oE 'format=[a-z]+' "$README" | sed -E 's/^format=//' \
+    | LC_ALL=C sort -u
+}
+
+CODE_EXPORT_FORMATS=$(code_export_formats)
+DOC_EXPORT_FORMATS=$(doc_export_formats)
+
+missing_from "$DOC_EXPORT_FORMATS" "$CODE_EXPORT_FORMATS"
+
+if [ -z "$MISSING_FROM" ]; then
+  printf '  ok      %-20s %s\n' 'Export formats' \
+    "$(printf '%s\n' "$DOC_EXPORT_FORMATS" | grep -c . || true)"
+else
+  fail "$(printf '%-20s the document asks for [%s], and the server does not answer it' \
+    'Export formats' "$MISSING_FROM")"
+fi
 # --- the ring's order ----------------------------------------------------------
 #
 # The ring is a ring, and the ORDER is the claim: Model before Data before

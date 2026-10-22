@@ -1328,6 +1328,51 @@ if ($codeProtocolFields.Count -eq 0 -or $docProtocolFields.Count -eq 0) {
 } else {
   Test-Sets 'agent protocol fields' $codeProtocolFields $docProtocolFields
 }
+
+# --- the export formats the guide shows ----------------------------------------
+#
+# The guide shows the export URL an agent can call, and the format value in it
+# has to be one the server answers. An export that asks for a format the
+# handler does not know comes back as a 400 with "unknown_format".
+#
+# The tree is the handler, and the comparison is one way: the handler knows
+# more formats than the guide shows.
+
+function Get-CodeExportFormats {
+  $out = @()
+  $lines = [System.IO.File]::ReadAllLines((Join-Path $PWD 'backend/api.mbt'), $enc)
+  $inside = $false
+  foreach ($line in $lines) {
+    if ($line -cmatch 'app\.get\("/api/sessions/:id/export"') { $inside = $true }
+    if ($inside -and $line -ceq '  })') { break }
+    if ($inside) {
+      foreach ($m in [regex]::Matches($line, 'Some\("([a-z]+)"\)')) {
+        $out += $m.Groups[1].Value
+      }
+    }
+  }
+  Sort-Set $out
+}
+
+function Get-DocExportFormats {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $agentDoc), $enc)
+  foreach ($m in [regex]::Matches($text, 'format=([a-z]+)')) {
+    $out += $m.Groups[1].Value
+  }
+  Sort-Set $out
+}
+
+$codeExportFormats = @(Get-CodeExportFormats)
+$docExportFormats = @(Get-DocExportFormats)
+$exportFormatsMissing = @($docExportFormats | Where-Object { $codeExportFormats -cnotcontains $_ })
+
+if ($exportFormatsMissing.Count -eq 0) {
+  Write-Ok 'agent export formats' $docExportFormats.Count
+} else {
+  Write-Fail ("{0,-22} the guide asks for [{1}], and the server does not answer it" -f 'agent export formats', ($exportFormatsMissing -join ' '))
+}
+
 # --- packaging/RUN.txt: the note in the archive -----------------------------
 #
 # The note is what a reader has after the toolchain is gone, so the variables
