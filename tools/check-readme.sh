@@ -550,6 +550,24 @@ else
   printf '  ok      %-20s %s\n' 'API paths' "$(doc_api_paths | grep -c . || true)"
 fi
 
+# The entry point the discovery document names, and the one the document
+# states. An agent that calls the wrong one gets nowhere, so the method the
+# server tells it to call and the method the README tells it to call have to
+# be the same.
+code_entry_point() {
+  grep -oE '"entry_point": "[^"]+"' backend/agent.mbt \
+    | sed -E 's/.*: "([^"]+)"/\1/' | head -1 || true
+}
+
+# The entry point the document states. The sentence is found by its own
+# shape -- "entry point is" -- so a method named in some other part of the
+# document is not read as a claim about this one. The lines are joined
+# first, because the sentence can wrap.
+doc_entry_point() {
+  tr '\n' ' ' < "$README" | tr -s ' ' \
+    | grep -oE 'entry point is `[^`]+`' \
+    | grep -oE '`[^`]+`' | tr -d '`' | head -1 || true
+}
 # --- the protocol version ---------------------------------------------------
 #
 # The README states which version of the Model Context Protocol MAKED speaks,
@@ -565,6 +583,19 @@ code_protocol() {
 doc_protocols() {
   grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' "$README" | LC_ALL=C sort -u || true
 }
+
+ENTRY_POINT=$(code_entry_point)
+DOC_ENTRY_POINT=$(doc_entry_point)
+if [ -z "$ENTRY_POINT" ]; then
+  fail "$(printf '%-20s the tree does not name an entry point' 'Entry point')"
+elif [ -z "$DOC_ENTRY_POINT" ]; then
+  fail "$(printf '%-20s the document does not state the entry point' 'Entry point')"
+elif [ "$ENTRY_POINT" != "$DOC_ENTRY_POINT" ]; then
+  fail "$(printf '%-20s the tree says %s, the document says %s' \
+    'Entry point' "$ENTRY_POINT" "$DOC_ENTRY_POINT")"
+else
+  printf '  ok      %-20s %s\n' 'Entry point' "$ENTRY_POINT"
+fi
 
 PROTOCOL=$(code_protocol)
 if [ -z "$PROTOCOL" ]; then

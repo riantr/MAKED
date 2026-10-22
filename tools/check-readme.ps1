@@ -578,6 +578,25 @@ if ($unresolved.Count -gt 0) {
   Write-Output ("  ok      {0,-20} {1}" -f 'API paths', (Get-DocApiPaths).Count)
 }
 
+# The entry point the discovery document names, and the one the document
+# states. An agent that calls the wrong one gets nowhere, so the method the
+# server tells it to call and the method the README tells it to call have to
+# be the same.
+function Get-CodeEntryPoint {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/agent.mbt'), $enc)
+  $m = [regex]::Match($text, '"entry_point": "([^"]+)"')
+  if ($m.Success) { $m.Groups[1].Value } else { '' }
+}
+
+# The entry point the document states. The sentence is found by its own
+# shape -- "entry point is" -- so a method named in some other part of the
+# document is not read as a claim about this one. The lines are joined
+# first, because the sentence can wrap.
+function Get-DocEntryPoint {
+  $flat = ($readme -replace "`r?`n", ' ') -replace ' +', ' '
+  $m = [regex]::Match($flat, 'entry point is `([^`]+)`')
+  if ($m.Success) { $m.Groups[1].Value } else { '' }
+}
 # --- the protocol version ---------------------------------------------------
 #
 # The README states which version of the Model Context Protocol MAKED speaks,
@@ -598,6 +617,24 @@ function Get-DocProtocols {
     $out += $m.Groups[0].Value
   }
   Sort-Set $out
+}
+
+$entryPoint = Get-CodeEntryPoint
+$docEntryPoint = Get-DocEntryPoint
+if ([string]::IsNullOrEmpty($entryPoint)) {
+  Write-Output ("  {0,-20} the tree does not name an entry point" -f 'Entry point')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ([string]::IsNullOrEmpty($docEntryPoint)) {
+  Write-Output ("  {0,-20} the document does not state the entry point" -f 'Entry point')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($entryPoint -cne $docEntryPoint) {
+  Write-Output ("  {0,-20} the tree says {1}, the document says {2}" -f 'Entry point', $entryPoint, $docEntryPoint)
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Entry point', $entryPoint)
 }
 
 $protocol = Get-CodeProtocol

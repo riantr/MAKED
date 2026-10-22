@@ -811,6 +811,26 @@ function Get-DocFileNames {
   }
   Sort-Set $out
 }
+# The entry point the discovery document names, and the one the document
+# states. An agent that calls the wrong one gets nowhere, so the method the
+# server tells it to call and the method AGENT.md tells it to call have to
+# be the same.
+function Get-CodeEntryPoint {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/agent.mbt'), $enc)
+  $m = [regex]::Match($text, '"entry_point": "([^"]+)"')
+  if ($m.Success) { $m.Groups[1].Value } else { '' }
+}
+
+# The entry point the document states. The sentence is found by its own
+# shape -- "entry point is" -- so a method named in some other part of the
+# document is not read as a claim about this one. The lines are joined
+# first, because the sentence can wrap.
+function Get-DocEntryPoint {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $agentDoc), $enc)
+  $flat = ($text -replace "`r?`n", ' ') -replace ' +', ' '
+  $m = [regex]::Match($flat, 'entry point is `([^`]+)`')
+  if ($m.Success) { $m.Groups[1].Value } else { '' }
+}
 # The protocol version the discovery document names.
 function Get-CodeProtocol {
   $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/agent.mbt'), $enc)
@@ -870,6 +890,18 @@ Test-Sets 'agent file names' (Get-CodeFileNames) (Get-DocFileNames)
 
 # Every protocol version the document states has to be the one the server
 # speaks, and it has to state it at all.
+$codeEntryPoint = Get-CodeEntryPoint
+$docEntryPoint = Get-DocEntryPoint
+if ([string]::IsNullOrEmpty($codeEntryPoint)) {
+  Write-Fail ("{0,-22} the tree does not name an entry point" -f 'agent entry point')
+} elseif ([string]::IsNullOrEmpty($docEntryPoint)) {
+  Write-Fail ("{0,-22} the document does not state the entry point" -f 'agent entry point')
+} elseif ($codeEntryPoint -cne $docEntryPoint) {
+  Write-Fail ("{0,-22} the tree says {1}, the document says {2}" -f 'agent entry point', $codeEntryPoint, $docEntryPoint)
+} else {
+  Write-Ok 'agent entry point' $codeEntryPoint
+}
+
 $protocol = Get-CodeProtocol
 if ([string]::IsNullOrEmpty($protocol)) {
   Write-Fail ("{0,-22} the tree does not name a protocol version" -f 'agent protocol')

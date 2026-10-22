@@ -944,6 +944,24 @@ doc_file_names() {
     | awk -F'|' '{ gsub(/^[ \t]+|[ \t]+$/, "", $1); print tolower($1), $2 }' \
     | LC_ALL=C sort -u || true
 }
+# The entry point the discovery document names, and the one the document
+# states. An agent that calls the wrong one gets nowhere, so the method the
+# server tells it to call and the method AGENT.md tells it to call have to
+# be the same.
+code_entry_point() {
+  grep -oE '"entry_point": "[^"]+"' backend/agent.mbt \
+    | sed -E 's/.*: "([^"]+)"/\1/' | head -1 || true
+}
+
+# The entry point the document states. The sentence is found by its own
+# shape -- "entry point is" -- so a method named in some other part of the
+# document is not read as a claim about this one. The lines are joined
+# first, because the sentence can wrap.
+doc_entry_point() {
+  tr '\n' ' ' < "$AGENT_DOC" | tr -s ' ' \
+    | grep -oE 'entry point is `[^`]+`' \
+    | grep -oE '`[^`]+`' | tr -d '`' | head -1 || true
+}
 # The protocol version the discovery document names.
 code_protocol() {
   grep -oE '"mcp": "[0-9]{4}-[0-9]{2}-[0-9]{2}"' backend/agent.mbt \
@@ -969,6 +987,9 @@ DOC_ENDPOINT_MAPPINGS=$(doc_endpoint_mappings)
 CODE_FILE_VARS=$(code_file_vars)
 CODE_ENV_READS=$(code_env_reads)
 DOC_FILE_VARS=$(doc_file_vars)
+CODE_ENTRY_POINT=$(code_entry_point)
+DOC_ENTRY_POINT=$(doc_entry_point)
+
 CODE_PROTOCOL=$(code_protocol)
 DOC_PROTOCOLS=$(doc_protocols)
 
@@ -1002,6 +1023,20 @@ check_sets "agent file formats" "$(code_file_formats)" "$(backend_file_formats)"
 # same four variables in it, and a reader who follows it points MAKED_MODEL
 # at the wrong file.
 check_sets "agent file names" "$(code_file_names)" "$(doc_file_names)"
+
+# The entry point is what an agent calls first, and the server tells it one
+# method while the document may tell it another. An agent that calls the
+# wrong one gets nowhere.
+if [ -z "$CODE_ENTRY_POINT" ]; then
+  fail "$(printf '%-22s the tree does not name an entry point' 'agent entry point')"
+elif [ -z "$DOC_ENTRY_POINT" ]; then
+  fail "$(printf '%-22s the document does not state the entry point' 'agent entry point')"
+elif [ "$CODE_ENTRY_POINT" != "$DOC_ENTRY_POINT" ]; then
+  fail "$(printf '%-22s the tree says %s, the document says %s' \
+    'agent entry point' "$CODE_ENTRY_POINT" "$DOC_ENTRY_POINT")"
+else
+  ok "agent entry point" "$CODE_ENTRY_POINT"
+fi
 
 # Every protocol version the document states has to be the one the server
 # speaks, and it has to state it at all.
