@@ -6,8 +6,8 @@
 > names has since been implemented. The findings are kept as they were
 > written, because the reasoning is the point -- but read them as history.
 > For the system as it is today, read
-> [architecture/system-model.md](architecture/system-model.md) and the
-> [README](README.md).
+> [system-model.md](system-model.md) and the
+> [README](../README.md).
 
 ## Core Findings
 

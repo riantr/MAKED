@@ -490,6 +490,50 @@ if ($missingPaths.Count -gt 0) {
   Write-Output ("  ok      {0,-20} {1}" -f 'Example paths', $examplePaths.Count)
 }
 
+# --- the links the document carries -------------------------------------------
+#
+# A link that points at a file that is not there sends the reader to nothing,
+# and the reader cannot tell that the link is broken -- it looks exactly like
+# a link that works. The example paths above are the paths a reader copies
+# into a shell; these are the paths a reader clicks.
+#
+# A link is RELATIVE when it does not begin with a scheme, so a link to a
+# page on the web is left alone. A fragment is dropped: `page.md#section`
+# points at a place inside a file, and it is the file that has to be there.
+#
+# The link is resolved against the directory the document is in, which is
+# where a reader's browser resolves it from.
+
+$readmeDir = [System.IO.Path]::GetDirectoryName('README.md')
+if ([string]::IsNullOrEmpty($readmeDir)) { $readmeDir = '.' }
+
+$brokenLinks = @()
+$linkCount = 0
+foreach ($m in [regex]::Matches($readme, '\]\(([^)]+)\)')) {
+  $link = $m.Groups[1].Value
+  # A link may carry a title after the path: `page.md "the title"`. The path
+  # is what has to be there.
+  if ($link -notmatch '^\s*(\S*)') { continue }
+  $link = $Matches[1]
+  if ($link.StartsWith('#')) { continue }
+  if ($link -match '^[a-zA-Z][a-zA-Z0-9+.-]*:') { continue }
+  $hash = $link.IndexOf('#')
+  if ($hash -ge 0) { $link = $link.Substring(0, $hash) }
+  if ($link -eq '') { continue }
+  $linkCount++
+  $target = Join-Path (Join-Path $PWD $readmeDir) $link
+  if (-not (Test-Path $target)) {
+    $brokenLinks += ("{0} -> {1}" -f 'README.md', $link)
+  }
+}
+if ($brokenLinks.Count -gt 0) {
+  Write-Output ("  {0,-20} these links point at files that are not there: {1}" -f 'Document links', ($brokenLinks -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Document links', $linkCount)
+}
+
 # --- the API map ------------------------------------------------------------
 #
 # The README carries a table of every route the server registers, and that

@@ -6,8 +6,8 @@
 > since been implemented. The status section is the status as it was found
 > then, not as it is -- the document is kept as it was written, because the
 > reasoning is the point -- but read it as history. For the system as it is
-> today, read [architecture/system-model.md](architecture/system-model.md)
-> and the [README](README.md).
+> today, read [system-model.md](system-model.md)
+> and the [README](../README.md).
 
 ## Status (as found at the time of the analysis)
 

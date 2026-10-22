@@ -444,6 +444,93 @@ foreach ($doc in @($evidence, $deps, $deploy, 'architecture/flows.evidence.md'))
   Test-References $doc
 }
 
+# --- the links the documents carry --------------------------------------------
+#
+# A document that links at a file that is not there sends the reader to
+# nothing, and the reader cannot tell that the link is broken -- it looks
+# exactly like a link that works. The references above check the pointers
+# written as `file.ext:line`; this one checks the pointers written as
+# markdown links.
+#
+# The links are read from every document the repository ships, apart from the
+# README: the README has a gate of its own, and a fact is watched in one
+# place only. The vendored dependency cache and the build output are pruned --
+# they are not documents of this project, and a broken link in somebody else's
+# cache is not this project's rot.
+#
+# A link is RELATIVE when it does not begin with a scheme, so a link to a
+# page on the web is left alone. A fragment is dropped: `page.md#section`
+# points at a place inside a file, and it is the file that has to be there.
+#
+# The link is resolved against the DIRECTORY OF THE DOCUMENT, which is where a
+# reader's browser resolves it from. A document that was moved has to have its
+# links moved with it, and that is the whole of this check.
+
+function Get-DocFiles {
+  $out = @()
+  $stack = New-Object System.Collections.Stack
+  $stack.Push($PWD.Path)
+  while ($stack.Count -gt 0) {
+    $dir = [string]$stack.Pop()
+    foreach ($item in @(Get-ChildItem -Path $dir -Force -ErrorAction SilentlyContinue)) {
+      if ($item.PSIsContainer) {
+        if ($item.Name -eq '.mooncakes' -or $item.Name -eq '_build' -or
+            $item.Name -eq '.git' -or $item.Name -eq 'node_modules') { continue }
+        $stack.Push($item.FullName)
+      } else {
+        $ext = $item.Extension.ToLowerInvariant()
+        if ($ext -ne '.md' -and $ext -ne '.txt') { continue }
+        $rel = $item.FullName.Substring($PWD.Path.Length + 1).Replace('\', '/')
+        $out += $rel
+      }
+    }
+  }
+  Sort-Set $out
+}
+
+function Get-DocLinks {
+  $out = @()
+  foreach ($doc in (Get-DocFiles)) {
+    if ($doc -ceq 'README.md') { continue }
+    $text = [System.IO.File]::ReadAllText((Join-Path $PWD $doc), $enc)
+    $dir = [System.IO.Path]::GetDirectoryName($doc)
+    if ([string]::IsNullOrEmpty($dir)) { $dir = '.' }
+    foreach ($m in [regex]::Matches($text, '\]\(([^)]+)\)')) {
+      $link = $m.Groups[1].Value
+      # A link may carry a title after the path: `page.md "the title"`. The
+      # path is what has to be there.
+      if ($link -notmatch '^\s*(\S*)') { continue }
+      $link = $Matches[1]
+      if ($link.StartsWith('#')) { continue }
+      if ($link -match '^[a-zA-Z][a-zA-Z0-9+.-]*:') { continue }
+      $hash = $link.IndexOf('#')
+      if ($hash -ge 0) { $link = $link.Substring(0, $hash) }
+      if ($link -eq '') { continue }
+      $out += ("{0} {1} {2}" -f $doc, $dir, $link)
+    }
+  }
+  $out
+}
+
+$brokenLinks = @()
+$linkCount = 0
+foreach ($entry in (Get-DocLinks)) {
+  $parts = $entry.Split(' ')
+  $linkDoc = $parts[0]
+  $linkDir = $parts[1]
+  $linkText = $parts[2]
+  $linkCount++
+  $target = Join-Path (Join-Path $PWD $linkDir) $linkText
+  if (-not (Test-Path $target)) {
+    $brokenLinks += ("{0} -> {1}" -f $linkDoc, $linkText)
+  }
+}
+if ($brokenLinks.Count -gt 0) {
+  Write-Fail ("{0,-22} these links point at files that are not there: {1}" -f 'Document links', ($brokenLinks -join ' '))
+} else {
+  Write-Ok 'Document links' $linkCount
+}
+
 # --- the facts that are not counts -----------------------------------------
 #
 # The deployment document used to claim there was no Dockerfile, no compose

@@ -601,6 +601,70 @@ for doc in "$EVIDENCE" "$DEPS" "$DEPLOY" "architecture/flows.evidence.md"; do
   check_references "$doc"
 done
 
+# --- the links the documents carry --------------------------------------------
+#
+# A document that links at a file that is not there sends the reader to
+# nothing, and the reader cannot tell that the link is broken -- it looks
+# exactly like a link that works. The references above check the pointers
+# written as `file.ext:line`; this one checks the pointers written as
+# markdown links.
+#
+# The links are read from every document the repository ships, apart from the
+# README: the README has a gate of its own, and a fact is watched in one
+# place only. The vendored dependency cache and the build output are pruned --
+# they are not documents of this project, and a broken link in somebody else's
+# cache is not this project's rot.
+#
+# A link is RELATIVE when it does not begin with a scheme, so a link to a
+# page on the web is left alone. A fragment is dropped: `page.md#section`
+# points at a place inside a file, and it is the file that has to be there.
+#
+# The link is resolved against the DIRECTORY OF THE DOCUMENT, which is where a
+# reader's browser resolves it from. A document that was moved has to have its
+# links moved with it, and that is the whole of this check.
+
+doc_files() {
+  find . \( -name '.mooncakes' -o -name '_build' -o -name '.git' -o -name 'node_modules' \) -prune -o \
+    -type f \( -name '*.md' -o -name '*.txt' \) -print \
+    | sed -E 's|^\./||' | LC_ALL=C sort
+}
+
+# The relative links the documents carry, as "document directory link".
+doc_links() {
+  local link_doc link_dir
+  while IFS= read -r link_doc; do
+    [ -n "$link_doc" ] || continue
+    [ "$link_doc" = "README.md" ] && continue
+    link_dir="$(dirname "$link_doc")"
+    grep -oE '\]\([^)]+\)' "$link_doc" 2>/dev/null \
+      | sed -E 's/^\]\(//; s/\)$//' \
+      | sed -E 's/^[[:space:]]*([^[:space:]]*).*$/\1/' \
+      | grep -vE '^#' \
+      | grep -vE '^[a-zA-Z][a-zA-Z0-9+.-]*:' \
+      | sed -E 's/#.*$//' \
+      | grep -vE '^$' \
+      | while IFS= read -r link_text; do
+          printf '%s %s %s\n' "$link_doc" "$link_dir" "$link_text"
+        done || true
+  done <<< "$(doc_files)"
+}
+
+BROKEN_LINKS=""
+LINK_COUNT=0
+while IFS=' ' read -r LINK_DOC LINK_DIR LINK_TEXT; do
+  [ -n "$LINK_TEXT" ] || continue
+  LINK_COUNT=$((LINK_COUNT + 1))
+  if [ ! -e "$LINK_DIR/$LINK_TEXT" ]; then
+    BROKEN_LINKS="$BROKEN_LINKS $LINK_DOC -> $LINK_TEXT"
+  fi
+done <<< "$(doc_links)"
+if [ -n "$BROKEN_LINKS" ]; then
+  fail "$(printf '%-22s these links point at files that are not there:%s' \
+    'Document links' "$BROKEN_LINKS")"
+else
+  ok "Document links" "$LINK_COUNT"
+fi
+
 # --- the facts that are not counts -----------------------------------------
 #
 # The deployment document used to claim there was no Dockerfile, no compose

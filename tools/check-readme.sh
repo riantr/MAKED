@@ -449,6 +449,51 @@ else
   printf '  ok      %-20s %s\n' 'Example paths' "$(printf '%s\n' "$EXAMPLE_PATHS" | grep -c . || true)"
 fi
 
+# --- the links the document carries -------------------------------------------
+#
+# A link that points at a file that is not there sends the reader to nothing,
+# and the reader cannot tell that the link is broken -- it looks exactly like
+# a link that works. The example paths above are the paths a reader copies
+# into a shell; these are the paths a reader clicks.
+#
+# A link is RELATIVE when it does not begin with a scheme, so a link to a
+# page on the web is left alone. A fragment is dropped: `page.md#section`
+# points at a place inside a file, and it is the file that has to be there.
+#
+# The link is resolved against the directory the document is in, which is
+# where a reader's browser resolves it from.
+
+doc_links() {
+  local link_dir
+  link_dir="$(dirname "$README")"
+  grep -oE '\]\([^)]+\)' "$README" \
+    | sed -E 's/^\]\(//; s/\)$//' \
+    | sed -E 's/^[[:space:]]*([^[:space:]]*).*$/\1/' \
+    | grep -vE '^#' \
+    | grep -vE '^[a-zA-Z][a-zA-Z0-9+.-]*:' \
+    | sed -E 's/#.*$//' \
+    | grep -vE '^$' \
+    | while IFS= read -r link_text; do
+        printf '%s %s %s\n' "$README" "$link_dir" "$link_text"
+      done || true
+}
+
+BROKEN_LINKS=""
+LINK_COUNT=0
+while IFS=' ' read -r LINK_DOC LINK_DIR LINK_TEXT; do
+  [ -n "$LINK_TEXT" ] || continue
+  LINK_COUNT=$((LINK_COUNT + 1))
+  if [ ! -e "$LINK_DIR/$LINK_TEXT" ]; then
+    BROKEN_LINKS="$BROKEN_LINKS $LINK_DOC -> $LINK_TEXT"
+  fi
+done <<< "$(doc_links)"
+if [ -n "$BROKEN_LINKS" ]; then
+  fail "$(printf '%-20s these links point at files that are not there:%s' \
+    'Document links' "$BROKEN_LINKS")"
+else
+  printf '  ok      %-20s %s\n' 'Document links' "$LINK_COUNT"
+fi
+
 # --- the API map ------------------------------------------------------------
 #
 # The README carries a table of every route the server registers, and that
