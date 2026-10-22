@@ -1642,6 +1642,95 @@ if ($domainNames.Count -eq 0 -or $docDomainNames.Count -eq 0) {
   $failures++
 }
 
+# --- the ring's letters --------------------------------------------------------
+#
+# The ring has a letter for each domain -- M for Model, D for Data -- and the
+# logo draws them, clockwise from the top. The backend defines them, the
+# logo draws them, and the README states the order. Three places, one fact,
+# and nothing compared them: a "tidying" that swapped two letters in the
+# logo still renders five evenly spaced nodes that merely look wrong, and
+# the document stays true of a ring that no longer exists.
+#
+# The letters are the third field of the ring's tuples, in the order the
+# tuples are written, and the logo's nodes are the same letters in the same
+# order. The document's sequence is found by its own shape -- the tree's
+# letters, separated by things that are not letters -- so the domain NAMES
+# ("Model -> Data -> Experience") are not read as the sequence, and a ring
+# whose letters change makes the document's old sequence stop matching
+# rather than being compared against the wrong thing.
+
+function Get-CodeRingLetters {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/pages.mbt'), $enc)
+  foreach ($m in [regex]::Matches($text, '\("[a-z]+", "[^"]+", "([A-Z])"')) {
+    $out += $m.Groups[1].Value
+  }
+  ($out -join ' ')
+}
+
+function Get-LogoRingLetters {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'frontend/logo.mbt'), $enc)
+  foreach ($m in [regex]::Matches($text, '\("([A-Z])", "#[0-9a-fA-F]+"')) {
+    $out += $m.Groups[1].Value
+  }
+  ($out -join ' ')
+}
+
+# The pattern the document's sequence is found by, built from the tree's
+# letters: each letter, separated by things that are not letters.
+function Get-RingLetterPattern($letters) {
+  $parts = @($letters -split ' ' | Where-Object { $_ -ne '' })
+  if ($parts.Count -eq 0) { return '' }
+  if ($parts.Count -eq 1) { return $parts[0] }
+  $parts[0] + '[^A-Za-z0-9]+' + ([string]::Join('[^A-Za-z0-9]+', $parts[1..($parts.Count - 1)]))
+}
+
+# The sequences the document states, one per line.
+function Get-DocRingLetters {
+  $pattern = Get-RingLetterPattern (Get-CodeRingLetters)
+  if ($pattern -eq '') { return @() }
+  $text = $readme -replace "`n", ' '
+  $text = $text -replace ' +', ' '
+  $out = @()
+  foreach ($m in [regex]::Matches($text, $pattern)) {
+    $seq = @()
+    foreach ($c in [regex]::Matches($m.Value, '[A-Z]')) { $seq += $c.Value }
+    $out += ($seq -join ' ')
+  }
+  Sort-Set $out
+}
+
+$codeRingLetters = Get-CodeRingLetters
+$logoRingLetters = Get-LogoRingLetters
+$docRingLetters = @(Get-DocRingLetters)
+$docRingCount = @($docRingLetters | Where-Object { $_ -ne '' }).Count
+$docRingFirst = ''
+if ($docRingCount -gt 0) { $docRingFirst = $docRingLetters[0] }
+
+if ($codeRingLetters -eq '') {
+  Write-Output ("  {0,-20} no letter could be derived from the ring" -f 'Ring letters')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($codeRingLetters -cne $logoRingLetters) {
+  Write-Output ("  {0,-20} the tree says [{1}], the logo draws [{2}]" -f 'Ring letters', $codeRingLetters, $logoRingLetters)
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($docRingCount -eq 0) {
+  Write-Output ("  {0,-20} the document does not state the ring" -f 'Ring letters')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($docRingCount -gt 1) {
+  Write-Output ("  {0,-20} the document states the ring more than once, and the statements differ" -f 'Ring letters')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($codeRingLetters -cne $docRingFirst) {
+  Write-Output ("  {0,-20} the tree says [{1}], the document says [{2}]" -f 'Ring letters', $codeRingLetters, $docRingFirst)
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Ring letters', $codeRingLetters)
+}
 # --- the collective's numbers ------------------------------------------------
 #
 # The collective is pyroduct's, but the words for it are a file in this

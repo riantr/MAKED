@@ -1589,6 +1589,83 @@ else
 fi
 
 
+# --- the ring's letters --------------------------------------------------------
+#
+# The ring has a letter for each domain -- M for Model, D for Data -- and the
+# logo draws them, clockwise from the top. The backend defines them, the
+# logo draws them, and the README states the order. Three places, one fact,
+# and nothing compared them: a "tidying" that swapped two letters in the
+# logo still renders five evenly spaced nodes that merely look wrong, and
+# the document stays true of a ring that no longer exists.
+#
+# The letters are the third field of the ring's tuples, in the order the
+# tuples are written, and the logo's nodes are the same letters in the same
+# order. The document's sequence is found by its own shape -- the tree's
+# letters, separated by things that are not letters -- so the domain NAMES
+# ("Model -> Data -> Experience") are not read as the sequence, and a ring
+# whose letters change makes the document's old sequence stop matching
+# rather than being compared against the wrong thing.
+
+code_ring_letters() {
+  grep -oE '\("[a-z]+", "[^"]+", "[A-Z]"' backend/pages.mbt \
+    | sed -E 's/.*"([A-Z])"$/\1/' | tr '\n' ' ' | sed -e 's/ *$//'
+}
+
+logo_ring_letters() {
+  grep -oE '\("[A-Z]", "#[0-9a-fA-F]+"' frontend/logo.mbt \
+    | sed -E 's/\("([A-Z])".*/\1/' | tr '\n' ' ' | sed -e 's/ *$//'
+}
+
+# The pattern the document's sequence is found by, built from the tree's
+# letters: each letter, separated by things that are not letters.
+ring_letter_pattern() {
+  local letters="$1" first=1 pattern="" letter
+  for letter in $letters; do
+    if [ "$first" -eq 1 ]; then
+      pattern="$letter"
+      first=0
+    else
+      pattern="$pattern[^A-Za-z0-9]+$letter"
+    fi
+  done
+  printf '%s' "$pattern"
+}
+
+# The sequences the document states, one per line.
+doc_ring_letters() {
+  local pattern
+  pattern=$(ring_letter_pattern "$(code_ring_letters)")
+  [ -n "$pattern" ] || return 0
+  tr '\n' ' ' < "$README" | tr -s ' ' \
+    | grep -oE "$pattern" \
+    | while IFS= read -r sequence; do
+        [ -n "$sequence" ] || continue
+        printf '%s\n' "$(printf '%s' "$sequence" | grep -oE '[A-Z]' | tr '\n' ' ' | sed -e 's/ *$//')"
+      done | LC_ALL=C sort -u
+}
+
+CODE_RING_LETTERS=$(code_ring_letters)
+LOGO_RING_LETTERS=$(logo_ring_letters)
+DOC_RING_LETTERS=$(doc_ring_letters)
+DOC_RING_COUNT=$(printf '%s\n' "$DOC_RING_LETTERS" | grep -c . || true)
+DOC_RING_FIRST=$(printf '%s\n' "$DOC_RING_LETTERS" | head -1)
+
+if [ -z "$CODE_RING_LETTERS" ]; then
+  fail "$(printf '%-20s no letter could be derived from the ring' 'Ring letters')"
+elif [ "$CODE_RING_LETTERS" != "$LOGO_RING_LETTERS" ]; then
+  fail "$(printf '%-20s the tree says [%s], the logo draws [%s]' \
+    'Ring letters' "$CODE_RING_LETTERS" "$LOGO_RING_LETTERS")"
+elif [ "$DOC_RING_COUNT" -eq 0 ]; then
+  fail "$(printf '%-20s the document does not state the ring' 'Ring letters')"
+elif [ "$DOC_RING_COUNT" -gt 1 ]; then
+  fail "$(printf '%-20s the document states the ring more than once, and the statements differ' \
+    'Ring letters')"
+elif [ "$CODE_RING_LETTERS" != "$DOC_RING_FIRST" ]; then
+  fail "$(printf '%-20s the tree says [%s], the document says [%s]' \
+    'Ring letters' "$CODE_RING_LETTERS" "$DOC_RING_FIRST")"
+else
+  printf '  ok      %-20s %s\n' 'Ring letters' "$CODE_RING_LETTERS"
+fi
 # --- the collective's numbers ------------------------------------------------
 #
 # The collective is pyroduct's, but the words for it are a file in this
