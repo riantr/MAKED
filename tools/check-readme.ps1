@@ -1086,6 +1086,61 @@ if ([string]::IsNullOrEmpty($defaultPort)) {
 } else {
   Write-Output ("  ok      {0,-20} {1}" -f 'Port', $defaultPort)
 }
+# --- the path the agent's server speaks on -------------------------------------
+#
+# The agent's server is a second server: it speaks the Model Context Protocol
+# over HTTP, and it does so on a path of its own. The README's curl for it
+# names that path, and a path the server does not serve is a request that
+# comes back as nothing.
+#
+# The path is the code's -- cmd/mcp hands it to the server -- and the port is
+# the README's: the one it gives the agent's server. So the paths the README
+# writes on that port are the agent server's paths, and they have to be the
+# ones the code serves.
+#
+# The two sets are compared by MEMBERSHIP: the order they are written in says
+# nothing about it, and a message that differs between the twins is a message
+# nobody can trust.
+
+function Get-CodeAgentPaths {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'cmd/mcp/main.mbt'), $enc)
+  $out = @()
+  foreach ($m in [regex]::Matches($text, 'run_http\([^)]*path="([^"]+)"')) {
+    $out += $m.Groups[1].Value
+  }
+  Sort-Set $out
+}
+
+function Get-DocAgentPaths {
+  $out = @()
+  foreach ($port in @(Get-DocMcpPorts | Sort-Object -Unique)) {
+    $pattern = 'http://127\.0\.0\.1:' + $port + '(/[A-Za-z0-9_./-]*)'
+    foreach ($m in [regex]::Matches($readme, $pattern)) {
+      $out += $m.Groups[1].Value
+    }
+  }
+  Sort-Set $out
+}
+
+$codeAgentPaths = @(Get-CodeAgentPaths)
+$docAgentPaths = @(Get-DocAgentPaths)
+$codeAgentText = ($codeAgentPaths -join ' ')
+$docAgentText = ($docAgentPaths -join ' ')
+if ($codeAgentPaths.Count -eq 0) {
+  Write-Output ("  {0,-20} no path could be derived from the server" -f 'Agent path')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($docAgentPaths.Count -eq 0) {
+  Write-Output ("  {0,-20} the document names no path for the agent server" -f 'Agent path')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $codeAgentPaths $docAgentPaths) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Agent path', $codeAgentText)
+} else {
+  Write-Output ("  {0,-20} the tree says [{1}], the document says [{2}]" -f 'Agent path', $codeAgentText, $docAgentText)
+  Write-Output "*** FAIL ***"
+  $failures++
+}
 
 # --- the file formats and the corpus kinds -----------------------------------
 #

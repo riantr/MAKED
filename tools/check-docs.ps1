@@ -1171,6 +1171,37 @@ if ($agentText.Contains('MAKED_MCP_PORT') -and $mcpText.Contains('MAKED_MCP_PORT
 } else {
   Write-Fail ("{0,-22} MAKED_MCP_PORT is not in both the document and the server" -f 'agent port variable')
 }
+# The path the agent's server speaks HTTP on. The code hands the path to the
+# server, and the document has to name the same one: an agent that posts to a
+# path the server does not serve gets nothing back.
+#
+# The claim is found by its own shape -- the sentence that says the server
+# speaks HTTP, and the path at the end of it -- so a path named somewhere
+# else in the document is not read as a claim about this one.
+function Get-CodeAgentPath {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'cmd/mcp/main.mbt'), $enc)
+  $m = [regex]::Match($text, 'run_http\([^)]*path="([^"]+)"')
+  if ($m.Success) { $m.Groups[1].Value } else { '' }
+}
+
+function Get-DocAgentPath {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $agentDoc), $enc)
+  $flat = ($text -replace "`r?`n", ' ') -replace ' +', ' '
+  $m = [regex]::Match($flat, 'speaks HTTP[^.]*at `([^`]+)`')
+  if ($m.Success) { $m.Groups[1].Value } else { '' }
+}
+
+$codeAgentPath = Get-CodeAgentPath
+$docAgentPath = Get-DocAgentPath
+if ([string]::IsNullOrEmpty($codeAgentPath)) {
+  Write-Fail ("{0,-22} the tree does not name the path the agent server serves" -f 'agent server path')
+} elseif ([string]::IsNullOrEmpty($docAgentPath)) {
+  Write-Fail ("{0,-22} the document does not state the path" -f 'agent server path')
+} elseif ($codeAgentPath -cne $docAgentPath) {
+  Write-Fail ("{0,-22} the tree says {1}, the document says {2}" -f 'agent server path', $codeAgentPath, $docAgentPath)
+} else {
+  Write-Ok 'agent server path' $codeAgentPath
+}
 
 # --- packaging/RUN.txt: the note in the archive -----------------------------
 #

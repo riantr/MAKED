@@ -1264,6 +1264,36 @@ else
   fail "$(printf '%-22s MAKED_MCP_PORT is not in both the document and the server' \
     'agent port variable')"
 fi
+# The path the agent's server speaks HTTP on. The code hands the path to the
+# server, and the document has to name the same one: an agent that posts to a
+# path the server does not serve gets nothing back.
+#
+# The claim is found by its own shape -- the sentence that says the server
+# speaks HTTP, and the path at the end of it -- so a path named somewhere
+# else in the document is not read as a claim about this one.
+code_agent_path() {
+  grep -oE 'run_http\([^)]*path="[^"]+"' cmd/mcp/main.mbt \
+    | sed -E 's/.*path="([^"]+)".*/\1/' | head -1 || true
+}
+
+doc_agent_path() {
+  tr '\n' ' ' < "$AGENT_DOC" | tr -s ' ' \
+    | grep -oE 'speaks HTTP[^.]*at `[^`]+`' \
+    | grep -oE '`[^`]+`' | tr -d '`' | head -1 || true
+}
+
+CODE_AGENT_PATH=$(code_agent_path)
+DOC_AGENT_PATH=$(doc_agent_path)
+if [ -z "$CODE_AGENT_PATH" ]; then
+  fail "$(printf '%-22s the tree does not name the path the agent server serves' 'agent server path')"
+elif [ -z "$DOC_AGENT_PATH" ]; then
+  fail "$(printf '%-22s the document does not state the path' 'agent server path')"
+elif [ "$CODE_AGENT_PATH" != "$DOC_AGENT_PATH" ]; then
+  fail "$(printf '%-22s the tree says %s, the document says %s' \
+    'agent server path' "$CODE_AGENT_PATH" "$DOC_AGENT_PATH")"
+else
+  ok "agent server path" "$CODE_AGENT_PATH"
+fi
 
 # --- packaging/RUN.txt: the note in the archive -----------------------------
 #

@@ -1004,6 +1004,49 @@ elif [ -n "$WRONG_PORT" ]; then
 else
   printf '  ok      %-20s %s\n' 'Port' "$DEFAULT_PORT"
 fi
+# --- the path the agent's server speaks on -------------------------------------
+#
+# The agent's server is a second server: it speaks the Model Context Protocol
+# over HTTP, and it does so on a path of its own. The README's curl for it
+# names that path, and a path the server does not serve is a request that
+# comes back as nothing.
+#
+# The path is the code's -- cmd/mcp hands it to the server -- and the port is
+# the README's: the one it gives the agent's server. So the paths the README
+# writes on that port are the agent server's paths, and they have to be the
+# ones the code serves.
+#
+# The two sets are compared by MEMBERSHIP: the order they are written in says
+# nothing about it, and a message that differs between the twins is a message
+# nobody can trust.
+
+code_agent_paths() {
+  grep -oE 'run_http\([^)]*path="[^"]+"' cmd/mcp/main.mbt \
+    | sed -E 's/.*path="([^"]+)".*/\1/' | LC_ALL=C sort -u
+}
+
+doc_agent_paths() {
+  local port
+  for port in $(doc_mcp_ports | LC_ALL=C sort -u); do
+    grep -oE "http://127\.0\.0\.1:${port}/[A-Za-z0-9_./-]*" "$README" \
+      | sed -E "s#^http://127\.0\.0\.1:${port}##"
+  done | LC_ALL=C sort -u
+}
+
+CODE_AGENT_PATHS=$(code_agent_paths)
+DOC_AGENT_PATHS=$(doc_agent_paths)
+CODE_AGENT_TEXT=$(printf '%s\n' "$CODE_AGENT_PATHS" | tr '\n' ' ' | sed -e 's/ *$//')
+DOC_AGENT_TEXT=$(printf '%s\n' "$DOC_AGENT_PATHS" | tr '\n' ' ' | sed -e 's/ *$//')
+if [ -z "$CODE_AGENT_PATHS" ]; then
+  fail "$(printf '%-20s no path could be derived from the server' 'Agent path')"
+elif [ -z "$DOC_AGENT_PATHS" ]; then
+  fail "$(printf '%-20s the document names no path for the agent server' 'Agent path')"
+elif same_members "$CODE_AGENT_PATHS" "$DOC_AGENT_PATHS"; then
+  printf '  ok      %-20s %s\n' 'Agent path' "$CODE_AGENT_TEXT"
+else
+  fail "$(printf '%-20s the tree says [%s], the document says [%s]' \
+    'Agent path' "$CODE_AGENT_TEXT" "$DOC_AGENT_TEXT")"
+fi
 
 # --- the file formats and the corpus kinds -----------------------------------
 #
