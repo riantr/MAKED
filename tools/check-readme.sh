@@ -662,6 +662,51 @@ else
   printf '  ok      %-20s %s\n' 'Referenced versions' "$(doc_versions | grep -c . || true)"
 fi
 
+# --- the release the document names ------------------------------------------
+#
+# The README tells a reader which release they are looking at, and it says so
+# twice: once at the top of the document and once at the foot of it. The
+# number it prints there is the module's own version -- the one in moon.mod --
+# and it is written with a leading "v", the way a release is named everywhere
+# else.
+#
+# The "referenced versions" check above reads the versions the document names
+# in the `name@version` form, so the mooncakes link and the package pin are
+# covered by it. The bare `v0.1.7` is not: a release name is not a reference
+# to a module, and a README that names a release the module never had is a
+# README a reader cannot install from.
+#
+# The claim is found by its own shape -- the words "current release" -- so a
+# library version mentioned somewhere else in the document is not read as a
+# claim about MAKED's own release. Every line that makes the claim has to
+# name the module's version, so the two lines that make it agree with each
+# other as well as with the tree.
+
+doc_release_versions() {
+  grep -iE 'current release' "$README" \
+    | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?' \
+    | sed -E 's/^v//' | LC_ALL=C sort -u || true
+}
+
+DOC_RELEASE_VERSIONS=$(doc_release_versions)
+if [ -z "$DOC_RELEASE_VERSIONS" ]; then
+  fail "$(printf '%-20s the document does not name the current release' 'Release version')"
+else
+  WRONG_RELEASE=""
+  while IFS= read -r stated; do
+    [ -n "$stated" ] || continue
+    if [ "$stated" != "$MODULE_VERSION" ]; then
+      WRONG_RELEASE="$WRONG_RELEASE $stated"
+    fi
+  done <<< "$DOC_RELEASE_VERSIONS"
+  if [ -n "$WRONG_RELEASE" ]; then
+    fail "$(printf '%-20s the document names [%s], the module has %s' \
+      'Release version' "$(printf '%s' "$WRONG_RELEASE" | sed -e 's/^ *//')" "$MODULE_VERSION")"
+  else
+    printf '  ok      %-20s %s\n' 'Release version' "$MODULE_VERSION"
+  fi
+fi
+
 # --- the file formats and the corpus kinds -----------------------------------
 #
 # The README has a table of the files a reader can change, and every row names

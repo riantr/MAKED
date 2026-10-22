@@ -700,6 +700,54 @@ if ($wrongVersion.Count -gt 0) {
   Write-Output ("  ok      {0,-20} {1}" -f 'Referenced versions', (Get-DocVersions).Count)
 }
 
+# --- the release the document names ------------------------------------------
+#
+# The README tells a reader which release they are looking at, and it says so
+# twice: once at the top of the document and once at the foot of it. The
+# number it prints there is the module's own version -- the one in moon.mod --
+# and it is written with a leading "v", the way a release is named everywhere
+# else.
+#
+# The "referenced versions" check above reads the versions the document names
+# in the `name@version` form, so the mooncakes link and the package pin are
+# covered by it. The bare `v0.1.7` is not: a release name is not a reference
+# to a module, and a README that names a release the module never had is a
+# README a reader cannot install from.
+#
+# The claim is found by its own shape -- the words "current release" -- so a
+# library version mentioned somewhere else in the document is not read as a
+# claim about MAKED's own release. Every line that makes the claim has to
+# name the module's version, so the two lines that make it agree with each
+# other as well as with the tree.
+
+function Get-DocReleaseVersions {
+  $out = @()
+  foreach ($line in ($readme -split "`r?`n")) {
+    if ($line -imatch 'current release') {
+      foreach ($m in [regex]::Matches($line, 'v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?')) {
+        $out += ($m.Groups[0].Value -replace '^v', '')
+      }
+    }
+  }
+  Sort-Set $out
+}
+
+$docReleaseVersions = @(Get-DocReleaseVersions)
+if ($docReleaseVersions.Count -eq 0) {
+  Write-Output ("  {0,-20} the document does not name the current release" -f 'Release version')
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  $wrongRelease = @($docReleaseVersions | Where-Object { $_ -cne $moduleVersion })
+  if ($wrongRelease.Count -gt 0) {
+    Write-Output ("  {0,-20} the document names [{1}], the module has {2}" -f 'Release version', ($wrongRelease -join ' '), $moduleVersion)
+    Write-Output "*** FAIL ***"
+    $failures++
+  } else {
+    Write-Output ("  ok      {0,-20} {1}" -f 'Release version', $moduleVersion)
+  }
+}
+
 # --- the file formats and the corpus kinds -----------------------------------
 #
 # The README has a table of the files a reader can change, and every row names
