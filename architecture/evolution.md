@@ -25,7 +25,7 @@ from, and why it is shaped the way it is.
 | Storage | SQLite file, no backup, no WAL |
 | API | 4 GET endpoints, no auth, no write path |
 | Frontend | rabbita SPA, one fetch at startup, client-side routing |
-| Observability | One-line stderr logging per request |
+| Observability | One-line println logging per request |
 | CI/CD | GitHub Actions copilot setup only |
 | Testing | 16 tests (8 backend + 8 frontend), mutation-tested |
 
@@ -135,12 +135,12 @@ Depends on: Slice 1 (optional but recommended)
 ### Slice 3: Production hardening
 
 ```
-Current:  localhost HTTP, stderr logging, no health check
+Current:  localhost HTTP, println logging, no health check
 Target:   TLS, structured logging, health endpoint, backup
 
 Steps:
   1. Add GET /health → {"status": "ok"}
-  2. Replace the stderr log line with JSON logging middleware
+  2. Replace println with JSON logging middleware
   3. Add SQLite WAL mode (PRAGMA journal_mode=WAL)
   4. Add Caddyfile or nginx.conf for TLS termination
   5. Add cron job for SQLite backup (cp maked.db maked.db.bak)

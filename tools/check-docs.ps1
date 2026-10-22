@@ -3418,6 +3418,10 @@ if ($script:logStream -eq '' -or $script:logPrintLine -eq 0) {
   $script:logBadSite = $true
 } else {
   foreach ($doc in $archDocs) {
+    # A document that describes the past is a record of the past. Its claims
+    # are about the tree as it was, so they are not checked against the tree
+    # as it is.
+    if ($markedDocs -ccontains $doc) { continue }
     foreach ($claim in (Get-DocClaims $doc)) {
       Test-LogClaim $doc $claim.line $claim.text
     }

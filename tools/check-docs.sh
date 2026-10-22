@@ -3305,6 +3305,11 @@ log_claim_check() {
 check_log_claims() {
   local doc line claim="" claim_line=0 n=0 dot=0
   for doc in "${ARCH_DOCS[@]}"; do
+    # A document that describes the past is a record of the past. Its claims
+    # are about the tree as it was, so they are not checked against the tree
+    # as it is.
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
     case "$doc" in *.dot) dot=1 ;; *) dot=0 ;; esac
     n=0
     claim=""
