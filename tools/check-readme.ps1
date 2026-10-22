@@ -792,6 +792,60 @@ if ($docReleaseVersions.Count -eq 0) {
   }
 }
 
+# --- the assets the release carries -------------------------------------------
+#
+# The README's table of the ready-to-run builds names three files, and the
+# release workflow is what builds them. The names have to be the same: a
+# reader who downloads "maked-0.1.7-linux-x86_64.tar.gz" from a release
+# that carried "maked-0.1.7-linux-amd64.tar.gz" is a reader with a 404.
+#
+# The workflow's matrix is the source: each entry says which platform the
+# binary is for and how it is archived, and the asset is the two of them
+# with the version in the middle. The matrix is read as pairs -- a target
+# and the archive that goes with it -- because a target without its
+# archive is not an asset.
+
+function Get-CodeReleaseAssets {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD '.github/workflows/publish.yml'), $enc)
+  $out = @()
+  $target = ''
+  $archive = ''
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^\s*- os:') {
+      if ($target -ne '' -and $archive -ne '') { $out += ("maked-<version>-{0}.{1}" -f $target, $archive) }
+      $target = ''
+      $archive = ''
+    } elseif ($line -match '^\s*target:\s*(\S+)') {
+      $target = $Matches[1]
+    } elseif ($line -match '^\s*archive:\s*(\S+)') {
+      $archive = $Matches[1]
+    }
+  }
+  if ($target -ne '' -and $archive -ne '') { $out += ("maked-<version>-{0}.{1}" -f $target, $archive) }
+  Sort-Set $out
+}
+
+# The assets the README's table names.
+function Get-DocReleaseAssets {
+  $out = @()
+  foreach ($m in [regex]::Matches($readme, 'maked-<version>[a-z0-9._-]+')) { $out += $m.Groups[0].Value }
+  Sort-Set $out
+}
+
+$codeAssets = @(Get-CodeReleaseAssets)
+$docAssets = @(Get-DocReleaseAssets)
+if ($codeAssets.Count -eq 0) {
+  Write-Output ("  {0,-20} no asset could be derived from the workflow" -f 'Release assets')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $codeAssets $docAssets) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Release assets', $codeAssets.Count)
+} else {
+  Write-Output ("  {0,-20} the workflow says [{1}], the document says [{2}]" -f 'Release assets', ($codeAssets -join ' '), ($docAssets -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+}
+
 # --- the license the document names -------------------------------------------
 #
 # The README says which license the project is under, and the manifest says

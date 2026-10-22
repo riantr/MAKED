@@ -752,6 +752,53 @@ else
   fi
 fi
 
+# --- the assets the release carries -------------------------------------------
+#
+# The README's table of the ready-to-run builds names three files, and the
+# release workflow is what builds them. The names have to be the same: a
+# reader who downloads "maked-0.1.7-linux-x86_64.tar.gz" from a release
+# that carried "maked-0.1.7-linux-amd64.tar.gz" is a reader with a 404.
+#
+# The workflow's matrix is the source: each entry says which platform the
+# binary is for and how it is archived, and the asset is the two of them
+# with the version in the middle. The matrix is read as pairs -- a target
+# and the archive that goes with it -- because a target without its
+# archive is not an asset.
+
+code_release_assets() {
+  awk '
+    function flush() {
+      if (target != "" && archive != "") {
+        printf "maked-<version>-%s.%s\n", target, archive
+      }
+      target = ""
+      archive = ""
+    }
+    /^[ \t]*- os:/ { flush(); next }
+    /^[ \t]*target:/ { target = $2; next }
+    /^[ \t]*archive:/ { archive = $2; next }
+    END { flush() }
+  ' .github/workflows/publish.yml | LC_ALL=C sort -u
+}
+
+# The assets the README's table names.
+doc_release_assets() {
+  grep -oE 'maked-<version>[a-z0-9._-]+' "$README" | LC_ALL=C sort -u || true
+}
+
+CODE_ASSETS=$(code_release_assets)
+DOC_ASSETS=$(doc_release_assets)
+if [ -z "$CODE_ASSETS" ]; then
+  fail "$(printf '%-20s no asset could be derived from the workflow' 'Release assets')"
+elif same_members "$CODE_ASSETS" "$DOC_ASSETS"; then
+  printf '  ok      %-20s %s\n' 'Release assets' "$(printf '%s\n' "$CODE_ASSETS" | grep -c .)"
+else
+  fail "$(printf '%-20s the workflow says [%s], the document says [%s]' \
+    'Release assets' \
+    "$(printf '%s\n' "$CODE_ASSETS" | tr '\n' ' ' | sed -e 's/ *$//')" \
+    "$(printf '%s\n' "$DOC_ASSETS" | tr '\n' ' ' | sed -e 's/ *$//')")"
+fi
+
 # --- the license the document names -------------------------------------------
 #
 # The README says which license the project is under, and the manifest says
