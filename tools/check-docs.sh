@@ -833,6 +833,27 @@ doc_endpoint_tools() {
     | grep -oE 'maked_[a-z_]+' | LC_ALL=C sort -u || true
 }
 
+# The endpoints the discovery document lists, each with the tool that answers
+# it, as "METHOD path tool".
+#
+# The tool follows the path in the source, so the two are read together
+# rather than matched up afterwards. A table that sends a reader to the wrong
+# tool for a path is a table that answers a different question than the one
+# it names.
+code_endpoint_mappings() {
+  tr '\n' ' ' < backend/agent.mbt \
+    | grep -oE '"method": "[A-Z]+", *"path": "[^"]+", *"tool": "maked_[a-z_]+"' \
+    | sed -E 's/"method": "([A-Z]+)", *"path": "([^"]+)", *"tool": "(maked_[a-z_]+)"/\1 \2 \3/' \
+    | LC_ALL=C sort -u || true
+}
+
+# The same endpoints as AGENT.md's table gives them, each with the tool it
+# names.
+doc_endpoint_mappings() {
+  grep -oE '^\| `(GET|POST|PUT|DELETE|PATCH)` \| `/api/[^`]+` \| `maked_[a-z_]+`' "$AGENT_DOC" \
+    | sed -E 's/^\| `([A-Z]+)` \| `([^`]+)` \| `(maked_[a-z_]+)`/\1 \2 \3/' \
+    | LC_ALL=C sort -u || true
+}
 # The variables that name the files MAKED runs on, from the discovery
 # document.
 code_file_vars() {
@@ -877,6 +898,8 @@ DOC_TOOL_ARGS=$(doc_tool_args)
 CODE_ENDPOINTS=$(code_endpoints)
 DOC_ENDPOINTS=$(doc_endpoints)
 DOC_ENDPOINT_TOOLS=$(doc_endpoint_tools)
+CODE_ENDPOINT_MAPPINGS=$(code_endpoint_mappings)
+DOC_ENDPOINT_MAPPINGS=$(doc_endpoint_mappings)
 CODE_FILE_VARS=$(code_file_vars)
 CODE_ENV_READS=$(code_env_reads)
 DOC_FILE_VARS=$(doc_file_vars)
@@ -929,6 +952,12 @@ check_subset "discovery route" "GET /api/agent" "$TREE_ENDPOINTS"
 
 # Every tool the endpoint table points at has to be a tool the server has.
 check_subset "endpoint tools" "$DOC_ENDPOINT_TOOLS" "$CODE_TOOLS"
+
+# And the table has to point at the RIGHT tool for each path. The endpoint
+# list and the tool names are checked on their own above, and neither of them
+# says which tool answers which path -- so a table that sends a reader to the
+# wrong tool passes both of them.
+check_sets "endpoint mapping" "$CODE_ENDPOINT_MAPPINGS" "$DOC_ENDPOINT_MAPPINGS"
 
 # The agent's server is not in the published release, and the document says
 # so. One of the two is a lie the moment the other changes, so the two are

@@ -675,6 +675,33 @@ function Get-DocEndpointTools {
   Sort-Set $out
 }
 
+# The endpoints the discovery document lists, each with the tool that answers
+# it, as "METHOD path tool".
+#
+# The tool follows the path in the source, so the two are read together
+# rather than matched up afterwards. A table that sends a reader to the wrong
+# tool for a path is a table that answers a different question than the one
+# it names.
+function Get-CodeEndpointMappings {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/agent.mbt'), $enc)
+  $flat = $text -replace "`r?`n", ' '
+  $out = @()
+  foreach ($m in [regex]::Matches($flat, '"method": "([A-Z]+)", *"path": "([^"]+)", *"tool": "(maked_[a-z_]+)"')) {
+    $out += ("{0} {1} {2}" -f $m.Groups[1].Value, $m.Groups[2].Value, $m.Groups[3].Value)
+  }
+  Sort-Set $out
+}
+
+# The same endpoints as AGENT.md's table gives them, each with the tool it
+# names.
+function Get-DocEndpointMappings {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $agentDoc), $enc)
+  $out = @()
+  foreach ($m in [regex]::Matches($text, '(?m)^\| `(GET|POST|PUT|DELETE|PATCH)` \| `(/api/[^`]+)` \| `(maked_[a-z_]+)`')) {
+    $out += ("{0} {1} {2}" -f $m.Groups[1].Value, $m.Groups[2].Value, $m.Groups[3].Value)
+  }
+  Sort-Set $out
+}
 # The variables that name the files MAKED runs on, from the discovery
 # document.
 function Get-CodeFileVars {
@@ -777,6 +804,8 @@ if ([string]::IsNullOrEmpty($protocol)) {
 
 $codeEndpoints = Get-CodeEndpoints
 $docEndpoints = Get-DocEndpoints
+$codeEndpointMappings = Get-CodeEndpointMappings
+$docEndpointMappings = Get-DocEndpointMappings
 
 Test-Sets 'agent endpoints' $codeEndpoints $docEndpoints
 
@@ -789,6 +818,12 @@ Test-Subset 'discovery route' 'GET /api/agent' (Get-TreeEndpoints)
 
 # Every tool the endpoint table points at has to be a tool the server has.
 Test-Subset 'endpoint tools' (Get-DocEndpointTools) $codeTools
+
+# And the table has to point at the RIGHT tool for each path. The endpoint
+# list and the tool names are checked on their own above, and neither of them
+# says which tool answers which path -- so a table that sends a reader to the
+# wrong tool passes both of them.
+Test-Sets 'endpoint mapping' $codeEndpointMappings $docEndpointMappings
 
 # The agent's server is not in the published release, and the document says
 # so. One of the two is a lie the moment the other changes, so the two are
