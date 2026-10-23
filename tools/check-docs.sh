@@ -3146,10 +3146,12 @@ fi
 # The bash twin says the same thing. The two are twins: they print the same
 # lines and they go red together.
 
+# A line the tree does not have is 0, in this twin and in the PowerShell one.
+# Both twins print the same lines, so both print the same 0.
 LOG_STREAM=""
-LOG_PRINT_LINE=""
-LOG_ADD_LINE=""
-LOG_DEF_LINE=""
+LOG_PRINT_LINE=0
+LOG_ADD_LINE=0
+LOG_DEF_LINE=0
 
 code_log_lines() {
   local file="backend/maked_app.mbt"
@@ -3158,22 +3160,22 @@ code_log_lines() {
     n=$((n + 1))
     case "$line" in
       *'add_middleware(logging_middleware())'*)
-        [ -n "$LOG_ADD_LINE" ] || LOG_ADD_LINE="$n"
+        [ "$LOG_ADD_LINE" -ne 0 ] || LOG_ADD_LINE="$n"
         ;;
     esac
     case "$line" in
       *'fn logging_middleware()'*)
-        [ -n "$LOG_DEF_LINE" ] || LOG_DEF_LINE="$n"
+        [ "$LOG_DEF_LINE" -ne 0 ] || LOG_DEF_LINE="$n"
         ;;
     esac
     case "$line" in
       *'req.verb()'*)
         case "$line" in
           *eprintln\(*)
-            [ -n "$LOG_PRINT_LINE" ] || { LOG_PRINT_LINE="$n"; LOG_STREAM="stderr"; }
+            [ "$LOG_PRINT_LINE" -ne 0 ] || { LOG_PRINT_LINE="$n"; LOG_STREAM="stderr"; }
             ;;
           *println\(*)
-            [ -n "$LOG_PRINT_LINE" ] || { LOG_PRINT_LINE="$n"; LOG_STREAM="stdout"; }
+            [ "$LOG_PRINT_LINE" -ne 0 ] || { LOG_PRINT_LINE="$n"; LOG_STREAM="stdout"; }
             ;;
         esac
         ;;
@@ -3364,7 +3366,7 @@ check_log_claims() {
 
 code_log_lines
 
-if [ -z "$LOG_STREAM" ] || [ -z "$LOG_PRINT_LINE" ]; then
+if [ -z "$LOG_STREAM" ] || [ "$LOG_PRINT_LINE" -eq 0 ]; then
   fail "$(printf '%-22s the tree does not write a request log, or it does not write it the way this gate reads it' \
     'log stream')"
   LOG_BAD_STREAM=1
@@ -4651,14 +4653,17 @@ target_claim_check() {
 }
 
 # The targets the module declares, and the line it declares them on.
+#
+# A line the tree does not have is 0, in this twin and in the PowerShell one.
 MODULE_TARGETS=""
-MODULE_TARGET_LINE=""
+MODULE_TARGET_LINE=0
 module_targets() {
   local file="moon.mod"
   MODULE_TARGETS=""
-  MODULE_TARGET_LINE=""
+  MODULE_TARGET_LINE=0
   [ -f "$file" ] || return
   MODULE_TARGET_LINE=$(grep -nE 'supported_targets[[:space:]]*=' "$file" 2>/dev/null | head -1 | cut -d: -f1)
+  [ -n "$MODULE_TARGET_LINE" ] || MODULE_TARGET_LINE=0
   MODULE_TARGETS=$(grep -oE 'supported_targets[[:space:]]*=[[:space:]]*"[^"]*"' "$file" 2>/dev/null \
     | head -1 | sed -E 's/.*"([^"]*)".*/\1/')
 }
@@ -7297,6 +7302,149 @@ check_schema_claims
 
 if [ "$SCHEMA_BAD" -eq 0 ]; then
   ok "schema tables" "$SCHEMA_CHECKED claims"
+fi
+
+# --- the middleware the backend adds -------------------------------------------
+#
+# The backend has a chain of its own, and the documents say what is in it in
+# three places: the evidence row that names the middleware, the flow that
+# shows it being added, and the summary of the assembly.
+#
+# A claim that names one of the backend's middlewares is stating the chain,
+# and the chain has to be the tree's: a middleware added to the backend
+# makes every such claim one middleware short.
+#
+# The chain is read out of the code: every "add_middleware(<name>(" in the
+# backend is a middleware the app puts in front of its handlers.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+BACKEND_BAD=0
+BACKEND_CHECKED=0
+BACKEND_CHAIN=""
+BACKEND_LINE=0
+BACKEND_FILE=""
+
+# The middlewares the backend adds, in the order it adds them.
+code_backend_chain() {
+  local file line name n
+  BACKEND_CHAIN=""
+  BACKEND_LINE=0
+  BACKEND_FILE=""
+  for file in $(git ls-files 'backend/*.mbt' 2>/dev/null); do
+    case "$file" in *_test.mbt|*_wbtest.mbt) continue ;; esac
+    n=0
+    while IFS= read -r line; do
+      n=$((n + 1))
+      case "$line" in
+        *"add_middleware("*) ;;
+        *) continue ;;
+      esac
+      name="${line#*add_middleware(}"
+      name="${name%%(*}"
+      trim "$name"; name="$TRIMMED"
+      [[ "$name" =~ ^[a-z][a-z0-9_]*$ ]] || continue
+      BACKEND_CHAIN="$BACKEND_CHAIN $name"
+      if [ "$BACKEND_LINE" -eq 0 ]; then
+        BACKEND_LINE=$n
+        BACKEND_FILE="$file"
+      fi
+    done < "$file"
+  done
+  trim "$BACKEND_CHAIN"; BACKEND_CHAIN="$TRIMMED"
+}
+
+# The chain a claim names, in the order the claim names it.
+#
+# A middleware can be written with the underscore or with a space -- the
+# documents use both -- so both are looked for, and the place the claim
+# first says it is the place it counts.
+BACKEND_NAMED=""
+backend_named() {
+  local claim="$1" name alt prefix pos p2 pairs=""
+  BACKEND_NAMED=""
+  for name in $BACKEND_CHAIN; do
+    alt="${name//_/ }"
+    pos=""
+    case "$claim" in
+      *"$name"*)
+        prefix="${claim%%"$name"*}"
+        pos="${#prefix}"
+        ;;
+    esac
+    case "$claim" in
+      *"$alt"*)
+        prefix="${claim%%"$alt"*}"
+        p2="${#prefix}"
+        if [ -z "$pos" ] || [ "$p2" -lt "$pos" ]; then pos="$p2"; fi
+        ;;
+    esac
+    [ -n "$pos" ] || continue
+    pairs="$pairs$(printf '%010d %s\n' "$pos" "$name")"
+  done
+  # nothing named, nothing to sort: a fork per claim is a fork too many
+  [ -n "$pairs" ] || return
+  BACKEND_NAMED=$(printf '%s' "$pairs" | sort -n | cut -d' ' -f2- | tr '\n' ' ' | sed -e 's/ *$//')
+}
+
+# The middleware a claim says is the only one.
+ONLY_MIDDLEWARE=""
+ONLY_MIDDLEWARE_RE='([a-z][a-z0-9_]*)[[:space:]]+is[[:space:]]+the[[:space:]]+only[[:space:]]+middleware'
+only_middleware() {
+  local claim="$1"
+  ONLY_MIDDLEWARE=""
+  if [[ "$claim" =~ $ONLY_MIDDLEWARE_RE ]]; then
+    ONLY_MIDDLEWARE="${BASH_REMATCH[1]}"
+  fi
+}
+
+# One claim, checked against the chain the backend builds.
+backend_claim_check() {
+  local doc="$1" line="$2" claim="$3" named checked=0
+  # a claim that says a middleware is the only one
+  only_middleware "$claim"
+  if [ -n "$ONLY_MIDDLEWARE" ]; then
+    checked=1
+    if [ "$BACKEND_CHAIN" != "$ONLY_MIDDLEWARE" ]; then
+      fail "$(printf '%-22s %s line %s says %s is the only middleware, the tree adds [%s]' \
+        'backend chain' "$doc" "$line" "$ONLY_MIDDLEWARE" "$BACKEND_CHAIN")"
+      BACKEND_BAD=1
+    fi
+  fi
+  # a claim that names one of the backend's middlewares
+  backend_named "$claim"
+  if [ -n "$BACKEND_NAMED" ]; then
+    checked=1
+    named="$BACKEND_NAMED"
+    if [ "$named" != "$BACKEND_CHAIN" ]; then
+      fail "$(printf '%-22s %s line %s names [%s], the tree adds [%s]' \
+        'backend chain' "$doc" "$line" "$named" "$BACKEND_CHAIN")"
+      BACKEND_BAD=1
+    fi
+  fi
+  BACKEND_CHECKED=$((BACKEND_CHECKED + checked))
+}
+
+# Every claim the documents make, checked against the backend's chain.
+check_backend_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      backend_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+code_backend_chain
+check_backend_claims
+
+if [ "$BACKEND_BAD" -eq 0 ]; then
+  ok "backend chain" "$BACKEND_CHECKED claims"
 fi
 
 echo ""

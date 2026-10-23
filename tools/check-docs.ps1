@@ -6478,6 +6478,125 @@ if ($missing.Count -gt 0) {
 
 if (-not $script:schemaBad) { Write-Ok 'schema tables' ("{0} claims" -f $script:schemaChecked) }
 
+# --- the middleware the backend adds -------------------------------------------
+#
+# The backend has a chain of its own, and the documents say what is in it in
+# three places: the evidence row that names the middleware, the flow that
+# shows it being added, and the summary of the assembly.
+#
+# A claim that names one of the backend's middlewares is stating the chain,
+# and the chain has to be the tree's: a middleware added to the backend
+# makes every such claim one middleware short.
+#
+# The chain is read out of the code: every "add_middleware(<name>(" in the
+# backend is a middleware the app puts in front of its handlers.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:backendBad = $false
+$script:backendChecked = 0
+$script:backendChain = @()
+$script:backendLine = 0
+$script:backendFile = ''
+
+# The middlewares the backend adds, in the order it adds them.
+function Get-BackendChain {
+  $out = @()
+  $line = 0
+  $file = ''
+  foreach ($f in @(& git ls-files 'backend/*.mbt' 2>$null)) {
+    if ($f.EndsWith('_test.mbt') -or $f.EndsWith('_wbtest.mbt')) { continue }
+    $lines = [System.IO.File]::ReadAllLines((Join-Path $PWD $f), $enc)
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+      $j = $lines[$i].IndexOf('add_middleware(')
+      if ($j -lt 0) { continue }
+      $name = $lines[$i].Substring($j + 'add_middleware('.Length)
+      $k = $name.IndexOf('(')
+      if ($k -ge 0) { $name = $name.Substring(0, $k) }
+      $name = $name.Trim()
+      if ($name -cnotmatch '^[a-z][a-z0-9_]*$') { continue }
+      $out += $name
+      if ($line -eq 0) { $line = $i + 1; $file = $f }
+    }
+  }
+  @{ chain = $out; line = $line; file = $file }
+}
+
+# The chain a claim names, in the order the claim names it.
+#
+# A middleware can be written with the underscore or with a space -- the
+# documents use both -- so both are looked for, and the place the claim
+# first says it is the place it counts.
+function Get-BackendNamed($claim) {
+  $rows = @()
+  foreach ($name in $script:backendChain) {
+    $alt = $name.Replace('_', ' ')
+    $pos = -1
+    $i = $claim.IndexOf($name)
+    if ($i -ge 0) { $pos = $i }
+    $j = $claim.IndexOf($alt)
+    if ($j -ge 0 -and ($pos -lt 0 -or $j -lt $pos)) { $pos = $j }
+    if ($pos -lt 0) { continue }
+    $rows += ,@($pos, $name)
+  }
+  $rows = @($rows | Sort-Object { $_[0] })
+  $out = @()
+  foreach ($row in $rows) { $out += $row[1] }
+  $out
+}
+
+# The middleware a claim says is the only one.
+function Get-OnlyMiddleware($claim) {
+  $m = [regex]::Match($claim, '([a-z][a-z0-9_]*)\s+is\s+the\s+only\s+middleware')
+  if ($m.Success) { return $m.Groups[1].Value }
+  ''
+}
+
+# One claim, checked against the chain the backend builds.
+function Test-BackendClaim($doc, $line, $claim) {
+  $checked = 0
+  $tree = $script:backendChain -join ' '
+  # a claim that says a middleware is the only one
+  $only = Get-OnlyMiddleware $claim
+  if ($only -ne '') {
+    $checked = 1
+    if ($only -cne $tree) {
+      Write-Fail ("{0,-22} {1} line {2} says {3} is the only middleware, the tree adds [{4}]" -f 'backend chain', $doc, $line, $only, $tree)
+      $script:backendBad = $true
+    }
+  }
+  # a claim that names one of the backend's middlewares
+  $named = @(Get-BackendNamed $claim)
+  if ($named.Count -gt 0) {
+    $checked = 1
+    $said = $named -join ' '
+    if ($said -cne $tree) {
+      Write-Fail ("{0,-22} {1} line {2} names [{3}], the tree adds [{4}]" -f 'backend chain', $doc, $line, $said, $tree)
+      $script:backendBad = $true
+    }
+  }
+  $script:backendChecked += $checked
+}
+
+# Every claim the documents make, checked against the backend's chain.
+$backend = Get-BackendChain
+$script:backendChain = @($backend.chain)
+$script:backendLine = $backend.line
+$script:backendFile = $backend.file
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-BackendClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:backendBad) { Write-Ok 'backend chain' ("{0} claims" -f $script:backendChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)
