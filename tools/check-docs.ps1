@@ -6362,6 +6362,77 @@ foreach ($doc in $archDocs) {
 
 if (-not $script:literalBad) { Write-Ok 'literal pointer' ("{0} literals" -f $script:literalChecked) }
 
+# --- the numbers the flow evidence states -------------------------------------
+#
+# The evidence table gives every step of the flow a source, and four of its
+# numbers are claims about the tree: how many pages seed_pages() returns, how
+# many domains the ring holds, how many fields the Page struct has, and the
+# number a function falls back to when its input cannot be read. None of them
+# was checked. The other documents state the same counts and are checked
+# there -- this table was the one place a reader could be handed a number the
+# tree does not have.
+#
+# The fallback is not a count, so it is checked where it lives: the row cites
+# the lines of the function, and those lines have to hold the catch that falls
+# back to the number the row names. A row that cites the wrong lines sends a
+# reader to a catch that is not there.
+
+$flowsEvidence = 'architecture/flows.evidence.md'
+
+Test-ClaimNumber 'flow evidence pages' '([0-9]+) seeded pages' `
+  (Count-SeedPagesOnly) $flowsEvidence
+
+Test-ClaimNumber 'flow evidence ring' '([0-9]+) ring' `
+  (Get-RingDomainCount) $flowsEvidence
+
+Test-ClaimNumber 'flow evidence fields' 'all ([0-9]+) fields' `
+  (Count-PageFields) $flowsEvidence
+
+$script:fallbackValueBad = $false
+$script:fallbackValueChecked = 0
+$fallbackValueRe = 'defaults to ([0-9]+) on invalid input'
+
+# The catch that falls back to a number, on the lines a claim cites.
+function Test-CitedFallback($file, $spec, $number) {
+  $path = Join-Path $PWD $file
+  if (-not (Test-Path $path)) { return $false }
+  $lines = [System.IO.File]::ReadAllLines($path, $enc)
+  $re = 'catch[^0-9]*' + $number + '([^0-9]|$)'
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if (-not (Test-CitationCovers $spec ($i + 1))) { continue }
+    $code = Get-CodeText $lines[$i]
+    if ($code -match $re) { return $true }
+  }
+  $false
+}
+
+# One claim, checked against the fallback the tree has.
+function Test-FallbackValueClaim($doc, $line, $claim) {
+  $m = [regex]::Match($claim, $fallbackValueRe)
+  if (-not $m.Success) { return }
+  $number = $m.Groups[1].Value
+  Get-CitedSource $claim
+  if ($script:citeFile -eq '') { return }
+  if (-not (Test-Path (Join-Path $PWD $script:citeFile))) { return }
+  $script:fallbackValueChecked++
+  if (-not (Test-CitedFallback $script:citeFile $script:citeSpec $number)) {
+    Write-Fail ("{0,-22} {1} line {2} says the default is {3}, but {4}:{5} has no fallback to it" -f 'fallback value', $doc, $line, $number, $script:citeFile, $script:citeSpec)
+    $script:fallbackValueBad = $true
+  }
+}
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-FallbackValueClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:fallbackValueBad) { Write-Ok 'fallback value' ("{0} claims" -f $script:fallbackValueChecked) }
+
 # --- the tables the schema has ------------------------------------------------
 #
 # The schema is a claim about the tree: the tables migrate() creates. The

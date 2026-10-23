@@ -7158,6 +7158,82 @@ if [ "$LITERAL_BAD" -eq 0 ]; then
   ok "literal pointer" "$LITERAL_CHECKED literals"
 fi
 
+# --- the numbers the flow evidence states -------------------------------------
+#
+# The evidence table gives every step of the flow a source, and four of its
+# numbers are claims about the tree: how many pages seed_pages() returns, how
+# many domains the ring holds, how many fields the Page struct has, and the
+# number a function falls back to when its input cannot be read. None of them
+# was checked. The other documents state the same counts and are checked
+# there -- this table was the one place a reader could be handed a number the
+# tree does not have.
+#
+# The fallback is not a count, so it is checked where it lives: the row cites
+# the lines of the function, and those lines have to hold the catch that falls
+# back to the number the row names. A row that cites the wrong lines sends a
+# reader to a catch that is not there.
+
+FLOWS_EVIDENCE="architecture/flows.evidence.md"
+
+check_claim_number "flow evidence pages" '([0-9]+) seeded pages' \
+  "$(count_seed_pages_only)" "$FLOWS_EVIDENCE"
+
+check_claim_number "flow evidence ring" '([0-9]+) ring' \
+  "$(count_ring_domains)" "$FLOWS_EVIDENCE"
+
+check_claim_number "flow evidence fields" 'all ([0-9]+) fields' \
+  "$(count_page_fields)" "$FLOWS_EVIDENCE"
+
+FALLBACK_VALUE_BAD=0
+FALLBACK_VALUE_CHECKED=0
+FALLBACK_VALUE_RE='defaults to ([0-9]+) on invalid input'
+
+# The catch that falls back to a number, on the lines a claim cites.
+cited_fallback_value() {
+  local file="$1" spec="$2" number="$3" i re found=0
+  re='catch[^0-9]*'"${number}"'([^0-9]|$)'
+  code_lines_of "$file"
+  for i in "${!CODE_LINES[@]}"; do
+    citation_covers "$spec" "$((i + 1))"
+    [ "$CITATION_COVERS" -eq 1 ] || continue
+    if [[ "${CODE_LINES[$i]}" =~ $re ]]; then
+      found=1
+      break
+    fi
+  done
+  [ "$found" -eq 1 ]
+}
+
+# One claim, checked against the fallback the tree has.
+fallback_value_claim() {
+  local doc="$1" line="$2" claim="$3" number
+  [[ "$claim" =~ $FALLBACK_VALUE_RE ]] || return
+  number="${BASH_REMATCH[1]}"
+  cite_source "$claim"
+  [ -n "$CITE_FILE" ] || return
+  [ -f "$CITE_FILE" ] || return
+  FALLBACK_VALUE_CHECKED=$((FALLBACK_VALUE_CHECKED + 1))
+  if ! cited_fallback_value "$CITE_FILE" "$CITE_SPEC" "$number"; then
+    fail "$(printf '%-22s %s line %s says the default is %s, but %s:%s has no fallback to it' \
+      'fallback value' "$doc" "$line" "$number" "$CITE_FILE" "$CITE_SPEC")"
+    FALLBACK_VALUE_BAD=1
+  fi
+}
+
+for doc in "${ARCH_DOCS[@]}"; do
+  not_in "$doc" "$MARKED_DOCS"
+  [ -n "$NOT_IN" ] || continue
+  doc_claims "$doc"
+  while IFS=$'\t' read -r line claim; do
+    [ -n "$claim" ] || continue
+    fallback_value_claim "$doc" "$line" "$claim"
+  done <<< "$DOC_CLAIMS"
+done
+
+if [ "$FALLBACK_VALUE_BAD" -eq 0 ]; then
+  ok "fallback value" "$FALLBACK_VALUE_CHECKED claims"
+fi
+
 # --- the tables the schema has ------------------------------------------------
 #
 # The schema is a claim about the tree: the tables migrate() creates. The
