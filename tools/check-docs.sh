@@ -4196,6 +4196,105 @@ if [ "$CODE_NAMES_BAD" -eq 0 ]; then
   ok "code names" "$TREE_NAME_COUNT names"
 fi
 
+# --- the defaults the variables fall back to ----------------------------------
+#
+# A variable the server reads has a default, and the default is the tree's:
+# env_or("MAKED_PORT", "8080") pins the name and the value together. A
+# document that says "MAKED_PORT (default 8080)" is stating that value, and a
+# document that says 8081 is sending a reader to a port the server will not
+# listen on.
+#
+# The default a claim states is the one that follows the variable: the text
+# between a variable and the next variable is the text about that variable.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+# The defaults the tree pins: "MAKED_PORT=8080", and so on.
+ENV_DEFAULTS=""
+code_env_defaults() {
+  local line rest name value
+  ENV_DEFAULTS=""
+  while IFS= read -r line; do
+    case "$line" in
+      *'env_or("'*) ;;
+      *) continue ;;
+    esac
+    rest="${line#*env_or(\"}"
+    name="${rest%%\"*}"
+    rest="${rest#*\"}"
+    case "$rest" in
+      *', "'*) ;;
+      *) continue ;;
+    esac
+    rest="${rest#*, \"}"
+    value="${rest%%\"*}"
+    ENV_DEFAULTS="$ENV_DEFAULTS $name=$value"
+  done < cmd/server/main.mbt
+}
+
+# The default a claim states after a variable.
+DOC_DEFAULT=""
+DEFAULT_RE='default[[:space:]]+([^[:space:]),]+)'
+doc_default_after() {
+  local claim="$1" var="$2" rest
+  DOC_DEFAULT=""
+  rest="${claim#*"$var"}"
+  # the text about this variable runs to the next one
+  rest="${rest%%MAKED_*}"
+  if [[ "$rest" =~ $DEFAULT_RE ]]; then
+    DOC_DEFAULT="${BASH_REMATCH[1]}"
+  fi
+}
+
+ENV_DEFAULT_BAD=0
+
+# One claim, checked against the defaults the tree pins.
+env_default_claim_check() {
+  local doc="$1" line="$2" claim="$3" var tree pair
+  doc_claim_vars "$claim"
+  [ -n "$DOC_VARS" ] || return
+  for var in $DOC_VARS; do
+    doc_default_after "$claim" "$var"
+    [ -n "$DOC_DEFAULT" ] || continue
+    tree=""
+    for pair in $ENV_DEFAULTS; do
+      if [ "${pair%%=*}" = "$var" ]; then
+        tree="${pair#*=}"
+        break
+      fi
+    done
+    [ -n "$tree" ] || continue
+    if [ "$DOC_DEFAULT" != "$tree" ]; then
+      fail "$(printf '%-22s %s line %s says %s falls back to [%s], the tree falls back to [%s]' \
+        'env default' "$doc" "$line" "$var" "$DOC_DEFAULT" "$tree")"
+      ENV_DEFAULT_BAD=1
+    fi
+  done
+}
+
+# Every claim the design documents make, checked against the defaults.
+check_env_default_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      env_default_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+code_env_defaults
+check_env_default_claims
+
+if [ "$ENV_DEFAULT_BAD" -eq 0 ]; then
+  trim "$ENV_DEFAULTS"
+  ok "env default" "$TRIMMED"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

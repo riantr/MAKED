@@ -4039,6 +4039,86 @@ foreach ($doc in $archDocs) {
 
 if (-not $script:codeNamesBad) { Write-Ok 'code names' ("{0} names" -f $script:treeNameCount) }
 
+# --- the defaults the variables fall back to ----------------------------------
+#
+# A variable the server reads has a default, and the default is the tree's:
+# env_or("MAKED_PORT", "8080") pins the name and the value together. A
+# document that says "MAKED_PORT (default 8080)" is stating that value, and a
+# document that says 8081 is sending a reader to a port the server will not
+# listen on.
+#
+# The default a claim states is the one that follows the variable: the text
+# between a variable and the next variable is the text about that variable.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:envDefaults = @()
+$script:envDefaultBad = $false
+
+function Get-TreeEnvDefaults {
+  $path = Join-Path $PWD 'cmd/server/main.mbt'
+  $lines = [System.IO.File]::ReadAllLines($path, $enc)
+  $out = @()
+  foreach ($l in $lines) {
+    if (-not $l.Contains('env_or("')) { continue }
+    $rest = $l.Substring($l.IndexOf('env_or("') + 8)
+    $name = $rest.Substring(0, $rest.IndexOf('"'))
+    $rest = $rest.Substring($rest.IndexOf('"') + 1)
+    if (-not $rest.Contains(', "')) { continue }
+    $rest = $rest.Substring($rest.IndexOf(', "') + 3)
+    $value = $rest.Substring(0, $rest.IndexOf('"'))
+    $out += ($name + '=' + $value)
+  }
+  $out
+}
+
+# The default a claim states after a variable.
+function Get-DefaultAfter($claim, $var) {
+  $idx = $claim.IndexOf($var)
+  if ($idx -lt 0) { return '' }
+  $rest = $claim.Substring($idx + $var.Length)
+  $next = $rest.IndexOf('MAKED_')
+  if ($next -ge 0) { $rest = $rest.Substring(0, $next) }
+  $m = [regex]::Match($rest, 'default\s+([^\s),]+)')
+  if (-not $m.Success) { return '' }
+  $m.Groups[1].Value
+}
+
+# One claim, checked against the defaults the tree pins.
+function Test-EnvDefaultClaim($doc, $line, $claim) {
+  foreach ($var in @(Get-ClaimVars $claim)) {
+    $stated = Get-DefaultAfter $claim $var
+    if ($stated -eq '') { continue }
+    $tree = ''
+    foreach ($pair in $script:envDefaults) {
+      if ($pair.Substring(0, $pair.IndexOf('=')) -ceq $var) {
+        $tree = $pair.Substring($pair.IndexOf('=') + 1)
+        break
+      }
+    }
+    if ($tree -eq '') { continue }
+    if ($stated -cne $tree) {
+      Write-Fail ("{0,-22} {1} line {2} says {3} falls back to [{4}], the tree falls back to [{5}]" -f 'env default', $doc, $line, $var, $stated, $tree)
+      $script:envDefaultBad = $true
+    }
+  }
+}
+
+$script:envDefaults = @(Get-TreeEnvDefaults)
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-EnvDefaultClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:envDefaultBad) { Write-Ok 'env default' ($script:envDefaults -join ' ') }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)
