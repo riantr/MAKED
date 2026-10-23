@@ -6759,6 +6759,145 @@ if [ "$STARTUP_BAD" -eq 0 ]; then
   ok "startup fetch" "$STARTUP_CHECKED claims"
 fi
 
+# --- the blast radius a change has ---------------------------------------------
+#
+# The dependency document says, for each file, how far a change to it
+# reaches. The **Blast radius** line names the packages; the table below it
+# names the files. The two are one claim at two levels, and the line has to
+# be the packages the table reaches.
+#
+# The package a file is in is its directory, when that directory is a
+# package of the tree. A file that is in no package -- a mutation script, a
+# tool -- names no package, so it does not widen the radius.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+BLAST_BAD=0
+BLAST_CHECKED=0
+
+# The sections of the dependency document: the line, the file, the blast
+# radius it states and the files it lists.
+BLAST_SECTIONS=""
+blast_sections() {
+  awk '
+    function flush() {
+      if (file != "") {
+        printf "%d\t%s\t%s\t%s\n", line, file, stated, files
+      }
+      file = ""
+      stated = ""
+      files = ""
+    }
+    /^### If you change / {
+      flush()
+      file = $0
+      sub(/^### If you change `/, "", file)
+      sub(/`.*$/, "", file)
+      line = NR
+      next
+    }
+    /^\*\*Blast radius\*\*/ {
+      stated = $0
+      sub(/^\*\*Blast radius\*\*:[[:space:]]*/, "", stated)
+      next
+    }
+    /^\|/ {
+      if (file == "") { next }
+      cell = $0
+      sub(/^\|/, "", cell)
+      sub(/\|.*$/, "", cell)
+      gsub(/[ `]/, "", cell)
+      if (cell == "" || cell == "Affected") { in_table = 1; next }
+      if (cell ~ /^-+$/) { in_table = 1; next }
+      if (in_table != 1) { next }
+      files = files " " cell
+      next
+    }
+    /^[[:space:]]*$/ { next }
+    { in_table = 0 }
+    END { flush() }
+  ' "$DEPS_MD"
+}
+
+# The package a file is in, when it is in one.
+FILE_PACKAGE=""
+file_package() {
+  local file="$1" dir
+  FILE_PACKAGE=""
+  case "$file" in
+    */*) dir="${file%/*}" ;;
+    *) return ;;
+  esac
+  case " $CODE_PKGS " in
+    *" $dir "*) FILE_PACKAGE="$dir" ;;
+  esac
+}
+
+# The packages the blast radius names. The note in brackets is not a
+# package, and neither is the word "only".
+STATED_PACKAGES=""
+stated_packages() {
+  local cell="$1" rest item out=""
+  STATED_PACKAGES=""
+  rest="$cell"
+  case "$rest" in
+    *\(*) rest="${rest%%(*}" ;;
+  esac
+  while [ -n "$rest" ]; do
+    case "$rest" in
+      *,*) item="${rest%%,*}"; rest="${rest#*,}" ;;
+      *) item="$rest"; rest="" ;;
+    esac
+    trim "$item"; item="$TRIMMED"
+    case "$item" in
+      only) continue ;;
+      *\ only) item="${item% only}" ;;
+    esac
+    [ -n "$item" ] || continue
+    out="$out $item"
+  done
+  trim "$out"; STATED_PACKAGES="$TRIMMED"
+}
+
+# One section, checked against the files it lists.
+blast_section_check() {
+  local doc="$1" line="$2" file="$3" stated="$4" files="$5"
+  local expected="" said name
+  file_package "$file"
+  expected="$FILE_PACKAGE"
+  for name in $files; do
+    file_package "$name"
+    [ -n "$FILE_PACKAGE" ] || continue
+    expected="$expected $FILE_PACKAGE"
+  done
+  sorted_set "$expected"; expected="$SORTED_SET"
+  stated_packages "$stated"
+  sorted_set "$STATED_PACKAGES"; said="$SORTED_SET"
+  BLAST_CHECKED=$((BLAST_CHECKED + 1))
+  if [ "$expected" != "$said" ]; then
+    fail "$(printf '%-22s %s line %s says the blast radius of %s is [%s], but the files it lists reach [%s]' \
+      'blast radius' "$doc" "$line" "$file" "$said" "$expected")"
+    BLAST_BAD=1
+  fi
+}
+
+# Every section, checked against the files it lists.
+check_blast_sections() {
+  local row line file stated files
+  code_packages
+  while IFS=$'\t' read -r line file stated files; do
+    [ -n "$line" ] || continue
+    blast_section_check "$DEPS_MD" "$line" "$file" "$stated" "$files"
+  done <<< "$(blast_sections)"
+}
+
+check_blast_sections
+
+if [ "$BLAST_BAD" -eq 0 ]; then
+  ok "blast radius" "$BLAST_CHECKED sections"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

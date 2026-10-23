@@ -6048,6 +6048,125 @@ foreach ($doc in $archDocs) {
 
 if (-not $script:startupBad) { Write-Ok 'startup fetch' ("{0} claims" -f $script:startupChecked) }
 
+# --- the blast radius a change has ---------------------------------------------
+#
+# The dependency document says, for each file, how far a change to it
+# reaches. The **Blast radius** line names the packages; the table below it
+# names the files. The two are one claim at two levels, and the line has to
+# be the packages the table reaches.
+#
+# The package a file is in is its directory, when that directory is a
+# package of the tree. A file that is in no package -- a mutation script, a
+# tool -- names no package, so it does not widen the radius.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:blastBad = $false
+$script:blastChecked = 0
+
+# The sections of the dependency document: the line, the file, the blast
+# radius it states and the files it lists.
+function Get-BlastSections {
+  $out = @()
+  $lines = [System.IO.File]::ReadAllLines((Join-Path $PWD $depsMd), $enc)
+  $file = ''
+  $stated = ''
+  $files = @()
+  $line = 0
+  $inTable = $false
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    $l = $lines[$i]
+    $m = [regex]::Match($l, '^### If you change `([^`]+)`')
+    if ($m.Success) {
+      if ($file -ne '') { $out += ,@($line, $file, $stated, ($files -join ' ')) }
+      $file = $m.Groups[1].Value
+      $stated = ''
+      $files = @()
+      $line = $i + 1
+      $inTable = $false
+      continue
+    }
+    $m = [regex]::Match($l, '^\*\*Blast radius\*\*:\s*(.*)$')
+    if ($m.Success) {
+      $stated = $m.Groups[1].Value
+      continue
+    }
+    if ($l.StartsWith('|')) {
+      if ($file -eq '') { continue }
+      $cell = ($l -split '\|')[1]
+      $cell = ($cell -replace '[ `]', '')
+      if ($cell -eq '' -or $cell -eq 'Affected') { $inTable = $true; continue }
+      if ($cell -match '^-+$') { $inTable = $true; continue }
+      if (-not $inTable) { continue }
+      $files += $cell
+      continue
+    }
+    if ($l.Trim() -eq '') { continue }
+    $inTable = $false
+  }
+  if ($file -ne '') { $out += ,@($line, $file, $stated, ($files -join ' ')) }
+  $out
+}
+
+# The package a file is in, when it is in one.
+$script:filePackage = ''
+function Get-FilePackage($file) {
+  $script:filePackage = ''
+  $i = $file.LastIndexOf('/')
+  if ($i -lt 0) { return }
+  $dir = $file.Substring(0, $i)
+  if ($script:codePkgs -ccontains $dir) { $script:filePackage = $dir }
+}
+
+# The packages the blast radius names. The note in brackets is not a
+# package, and neither is the word "only".
+function Get-StatedPackages($cell) {
+  $out = @()
+  $rest = $cell
+  $i = $rest.IndexOf('(')
+  if ($i -ge 0) { $rest = $rest.Substring(0, $i) }
+  foreach ($item in ($rest -split ',')) {
+    $item = $item.Trim()
+    if ($item -eq 'only') { continue }
+    if ($item.EndsWith(' only')) { $item = $item.Substring(0, $item.Length - 5).Trim() }
+    if ($item -eq '') { continue }
+    $out += $item
+  }
+  $out
+}
+
+# One section, checked against the files it lists.
+function Test-BlastSection($doc, $line, $file, $stated, $files) {
+  $expected = @()
+  Get-FilePackage $file
+  if ($script:filePackage -ne '') { $expected += $script:filePackage }
+  foreach ($name in ($files -split ' ')) {
+    if ($name -eq '') { continue }
+    Get-FilePackage $name
+    if ($script:filePackage -ne '') { $expected += $script:filePackage }
+  }
+  $e = @(Sort-Set $expected)
+  $s = @(Sort-Set @(Get-StatedPackages $stated))
+  $script:blastChecked++
+  $same = ($e.Count -eq $s.Count)
+  if ($same) {
+    for ($i = 0; $i -lt $e.Count; $i++) {
+      if ($e[$i] -cne $s[$i]) { $same = $false; break }
+    }
+  }
+  if (-not $same) {
+    Write-Fail ("{0,-22} {1} line {2} says the blast radius of {3} is [{4}], but the files it lists reach [{5}]" -f 'blast radius', $doc, $line, $file, ($s -join ' '), ($e -join ' '))
+    $script:blastBad = $true
+  }
+}
+
+foreach ($row in @(Get-BlastSections)) {
+  Test-BlastSection $depsMd $row[0] $row[1] $row[2] $row[3]
+}
+
+if (-not $script:blastBad) { Write-Ok 'blast radius' ("{0} sections" -f $script:blastChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

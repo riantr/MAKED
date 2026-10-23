@@ -46,6 +46,12 @@ colmugx/mcp@0.18.1                  ← The agent's server
 
 ## Change impact analysis
 
+Each section names the file, the packages a change to it reaches
+(**Blast radius**), and the files that reach. The blast radius is the
+package the file is in and the package of every file the table below lists; a
+file that is in no package -- a mutation script, a tool -- names no package,
+so it does not widen the radius.
+
 ### If you change `backend/database.mbt`
 
 **Blast radius**: backend, cmd/mcp
@@ -55,6 +61,7 @@ colmugx/mcp@0.18.1                  ← The agent's server
 | `backend/api.mbt` | `db.all_pages()`, `db.page_by_slug()` callers |
 | `backend/maked_app.mbt` | `Database::open()`, `db.seed()` callers |
 | `backend/database_test.mbt` | All 8 storage tests |
+| `cmd/mcp/main.mbt` | `@maked.Database` type users |
 
 **Key risk**: SQLite statement lifecycle (prepare → reset → bind → step →
 finalize) is the silent-failure surface. The tests are mutation-tested
@@ -104,7 +111,7 @@ match `backend/pages.mbt`'s `Page::to_json()` keys. No compile-time check.
 
 ### If you change `backend/pages.mbt`
 
-**Blast radius**: backend, cmd/mcp, frontend (via JSON contract)
+**Blast radius**: backend, frontend (via JSON contract)
 
 | Affected | What breaks |
 |----------|-------------|
