@@ -4597,6 +4597,82 @@ if (-not $script:externalBad) {
   Write-Ok 'external call' ("{0} calls in {1}" -f $script:outboundCalls, ($script:outboundPkgs -join ' '))
 }
 
+# --- the CORS the tree does not have ------------------------------------------
+#
+# A claim that says the tree has no CORS is making a promise to the browser:
+# the page and the API are the same origin, so the browser is never asked for
+# cross-origin permission. The tree has to keep that promise.
+#
+# CORS is two things in the tree: a header, and a middleware. A header that
+# allows an origin is an Access-Control header, and a middleware is an import
+# of a package whose path names CORS. Neither may appear while a document
+# says there is none.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:corsBad = $false
+$script:corsChecked = 0
+$script:corsPlaces = @()
+
+# A claim that denies CORS, and a claim that makes one.
+$noCorsRe = 'no cors([^a-z]|$)'
+$hasCorsRe = '([^a-z])cors([^a-z]|$)'
+
+# The places the tree would have to change to grow a CORS.
+function Get-CorsPlaces {
+  $out = @()
+  foreach ($rel in @(& git ls-files '*.mbt' 2>$null)) {
+    if ($rel.EndsWith('_test.mbt')) { continue }
+    $file = Join-Path $PWD $rel
+    if (-not (Test-Path $file)) { continue }
+    $text = [System.IO.File]::ReadAllText($file, $enc)
+    if ($text.ToLower().Contains('access-control')) { $out += $rel }
+  }
+  foreach ($rel in @(& git ls-files '*moon.pkg' 2>$null)) {
+    $file = Join-Path $PWD $rel
+    if (-not (Test-Path $file)) { continue }
+    $text = [System.IO.File]::ReadAllText($file, $enc)
+    foreach ($m in [regex]::Matches($text, '"[^"]*cors[^"]*"')) {
+      $out += $rel
+      break
+    }
+  }
+  $out | Select-Object -Unique
+}
+
+# One claim, checked against the CORS the tree has.
+function Test-CorsClaim($doc, $line, $claim) {
+  $lower = $claim.ToLower()
+  if ($lower -notmatch $hasCorsRe) { return }
+  $script:corsChecked++
+  if ($lower -match $noCorsRe) {
+    if ($script:corsPlaces.Count -gt 0) {
+      Write-Fail ("{0,-22} {1} line {2} says there is no CORS, but {3} has one" -f 'cors', $doc, $line, ($script:corsPlaces -join ' '))
+      $script:corsBad = $true
+    }
+    return
+  }
+  if ($script:corsPlaces.Count -eq 0) {
+    Write-Fail ("{0,-22} {1} line {2} says there is CORS, but the tree has none" -f 'cors', $doc, $line)
+    $script:corsBad = $true
+  }
+}
+
+$script:corsPlaces = @(Get-CorsPlaces)
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-CorsClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:corsBad) { Write-Ok 'cors' ("{0} claims" -f $script:corsChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

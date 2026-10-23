@@ -4890,6 +4890,91 @@ if [ "$EXTERNAL_BAD" -eq 0 ]; then
   ok "external call" "$OUTBOUND_CALLS calls in $OUTBOUND_PKGS"
 fi
 
+# --- the CORS the tree does not have ------------------------------------------
+#
+# A claim that says the tree has no CORS is making a promise to the browser:
+# the page and the API are the same origin, so the browser is never asked for
+# cross-origin permission. The tree has to keep that promise.
+#
+# CORS is two things in the tree: a header, and a middleware. A header that
+# allows an origin is an Access-Control header, and a middleware is an import
+# of a package whose path names CORS. Neither may appear while a document
+# says there is none.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+# The places the tree would have to change to grow a CORS.
+CORS_PLACES=""
+cors_places() {
+  local file places=""
+  for file in $(git ls-files '*.mbt' 2>/dev/null); do
+    case "$file" in
+      *_test.mbt) continue ;;
+    esac
+    if grep -qiF 'access-control' "$file"; then
+      places="$places $file"
+    fi
+  done
+  for file in $(git ls-files '*moon.pkg' 2>/dev/null); do
+    if grep -qiE '"[^"]*cors[^"]*"' "$file"; then
+      places="$places $file"
+    fi
+  done
+  trim "$places"; CORS_PLACES="$TRIMMED"
+}
+
+# A claim that denies CORS, and a claim that makes one.
+NO_CORS_RE='no cors([^a-z]|$)'
+HAS_CORS_RE='([^a-z])cors([^a-z]|$)'
+
+CORS_BAD=0
+CORS_CHECKED=0
+
+# One claim, checked against the CORS the tree has.
+cors_claim_check() {
+  local doc="$1" line="$2" claim="$3" lower
+  lower="${claim,,}"
+  if [[ ! "$lower" =~ $HAS_CORS_RE ]]; then
+    return
+  fi
+  CORS_CHECKED=$((CORS_CHECKED + 1))
+  if [[ "$lower" =~ $NO_CORS_RE ]]; then
+    if [ -n "$CORS_PLACES" ]; then
+      fail "$(printf '%-22s %s line %s says there is no CORS, but %s has one' \
+        'cors' "$doc" "$line" "$CORS_PLACES")"
+      CORS_BAD=1
+    fi
+    return
+  fi
+  if [ -z "$CORS_PLACES" ]; then
+    fail "$(printf '%-22s %s line %s says there is CORS, but the tree has none' \
+      'cors' "$doc" "$line")"
+    CORS_BAD=1
+  fi
+}
+
+# Every claim the design documents make, checked against the CORS.
+check_cors_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      cors_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+cors_places
+check_cors_claims
+
+if [ "$CORS_BAD" -eq 0 ]; then
+  ok "cors" "$CORS_CHECKED claims"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."
