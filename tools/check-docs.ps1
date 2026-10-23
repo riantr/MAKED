@@ -6167,6 +6167,106 @@ foreach ($row in @(Get-BlastSections)) {
 
 if (-not $script:blastBad) { Write-Ok 'blast radius' ("{0} sections" -f $script:blastChecked) }
 
+# --- the pages the client keeps in memory -------------------------------------
+#
+# The pages reach the client in one response -- the bootstrap -- and the model
+# keeps them from there on: a route change is a lookup in the model, not a
+# request. A document that says the pages are in memory is pointing at the
+# line where they enter the model, so that is the line it has to cite.
+#
+# The other half is the tree. The client must not ask for the pages a second
+# time. The search is on the CODE, not on the comments: the comment that
+# explains why the bootstrap is used instead of /api/pages names the path
+# without fetching it.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:pageBad = $false
+$script:pageChecked = 0
+$script:pagesLine = 0
+$script:pagesCount = 0
+$script:pagesFetchFile = ''
+$script:pagesFetchLine = 0
+
+# A claim that says the pages are in memory, or that they are never fetched
+# again.
+$pageClaimRe = 'page.*(in\s+memory|in-memory|no\s+second\s+fetch|not\s+a\s+fetch)'
+
+# The lines the tree loads the pages on.
+function Get-PagesLines {
+  $script:pagesLine = 0
+  $script:pagesCount = 0
+  $lines = [System.IO.File]::ReadAllLines((Join-Path $PWD $frontendApp), $enc)
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($lines[$i].Contains('pages: decode_pages(')) {
+      $script:pagesCount++
+      if ($script:pagesCount -eq 1) { $script:pagesLine = $i + 1 }
+    }
+  }
+}
+
+# The client file that asks for the pages, and the line it asks on.
+function Get-PagesFetch {
+  $script:pagesFetchFile = ''
+  $script:pagesFetchLine = 0
+  foreach ($file in @(& git ls-files '*.mbt' 2>$null)) {
+    if (-not $file.StartsWith('frontend/')) { continue }
+    if ($file.EndsWith('_test.mbt') -or $file.EndsWith('_wbtest.mbt')) { continue }
+    $lines = [System.IO.File]::ReadAllLines((Join-Path $PWD $file), $enc)
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+      if ((Get-Code $lines[$i]).Contains('/api/pages')) {
+        $script:pagesFetchFile = $file
+        $script:pagesFetchLine = $i + 1
+        return
+      }
+    }
+  }
+}
+
+# One claim, checked against the tree.
+function Test-PageClaim($doc, $line, $claim) {
+  if ($claim -notmatch $pageClaimRe) { return }
+  $script:pageChecked++
+  # the pages are loaded once
+  if ($script:pagesCount -ne 1) {
+    Write-Fail ("{0,-22} {1} line {2} says the pages are in memory, but the tree loads them on {3} lines" -f 'page load', $doc, $line, $script:pagesCount)
+    $script:pageBad = $true
+  }
+  # the claim points at the line the pages enter the model on
+  Get-CitedSource $claim
+  if ($script:citeFile -ne '') {
+    if ($script:citeFile -cne $frontendApp) {
+      Write-Fail ("{0,-22} {1} line {2} cites {3}, but the tree puts the pages in the model in {4}" -f 'page load', $doc, $line, $script:citeFile, $frontendApp)
+      $script:pageBad = $true
+    }
+    elseif (-not (Test-CitationCovers $script:citeSpec $script:pagesLine)) {
+      Write-Fail ("{0,-22} {1} line {2} cites {3}:{4}, but the tree puts the pages in the model on line {5}" -f 'page load', $doc, $line, $script:citeFile, $script:citeSpec, $script:pagesLine)
+      $script:pageBad = $true
+    }
+  }
+  # the client does not ask for the pages a second time
+  if ($script:pagesFetchFile -ne '') {
+    Write-Fail ("{0,-22} {1} line {2} says the pages are never fetched again, but {3} fetches them on line {4}" -f 'page load', $doc, $line, $script:pagesFetchFile, $script:pagesFetchLine)
+    $script:pageBad = $true
+  }
+}
+
+Get-PagesLines
+Get-PagesFetch
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-PageClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:pageBad) { Write-Ok 'page load' ("{0} claims" -f $script:pageChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

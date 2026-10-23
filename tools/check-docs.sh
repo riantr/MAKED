@@ -6898,6 +6898,133 @@ if [ "$BLAST_BAD" -eq 0 ]; then
   ok "blast radius" "$BLAST_CHECKED sections"
 fi
 
+# --- the pages the client keeps in memory -------------------------------------
+#
+# The pages reach the client in one response -- the bootstrap -- and the model
+# keeps them from there on: a route change is a lookup in the model, not a
+# request. A document that says the pages are in memory is pointing at the
+# line where they enter the model, so that is the line it has to cite.
+#
+# The other half is the tree. The client must not ask for the pages a second
+# time. The search is on the CODE, not on the comments: the comment that
+# explains why the bootstrap is used instead of /api/pages names the path
+# without fetching it.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+PAGE_BAD=0
+PAGE_CHECKED=0
+PAGES_LINE=0
+PAGES_COUNT=0
+PAGES_FETCH_FILE=""
+PAGES_FETCH_LINE=0
+
+# A claim that says the pages are in memory, or that they are never fetched
+# again.
+PAGE_CLAIM_RE='page.*(in[[:space:]-]+memory|no[[:space:]]+second[[:space:]]+fetch|not[[:space:]]+a[[:space:]]+fetch)'
+
+# The lines the tree loads the pages on.
+pages_lines() {
+  local line n=0
+  PAGES_LINE=0
+  PAGES_COUNT=0
+  while IFS= read -r line; do
+    n=$((n + 1))
+    case "$line" in
+      *"pages: decode_pages("*)
+        PAGES_COUNT=$((PAGES_COUNT + 1))
+        if [ "$PAGES_COUNT" -eq 1 ]; then PAGES_LINE=$n; fi
+        ;;
+    esac
+  done < "$FRONTEND_APP"
+}
+
+# The client file that asks for the pages, and the line it asks on.
+pages_fetch() {
+  local file line code n
+  PAGES_FETCH_FILE=""
+  PAGES_FETCH_LINE=0
+  for file in $(git ls-files '*.mbt' 2>/dev/null); do
+    case "$file" in
+      frontend/*) ;;
+      *) continue ;;
+    esac
+    case "$file" in *_test.mbt|*_wbtest.mbt) continue ;; esac
+    n=0
+    while IFS= read -r line; do
+      n=$((n + 1))
+      code_of "$line"
+      code="$CODE"
+      case "$code" in
+        *"/api/pages"*)
+          PAGES_FETCH_FILE="$file"
+          PAGES_FETCH_LINE=$n
+          return
+          ;;
+      esac
+    done < "$file"
+  done
+}
+
+# One claim, checked against the tree.
+page_claim_check() {
+  local doc="$1" line="$2" claim="$3" lower
+  lower="${claim,,}"
+  if [[ ! "$lower" =~ $PAGE_CLAIM_RE ]]; then return; fi
+  PAGE_CHECKED=$((PAGE_CHECKED + 1))
+  # the pages are loaded once
+  if [ "$PAGES_COUNT" -ne 1 ]; then
+    fail "$(printf '%-22s %s line %s says the pages are in memory, but the tree loads them on %s lines' \
+      'page load' "$doc" "$line" "$PAGES_COUNT")"
+    PAGE_BAD=1
+  fi
+  # the claim points at the line the pages enter the model on
+  cite_source "$claim"
+  if [ -n "$CITE_FILE" ]; then
+    if [ "$CITE_FILE" != "$FRONTEND_APP" ]; then
+      fail "$(printf '%-22s %s line %s cites %s, but the tree puts the pages in the model in %s' \
+        'page load' "$doc" "$line" "$CITE_FILE" "$FRONTEND_APP")"
+      PAGE_BAD=1
+    else
+      citation_covers "$CITE_SPEC" "$PAGES_LINE"
+      if [ "$CITATION_COVERS" -eq 0 ]; then
+        fail "$(printf '%-22s %s line %s cites %s:%s, but the tree puts the pages in the model on line %s' \
+          'page load' "$doc" "$line" "$CITE_FILE" "$CITE_SPEC" "$PAGES_LINE")"
+        PAGE_BAD=1
+      fi
+    fi
+  fi
+  # the client does not ask for the pages a second time
+  if [ -n "$PAGES_FETCH_FILE" ]; then
+    fail "$(printf '%-22s %s line %s says the pages are never fetched again, but %s fetches them on line %s' \
+      'page load' "$doc" "$line" "$PAGES_FETCH_FILE" "$PAGES_FETCH_LINE")"
+    PAGE_BAD=1
+  fi
+}
+
+# Every claim the documents make, checked against the tree.
+check_page_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      page_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+pages_lines
+pages_fetch
+check_page_claims
+
+if [ "$PAGE_BAD" -eq 0 ]; then
+  ok "page load" "$PAGE_CHECKED claims"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

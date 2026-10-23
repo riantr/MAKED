@@ -48,7 +48,7 @@ files. Confidence is **high** unless noted otherwise.
 | Start-up chain: `GET /api/bootstrap`, then `GET /api/loop/status` | `frontend/app.mbt:1287`, `frontend/app.mbt:394` | high |
 | Client-side routing via History API subscription | `frontend/app.mbt:1198` | high |
 | `slug_of` maps URL path to page slug | `frontend/app.mbt:256` | high |
-| All pages held in memory after first load | `frontend/app.mbt:26-31` | high |
+| All pages held in memory after first load | `frontend/app.mbt:369` | high |
 | Page struct mirrors backend, decodes JSON totally | `frontend/page.mbt:16-131` | high |
 | Views: header, domain cards, page view, not found, loading, error | `frontend/views.mbt:28-200` | high |
 | Logo: SVG ring + taijitu, HTML letter overlay | `frontend/logo.mbt:1-201` | high |

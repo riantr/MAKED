@@ -37,7 +37,7 @@
 | push_url uses History API | `frontend/views.mbt:83` (rabbita/nav) | high |
 | on_url_changed subscription wraps URL into Msg | `frontend/app.mbt:1198` | high |
 | update sets current = slug_of(url.path), no command issued | `frontend/app.mbt:347` | high |
-| All pages already in memory; no second fetch | `frontend/app.mbt:26-31` | high |
+| All pages already in memory; no second fetch | `frontend/app.mbt:369` | high |
 
 ## Flow 4: API request
 
