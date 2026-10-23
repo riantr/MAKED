@@ -4234,6 +4234,236 @@ foreach ($doc in $archDocs) {
 if (-not $script:callBad) { Write-Ok 'call site' ("{0} calls" -f $script:callChecked) }
 if (-not $script:httpBad) { Write-Ok 'http client' ($script:codePkgs -join ' ') }
 
+# --- the targets a package supports ---------------------------------------------
+#
+# A claim that says a package is "<target>-only" is making a promise about the
+# platforms that package runs on, and the package's own moon.pkg says which
+# platforms those are. The two have to agree: a document that says the frontend
+# is js-only while the tree says "js+native" is a document that costs a reader
+# an afternoon.
+#
+# A claim that says a package is a "<target> executable" says the same thing
+# about a package that has to be run, and the manifest has to say it is one.
+#
+# A claim that says what a package is built with has to name a target that
+# package declares.
+#
+# A claim that cites a manifest has to cite the line the tree declares the
+# targets on, and it has to be that package's own manifest.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:targetBad = $false
+$script:targetSiteBad = $false
+$script:moduleBad = $false
+$script:targetChecked = 0
+$script:targetSiteChecked = 0
+$script:moduleChecked = 0
+$script:pkgTargets = @{}
+$script:moduleTargets = ''
+$script:moduleTargetLine = 0
+
+# The manifest a claim cites, and the module manifest a claim cites.
+$pkgCiteRe = '`([A-Za-z0-9_./-]+/moon\.pkg):([0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*)`'
+$modCiteRe = '`moon\.mod:([0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*)`'
+
+# The targets each package of the tree declares.
+function Get-PkgTargets {
+  $out = @{}
+  foreach ($rel in @(& git ls-files 2>$null)) {
+    if ($rel -notmatch '(^|/)moon\.pkg$') { continue }
+    if ($rel -ceq 'moon.pkg') { continue }
+    $pkg = ($rel -replace '/moon\.pkg$', '')
+    $file = Join-Path $PWD $rel
+    if (-not (Test-Path $file)) { continue }
+    $text = [System.IO.File]::ReadAllText($file, $enc)
+    $m = [regex]::Match($text, 'supported_targets\s*=\s*"([^"]*)"')
+    if (-not $m.Success) { continue }
+    $out[$pkg] = $m.Groups[1].Value
+  }
+  $out
+}
+
+# The targets one package declares.
+function Get-PkgTarget($pkg) {
+  if ($script:pkgTargets.ContainsKey($pkg)) { return $script:pkgTargets[$pkg] }
+  ''
+}
+
+# Is a target one of the ones a package declares?
+function Test-PkgHasTarget($pkg, $want) {
+  foreach ($part in (@((Get-PkgTarget $pkg) -split '\+'))) {
+    if ($part -ceq $want) { return $true }
+  }
+  $false
+}
+
+# The line a package declares its targets on.
+function Get-PkgTargetLine($pkg) {
+  $file = Join-Path $PWD ($pkg + '/moon.pkg')
+  if (-not (Test-Path $file)) { return 0 }
+  $lines = [System.IO.File]::ReadAllLines($file, $enc)
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($lines[$i] -match 'supported_targets\s*=') { return ($i + 1) }
+  }
+  0
+}
+
+# Is a package an executable? The manifest says so.
+function Test-PkgExecutable($pkg) {
+  $file = Join-Path $PWD ($pkg + '/moon.pkg')
+  if (-not (Test-Path $file)) { return $false }
+  $text = [System.IO.File]::ReadAllText($file, $enc)
+  ($text -match 'pkgtype\(kind:\s*"executable"\)')
+}
+
+# The site of a target claim: the manifest it cites, and the line it cites.
+function Test-TargetSite($doc, $line, $pkg, $cfile, $cspec) {
+  if ($cfile -eq '') { return }
+  $script:targetSiteChecked++
+  if ($cfile -cne ($pkg + '/moon.pkg')) {
+    Write-Fail ("{0,-22} {1} line {2} is about {3}, but cites {4}" -f 'target site', $doc, $line, $pkg, $cfile)
+    $script:targetSiteBad = $true
+    return
+  }
+  $targetLine = Get-PkgTargetLine $pkg
+  if ($targetLine -eq 0) {
+    Write-Fail ("{0,-22} {1} line {2} cites {3}, but the tree declares no targets there" -f 'target site', $doc, $line, $cfile)
+    $script:targetSiteBad = $true
+    return
+  }
+  if (-not (Test-CitationCovers $cspec $targetLine)) {
+    Write-Fail ("{0,-22} {1} line {2} cites {3}:{4}, but the targets are declared on line {5}" -f 'target site', $doc, $line, $cfile, $cspec, $targetLine)
+    $script:targetSiteBad = $true
+  }
+}
+
+# One claim, checked against the targets the tree declares.
+function Test-TargetClaim($doc, $line, $claim) {
+  $lower = $claim.ToLower()
+
+  # The manifest the claim cites, if it cites exactly one.
+  $cfile = ''
+  $cspec = ''
+  $cites = @([regex]::Matches($claim, $pkgCiteRe))
+  if ($cites.Count -eq 1) {
+    $cfile = $cites[0].Groups[1].Value
+    $cspec = $cites[0].Groups[2].Value
+  }
+
+  foreach ($pkg in $script:codePkgs) {
+    # "<pkg> is <target>-only": the package supports that target and nothing else.
+    $onlyRe = '(^|[^A-Za-z0-9_/.-])' + [regex]::Escape($pkg) + ' is ([A-Za-z_+-]+)-only'
+    foreach ($m in [regex]::Matches($lower, $onlyRe)) {
+      $t = $m.Groups[2].Value
+      $script:targetChecked++
+      $declared = Get-PkgTarget $pkg
+      if ($declared -cne $t) {
+        Write-Fail ("{0,-22} {1} line {2} says {3} is {4}-only, but the tree says {5}" -f 'supported target', $doc, $line, $pkg, $t, $declared)
+        $script:targetBad = $true
+      }
+      Test-TargetSite $doc $line $pkg $cfile $cspec
+    }
+
+    # "<pkg> is a <target> executable": the manifest has to say it is one.
+    $execRe = '(^|[^A-Za-z0-9_/.-])' + [regex]::Escape($pkg) + ' is ([A-Za-z_+-]+) executable'
+    foreach ($m in [regex]::Matches($lower, $execRe)) {
+      $t = $m.Groups[2].Value
+      $script:targetChecked++
+      if (-not (Test-PkgHasTarget $pkg $t)) {
+        Write-Fail ("{0,-22} {1} line {2} says {3} is a {4} executable, but the tree says {5}" -f 'supported target', $doc, $line, $pkg, $t, (Get-PkgTarget $pkg))
+        $script:targetBad = $true
+      }
+      if (-not (Test-PkgExecutable $pkg)) {
+        Write-Fail ("{0,-22} {1} line {2} says {3} is an executable, but {4}/moon.pkg does not say so" -f 'supported target', $doc, $line, $pkg, $pkg)
+        $script:targetBad = $true
+      }
+      Test-TargetSite $doc $line $pkg $cfile $cspec
+    }
+  }
+
+  # "built with `--target <target>`": the target has to be one the package declares.
+  foreach ($m in [regex]::Matches($lower, $tickRe)) {
+    $token = $m.Groups[1].Value
+    if (-not $token.StartsWith('--target ')) { continue }
+    $t = $token.Substring(9)
+    if (@('native', 'js', 'wasm', 'wasm-gc', 'all') -cnotcontains $t) { continue }
+    if ($cfile -eq '') { continue }
+    $pkg = ($cfile -replace '/moon\.pkg$', '')
+    $script:targetChecked++
+    if (-not (Test-PkgHasTarget $pkg $t)) {
+      Write-Fail ("{0,-22} {1} line {2} says {3} is built with --target {4}, but the tree says {5}" -f 'supported target', $doc, $line, $pkg, $t, (Get-PkgTarget $pkg))
+      $script:targetBad = $true
+    }
+    Test-TargetSite $doc $line $pkg $cfile $cspec
+  }
+}
+
+# Two target lists, compared as sets.
+function Test-TargetSetEqual($a, $b) {
+  $x = @($a -split '\+' | Sort-Object)
+  $y = @($b -split '\+' | Sort-Object)
+  if ($x.Count -ne $y.Count) { return $false }
+  for ($i = 0; $i -lt $x.Count; $i++) {
+    if ($x[$i] -cne $y[$i]) { return $false }
+  }
+  $true
+}
+
+# One claim, checked against the targets the module declares.
+function Test-ModuleClaim($doc, $line, $claim) {
+  foreach ($m in [regex]::Matches($claim, $tickRe)) {
+    $token = $m.Groups[1].Value
+    if ($token -notmatch '\+') { continue }
+    $ok = $true
+    foreach ($p in @($token -split '\+')) {
+      if (@('native', 'js', 'wasm', 'wasm-gc', 'all') -cnotcontains $p) { $ok = $false }
+    }
+    if (-not $ok) { continue }
+    $script:moduleChecked++
+    if (-not (Test-TargetSetEqual $token $script:moduleTargets)) {
+      Write-Fail ("{0,-22} {1} line {2} says the module targets {3}, but the tree says {4}" -f 'module targets', $doc, $line, $token, $script:moduleTargets)
+      $script:moduleBad = $true
+    }
+    $mc = [regex]::Match($claim, $modCiteRe)
+    if ($mc.Success) {
+      $modspec = $mc.Groups[1].Value
+      if (-not (Test-CitationCovers $modspec $script:moduleTargetLine)) {
+        Write-Fail ("{0,-22} {1} line {2} cites moon.mod:{3}, but the targets are declared on line {4}" -f 'module targets', $doc, $line, $modspec, $script:moduleTargetLine)
+        $script:moduleBad = $true
+      }
+    }
+  }
+}
+
+$script:pkgTargets = Get-PkgTargets
+$moduleFile = Join-Path $PWD 'moon.mod'
+if (Test-Path $moduleFile) {
+  $moduleText = [System.IO.File]::ReadAllText($moduleFile, $enc)
+  $mm = [regex]::Match($moduleText, 'supported_targets\s*=\s*"([^"]*)"')
+  if ($mm.Success) { $script:moduleTargets = $mm.Groups[1].Value }
+  $moduleLines = [System.IO.File]::ReadAllLines($moduleFile, $enc)
+  for ($i = 0; $i -lt $moduleLines.Count; $i++) {
+    if ($moduleLines[$i] -match 'supported_targets\s*=') { $script:moduleTargetLine = ($i + 1); break }
+  }
+}
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-TargetClaim $doc $claim.line $claim.text
+    Test-ModuleClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:targetBad) { Write-Ok 'supported target' ("{0} claims" -f $script:targetChecked) }
+if (-not $script:targetSiteBad) { Write-Ok 'target site' ("{0} citations" -f $script:targetSiteChecked) }
+if (-not $script:moduleBad) { Write-Ok 'module targets' ("{0} claims" -f $script:moduleChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

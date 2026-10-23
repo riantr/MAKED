@@ -4438,6 +4438,309 @@ if [ "$HTTP_BAD" -eq 0 ]; then
   ok "http client" "$CODE_PKGS"
 fi
 
+# --- the targets a package supports --------------------------------------------
+#
+# A claim that says a package is "<target>-only" is making a promise about the
+# platforms that package runs on, and the package's own moon.pkg says which
+# platforms those are. The two have to agree: a document that says the frontend
+# is js-only while the tree says "js+native" is a document that costs a reader
+# an afternoon.
+#
+# A claim that says a package is a "<target> executable" says the same thing
+# about a package that has to be run, and the manifest has to say it is one.
+#
+# A claim that says what a package is built with has to name a target that
+# package declares.
+#
+# A claim that cites a manifest has to cite the line the tree declares the
+# targets on, and it has to be that package's own manifest.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+# The targets each package of the tree declares: "pkg=targets".
+PKG_TARGETS=""
+code_pkg_targets() {
+  local file pkg value
+  PKG_TARGETS=""
+  for file in $(git ls-files 2>/dev/null | grep -E '(^|/)moon\.pkg$'); do
+    case "$file" in
+      */*) pkg="${file%/moon.pkg}" ;;
+      *) continue ;;
+    esac
+    value=$(grep -oE 'supported_targets[[:space:]]*=[[:space:]]*"[^"]*"' "$file" 2>/dev/null \
+      | head -1 | sed -E 's/.*"([^"]*)".*/\1/')
+    [ -n "$value" ] || continue
+    PKG_TARGETS="$PKG_TARGETS $pkg=$value"
+  done
+}
+
+# The targets one package declares.
+PKG_TARGET=""
+pkg_target() {
+  local want="$1" item name value
+  PKG_TARGET=""
+  for item in $PKG_TARGETS; do
+    name="${item%%=*}"
+    value="${item#*=}"
+    if [ "$name" = "$want" ]; then
+      PKG_TARGET="$value"
+      return
+    fi
+  done
+}
+
+# Is a target one of the ones a package declares?
+PKG_HAS_TARGET=0
+pkg_has_target() {
+  local want="$1" part
+  PKG_HAS_TARGET=0
+  for part in ${PKG_TARGET//+/ }; do
+    if [ "$part" = "$want" ]; then
+      PKG_HAS_TARGET=1
+      return
+    fi
+  done
+}
+
+# The line a package declares its targets on.
+PKG_TARGET_LINE=""
+pkg_target_line() {
+  local pkg="$1" file
+  PKG_TARGET_LINE=""
+  file="$pkg/moon.pkg"
+  [ -f "$file" ] || return
+  PKG_TARGET_LINE=$(grep -nE 'supported_targets[[:space:]]*=' "$file" 2>/dev/null | head -1 | cut -d: -f1)
+}
+
+# Is a package an executable? The manifest says so.
+PKG_EXECUTABLE=0
+pkg_is_executable() {
+  local pkg="$1" file
+  PKG_EXECUTABLE=0
+  file="$pkg/moon.pkg"
+  [ -f "$file" ] || return
+  if grep -qE 'pkgtype\(kind:[[:space:]]*"executable"\)' "$file"; then
+    PKG_EXECUTABLE=1
+  fi
+}
+
+# The manifest a claim cites.
+PKG_CITE_RE='`([A-Za-z0-9_./-]+/moon\.pkg):([0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*)`'
+# The module manifest a claim cites.
+MOD_CITE_RE='`moon\.mod:([0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*)`'
+
+TARGET_BAD=0
+TARGET_SITE_BAD=0
+MODULE_BAD=0
+TARGET_CHECKED=0
+TARGET_SITE_CHECKED=0
+MODULE_CHECKED=0
+
+# The site of a target claim: the manifest it cites, and the line it cites.
+target_site_check() {
+  local doc="$1" line="$2" pkg="$3" cfile="$4" cspec="$5" target_line
+  [ -n "$cfile" ] || return
+  TARGET_SITE_CHECKED=$((TARGET_SITE_CHECKED + 1))
+  if [ "$cfile" != "$pkg/moon.pkg" ]; then
+    fail "$(printf '%-22s %s line %s is about %s, but cites %s' \
+      'target site' "$doc" "$line" "$pkg" "$cfile")"
+    TARGET_SITE_BAD=1
+    return
+  fi
+  pkg_target_line "$pkg"
+  target_line="$PKG_TARGET_LINE"
+  if [ -z "$target_line" ]; then
+    fail "$(printf '%-22s %s line %s cites %s, but the tree declares no targets there' \
+      'target site' "$doc" "$line" "$cfile")"
+    TARGET_SITE_BAD=1
+    return
+  fi
+  citation_covers "$cspec" "$target_line"
+  if [ "$CITATION_COVERS" -ne 1 ]; then
+    fail "$(printf '%-22s %s line %s cites %s:%s, but the targets are declared on line %s' \
+      'target site' "$doc" "$line" "$cfile" "$cspec" "$target_line")"
+    TARGET_SITE_BAD=1
+  fi
+}
+
+# One claim, checked against the targets the tree declares.
+target_claim_check() {
+  local doc="$1" line="$2" claim="$3" lower scan pkg t re token cfile cspec rest
+  lower="${claim,,}"
+
+  # The manifest the claim cites, if it cites exactly one.
+  cfile=""
+  cspec=""
+  if [[ "$claim" =~ $PKG_CITE_RE ]]; then
+    cfile="${BASH_REMATCH[1]}"
+    cspec="${BASH_REMATCH[2]}"
+    rest="${claim#*"${BASH_REMATCH[0]}"}"
+    if [[ "$rest" =~ $PKG_CITE_RE ]]; then
+      cfile=""
+      cspec=""
+    fi
+  fi
+
+  for pkg in $CODE_PKGS; do
+    # "<pkg> is <target>-only": the package supports that target and nothing else.
+    re="(^|[^A-Za-z0-9_/.-])${pkg} is ([A-Za-z_+-]+)-only"
+    scan="$lower"
+    while [[ "$scan" =~ $re ]]; do
+      t="${BASH_REMATCH[2]}"
+      scan="${scan#*"${BASH_REMATCH[0]}"}"
+      pkg_target "$pkg"
+      TARGET_CHECKED=$((TARGET_CHECKED + 1))
+      if [ "$PKG_TARGET" != "$t" ]; then
+        fail "$(printf '%-22s %s line %s says %s is %s-only, but the tree says %s' \
+          'supported target' "$doc" "$line" "$pkg" "$t" "$PKG_TARGET")"
+        TARGET_BAD=1
+      fi
+      target_site_check "$doc" "$line" "$pkg" "$cfile" "$cspec"
+    done
+
+    # "<pkg> is a <target> executable": the manifest has to say it is one.
+    re="(^|[^A-Za-z0-9_/.-])${pkg} is ([A-Za-z_+-]+) executable"
+    scan="$lower"
+    while [[ "$scan" =~ $re ]]; do
+      t="${BASH_REMATCH[2]}"
+      scan="${scan#*"${BASH_REMATCH[0]}"}"
+      pkg_target "$pkg"
+      pkg_has_target "$t"
+      TARGET_CHECKED=$((TARGET_CHECKED + 1))
+      if [ "$PKG_HAS_TARGET" -ne 1 ]; then
+        fail "$(printf '%-22s %s line %s says %s is a %s executable, but the tree says %s' \
+          'supported target' "$doc" "$line" "$pkg" "$t" "$PKG_TARGET")"
+        TARGET_BAD=1
+      fi
+      pkg_is_executable "$pkg"
+      if [ "$PKG_EXECUTABLE" -ne 1 ]; then
+        fail "$(printf '%-22s %s line %s says %s is an executable, but %s/moon.pkg does not say so' \
+          'supported target' "$doc" "$line" "$pkg" "$pkg")"
+        TARGET_BAD=1
+      fi
+      target_site_check "$doc" "$line" "$pkg" "$cfile" "$cspec"
+    done
+  done
+
+  # "built with `--target <target>`": the target has to be one the package declares.
+  scan="$lower"
+  while [[ "$scan" =~ $TICK_RE ]]; do
+    token="${BASH_REMATCH[1]}"
+    scan="${scan#*"${BASH_REMATCH[0]}"}"
+    case "$token" in
+      '--target '*) t="${token#--target }" ;;
+      *) continue ;;
+    esac
+    case "$t" in
+      native|js|wasm|wasm-gc|all) ;;
+      *) continue ;;
+    esac
+    [ -n "$cfile" ] || continue
+    pkg="${cfile%/moon.pkg}"
+    pkg_target "$pkg"
+    pkg_has_target "$t"
+    TARGET_CHECKED=$((TARGET_CHECKED + 1))
+    if [ "$PKG_HAS_TARGET" -ne 1 ]; then
+      fail "$(printf '%-22s %s line %s says %s is built with --target %s, but the tree says %s' \
+        'supported target' "$doc" "$line" "$pkg" "$t" "$PKG_TARGET")"
+      TARGET_BAD=1
+    fi
+    target_site_check "$doc" "$line" "$pkg" "$cfile" "$cspec"
+  done
+}
+
+# The targets the module declares, and the line it declares them on.
+MODULE_TARGETS=""
+MODULE_TARGET_LINE=""
+module_targets() {
+  local file="moon.mod"
+  MODULE_TARGETS=""
+  MODULE_TARGET_LINE=""
+  [ -f "$file" ] || return
+  MODULE_TARGET_LINE=$(grep -nE 'supported_targets[[:space:]]*=' "$file" 2>/dev/null | head -1 | cut -d: -f1)
+  MODULE_TARGETS=$(grep -oE 'supported_targets[[:space:]]*=[[:space:]]*"[^"]*"' "$file" 2>/dev/null \
+    | head -1 | sed -E 's/.*"([^"]*)".*/\1/')
+}
+
+# Two target lists, compared as sets.
+target_set_equal() {
+  local a b
+  a=$(printf '%s\n' ${1//+/ })
+  b=$(printf '%s\n' ${2//+/ })
+  not_in "$a" "$b"
+  [ -z "$NOT_IN" ] || return 1
+  not_in "$b" "$a"
+  [ -z "$NOT_IN" ]
+}
+
+# One claim, checked against the targets the module declares.
+module_claim_check() {
+  local doc="$1" line="$2" claim="$3" scan token parts p ok modspec
+  scan="$claim"
+  while [[ "$scan" =~ $TICK_RE ]]; do
+    token="${BASH_REMATCH[1]}"
+    scan="${scan#*"${BASH_REMATCH[0]}"}"
+    case "$token" in
+      *+*) ;;
+      *) continue ;;
+    esac
+    parts="${token//+/ }"
+    ok=1
+    for p in $parts; do
+      case "$p" in
+        native|js|wasm|wasm-gc|all) ;;
+        *) ok=0 ;;
+      esac
+    done
+    [ "$ok" -eq 1 ] || continue
+    MODULE_CHECKED=$((MODULE_CHECKED + 1))
+    if ! target_set_equal "$token" "$MODULE_TARGETS"; then
+      fail "$(printf '%-22s %s line %s says the module targets %s, but the tree says %s' \
+        'module targets' "$doc" "$line" "$token" "$MODULE_TARGETS")"
+      MODULE_BAD=1
+    fi
+    if [[ "$claim" =~ $MOD_CITE_RE ]]; then
+      modspec="${BASH_REMATCH[1]}"
+      citation_covers "$modspec" "$MODULE_TARGET_LINE"
+      if [ "$CITATION_COVERS" -ne 1 ]; then
+        fail "$(printf '%-22s %s line %s cites moon.mod:%s, but the targets are declared on line %s' \
+          'module targets' "$doc" "$line" "$modspec" "$MODULE_TARGET_LINE")"
+        MODULE_BAD=1
+      fi
+    fi
+  done
+}
+
+# Every claim the design documents make, checked against the targets.
+check_target_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      target_claim_check "$doc" "$line" "$claim"
+      module_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+code_pkg_targets
+module_targets
+check_target_claims
+
+if [ "$TARGET_BAD" -eq 0 ]; then
+  ok "supported target" "$TARGET_CHECKED claims"
+fi
+if [ "$TARGET_SITE_BAD" -eq 0 ]; then
+  ok "target site" "$TARGET_SITE_CHECKED citations"
+fi
+if [ "$MODULE_BAD" -eq 0 ]; then
+  ok "module targets" "$MODULE_CHECKED claims"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."
