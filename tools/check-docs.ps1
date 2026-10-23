@@ -4119,6 +4119,121 @@ foreach ($doc in $archDocs) {
 
 if (-not $script:envDefaultBad) { Write-Ok 'env default' ($script:envDefaults -join ' ') }
 
+# --- the calls the tree makes ---------------------------------------------------
+#
+# A claim that names a call the tree makes -- "@fs.read_file" -- is pointing
+# at that call, and a pointer that lands on another line points at something
+# else. The call has to be on a line the citation reaches.
+#
+# A claim that says a package has no HTTP client code is making a promise
+# about that package's network behaviour, and the tree has to keep it: the
+# package's own source has to have no client call in it.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:callBad = $false
+$script:httpBad = $false
+$script:callChecked = 0
+$script:codePkgs = @()
+
+function Get-TreePackages {
+  $out = @()
+  foreach ($rel in @(& git ls-files 2>$null)) {
+    if (-not ($rel -match '(^|/)moon\.pkg$')) { continue }
+    if ($rel -ceq 'moon.pkg') { continue }
+    $out += ($rel -replace '/moon\.pkg$', '')
+  }
+  $out
+}
+
+# The lines the cited file makes a call on.
+function Get-CallLines($file, $call) {
+  $out = @()
+  if (-not (Test-Path $file)) { return $out }
+  $lines = [System.IO.File]::ReadAllLines($file, $enc)
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($lines[$i].Contains($call)) { $out += ($i + 1) }
+  }
+  $out
+}
+
+# The client calls a package makes, in the package's own source.
+function Get-PackageClientCalls($pkg) {
+  $out = @()
+  foreach ($file in @(Get-ChildItem -Path (Join-Path $PWD $pkg) -Filter '*.mbt' -File -ErrorAction SilentlyContinue)) {
+    if ($file.Name.EndsWith('_test.mbt')) { continue }
+    $text = [System.IO.File]::ReadAllText($file.FullName, $enc)
+    if ($text -match '@http\.(get|post|put|delete|head|patch)\(') {
+      $out += ($file.FullName.Substring($PWD.Path.Length + 1).Replace('\', '/'))
+    }
+  }
+  $out
+}
+
+# One claim, checked against the calls the tree makes.
+function Test-CallClaim($doc, $line, $claim) {
+  Get-CitedSource $claim
+  if ($script:citeFile -eq '') { return }
+  $file = Join-Path $PWD $script:citeFile
+  if (-not (Test-Path $file)) { return }
+  foreach ($m in [regex]::Matches($script:citeText, $tickRe)) {
+    $tick = $m.Groups[1].Value.Trim()
+    if (-not $tick.StartsWith('@')) { continue }
+    $call = ($tick -split '\(')[0]
+    $call = ($call -split ' ')[0]
+    $script:callChecked++
+    $hits = @(Get-CallLines $file $call)
+    if ($hits.Count -eq 0) {
+      Write-Fail ("{0,-22} {1} line {2} names [{3}], and {4} never says it" -f 'call site', $doc, $line, $call, $script:citeFile)
+      $script:callBad = $true
+      continue
+    }
+    $covered = $false
+    foreach ($target in $hits) {
+      if (Test-CitationCovers $script:citeSpec $target) { $covered = $true; break }
+    }
+    if (-not $covered) {
+      Write-Fail ("{0,-22} {1} line {2} cites [{3}:{4}], but [{5}] is on lines {6}" -f 'call site', $doc, $line, $script:citeFile, $script:citeSpec, $call, ($hits -join ' '))
+      $script:callBad = $true
+    }
+  }
+}
+
+# One claim, checked against the client calls the packages make.
+function Test-HttpClaim($doc, $line, $claim) {
+  $lower = $claim.ToLower()
+  if ($lower -cnotmatch 'no http client') { return }
+  $rest = $lower.Substring($lower.IndexOf('no http client') + 14)
+  $pkg = ''
+  foreach ($word in ($rest -split '\s+')) {
+    $w = ($word -replace '[.,;)\]]+$', '')
+    if ($script:codePkgs -ccontains $w) { $pkg = $w; break }
+  }
+  if ($pkg -eq '') { return }
+  $calls = @(Get-PackageClientCalls $pkg)
+  if ($calls.Count -gt 0) {
+    Write-Fail ("{0,-22} {1} line {2} says {3} has no HTTP client code, but {4} calls one" -f 'http client', $doc, $line, $pkg, ($calls -join ' '))
+    $script:httpBad = $true
+  }
+}
+
+$script:codePkgs = @(Get-TreePackages)
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-CallClaim $doc $claim.line $claim.text
+    Test-HttpClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:callBad) { Write-Ok 'call site' ("{0} calls" -f $script:callChecked) }
+if (-not $script:httpBad) { Write-Ok 'http client' ($script:codePkgs -join ' ') }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

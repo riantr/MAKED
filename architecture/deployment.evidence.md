@@ -31,9 +31,9 @@
 
 | Claim | Source | Confidence |
 |-------|--------|------------|
-| No outbound network calls | No HTTP client code in backend (only in frontend via rabbita) | high |
+| The one outbound call is the corpus fetch | `backend/corpus_sources.mbt:905` (`@http.get(url)`) | high |
 | SQLite accessed via FFI, not network | `backend/database.mbt:26` (`sqlite3.Connection::open`) | high |
-| Static files read via async/fs | `backend/maked_app.mbt:81` (`@fs.read_file`) | high |
+| Static files read via async/fs | `backend/maked_app.mbt:99` (`@fs.read_file`) | high |
 
 ## Deployment gaps (evidence of absence)
 

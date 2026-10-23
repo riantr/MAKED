@@ -4295,6 +4295,149 @@ if [ "$ENV_DEFAULT_BAD" -eq 0 ]; then
   ok "env default" "$TRIMMED"
 fi
 
+# --- the calls the tree makes ---------------------------------------------------
+#
+# A claim that names a call the tree makes -- "@fs.read_file" -- is pointing
+# at that call, and a pointer that lands on another line points at something
+# else. The call has to be on a line the citation reaches.
+#
+# A claim that says a package has no HTTP client code is making a promise
+# about that package's network behaviour, and the tree has to keep it: the
+# package's own source has to have no client call in it.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+# The packages the tree has.
+CODE_PKGS=""
+code_packages() {
+  CODE_PKGS=$(git ls-files 2>/dev/null | grep -E '(^|/)moon\.pkg$' \
+    | sed -E 's|/moon\.pkg$||' | grep -vE '^moon\.pkg$' | tr '\n' ' ' || true)
+  trim "$CODE_PKGS"; CODE_PKGS="$TRIMMED"
+}
+
+# The lines the cited file makes a call on.
+CALL_LINES=""
+call_lines() {
+  local file="$1" call="$2"
+  CALL_LINES=$(grep -nF "$call" "$file" 2>/dev/null | cut -d: -f1 | tr '\n' ' ' || true)
+  trim "$CALL_LINES"; CALL_LINES="$TRIMMED"
+}
+
+# The client calls a package makes, in the package's own source.
+PKG_CALLS=""
+package_client_calls() {
+  local pkg="$1" file
+  PKG_CALLS=""
+  for file in "$pkg"/*.mbt; do
+    [ -f "$file" ] || continue
+    case "$file" in
+      *_test.mbt) continue ;;
+    esac
+    if grep -qE '@http\.(get|post|put|delete|head|patch)\(' "$file"; then
+      PKG_CALLS="$PKG_CALLS $file"
+    fi
+  done
+  trim "$PKG_CALLS"; PKG_CALLS="$TRIMMED"
+}
+
+CALL_BAD=0
+HTTP_BAD=0
+CALL_CHECKED=0
+
+# One claim, checked against the calls the tree makes.
+call_claim_check() {
+  local doc="$1" line="$2" claim="$3" rest tick call target covered
+  cite_source "$claim"
+  [ -n "$CITE_FILE" ] || return
+  [ -f "$CITE_FILE" ] || return
+  rest="$CITE_TEXT"
+  while [[ "$rest" =~ $TICK_RE ]]; do
+    tick="${BASH_REMATCH[1]}"
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+    case "$tick" in
+      @*) ;;
+      *) continue ;;
+    esac
+    call="${tick%%(*}"
+    call="${call%% *}"
+    CALL_CHECKED=$((CALL_CHECKED + 1))
+    call_lines "$CITE_FILE" "$call"
+    if [ -z "$CALL_LINES" ]; then
+      fail "$(printf '%-22s %s line %s names [%s], and %s never says it' \
+        'call site' "$doc" "$line" "$call" "$CITE_FILE")"
+      CALL_BAD=1
+      continue
+    fi
+    covered=0
+    for target in $CALL_LINES; do
+      citation_covers "$CITE_SPEC" "$target"
+      if [ "$CITATION_COVERS" -eq 1 ]; then
+        covered=1
+        break
+      fi
+    done
+    if [ "$covered" -eq 0 ]; then
+      fail "$(printf '%-22s %s line %s cites [%s:%s], but [%s] is on lines %s' \
+        'call site' "$doc" "$line" "$CITE_FILE" "$CITE_SPEC" "$call" "$CALL_LINES")"
+      CALL_BAD=1
+    fi
+  done
+}
+
+# One claim, checked against the client calls the packages make.
+http_claim_check() {
+  local doc="$1" line="$2" claim="$3" lower rest word pkg
+  lower="${claim,,}"
+  case "$lower" in
+    *'no http client'*) ;;
+    *) return ;;
+  esac
+  rest="${lower#*no http client}"
+  pkg=""
+  for word in $rest; do
+    word="${word%%[.,;)]*}"
+    case " $CODE_PKGS " in
+      *" $word "*)
+        pkg="$word"
+        break
+        ;;
+    esac
+  done
+  [ -n "$pkg" ] || return
+  package_client_calls "$pkg"
+  if [ -n "$PKG_CALLS" ]; then
+    fail "$(printf '%-22s %s line %s says %s has no HTTP client code, but %s calls one' \
+      'http client' "$doc" "$line" "$pkg" "$PKG_CALLS")"
+    HTTP_BAD=1
+  fi
+}
+
+# Every claim the design documents make, checked against the calls.
+check_call_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      call_claim_check "$doc" "$line" "$claim"
+      http_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+code_packages
+check_call_claims
+
+if [ "$CALL_BAD" -eq 0 ]; then
+  ok "call site" "$CALL_CHECKED calls"
+fi
+if [ "$HTTP_BAD" -eq 0 ]; then
+  ok "http client" "$CODE_PKGS"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."
