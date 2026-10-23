@@ -5883,6 +5883,174 @@ else
     "$README_INTEGRATION" "$SUMMARY"
 fi
 
+# --- the external column the table states -------------------------------------
+#
+# The dependency table has a column that says what each package leans on
+# outside the project. It is a claim about the tree's manifests: the package
+# imports exactly these, and nothing else.
+#
+# The document writes the paths the way a reader writes them -- "moonback"
+# for "moonbitlang/moonback", "core (debug, env, json)" for the core
+# packages -- so the comparison is made on the last segment of each path,
+# which is the part both sides spell the same way.
+#
+# The test-only imports are left out: the column says what a package needs
+# to run, and a test block is not what it needs to run.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+EXTERNAL_BAD=0
+EXTERNAL_CHECKED=0
+
+# The external imports of a package, the test block left out.
+PKG_EXTERNAL=""
+pkg_external() {
+  local pkg="$1" line inside=0 test=0 block="" path
+  PKG_EXTERNAL=""
+  [ -f "$pkg/moon.pkg" ] || return
+  while IFS= read -r line; do
+    if [ "$inside" -eq 0 ]; then
+      case "$line" in
+        "import {"*) inside=1; block=""; test=0 ;;
+      esac
+      continue
+    fi
+    case "$line" in
+      *"}"*)
+        inside=0
+        case "$line" in
+          *'for "test"'*) test=1 ;;
+        esac
+        if [ "$test" -eq 0 ]; then
+          all_matches "$block" '"([^"]+)"'
+          while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            case "$path" in
+              riantr/MAKED*) continue ;;
+            esac
+            PKG_EXTERNAL="$PKG_EXTERNAL ${path##*/}"
+          done <<< "$MATCHES"
+        fi
+        ;;
+      *) block="$block $line" ;;
+    esac
+  done < "$pkg/moon.pkg"
+  trim "$PKG_EXTERNAL"; PKG_EXTERNAL="$TRIMMED"
+}
+
+# The last segments a column names. A group -- "core (debug, env, json)" --
+# is read as the paths it stands for.
+EXTERNAL_NAMED=""
+external_named() {
+  local cell="$1" out="" item="" depth=0 ch i base member
+  local items=""
+  for ((i = 0; i < ${#cell}; i++)); do
+    ch="${cell:i:1}"
+    case "$ch" in
+      "(") depth=$((depth + 1)) ;;
+      ")") depth=$((depth - 1)) ;;
+    esac
+    if [ "$ch" = "," ] && [ "$depth" -eq 0 ]; then
+      items="$items$item"$'\n'
+      item=""
+    else
+      item="$item$ch"
+    fi
+  done
+  items="$items$item"$'\n'
+  while IFS= read -r item; do
+    trim "$item"; item="$TRIMMED"
+    [ -n "$item" ] || continue
+    case "$item" in
+      "(none)"|"(empty)") continue ;;
+    esac
+    if [[ "$item" =~ ^([^[:space:]]+)[[:space:]]+\((.*)\)$ ]]; then
+      base="${BASH_REMATCH[1]}"
+      for member in ${BASH_REMATCH[2]//,/ }; do
+        out="$out ${member##*/}"
+      done
+    else
+      out="$out ${item##*/}"
+    fi
+  done <<< "$items"
+  trim "$out"; EXTERNAL_NAMED="$TRIMMED"
+}
+
+# The rows of the internal dependencies table: the line, the package and the
+# external cell.
+DOC_EXTERNAL_ROWS=""
+doc_external_rows() {
+  awk '
+    /^\|[[:space:]]*Package[[:space:]]*\|/ { inside = 1; next }
+    inside && /^\|/ {
+      n = split($0, cells, "[|]")
+      pkg = cells[2]
+      ext = cells[4]
+      gsub(/`/, "", pkg)
+      gsub(/[ \t]/, "", pkg)
+      gsub(/^[ \t]+|[ \t]+$/, "", ext)
+      if (pkg ~ /^[-\t]+$/) { next }
+      if (pkg == "") { next }
+      if (ext == "") { next }
+      print NR "\t" pkg "\t" ext
+    }
+    inside && !/^\|/ { exit }
+  ' "$DEPS_MD"
+}
+
+# One row, checked against the package's own manifest.
+external_column_check() {
+  local doc="$1" line="$2" pkg="$3" cell="$4"
+  local named tree name
+  external_named "$cell"
+  sorted_set "$EXTERNAL_NAMED"
+  named="$SORTED_SET"
+  case "$pkg" in
+    root*) pkg="." ;;
+  esac
+  pkg_external "$pkg"
+  sorted_set "$PKG_EXTERNAL"
+  tree="$SORTED_SET"
+  EXTERNAL_CHECKED=$((EXTERNAL_CHECKED + 1))
+  for name in $named; do
+    case " $tree " in
+      *" $name "*) ;;
+      *)
+        fail "$(printf '%-22s %s line %s says %s depends on %s, but the tree does not' \
+          'external column' "$doc" "$line" "$pkg" "$name")"
+        EXTERNAL_BAD=1
+        ;;
+    esac
+  done
+  for name in $tree; do
+    case " $named " in
+      *" $name "*) ;;
+      *)
+        fail "$(printf '%-22s %s line %s leaves %s out of %s, but the tree imports it' \
+          'external column' "$doc" "$line" "$name" "$pkg")"
+        EXTERNAL_BAD=1
+        ;;
+    esac
+  done
+}
+
+# Every row, checked against the package's own manifest.
+check_external_columns() {
+  local row line pkg cell
+  DOC_EXTERNAL_ROWS=$(doc_external_rows)
+  while IFS=$'\t' read -r line pkg cell; do
+    [ -n "$line" ] || continue
+    external_column_check "$DEPS_MD" "$line" "$pkg" "$cell"
+  done <<< "$DOC_EXTERNAL_ROWS"
+}
+
+check_external_columns
+
+if [ "$EXTERNAL_BAD" -eq 0 ]; then
+  ok "external column" "$EXTERNAL_CHECKED packages"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

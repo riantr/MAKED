@@ -5348,6 +5348,143 @@ if ($readmeIntegration -eq '') {
   Test-ClaimNumber 'summary integration' '([0-9]+) integration\s+checks' $readmeIntegration $summary
 }
 
+# --- the external column the table states -------------------------------------
+#
+# The dependency table has a column that says what each package leans on
+# outside the project. It is a claim about the tree's manifests: the package
+# imports exactly these, and nothing else.
+#
+# The document writes the paths the way a reader writes them -- "moonback"
+# for "moonbitlang/moonback", "core (debug, env, json)" for the core
+# packages -- so the comparison is made on the last segment of each path,
+# which is the part both sides spell the same way.
+#
+# The test-only imports are left out: the column says what a package needs
+# to run, and a test block is not what it needs to run.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:externalBad = $false
+$script:externalChecked = 0
+
+# The external imports of a package, the test block left out.
+function Get-PkgExternal($pkg) {
+  $out = @()
+  $path = Join-Path $PWD (Join-Path $pkg 'moon.pkg')
+  if (-not (Test-Path $path)) { return $out }
+  $inside = $false
+  $test = $false
+  $block = ''
+  foreach ($line in [System.IO.File]::ReadAllLines($path, $enc)) {
+    if (-not $inside) {
+      if ($line -match '^import \{') { $inside = $true; $block = ''; $test = $false }
+      continue
+    }
+    if ($line -match '\}') {
+      $inside = $false
+      if ($line -match 'for "test"') { $test = $true }
+      if (-not $test) {
+        foreach ($m in [regex]::Matches($block, '"([^"]+)"')) {
+          $p = $m.Groups[1].Value
+          if ($p.StartsWith('riantr/MAKED')) { continue }
+          $out += (($p -split '/')[-1])
+        }
+      }
+      continue
+    }
+    $block = $block + ' ' + $line
+  }
+  $out
+}
+
+# The last segments a column names. A group -- "core (debug, env, json)" --
+# is read as the paths it stands for.
+function Get-ExternalNamed($cell) {
+  $out = @()
+  $items = @()
+  $cur = ''
+  $depth = 0
+  foreach ($ch in $cell.ToCharArray()) {
+    if ($ch -eq '(') { $depth++ } elseif ($ch -eq ')') { $depth-- }
+    if ($ch -eq ',' -and $depth -eq 0) {
+      $items += $cur
+      $cur = ''
+    } else {
+      $cur += $ch
+    }
+  }
+  $items += $cur
+  foreach ($item in $items) {
+    $item = $item.Trim()
+    if ($item -eq '') { continue }
+    if ($item -eq '(none)' -or $item -eq '(empty)') { continue }
+    $m = [regex]::Match($item, '^([^\s]+)\s+\((.*)\)$')
+    if ($m.Success) {
+      foreach ($member in ($m.Groups[2].Value -split ',')) {
+        $member = $member.Trim()
+        if ($member -eq '') { continue }
+        $out += (($member -split '/')[-1])
+      }
+    } else {
+      $out += (($item -split '/')[-1])
+    }
+  }
+  $out
+}
+
+# The rows of the internal dependencies table: the line, the package and the
+# external cell.
+function Get-DocExternalRows {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $depsMd), $enc)
+  $inside = $false
+  $n = 0
+  foreach ($line in ($text -split "`r?`n")) {
+    $n++
+    if (-not $inside) {
+      if ($line -match '^\|\s*Package\s*\|') { $inside = $true }
+      continue
+    }
+    if (-not $line.StartsWith('|')) { break }
+    $cells = $line -split '\|'
+    if ($cells.Count -lt 4) { continue }
+    $pkg = ($cells[1] -replace '`', '') -replace '\s', ''
+    $ext = $cells[3].Trim()
+    if ($pkg -match '^[-\t]+$') { continue }
+    if ($pkg -eq '') { continue }
+    if ($ext -eq '') { continue }
+    $out += ,@($n, $pkg, $ext)
+  }
+  $out
+}
+
+# One row, checked against the package's own manifest.
+function Test-ExternalColumn($doc, $line, $pkg, $cell) {
+  $named = @(Get-ExternalNamed $cell | Select-Object -Unique)
+  if ($pkg -like 'root*') { $pkg = '.' }
+  $tree = @(Get-PkgExternal $pkg | Select-Object -Unique)
+  [Array]::Sort($named, [System.StringComparer]::Ordinal)
+  [Array]::Sort($tree, [System.StringComparer]::Ordinal)
+  $script:externalChecked++
+  foreach ($name in $named) {
+    if ($tree -ccontains $name) { continue }
+    Write-Fail ("{0,-22} {1} line {2} says {3} depends on {4}, but the tree does not" -f 'external column', $doc, $line, $pkg, $name)
+    $script:externalBad = $true
+  }
+  foreach ($name in $tree) {
+    if ($named -ccontains $name) { continue }
+    Write-Fail ("{0,-22} {1} line {2} leaves {3} out of {4}, but the tree imports it" -f 'external column', $doc, $line, $name, $pkg)
+    $script:externalBad = $true
+  }
+}
+
+foreach ($row in @(Get-DocExternalRows)) {
+  Test-ExternalColumn $depsMd $row[0] $row[1] $row[2]
+}
+
+if (-not $script:externalBad) { Write-Ok 'external column' ("{0} packages" -f $script:externalChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)
