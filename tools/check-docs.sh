@@ -5141,6 +5141,95 @@ if [ "$IMPACT_BAD" -eq 0 ]; then
   ok "impact caller" "$IMPACT_CHECKED symbols"
 fi
 
+# --- the edge the tree does not have ------------------------------------------
+#
+# A claim that says the deployment needs no reverse proxy and no TLS is making
+# a promise about the edge: the browser reaches the server over plain HTTP,
+# with nothing in between and nothing to terminate. The tree has to keep that
+# promise -- a proxy config or a certificate in the tree would mean the
+# deployment is not the one the documents describe.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+# The places the tree would have to change to grow an edge.
+PROXY_PLACES=""
+TLS_PLACES=""
+edge_places() {
+  local file
+  PROXY_PLACES=""
+  TLS_PLACES=""
+  for file in $(git ls-files 2>/dev/null); do
+    case "$file" in
+      *nginx*|*Caddyfile*|*caddyfile*|*traefik*|*haproxy*|*.htaccess)
+        PROXY_PLACES="$PROXY_PLACES $file"
+        ;;
+    esac
+    case "$file" in
+      *.pem|*.crt|*.cer|*.key|*.pfx|*.p12)
+        TLS_PLACES="$TLS_PLACES $file"
+        ;;
+    esac
+  done
+  trim "$PROXY_PLACES"; PROXY_PLACES="$TRIMMED"
+  trim "$TLS_PLACES"; TLS_PLACES="$TRIMMED"
+}
+
+# A claim that denies a reverse proxy, and a claim that denies TLS.
+NO_PROXY_RE='no [a-z, ]{0,60}reverse proxy'
+NO_TLS_RE='no [a-z, ]{0,60}tls'
+
+PROXY_BAD=0
+TLS_BAD=0
+PROXY_CHECKED=0
+TLS_CHECKED=0
+
+# One claim, checked against the edge the tree has.
+edge_claim_check() {
+  local doc="$1" line="$2" claim="$3" lower
+  lower="${claim,,}"
+  if [[ "$lower" =~ $NO_PROXY_RE ]]; then
+    PROXY_CHECKED=$((PROXY_CHECKED + 1))
+    if [ -n "$PROXY_PLACES" ]; then
+      fail "$(printf '%-22s %s line %s says there is no reverse proxy, but %s is one' \
+        'proxy' "$doc" "$line" "$PROXY_PLACES")"
+      PROXY_BAD=1
+    fi
+  fi
+  if [[ "$lower" =~ $NO_TLS_RE ]]; then
+    TLS_CHECKED=$((TLS_CHECKED + 1))
+    if [ -n "$TLS_PLACES" ]; then
+      fail "$(printf '%-22s %s line %s says there is no TLS, but %s is a certificate' \
+        'tls' "$doc" "$line" "$TLS_PLACES")"
+      TLS_BAD=1
+    fi
+  fi
+}
+
+# Every claim the design documents make, checked against the edge.
+check_edge_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      edge_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+edge_places
+check_edge_claims
+
+if [ "$PROXY_BAD" -eq 0 ]; then
+  ok "proxy" "$PROXY_CHECKED claims"
+fi
+if [ "$TLS_BAD" -eq 0 ]; then
+  ok "tls" "$TLS_CHECKED claims"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

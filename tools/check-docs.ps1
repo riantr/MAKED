@@ -4804,6 +4804,75 @@ foreach ($doc in $archDocs) {
 
 if (-not $script:impactBad) { Write-Ok 'impact caller' ("{0} symbols" -f $script:impactChecked) }
 
+# --- the edge the tree does not have -----------------------------------------
+#
+# A claim that says the deployment needs no reverse proxy and no TLS is making
+# a promise about the edge: the browser reaches the server over plain HTTP,
+# with nothing in between and nothing to terminate. The tree has to keep that
+# promise -- a proxy config or a certificate in the tree would mean the
+# deployment is not the one the documents describe.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:proxyBad = $false
+$script:proxyChecked = 0
+$script:tlsBad = $false
+$script:tlsChecked = 0
+$script:proxyPlaces = @()
+$script:tlsPlaces = @()
+
+# A claim that denies a reverse proxy, and a claim that denies TLS.
+$noProxyRe = 'no [a-z, ]{0,60}reverse proxy'
+$noTlsRe = 'no [a-z, ]{0,60}tls'
+
+# The places the tree would have to change to grow an edge.
+function Get-EdgePlaces {
+  $proxy = @()
+  $tls = @()
+  foreach ($rel in @(& git ls-files 2>$null)) {
+    if (($rel -clike '*nginx*') -or ($rel -clike '*Caddyfile*') -or ($rel -clike '*caddyfile*') -or ($rel -clike '*traefik*') -or ($rel -clike '*haproxy*') -or ($rel -clike '*.htaccess')) { $proxy += $rel }
+    if (($rel -clike '*.pem') -or ($rel -clike '*.crt') -or ($rel -clike '*.cer') -or ($rel -clike '*.key') -or ($rel -clike '*.pfx') -or ($rel -clike '*.p12')) { $tls += $rel }
+  }
+  return @{ proxy = $proxy; tls = $tls }
+}
+
+# One claim, checked against the edge the tree has.
+function Test-EdgeClaim($doc, $line, $claim) {
+  $lower = $claim.ToLower()
+  if ($lower -match $noProxyRe) {
+    $script:proxyChecked++
+    if ($script:proxyPlaces.Count -gt 0) {
+      Write-Fail ("{0,-22} {1} line {2} says there is no reverse proxy, but {3} is one" -f 'proxy', $doc, $line, ($script:proxyPlaces -join ' '))
+      $script:proxyBad = $true
+    }
+  }
+  if ($lower -match $noTlsRe) {
+    $script:tlsChecked++
+    if ($script:tlsPlaces.Count -gt 0) {
+      Write-Fail ("{0,-22} {1} line {2} says there is no TLS, but {3} is a certificate" -f 'tls', $doc, $line, ($script:tlsPlaces -join ' '))
+      $script:tlsBad = $true
+    }
+  }
+}
+
+$edge = Get-EdgePlaces
+$script:proxyPlaces = @($edge.proxy)
+$script:tlsPlaces = @($edge.tls)
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-EdgeClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:proxyBad) { Write-Ok 'proxy' ("{0} claims" -f $script:proxyChecked) }
+if (-not $script:tlsBad) { Write-Ok 'tls' ("{0} claims" -f $script:tlsChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)
