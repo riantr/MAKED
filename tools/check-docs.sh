@@ -5766,6 +5766,83 @@ if [ "$ABSENCE_BAD" -eq 0 ]; then
   ok "absence evidence" "$ABSENCE_CHECKED claims"
 fi
 
+# --- the edges the packages do not share ---------------------------------------
+#
+# The dependency document says the backend and the frontend share no direct
+# dependency: they talk through the JSON contract at runtime, not through an
+# import. That is a claim about the tree's edges, and the tree's edges are
+# known.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+SHARED_BAD=0
+SHARED_CHECKED=0
+
+# A claim that names two packages and says they share no dependency.
+NO_SHARED_RE='([a-z]+) and ([a-z]+) share no direct dependency'
+
+# One claim, checked against the edges the tree has.
+shared_claim_check() {
+  local doc="$1" line="$2" claim="$3" lower first second l a b edge
+  lower="${claim,,}"
+  if [[ ! "$lower" =~ $NO_SHARED_RE ]]; then
+    return
+  fi
+  first="${BASH_REMATCH[1]}"
+  second="${BASH_REMATCH[2]}"
+  # both have to be packages of the tree
+  case " $CODE_PKGS " in
+    *" $first "*) ;;
+    *) return ;;
+  esac
+  case " $CODE_PKGS " in
+    *" $second "*) ;;
+    *) return ;;
+  esac
+  SHARED_CHECKED=$((SHARED_CHECKED + 1))
+  # and the tree has to have no edge between them, either way
+  edge=""
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    a="${l%% *}"; b="${l##* }"
+    if [ "$a" = "$first" ] && [ "$b" = "$second" ]; then
+      edge="$l"
+      break
+    fi
+    if [ "$a" = "$second" ] && [ "$b" = "$first" ]; then
+      edge="$l"
+      break
+    fi
+  done <<< "$TREE_INTERNAL_EDGES"
+  if [ -n "$edge" ]; then
+    fail "$(printf '%-22s %s line %s says %s and %s share no direct dependency, but the tree has the edge %s' \
+      'shared edge' "$doc" "$line" "$first" "$second" "$edge")"
+    SHARED_BAD=1
+  fi
+}
+
+# Every claim, checked against the edges the tree has.
+check_shared_claims() {
+  local doc line claim
+  code_packages
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      shared_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+check_shared_claims
+
+if [ "$SHARED_BAD" -eq 0 ]; then
+  ok "shared edge" "$SHARED_CHECKED claims"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

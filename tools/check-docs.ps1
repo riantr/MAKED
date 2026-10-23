@@ -5250,6 +5250,63 @@ foreach ($doc in $archDocs) {
 
 if (-not $script:absenceBad) { Write-Ok 'absence evidence' ("{0} claims" -f $script:absenceChecked) }
 
+# --- the edges the packages do not share ---------------------------------------
+#
+# The dependency document says the backend and the frontend share no direct
+# dependency: they talk through the JSON contract at runtime, not through an
+# import. That is a claim about the tree's edges, and the tree's edges are
+# known.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:sharedBad = $false
+$script:sharedChecked = 0
+$script:sharedPkgs = @()
+
+# A claim that names two packages and says they share no dependency.
+$noSharedRe = '([a-z]+) and ([a-z]+) share no direct dependency'
+
+# One claim, checked against the edges the tree has.
+function Test-SharedClaim($doc, $line, $claim) {
+  $lower = $claim.ToLower()
+  $m = [regex]::Match($lower, $noSharedRe)
+  if (-not $m.Success) { return }
+  $first = $m.Groups[1].Value
+  $second = $m.Groups[2].Value
+  # both have to be packages of the tree
+  if ($script:sharedPkgs -cnotcontains $first) { return }
+  if ($script:sharedPkgs -cnotcontains $second) { return }
+  $script:sharedChecked++
+  # and the tree has to have no edge between them, either way
+  $edge = ''
+  foreach ($l in @(Get-TreeInternalEdges)) {
+    $parts = $l.Split(' ')
+    if (($parts[0] -ceq $first -and $parts[1] -ceq $second) -or ($parts[0] -ceq $second -and $parts[1] -ceq $first)) {
+      $edge = $l
+      break
+    }
+  }
+  if ($edge -ne '') {
+    Write-Fail ("{0,-22} {1} line {2} says {3} and {4} share no direct dependency, but the tree has the edge {5}" -f 'shared edge', $doc, $line, $first, $second, $edge)
+    $script:sharedBad = $true
+  }
+}
+
+$script:sharedPkgs = @(Get-CouplingPackages)
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-SharedClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:sharedBad) { Write-Ok 'shared edge' ("{0} claims" -f $script:sharedChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)
