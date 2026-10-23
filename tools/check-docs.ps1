@@ -5038,6 +5038,85 @@ foreach ($doc in $archDocs) {
 
 if (-not $script:couplingBad) { Write-Ok 'coupling calls' ("{0} calls" -f $script:couplingChecked) }
 
+# --- the cycles the graph does not have ---------------------------------------
+#
+# The dependency document says the package graph has no cycles: the packages
+# depend strictly downward, so no package depends on one that depends on it.
+# That is a claim about the tree, and the tree can be checked for it: the
+# internal edges are known, and a cycle is an edge whose far end can reach
+# its near end again.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:cycleBad = $false
+$script:cycleChecked = 0
+$script:treeCycles = @()
+
+# The packages a package can reach.
+function Get-Reachable($from, $edges) {
+  $seen = @($from)
+  $todo = @($from)
+  $out = @()
+  while ($todo.Count -gt 0) {
+    $next = @()
+    foreach ($node in $todo) {
+      foreach ($edge in $edges) {
+        $parts = $edge.Split(' ')
+        if ($parts[0] -ne $node) { continue }
+        $b = $parts[1]
+        if ($seen -ccontains $b) { continue }
+        $seen += $b
+        $next += $b
+        $out += $b
+      }
+    }
+    $todo = $next
+  }
+  $out
+}
+
+# The cycles the tree's package graph has.
+function Get-TreeCycles($edges) {
+  $out = @()
+  foreach ($edge in $edges) {
+    $parts = $edge.Split(' ')
+    $a = $parts[0]
+    $b = $parts[1]
+    $reach = @(Get-Reachable $b $edges)
+    if ($reach -ccontains $a) { $out += ("{0} -> {1}" -f $a, $b) }
+  }
+  $out
+}
+
+# A claim that says the graph has no cycles.
+$noCycleRe = 'no cycles'
+
+# One claim, checked against the cycles the tree has.
+function Test-CycleClaim($doc, $line, $claim) {
+  $lower = $claim.ToLower()
+  if ($lower -notmatch $noCycleRe) { return }
+  $script:cycleChecked++
+  if ($script:treeCycles.Count -gt 0) {
+    Write-Fail ("{0,-22} {1} line {2} says there are no cycles, but the tree has one: {3}" -f 'cycles', $doc, $line, ($script:treeCycles -join ' '))
+    $script:cycleBad = $true
+  }
+}
+
+$script:treeCycles = @(Get-TreeCycles (Get-TreeInternalEdges))
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-CycleClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:cycleBad) { Write-Ok 'cycles' ("{0} claims" -f $script:cycleChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

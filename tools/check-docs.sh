@@ -5474,6 +5474,102 @@ if [ "$COUPLING_BAD" -eq 0 ]; then
   ok "coupling calls" "$COUPLING_CHECKED calls"
 fi
 
+# --- the cycles the graph does not have ---------------------------------------
+#
+# The dependency document says the package graph has no cycles: the packages
+# depend strictly downward, so no package depends on one that depends on it.
+# That is a claim about the tree, and the tree can be checked for it: the
+# internal edges are known, and a cycle is an edge whose far end can reach
+# its near end again.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+CYCLE_BAD=0
+CYCLE_CHECKED=0
+
+# The packages a package can reach.
+REACHABLE=""
+reachable() {
+  local from="$1" edges="$2" line a b node seen next todo
+  REACHABLE=""
+  seen=" $from"
+  todo="$from"
+  while [ -n "$todo" ]; do
+    next=""
+    for node in $todo; do
+      while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        a="${line%% *}"; b="${line##* }"
+        [ "$a" = "$node" ] || continue
+        case "$seen" in
+          *" $b "*) continue ;;
+        esac
+        seen="$seen$b "
+        next="$next $b"
+        REACHABLE="$REACHABLE $b"
+      done <<< "$edges"
+    done
+    todo="$next"
+  done
+  trim "$REACHABLE"; REACHABLE="$TRIMMED"
+}
+
+# The cycles the tree's package graph has.
+TREE_CYCLES=""
+tree_cycles() {
+  local edges="$1" line a b
+  TREE_CYCLES=""
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    a="${line%% *}"; b="${line##* }"
+    reachable "$b" "$edges"
+    case " $REACHABLE " in
+      *" $a "*) TREE_CYCLES="$TREE_CYCLES $a -> $b" ;;
+    esac
+  done <<< "$edges"
+  trim "$TREE_CYCLES"; TREE_CYCLES="$TRIMMED"
+}
+
+# A claim that says the graph has no cycles.
+NO_CYCLE_RE='no cycles'
+
+# One claim, checked against the cycles the tree has.
+cycle_claim_check() {
+  local doc="$1" line="$2" claim="$3" lower
+  lower="${claim,,}"
+  if [[ ! "$lower" =~ $NO_CYCLE_RE ]]; then
+    return
+  fi
+  CYCLE_CHECKED=$((CYCLE_CHECKED + 1))
+  if [ -n "$TREE_CYCLES" ]; then
+    fail "$(printf '%-22s %s line %s says there are no cycles, but the tree has one: %s' \
+      'cycles' "$doc" "$line" "$TREE_CYCLES")"
+    CYCLE_BAD=1
+  fi
+}
+
+# Every claim, checked against the cycles the tree has.
+check_cycle_claims() {
+  local doc line claim
+  tree_cycles "$TREE_INTERNAL_EDGES"
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      cycle_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+check_cycle_claims
+
+if [ "$CYCLE_BAD" -eq 0 ]; then
+  ok "cycles" "$CYCLE_CHECKED claims"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."
