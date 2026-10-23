@@ -4109,6 +4109,93 @@ if [ "$FALLBACK_BAD" -eq 0 ]; then
   ok "fallback site" "maked_app.mbt:$HISTORY_LINES"
 fi
 
+# --- the names the tree has ----------------------------------------------------
+#
+# A document that puts a name in backticks is telling the reader where to
+# look: "the body is inserted with `Attrs::inner_html`" points into the code,
+# and a reader who searches the tree for it has to find it. A name the tree
+# does not have is a name nobody can follow, and it is usually a name that
+# was renamed or removed and the document never heard.
+#
+# The names are the tree's own: every tracked file that is not a document. A
+# document is not part of the vocabulary, because a name that only the
+# documents use is exactly the name that is not in the code. The gates
+# themselves are not part of it either: a name a gate mentions is not a name
+# the tree has.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+# The names the tree has.
+declare -A TREE_NAME
+TREE_NAME_COUNT=0
+
+# A name in the tree: a word, with an optional type qualifier.
+NAME_RE='([A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)?)'
+# The name a piece of backticked text starts with.
+NAME_FIRST_RE='^([A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)?)'
+# A piece of backticked text.
+TICK_RE='`([^`]+)`'
+
+code_tree_names() {
+  local files out name
+  TREE_NAME_COUNT=0
+  files=$(git ls-files 2>/dev/null \
+    | grep -vE '^(architecture/|README\.md|AGENTS\.md|AGENT\.md)' \
+    | grep -vE '\.(md|dot)$' \
+    | grep -vE '^tools/check-docs\.(sh|ps1)$' || true)
+  [ -n "$files" ] || return
+  out=$(LC_ALL=C awk '{ print }' $files | LC_ALL=C grep -oE "$NAME_RE" | LC_ALL=C sort -u || true)
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    TREE_NAME["$name"]=1
+  done <<< "$out"
+  TREE_NAME_COUNT="${#TREE_NAME[@]}"
+}
+
+CODE_NAMES_BAD=0
+
+# One claim, checked against the names the tree has.
+code_name_claim_check() {
+  local doc="$1" line="$2" claim="$3" rest tick name
+  cite_source "$claim"
+  [ -n "$CITE_FILE" ] || return
+  rest="$CITE_TEXT"
+  while [[ "$rest" =~ $TICK_RE ]]; do
+    tick="${BASH_REMATCH[1]}"
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+    tick="${tick#"${tick%%[![:space:]]*}"}"
+    [[ "$tick" =~ $NAME_FIRST_RE ]] || continue
+    name="${BASH_REMATCH[1]}"
+    if [ -z "${TREE_NAME["$name"]+yes}" ]; then
+      fail "$(printf '%-22s %s line %s names [%s], and the tree has no such name' \
+        'code names' "$doc" "$line" "$name")"
+      CODE_NAMES_BAD=1
+    fi
+  done
+}
+
+# Every claim the design documents make, checked against the names.
+check_name_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      code_name_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+code_tree_names
+check_name_claims
+
+if [ "$CODE_NAMES_BAD" -eq 0 ]; then
+  ok "code names" "$TREE_NAME_COUNT names"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

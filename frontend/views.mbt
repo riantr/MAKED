@@ -14,7 +14,7 @@
 //     on `a`. Navigation handlers therefore sit on a wrapper element.
 //
 // Page bodies arrive from the backend as HTML fragments and are inserted with
-// `dangerous_inner_html`. That is safe here only because the backend is the
+// `Attrs::inner_html`. That is safe here only because the backend is the
 // sole writer of that content and it stores the strings itself -- it is not
 // user input. A comment saying so belongs next to the call, and did.
 

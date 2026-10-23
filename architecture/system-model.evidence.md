@@ -54,7 +54,7 @@ files. Confidence is **high** unless noted otherwise.
 | Logo: SVG ring + taijitu, HTML letter overlay | `frontend/logo.mbt:1-201` | high |
 | Ring geometry: 5 nodes clockwise from top, radius 68, viewBox 200x200 | `frontend/logo.mbt:32-70` | high |
 | Node colors: M indigo, D green, E red, A yellow, K grey | `frontend/logo.mbt:12-15, 32-40` | high |
-| `dangerous_inner_html` used for page bodies (safe: backend is sole writer) | `frontend/views.mbt:141-157` | high |
+| `page_view` inserts the body with `Attrs::inner_html` (safe: backend is sole writer) | `frontend/views.mbt:141-153` | high |
 
 ## Entry points
 

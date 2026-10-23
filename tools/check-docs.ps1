@@ -3964,6 +3964,81 @@ foreach ($doc in $archDocs) {
 if (-not $script:pointerBad) { Write-Ok 'code pointer' ("{0} pointers" -f $script:pointerChecked) }
 if (-not $script:fallbackBad) { Write-Ok 'fallback site' ('maked_app.mbt:' + ($script:historyLines -join ' ')) }
 
+# --- the names the tree has ----------------------------------------------------
+#
+# A document that puts a name in backticks is telling the reader where to
+# look: "the body is inserted with `Attrs::inner_html`" points into the code,
+# and a reader who searches the tree for it has to find it. A name the tree
+# does not have is a name nobody can follow, and it is usually a name that
+# was renamed or removed and the document never heard.
+#
+# The names are the tree's own: every tracked file that is not a document. A
+# document is not part of the vocabulary, because a name that only the
+# documents use is exactly the name that is not in the code. The gates
+# themselves are not part of it either: a name a gate mentions is not a name
+# the tree has.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:treeNames = $null
+$script:treeNameCount = 0
+$script:codeNamesBad = $false
+
+# A name in the tree: a word, with an optional type qualifier.
+$nameRe = '([A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)?)'
+# The name a piece of backticked text starts with.
+$nameFirstRe = '^[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)?'
+# A piece of backticked text.
+$tickRe = '`([^`]+)`'
+
+function Get-TreeNames {
+  $set = New-Object 'System.Collections.Generic.HashSet[string]'
+  foreach ($rel in @(& git ls-files 2>$null)) {
+    if ($rel -eq '') { continue }
+    if ($rel.StartsWith('architecture/')) { continue }
+    if ($rel -ceq 'README.md' -or $rel -ceq 'AGENTS.md' -or $rel -ceq 'AGENT.md') { continue }
+    if ($rel.EndsWith('.md') -or $rel.EndsWith('.dot')) { continue }
+    if ($rel -ceq 'tools/check-docs.sh' -or $rel -ceq 'tools/check-docs.ps1') { continue }
+    $full = Join-Path $PWD $rel
+    if (-not (Test-Path $full)) { continue }
+    try { $text = [System.IO.File]::ReadAllText($full, $enc) } catch { continue }
+    foreach ($m in [regex]::Matches($text, $nameRe)) { $null = $set.Add($m.Value) }
+  }
+  $script:treeNames = $set
+  $script:treeNameCount = $set.Count
+}
+
+# One claim, checked against the names the tree has.
+function Test-NameClaim($doc, $line, $claim) {
+  Get-CitedSource $claim
+  if ($script:citeFile -eq '') { return }
+  foreach ($m in [regex]::Matches($script:citeText, $tickRe)) {
+    $tick = $m.Groups[1].Value.Trim()
+    $nm = [regex]::Match($tick, $nameFirstRe)
+    if (-not $nm.Success) { continue }
+    $name = $nm.Value
+    if (-not $script:treeNames.Contains($name)) {
+      Write-Fail ("{0,-22} {1} line {2} names [{3}], and the tree has no such name" -f 'code names', $doc, $line, $name)
+      $script:codeNamesBad = $true
+    }
+  }
+}
+
+Get-TreeNames
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-NameClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:codeNamesBad) { Write-Ok 'code names' ("{0} names" -f $script:treeNameCount) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)
