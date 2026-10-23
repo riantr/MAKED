@@ -4464,6 +4464,139 @@ if (-not $script:targetBad) { Write-Ok 'supported target' ("{0} claims" -f $scri
 if (-not $script:targetSiteBad) { Write-Ok 'target site' ("{0} citations" -f $script:targetSiteChecked) }
 if (-not $script:moduleBad) { Write-Ok 'module targets' ("{0} claims" -f $script:moduleChecked) }
 
+# --- the calls that leave the machine -----------------------------------------
+#
+# A claim that says the tree makes no external network call is making a
+# promise about the network: nothing goes out to a host the reader does not
+# know about. The tree has to keep that promise, or the document has to stop
+# making it. A claim that says how many external calls there are has to say
+# the number the tree has.
+#
+# A call leaves the machine when the URL it fetches can be an address that is
+# not the machine's own. A call that fetches a path -- "/api/pages" -- talks to
+# a server that is already running. A call that fetches a name -- "url" -- can
+# be anything, so the package that makes it decides: a package that names an
+# address that is not the machine's own (not a loopback address, and not an XML
+# namespace, which is a name and not an address) can reach out.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:externalBad = $false
+$script:externalChecked = 0
+$script:outboundPkgs = @()
+$script:outboundCalls = 0
+
+# A claim that denies an external call, and a claim that makes one.
+$noExternalRe = '(no (external|outbound|remote)[a-z ]*(call|connection|request)|not call any external)'
+$hasExternalRe = '(external|outbound)[a-z ]*(call|connection|request)'
+# The number a claim states next to the call phrase.
+$countExternalRe = '(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve) (outbound|external)[a-z ]*(call|connection|request)'
+
+# The addresses a package names.
+function Get-PkgHosts($pkg) {
+  $out = @()
+  foreach ($file in @(Get-ChildItem -Path (Join-Path $PWD $pkg) -Filter '*.mbt' -File -ErrorAction SilentlyContinue)) {
+    if ($file.Name.EndsWith('_test.mbt')) { continue }
+    $text = [System.IO.File]::ReadAllText($file.FullName, $enc)
+    $ns = @()
+    foreach ($m in [regex]::Matches($text, 'xmlns="(https?://[^"]*)"')) {
+      $ns += $m.Groups[1].Value
+    }
+    foreach ($m in [regex]::Matches($text, '"https?://[^"]*"')) {
+      $url = $m.Value.Replace('"', '')
+      if ($ns -ccontains $url) { continue }
+      if ($url.Contains('127.0.0.1') -or $url.Contains('localhost')) { continue }
+      $out += $url
+    }
+  }
+  $out | Select-Object -Unique
+}
+
+# Does this call leave the machine?
+function Test-CallLeaves($line, $hosts) {
+  $token = $line
+  $i = $token.IndexOf('@http.')
+  if ($i -ge 0) { $token = $token.Substring($i + 6) }
+  $i = $token.IndexOf('(')
+  if ($i -ge 0) { $token = $token.Substring($i + 1) }
+  $i = $token.IndexOf(' ')
+  if ($i -ge 0) { $token = $token.Substring(0, $i) }
+  $token = ($token -replace '[^A-Za-z0-9_"/:.\-+].*$', '')
+  if ($token.StartsWith('"/')) { return $false }
+  if ($token.StartsWith('"http://') -or $token.StartsWith('"https://')) { return $true }
+  if ($token.StartsWith('"')) { return $false }
+  ($hosts.Count -gt 0)
+}
+
+# The calls that leave the machine, and the packages that make them.
+function Get-OutboundCalls {
+  $pkgs = @()
+  $calls = 0
+  foreach ($pkg in $script:codePkgs) {
+    $hosts = @(Get-PkgHosts $pkg)
+    foreach ($file in @(Get-ChildItem -Path (Join-Path $PWD $pkg) -Filter '*.mbt' -File -ErrorAction SilentlyContinue)) {
+      if ($file.Name.EndsWith('_test.mbt')) { continue }
+      $lines = [System.IO.File]::ReadAllLines($file.FullName, $enc)
+      foreach ($line in $lines) {
+        if ($line -notmatch '@http\.(get|post|put|delete|head|patch)\(') { continue }
+        if (-not (Test-CallLeaves $line $hosts)) { continue }
+        $calls++
+        if ($pkgs -cnotcontains $pkg) { $pkgs += $pkg }
+      }
+    }
+  }
+  @{ packages = $pkgs; calls = $calls }
+}
+
+# One claim, checked against the calls the tree makes.
+function Test-ExternalClaim($doc, $line, $claim) {
+  $lower = $claim.ToLower()
+  if ($lower -match $noExternalRe) {
+    $script:externalChecked++
+    if ($script:outboundPkgs.Count -gt 0) {
+      Write-Fail ("{0,-22} {1} line {2} says there are no external network calls, but {3} reaches out" -f 'external call', $doc, $line, ($script:outboundPkgs -join ' '))
+      $script:externalBad = $true
+    }
+    return
+  }
+  if ($lower -match $hasExternalRe) {
+    $script:externalChecked++
+    if ($script:outboundPkgs.Count -eq 0) {
+      Write-Fail ("{0,-22} {1} line {2} says there is an external network call, but no package reaches out" -f 'external call', $doc, $line)
+      $script:externalBad = $true
+      return
+    }
+    $cm = [regex]::Match($lower, $countExternalRe)
+    if ($cm.Success) {
+      $word = $cm.Groups[1].Value
+      $stated = $numberWords[$word]
+      if ("$stated" -cne "$($script:outboundCalls)") {
+        Write-Fail ("{0,-22} {1} line {2} says {3} outbound calls, but the tree has {4}" -f 'external call', $doc, $line, $word, $script:outboundCalls)
+        $script:externalBad = $true
+      }
+    }
+  }
+}
+
+$outbound = Get-OutboundCalls
+$script:outboundPkgs = @($outbound.packages)
+$script:outboundCalls = $outbound.calls
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-ExternalClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:externalBad) {
+  Write-Ok 'external call' ("{0} calls in {1}" -f $script:outboundCalls, ($script:outboundPkgs -join ' '))
+}
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

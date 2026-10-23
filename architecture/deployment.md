@@ -121,9 +121,12 @@ route.
 | Browser → server | HTTP requests (HTML, JS, CSS, JSON) | HTTP/1.1 on localhost |
 | Server → SQLite | FFI calls (prepare, step, bind, finalize) | In-process FFI |
 | Server → filesystem | File reads (index.html, main.js, styles.css) | In-process fs |
+| Server → corpus feed | Corpus fetch (the arXiv API or an RSS feed) | HTTP to the feed you configured |
 
-There are **no external network calls**. The server does not call any external
-API, does not connect to any remote database, and does not phone home.
+There is **one outbound call**: the server fetches the corpus you configured --
+the arXiv API or an RSS feed -- with `@http.get(url)`
+(`backend/corpus_sources.mbt:905`). It does not connect to any remote
+database, and it does not phone home.
 
 ## Deployment gaps
 

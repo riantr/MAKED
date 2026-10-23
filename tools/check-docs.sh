@@ -4741,6 +4741,155 @@ if [ "$MODULE_BAD" -eq 0 ]; then
   ok "module targets" "$MODULE_CHECKED claims"
 fi
 
+# --- the calls that leave the machine -----------------------------------------
+#
+# A claim that says the tree makes no external network call is making a
+# promise about the network: nothing goes out to a host the reader does not
+# know about. The tree has to keep that promise, or the document has to stop
+# making it. A claim that says how many external calls there are has to say
+# the number the tree has.
+#
+# A call leaves the machine when the URL it fetches can be an address that is
+# not the machine's own. A call that fetches a path -- "/api/pages" -- talks to
+# a server that is already running. A call that fetches a name -- "url" -- can
+# be anything, so the package that makes it decides: a package that names an
+# address that is not the machine's own (not a loopback address, and not an XML
+# namespace, which is a name and not an address) can reach out.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+# The addresses a package names.
+PKG_HOSTS=""
+pkg_hosts() {
+  local pkg="$1" file url ns hosts=""
+  for file in "$pkg"/*.mbt; do
+    [ -f "$file" ] || continue
+    case "$file" in
+      *_test.mbt) continue ;;
+    esac
+    ns=$(grep -oE 'xmlns="https?://[^"]*"' "$file" 2>/dev/null \
+      | sed -E 's/^xmlns="//; s/"$//' || true)
+    for url in $(grep -oE '"https?://[^"]*"' "$file" 2>/dev/null | tr -d '"' || true); do
+      not_in "$url" "$ns"
+      [ -n "$NOT_IN" ] || continue
+      case "$url" in
+        *127.0.0.1*|*localhost*) continue ;;
+      esac
+      hosts="$hosts $url"
+    done
+  done
+  trim "$hosts"; PKG_HOSTS="$TRIMMED"
+}
+
+# Does this call leave the machine?
+CALL_LEAVES=0
+call_leaves() {
+  local line="$1" token
+  token="${line#*@http.}"
+  token="${token#*\(}"
+  token="${token%% *}"
+  token="${token%%[),]*}"
+  case "$token" in
+    '"/'*) CALL_LEAVES=0; return ;;
+    '"http://'*|'"https://'*) CALL_LEAVES=1; return ;;
+    '"'*) CALL_LEAVES=0; return ;;
+  esac
+  if [ -n "$PKG_HOSTS" ]; then CALL_LEAVES=1; else CALL_LEAVES=0; fi
+}
+
+# The calls that leave the machine, and the packages that make them.
+OUTBOUND_PKGS=""
+OUTBOUND_CALLS=0
+outbound_calls() {
+  local pkg file line
+  OUTBOUND_PKGS=""
+  OUTBOUND_CALLS=0
+  for pkg in $CODE_PKGS; do
+    pkg_hosts "$pkg"
+    for file in "$pkg"/*.mbt; do
+      [ -f "$file" ] || continue
+      case "$file" in
+        *_test.mbt) continue ;;
+      esac
+      while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        call_leaves "$line"
+        [ "$CALL_LEAVES" -eq 1 ] || continue
+        OUTBOUND_CALLS=$((OUTBOUND_CALLS + 1))
+        case " $OUTBOUND_PKGS " in
+          *" $pkg "*) ;;
+          *) OUTBOUND_PKGS="$OUTBOUND_PKGS $pkg" ;;
+        esac
+      done <<< "$(grep -E '@http\.(get|post|put|delete|head|patch)\(' "$file" 2>/dev/null || true)"
+    done
+  done
+  trim "$OUTBOUND_PKGS"; OUTBOUND_PKGS="$TRIMMED"
+}
+
+# A claim that denies an external call, and a claim that makes one.
+NO_EXTERNAL_RE='(no (external|outbound|remote)[a-z ]*(call|connection|request)|not call any external)'
+HAS_EXTERNAL_RE='(external|outbound)[a-z ]*(call|connection|request)'
+# The number a claim states next to the call phrase.
+COUNT_EXTERNAL_RE='(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve) (outbound|external)[a-z ]*(call|connection|request)'
+
+EXTERNAL_BAD=0
+EXTERNAL_CHECKED=0
+
+# One claim, checked against the calls the tree makes.
+external_claim_check() {
+  local doc="$1" line="$2" claim="$3" lower word stated
+  lower="${claim,,}"
+  if [[ "$lower" =~ $NO_EXTERNAL_RE ]]; then
+    EXTERNAL_CHECKED=$((EXTERNAL_CHECKED + 1))
+    if [ -n "$OUTBOUND_PKGS" ]; then
+      fail "$(printf '%-22s %s line %s says there are no external network calls, but %s reaches out' \
+        'external call' "$doc" "$line" "$OUTBOUND_PKGS")"
+      EXTERNAL_BAD=1
+    fi
+    return
+  fi
+  if [[ "$lower" =~ $HAS_EXTERNAL_RE ]]; then
+    EXTERNAL_CHECKED=$((EXTERNAL_CHECKED + 1))
+    if [ -z "$OUTBOUND_PKGS" ]; then
+      fail "$(printf '%-22s %s line %s says there is an external network call, but no package reaches out' \
+        'external call' "$doc" "$line")"
+      EXTERNAL_BAD=1
+      return
+    fi
+    if [[ "$lower" =~ $COUNT_EXTERNAL_RE ]]; then
+      word="${BASH_REMATCH[1]}"
+      stated="$(word_number "$word")"
+      if [ "$stated" != "$OUTBOUND_CALLS" ]; then
+        fail "$(printf '%-22s %s line %s says %s outbound calls, but the tree has %s' \
+          'external call' "$doc" "$line" "$word" "$OUTBOUND_CALLS")"
+        EXTERNAL_BAD=1
+      fi
+    fi
+  fi
+}
+
+# Every claim the design documents make, checked against the outbound calls.
+check_external_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      external_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+outbound_calls
+check_external_claims
+
+if [ "$EXTERNAL_BAD" -eq 0 ]; then
+  ok "external call" "$OUTBOUND_CALLS calls in $OUTBOUND_PKGS"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."
