@@ -6051,6 +6051,95 @@ if [ "$EXTERNAL_BAD" -eq 0 ]; then
   ok "external column" "$EXTERNAL_CHECKED packages"
 fi
 
+# --- the size a claim gives a file ---------------------------------------------
+#
+# The summary sizes the framework layer: the backend's `App` is ~150 lines.
+# That is a number about the tree -- the file the type is defined in -- and
+# the tree can be counted.
+#
+# A "~" is a tolerance, not an exact figure: the claim is about the size of
+# the thing, not about a line. The gate accepts the stated number when the
+# file is within a tenth of it, and says so plainly when it is not.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+SIZE_BAD=0
+SIZE_CHECKED=0
+
+# A claim that sizes a type's file.
+SIZE_RE='`([A-Za-z_][A-Za-z0-9_]*)` is ~([0-9]+) lines'
+
+# The files that define a type.
+TYPE_FILES=""
+type_files() {
+  local name="$1" file
+  TYPE_FILES=""
+  for file in $(git ls-files '*.mbt' 2>/dev/null); do
+    case "$file" in *_test.mbt) continue ;; esac
+    if grep -qE "^[[:space:]]*pub struct ${name}([^A-Za-z0-9_]|$)" "$file" 2>/dev/null; then
+      TYPE_FILES="$TYPE_FILES $file"
+    fi
+  done
+  trim "$TYPE_FILES"; TYPE_FILES="$TRIMMED"
+}
+
+# One claim, checked against the file the type is defined in.
+size_claim_check() {
+  local doc="$1" line="$2" claim="$3" name stated file count diff found=0
+  if [[ ! "$claim" =~ $SIZE_RE ]]; then
+    return
+  fi
+  name="${BASH_REMATCH[1]}"
+  stated="${BASH_REMATCH[2]}"
+  type_files "$name"
+  for file in $TYPE_FILES; do
+    found=$((found + 1))
+  done
+  if [ "$found" -eq 0 ]; then
+    fail "$(printf '%-22s %s line %s sizes %s, but the tree has no such type' \
+      'file size' "$doc" "$line" "$name")"
+    SIZE_BAD=1
+    return
+  fi
+  if [ "$found" -gt 1 ]; then
+    return
+  fi
+  file="$TYPE_FILES"
+  file_line_count "$file"
+  count="$FILE_LINE_COUNT"
+  SIZE_CHECKED=$((SIZE_CHECKED + 1))
+  diff=$(( count - stated ))
+  if [ "$diff" -lt 0 ]; then
+    diff=$(( -diff ))
+  fi
+  if [ "$diff" -gt $(( stated / 10 )) ]; then
+    fail "$(printf '%-22s %s line %s says %s is ~%s lines, but %s has %s' \
+      'file size' "$doc" "$line" "$name" "$stated" "$file" "$count")"
+    SIZE_BAD=1
+  fi
+}
+
+# Every claim, checked against the file the type is defined in.
+check_size_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      size_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+check_size_claims
+
+if [ "$SIZE_BAD" -eq 0 ]; then
+  ok "file size" "$SIZE_CHECKED claims"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

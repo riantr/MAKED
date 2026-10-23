@@ -5485,6 +5485,70 @@ foreach ($row in @(Get-DocExternalRows)) {
 
 if (-not $script:externalBad) { Write-Ok 'external column' ("{0} packages" -f $script:externalChecked) }
 
+# --- the size a claim gives a file ---------------------------------------------
+#
+# The summary sizes the framework layer: the backend's `App` is ~150 lines.
+# That is a number about the tree -- the file the type is defined in -- and
+# the tree can be counted.
+#
+# A "~" is a tolerance, not an exact figure: the claim is about the size of
+# the thing, not about a line. The gate accepts the stated number when the
+# file is within a tenth of it, and says so plainly when it is not.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:sizeBad = $false
+$script:sizeChecked = 0
+
+# The files that define a type.
+function Get-TypeFiles($name) {
+  $out = @()
+  foreach ($rel in @(& git ls-files '*.mbt' 2>$null)) {
+    if ($rel.EndsWith('_test.mbt')) { continue }
+    $file = Join-Path $PWD $rel
+    if (-not (Test-Path $file)) { continue }
+    $text = [System.IO.File]::ReadAllText($file, $enc)
+    if ($text -match '(?m)^\s*pub struct ' + [regex]::Escape($name) + '([^A-Za-z0-9_]|$)') { $out += $rel }
+  }
+  $out
+}
+
+# One claim, checked against the file the type is defined in.
+function Test-SizeClaim($doc, $line, $claim) {
+  $m = [regex]::Match($claim, '`([A-Za-z_][A-Za-z0-9_]*)` is ~([0-9]+) lines')
+  if (-not $m.Success) { return }
+  $name = $m.Groups[1].Value
+  $stated = [int]$m.Groups[2].Value
+  $files = @(Get-TypeFiles $name)
+  if ($files.Count -eq 0) {
+    Write-Fail ("{0,-22} {1} line {2} sizes {3}, but the tree has no such type" -f 'file size', $doc, $line, $name)
+    $script:sizeBad = $true
+    return
+  }
+  if ($files.Count -gt 1) { return }
+  $file = $files[0]
+  $count = [System.IO.File]::ReadAllLines((Join-Path $PWD $file), $enc).Count
+  $script:sizeChecked++
+  $diff = [Math]::Abs($count - $stated)
+  if ($diff -gt [int][Math]::Floor($stated / 10)) {
+    Write-Fail ("{0,-22} {1} line {2} says {3} is ~{4} lines, but {5} has {6}" -f 'file size', $doc, $line, $name, $stated, $file, $count)
+    $script:sizeBad = $true
+  }
+}
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-SizeClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:sizeBad) { Write-Ok 'file size' ("{0} claims" -f $script:sizeChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)
