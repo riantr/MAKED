@@ -6140,6 +6140,201 @@ if [ "$SIZE_BAD" -eq 0 ]; then
   ok "file size" "$SIZE_CHECKED claims"
 fi
 
+# --- the packages that use each dependency -----------------------------------
+#
+# The dependency table has a column that says who uses each dependency. It
+# is a claim about the tree's manifests: the packages whose import block
+# names the dependency, and no others.
+#
+# The comparison is on the MODULE, not on the path. A package that imports
+# "moonbitlang/async/fs" imports the module "moonbitlang/async", and the
+# table names modules. So the first two segments of an import path are what
+# is compared.
+#
+# The test imports count: a package that imports a dependency for its tests
+# still uses it.
+#
+# The cell is a set, not a list: the order the packages are written in says
+# nothing, so the two are compared by membership.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+USED_BY_BAD=0
+USED_BY_CHECKED=0
+
+# Every package the tree has, the root one included.
+ALL_PKGS=""
+all_packages() {
+  local rel
+  ALL_PKGS=""
+  for rel in $(git ls-files 2>/dev/null | grep -E '(^|/)moon\.pkg$'); do
+    case "$rel" in
+      moon.pkg) ALL_PKGS="$ALL_PKGS root" ;;
+      *) ALL_PKGS="$ALL_PKGS ${rel%/moon.pkg}" ;;
+    esac
+  done
+  trim "$ALL_PKGS"; ALL_PKGS="$TRIMMED"
+}
+
+# The module roots a package imports, the test imports included.
+PKG_ROOTS=""
+pkg_roots() {
+  local pkg="$1" file line inside=0 block="" path root first rest
+  PKG_ROOTS=""
+  case "$pkg" in
+    root) file="moon.pkg" ;;
+    *) file="$pkg/moon.pkg" ;;
+  esac
+  [ -f "$file" ] || return
+  while IFS= read -r line; do
+    if [ "$inside" -eq 0 ]; then
+      case "$line" in
+        "import {"*) inside=1; block="" ;;
+      esac
+      continue
+    fi
+    case "$line" in
+      *"}"*)
+        inside=0
+        all_matches "$block" '"([^"]+)"'
+        while IFS= read -r path; do
+          [ -n "$path" ] || continue
+          case "$path" in
+            riantr/MAKED*) continue ;;
+            */*) ;;
+            *) continue ;;
+          esac
+          # The first two segments of the path: the module it belongs to.
+          # "moonbitlang/async/fs" is the module "moonbitlang/async".
+          first="${path%%/*}"
+          rest="${path#*/}"
+          root="$first/${rest%%/*}"
+          PKG_ROOTS="$PKG_ROOTS $root"
+        done <<< "$MATCHES"
+        ;;
+      *) block="$block $line" ;;
+    esac
+  done < "$file"
+  trim "$PKG_ROOTS"; PKG_ROOTS="$TRIMMED"
+}
+
+# The packages that import a dependency.
+DEP_USERS=""
+dep_users() {
+  local dep="$1" pkg root
+  DEP_USERS=""
+  for pkg in $ALL_PKGS; do
+    pkg_roots "$pkg"
+    for root in $PKG_ROOTS; do
+      if [ "$root" != "$dep" ]; then
+        continue
+      fi
+      case " $DEP_USERS " in
+        *" $pkg "*) ;;
+        *) DEP_USERS="$DEP_USERS $pkg" ;;
+      esac
+    done
+  done
+  trim "$DEP_USERS"; DEP_USERS="$TRIMMED"
+}
+
+# The packages a cell names.
+USED_BY_NAMED=""
+used_by_named() {
+  local cell="$1" rest item out=""
+  USED_BY_NAMED=""
+  rest="$cell"
+  while [ -n "$rest" ]; do
+    case "$rest" in
+      *,*) item="${rest%%,*}"; rest="${rest#*,}" ;;
+      *) item="$rest"; rest="" ;;
+    esac
+    trim "$item"; item="$TRIMMED"
+    [ -n "$item" ] || continue
+    out="$out $item"
+  done
+  trim "$out"; USED_BY_NAMED="$TRIMMED"
+}
+
+# The rows of the dependency table: the line, the dependency and the cell
+# that says who uses it.
+DOC_USED_BY_ROWS=""
+doc_used_by_rows() {
+  awk '
+    /^\|[[:space:]]*Dependency[[:space:]]*\|[[:space:]]*Version[[:space:]]*\|[[:space:]]*Used by[[:space:]]*\|/ { inside = 1; next }
+    inside && /^\|/ {
+      n = split($0, cells, "[|]")
+      dep = cells[2]
+      used = cells[4]
+      gsub(/`/, "", dep)
+      gsub(/[ \t]/, "", dep)
+      gsub(/^[ \t]+|[ \t]+$/, "", used)
+      if (dep ~ /^[-\t]+$/) { next }
+      if (dep == "") { next }
+      if (used == "") { next }
+      print NR "\t" dep "\t" used
+    }
+    inside && !/^\|/ { exit }
+  ' "$EVIDENCE"
+}
+
+# One row, checked against the tree.
+used_by_check() {
+  local doc="$1" line="$2" dep="$3" cell="$4"
+  local named tree name
+  dep_users "$dep"
+  sorted_set "$DEP_USERS"; tree="$SORTED_SET"
+  USED_BY_CHECKED=$((USED_BY_CHECKED + 1))
+  if [ "$cell" = "(transitive)" ]; then
+    for name in $tree; do
+      fail "$(printf '%-22s %s line %s says %s is transitive, but the tree imports it in %s' \
+        'used by' "$doc" "$line" "$dep" "$name")"
+      USED_BY_BAD=1
+    done
+    return
+  fi
+  used_by_named "$cell"
+  sorted_set "$USED_BY_NAMED"; named="$SORTED_SET"
+  for name in $named; do
+    case " $tree " in
+      *" $name "*) ;;
+      *)
+        fail "$(printf '%-22s %s line %s says %s is used by %s, but the tree does not import it there' \
+          'used by' "$doc" "$line" "$dep" "$name")"
+        USED_BY_BAD=1
+        ;;
+    esac
+  done
+  for name in $tree; do
+    case " $named " in
+      *" $name "*) ;;
+      *)
+        fail "$(printf '%-22s %s line %s leaves %s out of %s, but the tree imports it there' \
+          'used by' "$doc" "$line" "$name" "$dep")"
+        USED_BY_BAD=1
+        ;;
+    esac
+  done
+}
+
+# Every row, checked against the tree.
+check_used_by() {
+  local row line dep cell
+  all_packages
+  DOC_USED_BY_ROWS=$(doc_used_by_rows)
+  while IFS=$'\t' read -r line dep cell; do
+    [ -n "$line" ] || continue
+    used_by_check "$EVIDENCE" "$line" "$dep" "$cell"
+  done <<< "$DOC_USED_BY_ROWS"
+}
+
+check_used_by
+
+if [ "$USED_BY_BAD" -eq 0 ]; then
+  ok "used by" "$USED_BY_CHECKED rows"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

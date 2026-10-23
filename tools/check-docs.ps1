@@ -5549,6 +5549,148 @@ foreach ($doc in $archDocs) {
 
 if (-not $script:sizeBad) { Write-Ok 'file size' ("{0} claims" -f $script:sizeChecked) }
 
+# --- the packages that use each dependency -----------------------------------
+#
+# The dependency table has a column that says who uses each dependency. It
+# is a claim about the tree's manifests: the packages whose import block
+# names the dependency, and no others.
+#
+# The comparison is on the MODULE, not on the path. A package that imports
+# "moonbitlang/async/fs" imports the module "moonbitlang/async", and the
+# table names modules. So the first two segments of an import path are what
+# is compared.
+#
+# The test imports count: a package that imports a dependency for its tests
+# still uses it.
+#
+# The cell is a set, not a list: the order the packages are written in says
+# nothing, so the two are compared by membership.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:usedByBad = $false
+$script:usedByChecked = 0
+
+# Every package the tree has, the root one included.
+function Get-AllPackages {
+  $out = @()
+  foreach ($rel in @(& git ls-files 2>$null)) {
+    if ($rel -notmatch '(^|/)moon\.pkg$') { continue }
+    if ($rel -eq 'moon.pkg') { $out += 'root' } else { $out += ($rel -replace '/moon\.pkg$', '') }
+  }
+  $out
+}
+
+# The module roots a package imports, the test imports included.
+function Get-PkgRoots($pkg) {
+  $out = @()
+  if ($pkg -eq 'root') { $path = Join-Path $PWD 'moon.pkg' }
+  else { $path = Join-Path $PWD (Join-Path $pkg 'moon.pkg') }
+  if (-not (Test-Path $path)) { return $out }
+  $inside = $false
+  $block = ''
+  foreach ($line in [System.IO.File]::ReadAllLines($path, $enc)) {
+    if (-not $inside) {
+      if ($line.StartsWith('import {')) { $inside = $true; $block = '' }
+      continue
+    }
+    if ($line -match '\}') {
+      $inside = $false
+      foreach ($m in [regex]::Matches($block, '"([^"]+)"')) {
+        $p = $m.Groups[1].Value
+        if ($p.StartsWith('riantr/MAKED')) { continue }
+        if ($p -notmatch '/') { continue }
+        $parts = $p -split '/'
+        $out += ($parts[0] + '/' + $parts[1])
+      }
+      continue
+    }
+    $block = $block + ' ' + $line
+  }
+  $out
+}
+
+# The packages that import a dependency.
+function Get-DepUsers($dep, $packages) {
+  $out = @()
+  foreach ($pkg in $packages) {
+    foreach ($root in @(Get-PkgRoots $pkg)) {
+      if ($root -cne $dep) { continue }
+      if ($out -cnotcontains $pkg) { $out += $pkg }
+    }
+  }
+  $out
+}
+
+# The packages a cell names.
+function Get-UsedByNamed($cell) {
+  $out = @()
+  foreach ($item in ($cell -split ',')) {
+    $item = $item.Trim()
+    if ($item -eq '') { continue }
+    $out += $item
+  }
+  $out
+}
+
+# The rows of the dependency table: the line, the dependency and the cell
+# that says who uses it.
+function Get-DocUsedByRows {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $evidence), $enc)
+  $inside = $false
+  $n = 0
+  foreach ($line in ($text -split "`r?`n")) {
+    $n++
+    if (-not $inside) {
+      if ($line -match '^\|\s*Dependency\s*\|\s*Version\s*\|\s*Used by\s*\|') { $inside = $true }
+      continue
+    }
+    if (-not $line.StartsWith('|')) { break }
+    $cells = $line -split '\|'
+    if ($cells.Count -lt 5) { continue }
+    $dep = ($cells[1] -replace '`', '') -replace '\s', ''
+    $used = $cells[3].Trim()
+    if ($dep -match '^[-\t]+$') { continue }
+    if ($dep -eq '') { continue }
+    if ($used -eq '') { continue }
+    $out += ,@($n, $dep, $used)
+  }
+  $out
+}
+
+# One row, checked against the tree.
+function Test-UsedBy($doc, $line, $dep, $cell) {
+  $tree = @(Sort-Set @(Get-DepUsers $dep $script:allPkgs))
+  $script:usedByChecked++
+  if ($cell -ceq '(transitive)') {
+    foreach ($name in $tree) {
+      Write-Fail ("{0,-22} {1} line {2} says {3} is transitive, but the tree imports it in {4}" -f 'used by', $doc, $line, $dep, $name)
+      $script:usedByBad = $true
+    }
+    return
+  }
+  $named = @(Sort-Set @(Get-UsedByNamed $cell))
+  foreach ($name in $named) {
+    if ($tree -ccontains $name) { continue }
+    Write-Fail ("{0,-22} {1} line {2} says {3} is used by {4}, but the tree does not import it there" -f 'used by', $doc, $line, $dep, $name)
+    $script:usedByBad = $true
+  }
+  foreach ($name in $tree) {
+    if ($named -ccontains $name) { continue }
+    Write-Fail ("{0,-22} {1} line {2} leaves {3} out of {4}, but the tree imports it there" -f 'used by', $doc, $line, $name, $dep)
+    $script:usedByBad = $true
+  }
+}
+
+$script:allPkgs = @(Get-AllPackages)
+foreach ($row in @(Get-DocUsedByRows)) {
+  Test-UsedBy $evidence $row[0] $row[1] $row[2]
+}
+
+if (-not $script:usedByBad) { Write-Ok 'used by' ("{0} rows" -f $script:usedByChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

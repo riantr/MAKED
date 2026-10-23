@@ -69,16 +69,22 @@ files. Confidence is **high** unless noted otherwise.
 
 | Dependency | Version | Used by | Source |
 |-----------|---------|---------|--------|
-| moonbit-community/rabbita | 0.16.6 | frontend | `moon.mod:48` |
+| moonbit-community/rabbita | 0.16.6 | frontend, cmd/web | `moon.mod:48` |
 | moonbit-community/sqlite3 | 0.2.3 | backend | `moon.mod:49` |
 | moonbit-community/yaml | 0.0.8 | backend | `moon.mod:50` |
-| moonbitlang/async | 0.22.5 | backend | `moon.mod:51` |
-| moonbitlang/moonback | 0.8.9 | backend | `moon.mod:52` |
+| moonbitlang/async | 0.22.5 | backend, cmd/server, cmd/mcp | `moon.mod:51` |
+| moonbitlang/moonback | 0.8.9 | backend, cmd/server | `moon.mod:52` |
 | moonbitlang/pdflite | 0.4.0 | backend | `moon.mod:53` |
 | moonbitlang/x | 0.5.6 | (transitive) | `moon.mod:54` |
 | riantr/moonbit_doubleML | 0.164.15 | backend | `moon.mod:55` |
 | riantr/pyroduct | 0.1.32 | backend | `moon.mod:56` |
 | colmugx/mcp | 0.18.1 | cmd/mcp | `moon.mod:57` |
+
+A package is named in the **Used by** column when its own `moon.pkg` imports
+the dependency, in any of its import blocks: a test import is an import too.
+The imports are counted by their module, so `moonbitlang/async` covers
+`moonbitlang/async/fs` and `moonbitlang/async/http`. A dependency that no
+package imports is written `(transitive)`: none of ours imports it.
 
 ## Tests
 
