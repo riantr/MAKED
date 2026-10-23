@@ -6267,6 +6267,101 @@ foreach ($doc in $archDocs) {
 
 if (-not $script:pageBad) { Write-Ok 'page load' ("{0} claims" -f $script:pageChecked) }
 
+# --- the literals a claim points at --------------------------------------------
+#
+# A claim that quotes a literal in backticks is pointing at it. When that
+# literal occurs exactly once in the code of the file the claim cites, there
+# is only one line it can mean, and the citation has to name that line.
+#
+# The search is on the CODE, not on the comments: a comment that names the
+# literal is a mention of it, not the place it is used.
+#
+# A literal that occurs in the code more than once is left alone. A row that
+# quotes "measure" cannot say which of the eight places it meant, and a gate
+# that guesses is worse than no gate at all.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:literalBad = $false
+$script:literalChecked = 0
+
+# A backticked token.
+$litRe = '`([^`]+)`'
+
+# The code of a line, with the comment cut away. The quotes stay: a literal
+# the document quotes is compared as it is written.
+function Get-CodeText($line) {
+  $i = $line.IndexOf('//')
+  if ($i -ge 0) { return $line.Substring(0, $i) }
+  $line
+}
+
+# The citations of a claim: the file and the lines of it.
+function Get-ClaimCites($claim) {
+  $out = @()
+  foreach ($m in [regex]::Matches($claim, $litRe)) {
+    $tok = $m.Groups[1].Value
+    if ($tok -notmatch '^[A-Za-z0-9_./-]+\.mbt:[0-9]') { continue }
+    $i = $tok.IndexOf(':')
+    $out += ,@($tok.Substring(0, $i), $tok.Substring($i + 1))
+  }
+  $out
+}
+
+# The one code line of a file where a literal occurs, or zero when the literal
+# occurs nowhere, or in more than one place.
+function Get-UniqueCodeLine($file, $lit) {
+  $script:uniqueLine = 0
+  $path = Join-Path $PWD $file
+  if (-not (Test-Path $path)) { return 0 }
+  $count = 0
+  $lines = [System.IO.File]::ReadAllLines($path, $enc)
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if (-not $lines[$i].Contains($lit)) { continue }
+    $code = Get-CodeText $lines[$i]
+    if (-not $code.Contains($lit)) { continue }
+    $count++
+    $script:uniqueLine = $i + 1
+    if ($count -gt 1) { return 0 }
+  }
+  if ($count -ne 1) { $script:uniqueLine = 0 }
+  $script:uniqueLine
+}
+
+# One claim, checked against the literals it quotes.
+function Test-LiteralClaim($doc, $line, $claim) {
+  $cites = @(Get-ClaimCites $claim)
+  if ($cites.Count -eq 0) { return }
+  foreach ($c in $cites) {
+    $file = $c[0]
+    $spec = $c[1]
+    foreach ($m in [regex]::Matches($claim, $litRe)) {
+      $tok = $m.Groups[1].Value
+      if ($tok -match '^[A-Za-z0-9_./-]+\.mbt:[0-9]') { continue }
+      $hit = Get-UniqueCodeLine $file $tok
+      if ($hit -eq 0) { continue }
+      $script:literalChecked++
+      if (-not (Test-CitationCovers $spec $hit)) {
+        Write-Fail ("{0,-22} {1} line {2} cites {3}:{4}, but {5} is on line {6}" -f 'literal pointer', $doc, $line, $file, $spec, $tok, $hit)
+        $script:literalBad = $true
+      }
+    }
+  }
+}
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-LiteralClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:literalBad) { Write-Ok 'literal pointer' ("{0} literals" -f $script:literalChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

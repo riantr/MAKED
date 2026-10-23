@@ -1,7 +1,9 @@
 # System Model Evidence
 
 Every claim in `system-model.md` and the diagrams traces to one or more source
-files. Confidence is **high** unless noted otherwise.
+files. A source names the file and the lines the claim is on, and a row that
+quotes a literal that occurs once in the code cites the line where that
+literal is. Confidence is **high** unless noted otherwise.
 
 ## Module structure
 
@@ -23,8 +25,8 @@ files. Confidence is **high** unless noted otherwise.
 | Handler type is `async (Request) -> Response` | `backend/app.mbt:16` | high |
 | Middleware type is factory pattern | `backend/app.mbt:22-23` | high |
 | Adapter bridges to moonback's `(Request, Responder) -> Unit` | `backend/app.mbt:92-95` | high |
-| Catch-all GET `/*rest` returns JSON 404 | `backend/app.mbt:127-134` | high |
-| Route conflicts use `fail` (not `raise`) | `backend/app.mbt:117-124` | high |
+| Catch-all GET `/*rest` returns JSON 404 | `backend/app.mbt:146` | high |
+| Route conflicts use `fail` (not `raise`) | `backend/app.mbt:141` | high |
 | 37 API routes: pages, entries, sessions, loop, research, society, agent | `backend/api.mbt:19-905` | high |
 | Database wraps sqlite3.Connection | `backend/database.mbt:26` | high |
 | Schema: `pages` table with 12 columns | `backend/database.mbt:76-88` | high |

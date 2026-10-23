@@ -7025,6 +7025,134 @@ if [ "$PAGE_BAD" -eq 0 ]; then
   ok "page load" "$PAGE_CHECKED claims"
 fi
 
+# --- the literals a claim points at --------------------------------------------
+#
+# A claim that quotes a literal in backticks is pointing at it. When that
+# literal occurs exactly once in the code of the file the claim cites, there
+# is only one line it can mean, and the citation has to name that line.
+#
+# The search is on the CODE, not on the comments: a comment that names the
+# literal is a mention of it, not the place it is used.
+#
+# A literal that occurs in the code more than once is left alone. A row that
+# quotes "measure" cannot say which of the eight places it meant, and a gate
+# that guesses is worse than no gate at all.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+LITERAL_BAD=0
+LITERAL_CHECKED=0
+
+# A backticked token.
+LIT_RE='`([^`]+)`'
+
+# The code of a line, with the comment cut away. The quotes stay: a literal
+# the document quotes is compared as it is written.
+CODE_TEXT=""
+code_text() {
+  CODE_TEXT="${1%%//*}"
+}
+
+# The code lines of a file, read once and kept: the file name is the key.
+CODE_FILE=""
+CODE_LINES=()
+code_lines_of() {
+  local file="$1" line
+  if [ "$CODE_FILE" = "$file" ]; then return; fi
+  CODE_FILE="$file"
+  CODE_LINES=()
+  [ -f "$file" ] || return
+  while IFS= read -r line; do
+    code_text "$line"
+    CODE_LINES+=("$CODE_TEXT")
+  done < "$file"
+}
+
+# The one code line of the file that is loaded where a literal occurs, or zero
+# when the literal occurs nowhere, or in more than one place.
+UNIQUE_LINE=0
+unique_code_line() {
+  local lit="$1" line i count=0
+  UNIQUE_LINE=0
+  for ((i = 0; i < ${#CODE_LINES[@]}; i++)); do
+    line="${CODE_LINES[$i]}"
+    case "$line" in
+      *"$lit"*) count=$((count + 1)); UNIQUE_LINE=$((i + 1)) ;;
+    esac
+    if [ "$count" -gt 1 ]; then UNIQUE_LINE=0; return; fi
+  done
+  if [ "$count" -ne 1 ]; then UNIQUE_LINE=0; fi
+}
+
+# The citations of a claim: "file|spec" entries, each one ended by a ";".
+CLAIM_CITES=""
+claim_cites() {
+  local claim="$1" rest="$1" tok
+  CLAIM_CITES=""
+  while [[ "$rest" =~ $LIT_RE ]]; do
+    tok="${BASH_REMATCH[1]}"
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+    case "$tok" in
+      *.mbt:[0-9]*) CLAIM_CITES="$CLAIM_CITES;${tok%%:*}|${tok#*:};" ;;
+    esac
+  done
+}
+
+# One claim, checked against the literals it quotes.
+literal_claim_check() {
+  local doc="$1" line="$2" claim="$3" c entry file spec rest tok
+  claim_cites "$claim"
+  [ -n "$CLAIM_CITES" ] || return
+  c="$CLAIM_CITES"
+  while [ -n "$c" ]; do
+    entry="${c%%;*}"
+    c="${c#*;}"
+    [ -n "$entry" ] || continue
+    file="${entry%%|*}"
+    spec="${entry#*|}"
+    code_lines_of "$file"
+    [ "${#CODE_LINES[@]}" -gt 0 ] || continue
+    rest="$claim"
+    while [[ "$rest" =~ $LIT_RE ]]; do
+      tok="${BASH_REMATCH[1]}"
+      rest="${rest#*"${BASH_REMATCH[0]}"}"
+      case "$tok" in
+        *.mbt:[0-9]*) continue ;;
+      esac
+      unique_code_line "$tok"
+      [ "$UNIQUE_LINE" -gt 0 ] || continue
+      LITERAL_CHECKED=$((LITERAL_CHECKED + 1))
+      citation_covers "$spec" "$UNIQUE_LINE"
+      if [ "$CITATION_COVERS" -eq 0 ]; then
+        fail "$(printf '%-22s %s line %s cites %s:%s, but %s is on line %s' \
+          'literal pointer' "$doc" "$line" "$file" "$spec" "$tok" "$UNIQUE_LINE")"
+        LITERAL_BAD=1
+      fi
+    done
+  done
+}
+
+# Every claim the documents make, checked against the literals they quote.
+check_literal_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      literal_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+check_literal_claims
+
+if [ "$LITERAL_BAD" -eq 0 ]; then
+  ok "literal pointer" "$LITERAL_CHECKED literals"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."
