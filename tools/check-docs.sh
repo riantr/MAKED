@@ -7153,6 +7153,152 @@ if [ "$LITERAL_BAD" -eq 0 ]; then
   ok "literal pointer" "$LITERAL_CHECKED literals"
 fi
 
+# --- the tables the schema has ------------------------------------------------
+#
+# The schema is a claim about the tree: the tables migrate() creates. The
+# documents state it in two places -- the list in the flow, and the rows of
+# the evidence table -- and both have to be the tree's list.
+#
+# The tables are read out of the code: every "CREATE TABLE IF NOT EXISTS
+# <name>" in the database file is a table the server makes on every start.
+#
+# A claim that lists the tables has to list all of them: a list one table
+# short sends a reader looking for a table that is not there. A name the
+# schema states has to be a table the tree makes, and every table the tree
+# makes has to be named somewhere.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+SCHEMA_BAD=0
+SCHEMA_CHECKED=0
+SCHEMA_TABLES=""
+SCHEMA_NAMED=""
+
+# A name that could be a table: lower case, no dots.
+NAME_RE='^[a-z][a-z0-9_]*$'
+
+# The tables the tree creates.
+code_schema_tables() {
+  local line name
+  SCHEMA_TABLES=""
+  while IFS= read -r line; do
+    case "$line" in
+      *"CREATE TABLE IF NOT EXISTS "*) ;;
+      *) continue ;;
+    esac
+    name="${line#*CREATE TABLE IF NOT EXISTS }"
+    name="${name%%(*}"
+    trim "$name"; name="$TRIMMED"
+    [[ "$name" =~ $NAME_RE ]] || continue
+    SCHEMA_TABLES="$SCHEMA_TABLES $name"
+  done < backend/database.mbt
+  trim "$SCHEMA_TABLES"; SCHEMA_TABLES="$TRIMMED"
+}
+
+# The tables a claim lists after "CREATE TABLE IF NOT EXISTS (".
+SCHEMA_LIST=""
+schema_list() {
+  local claim="$1" rest
+  SCHEMA_LIST=""
+  case "$claim" in
+    *"CREATE TABLE IF NOT EXISTS ("*) ;;
+    *) return ;;
+  esac
+  rest="${claim#*CREATE TABLE IF NOT EXISTS (}"
+  rest="${rest%%)*}"
+  SCHEMA_LIST="$rest"
+}
+
+# The table names a claim states: the lower case names it backticks.
+SCHEMA_NAMES=""
+schema_names() {
+  local claim="$1" rest="$1" tok
+  SCHEMA_NAMES=""
+  while [[ "$rest" =~ $LIT_RE ]]; do
+    tok="${BASH_REMATCH[1]}"
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+    if [[ "$tok" =~ $NAME_RE ]]; then
+      SCHEMA_NAMES="$SCHEMA_NAMES $tok"
+    fi
+  done
+}
+
+# One claim, checked against the tables the tree creates.
+schema_claim_check() {
+  local doc="$1" line="$2" claim="$3" stated listed name
+  # a claim that lists the tables the schema has
+  schema_list "$claim"
+  if [ -n "$SCHEMA_LIST" ]; then
+    SCHEMA_CHECKED=$((SCHEMA_CHECKED + 1))
+    stated="${SCHEMA_LIST//,/ }"
+    for name in $stated; do
+      SCHEMA_NAMED="$SCHEMA_NAMED $name"
+    done
+    sorted_set "$stated"; stated="$SORTED_SET"
+    sorted_set "$SCHEMA_TABLES"; listed="$SORTED_SET"
+    if [ "$stated" != "$listed" ]; then
+      fail "$(printf '%-22s %s line %s says the schema has [%s], the tree creates [%s]' \
+        'schema tables' "$doc" "$line" "$stated" "$listed")"
+      SCHEMA_BAD=1
+    fi
+    return
+  fi
+  # a claim that states the schema
+  case "${claim,,}" in
+    *schema*) ;;
+    *) return ;;
+  esac
+  schema_names "$claim"
+  [ -n "$SCHEMA_NAMES" ] || return
+  SCHEMA_CHECKED=$((SCHEMA_CHECKED + 1))
+  for name in $SCHEMA_NAMES; do
+    SCHEMA_NAMED="$SCHEMA_NAMED $name"
+    case " $SCHEMA_TABLES " in
+      *" $name "*) ;;
+      *)
+        fail "$(printf '%-22s %s line %s names the table %s, the tree has no such table' \
+          'schema tables' "$doc" "$line" "$name")"
+        SCHEMA_BAD=1
+        ;;
+    esac
+  done
+}
+
+# Every claim the documents make, checked against the tables the tree creates.
+check_schema_claims() {
+  local doc line claim name missing=""
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      schema_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+  # every table the tree creates has to be named by a document
+  for name in $SCHEMA_TABLES; do
+    case " $SCHEMA_NAMED " in
+      *" $name "*) ;;
+      *) missing="$missing $name" ;;
+    esac
+  done
+  if [ -n "$missing" ]; then
+    trim "$missing"; missing="$TRIMMED"
+    fail "$(printf '%-22s the tree creates [%s], and no document names it' \
+      'schema tables' "$missing")"
+    SCHEMA_BAD=1
+  fi
+}
+
+code_schema_tables
+check_schema_claims
+
+if [ "$SCHEMA_BAD" -eq 0 ]; then
+  ok "schema tables" "$SCHEMA_CHECKED claims"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

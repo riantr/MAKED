@@ -6362,6 +6362,122 @@ foreach ($doc in $archDocs) {
 
 if (-not $script:literalBad) { Write-Ok 'literal pointer' ("{0} literals" -f $script:literalChecked) }
 
+# --- the tables the schema has ------------------------------------------------
+#
+# The schema is a claim about the tree: the tables migrate() creates. The
+# documents state it in two places -- the list in the flow, and the rows of
+# the evidence table -- and both have to be the tree's list.
+#
+# The tables are read out of the code: every "CREATE TABLE IF NOT EXISTS
+# <name>" in the database file is a table the server makes on every start.
+#
+# A claim that lists the tables has to list all of them: a list one table
+# short sends a reader looking for a table that is not there. A name the
+# schema states has to be a table the tree makes, and every table the tree
+# makes has to be named somewhere.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:schemaBad = $false
+$script:schemaChecked = 0
+$script:schemaTables = @()
+$script:schemaNamed = @()
+
+# A name that could be a table: lower case, no dots.
+$nameRe = '^[a-z][a-z0-9_]*$'
+
+# The tables the tree creates.
+function Get-SchemaTables {
+  $out = @()
+  $lines = [System.IO.File]::ReadAllLines((Join-Path $PWD 'backend/database.mbt'), $enc)
+  foreach ($line in $lines) {
+    $i = $line.IndexOf('CREATE TABLE IF NOT EXISTS ')
+    if ($i -lt 0) { continue }
+    $name = $line.Substring($i + 'CREATE TABLE IF NOT EXISTS '.Length)
+    $j = $name.IndexOf('(')
+    if ($j -ge 0) { $name = $name.Substring(0, $j) }
+    $name = $name.Trim()
+    if ($name -cnotmatch $nameRe) { continue }
+    $out += $name
+  }
+  $out
+}
+
+# The tables a claim lists after "CREATE TABLE IF NOT EXISTS (".
+function Get-SchemaList($claim) {
+  $i = $claim.IndexOf('CREATE TABLE IF NOT EXISTS (')
+  if ($i -lt 0) { return '' }
+  $rest = $claim.Substring($i + 'CREATE TABLE IF NOT EXISTS ('.Length)
+  $j = $rest.IndexOf(')')
+  if ($j -ge 0) { $rest = $rest.Substring(0, $j) }
+  $rest
+}
+
+# The table names a claim states: the lower case names it backticks.
+function Get-SchemaNames($claim) {
+  $out = @()
+  foreach ($m in [regex]::Matches($claim, $litRe)) {
+    $tok = $m.Groups[1].Value
+    if ($tok -cnotmatch $nameRe) { continue }
+    $out += $tok
+  }
+  $out
+}
+
+# One claim, checked against the tables the tree creates.
+function Test-SchemaClaim($doc, $line, $claim) {
+  # a claim that lists the tables the schema has
+  $list = Get-SchemaList $claim
+  if ($list -ne '') {
+    $script:schemaChecked++
+    $stated = @($list -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+    $script:schemaNamed += $stated
+    $a = @(Sort-Set $stated) -join ' '
+    $b = @(Sort-Set $script:schemaTables) -join ' '
+    if ($a -cne $b) {
+      Write-Fail ("{0,-22} {1} line {2} says the schema has [{3}], the tree creates [{4}]" -f 'schema tables', $doc, $line, $a, $b)
+      $script:schemaBad = $true
+    }
+    return
+  }
+  # a claim that states the schema
+  if ($claim.ToLowerInvariant() -notmatch 'schema') { return }
+  $names = @(Get-SchemaNames $claim)
+  if ($names.Count -eq 0) { return }
+  $script:schemaChecked++
+  foreach ($name in $names) {
+    $script:schemaNamed += $name
+    if ($script:schemaTables -cnotcontains $name) {
+      Write-Fail ("{0,-22} {1} line {2} names the table {3}, the tree has no such table" -f 'schema tables', $doc, $line, $name)
+      $script:schemaBad = $true
+    }
+  }
+}
+
+# Every claim the documents make, checked against the tables the tree creates.
+$script:schemaTables = @(Get-SchemaTables)
+$missing = @()
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-SchemaClaim $doc $claim.line $claim.text
+  }
+}
+# every table the tree creates has to be named by a document
+foreach ($name in $script:schemaTables) {
+  if ($script:schemaNamed -cnotcontains $name) { $missing += $name }
+}
+if ($missing.Count -gt 0) {
+  Write-Fail ("{0,-22} the tree creates [{1}], and no document names it" -f 'schema tables', ($missing -join ' '))
+  $script:schemaBad = $true
+}
+
+if (-not $script:schemaBad) { Write-Ok 'schema tables' ("{0} claims" -f $script:schemaChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)
