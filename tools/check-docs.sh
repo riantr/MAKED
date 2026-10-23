@@ -4975,6 +4975,83 @@ if [ "$CORS_BAD" -eq 0 ]; then
   ok "cors" "$CORS_CHECKED claims"
 fi
 
+# --- the metrics the tree computes --------------------------------------------
+#
+# A claim that says the tree has no metrics is making a claim about the tree:
+# the runs are not measured. The tree does measure them -- the four measures of
+# a run live in `backend/metrics.mbt` and ride in the session payload -- so a
+# document that says there are none is wrong about a thing a reader can see
+# in the API.
+#
+# A claim that says the tree has metrics has to be true too.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+# The metrics the tree has: a tracked source file that names them.
+METRIC_FILES=""
+metric_files() {
+  local file files=""
+  for file in $(git ls-files '*.mbt' 2>/dev/null | grep -iE 'metric' || true); do
+    case "$file" in
+      *_test.mbt) continue ;;
+    esac
+    files="$files $file"
+  done
+  trim "$files"; METRIC_FILES="$TRIMMED"
+}
+
+# A claim that denies metrics, and a claim that makes them.
+NO_METRIC_RE='no metrics?([^a-z]|$)'
+HAS_METRIC_RE='([^a-z])metrics?([^a-z]|$)'
+
+METRIC_BAD=0
+METRIC_CHECKED=0
+
+# One claim, checked against the metrics the tree has.
+metric_claim_check() {
+  local doc="$1" line="$2" claim="$3" lower
+  lower="${claim,,}"
+  if [[ ! "$lower" =~ $HAS_METRIC_RE ]]; then
+    return
+  fi
+  METRIC_CHECKED=$((METRIC_CHECKED + 1))
+  if [[ "$lower" =~ $NO_METRIC_RE ]]; then
+    if [ -n "$METRIC_FILES" ]; then
+      fail "$(printf '%-22s %s line %s says there are no metrics, but %s computes them' \
+        'metrics' "$doc" "$line" "$METRIC_FILES")"
+      METRIC_BAD=1
+    fi
+    return
+  fi
+  if [ -z "$METRIC_FILES" ]; then
+    fail "$(printf '%-22s %s line %s says the tree has metrics, but it has none' \
+      'metrics' "$doc" "$line")"
+    METRIC_BAD=1
+  fi
+}
+
+# Every claim the design documents make, checked against the metrics.
+check_metric_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      metric_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+metric_files
+check_metric_claims
+
+if [ "$METRIC_BAD" -eq 0 ]; then
+  ok "metrics" "$METRIC_CHECKED claims"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

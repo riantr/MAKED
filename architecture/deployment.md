@@ -135,5 +135,5 @@ database, and it does not phone home.
 | No process manager (systemd/supervisor) | Server dies with terminal | Add systemd unit or use a process manager |
 | No TLS termination | HTTP only | Add reverse proxy (nginx/caddy) for production |
 | No structured logging | One-line stderr log per request | Add JSON logging middleware |
-| No metrics/observability | No visibility into performance | Add Prometheus metrics or similar |
+| No exported metrics, tracing, or alerting | The run's own measures ride in the session payload; nothing collects them | Add Prometheus metrics or similar |
 | No backup strategy for SQLite | Data loss if file deleted | Add periodic backup or WAL mode + replication |

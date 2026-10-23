@@ -4673,6 +4673,70 @@ foreach ($doc in $archDocs) {
 
 if (-not $script:corsBad) { Write-Ok 'cors' ("{0} claims" -f $script:corsChecked) }
 
+# --- the metrics the tree computes --------------------------------------------
+#
+# A claim that says the tree has no metrics is making a claim about the tree:
+# the runs are not measured. The tree does measure them -- the four measures of
+# a run live in `backend/metrics.mbt` and ride in the session payload -- so a
+# document that says there are none is wrong about a thing a reader can see
+# in the API.
+#
+# A claim that says the tree has metrics has to be true too.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:metricBad = $false
+$script:metricChecked = 0
+$script:metricFiles = @()
+
+# A claim that denies metrics, and a claim that makes them.
+$noMetricRe = 'no metrics?([^a-z]|$)'
+$hasMetricRe = '([^a-z])metrics?([^a-z]|$)'
+
+# The metrics the tree has: a tracked source file that names them.
+function Get-MetricFiles {
+  $out = @()
+  foreach ($rel in @(& git ls-files '*.mbt' 2>$null)) {
+    if ($rel -notmatch '(?i)metric') { continue }
+    if ($rel.EndsWith('_test.mbt')) { continue }
+    $out += $rel
+  }
+  $out
+}
+
+# One claim, checked against the metrics the tree has.
+function Test-MetricClaim($doc, $line, $claim) {
+  $lower = $claim.ToLower()
+  if ($lower -notmatch $hasMetricRe) { return }
+  $script:metricChecked++
+  if ($lower -match $noMetricRe) {
+    if ($script:metricFiles.Count -gt 0) {
+      Write-Fail ("{0,-22} {1} line {2} says there are no metrics, but {3} computes them" -f 'metrics', $doc, $line, ($script:metricFiles -join ' '))
+      $script:metricBad = $true
+    }
+    return
+  }
+  if ($script:metricFiles.Count -eq 0) {
+    Write-Fail ("{0,-22} {1} line {2} says the tree has metrics, but it has none" -f 'metrics', $doc, $line)
+    $script:metricBad = $true
+  }
+}
+
+$script:metricFiles = @(Get-MetricFiles)
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-MetricClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:metricBad) { Write-Ok 'metrics' ("{0} claims" -f $script:metricChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

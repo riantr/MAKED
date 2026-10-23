@@ -41,8 +41,9 @@
 |-----|----------|------------|
 | No systemd unit | `find` for *.service returns nothing | high |
 | No structured logging | The request log is one `eprintln` line per request (`backend/maked_app.mbt:65`) | high |
-| No metrics/observability | No prometheus, open telemetry, or stats imports | high |
+| No exported metrics | No prometheus, open telemetry, or stats imports, and no `/metrics` endpoint | high |
 | No backup strategy | No cron, no WAL config, no backup code | high |
+| The run's metrics are computed, not exported | `backend/metrics.mbt:116` (`measure`), reported in the session payload (`backend/session.mbt:919`) | high |
 
 ## What is no longer a gap
 
