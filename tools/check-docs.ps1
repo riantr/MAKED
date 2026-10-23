@@ -5691,6 +5691,205 @@ foreach ($row in @(Get-DocUsedByRows)) {
 
 if (-not $script:usedByBad) { Write-Ok 'used by' ("{0} rows" -f $script:usedByChecked) }
 
+# --- the gaps the documents say are gaps ---------------------------------------
+#
+# The summary has a section that says what the product does not have, and the
+# other documents and the README say the same things in their own words. Each
+# denial is a claim about the tree: the tree must not have the thing denied.
+#
+# A denial is found by its phrase, and the thing it denies is looked for by
+# the words that name it. Those words are the tree's vocabulary, not the
+# document's: a document says "no auth", and an authentication in the tree
+# would be a login, a password, a credential or a bearer token.
+#
+# The search is on the CODE, not on the comments. A comment that says "there
+# is no auth" is a denial, not an authentication, and a comment that says
+# "tracking the corpus" is not analytics.
+#
+# A document that describes the past is a record of the past, so it is left
+# alone: what the tree had then is not what the tree has now.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:gapsBad = $false
+$script:gapsChecked = 0
+
+# The code of a source line, without its comments. The quotes go first: a
+# string that holds a "//" is a string, not a comment.
+function Get-Code($line) {
+  $code = $line.Replace('"', '')
+  $i = $code.IndexOf('//')
+  if ($i -ge 0) { $code = $code.Substring(0, $i) }
+  $code
+}
+
+# The files that are infrastructure as code.
+function Get-IacFiles {
+  $patterns = @('*.tf', '*.tfvars', '*.bicep', '*.hcl', 'ansible.cfg', 'playbook*.yml',
+    'Chart.yaml', 'kustomization.yaml', 'Pulumi.yaml', 'serverless.yml', '*.cfn',
+    'samconfig.toml', 'appspec.yml', '*.template.json')
+  $out = @()
+  foreach ($rel in @(& git ls-files 2>$null)) {
+    foreach ($pattern in $patterns) {
+      if ($rel -clike $pattern) { $out += $rel; break }
+    }
+  }
+  $out
+}
+
+# The files that provision a hosted environment.
+function Get-HostedFiles {
+  $patterns = @('fly.toml', 'railway.json', 'railway.toml', 'render.yaml', 'vercel.json',
+    'netlify.toml', 'Procfile', 'heroku.yml', 'app.yaml', 'azure.yaml', 'cloudbuild.yaml',
+    '*.kubeconfig', 'web.config', '*.nomad', '*.service', 'k8s/*', 'kubernetes/*',
+    'helm/*', 'cloudfoundry/*')
+  $out = @()
+  foreach ($rel in @(& git ls-files 2>$null)) {
+    foreach ($pattern in $patterns) {
+      if ($rel -clike $pattern) { $out += $rel; break }
+    }
+  }
+  $out
+}
+
+# The source files whose code carries one of a list of words. The list is
+# space separated, the search is a whole-word one, and it does not care
+# about case. CODE_WORD_FILES holds the files, CODE_WORD_FILE the first
+# one, and CODE_WORD_WORD the word that was found in it.
+$script:codeWordFiles = @()
+$script:codeWordFile = ''
+$script:codeWordWord = ''
+function Get-CodeWordFiles($words) {
+  $out = @()
+  $firstFile = ''
+  $firstWord = ''
+  foreach ($file in @(& git ls-files '*.mbt' 2>$null)) {
+    if ($file.EndsWith('_test.mbt') -or $file.EndsWith('_wbtest.mbt')) { continue }
+    $hit = ''
+    foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $PWD $file), $enc)) {
+      $code = (Get-Code $line).ToLowerInvariant()
+      foreach ($word in $words) {
+        if ($code -match '(^|[^a-z0-9_])' + [regex]::Escape($word) + '([^a-z0-9_]|$)') { $hit = $word; break }
+      }
+      if ($hit -ne '') { break }
+    }
+    if ($hit -ne '') {
+      $out += $file
+      if ($firstFile -eq '') { $firstFile = $file; $firstWord = $hit }
+    }
+  }
+  $script:codeWordFiles = @($out)
+  $script:codeWordFile = $firstFile
+  $script:codeWordWord = $firstWord
+}
+
+# The words that name the things the documents deny.
+$tracingWords = @('tracing', 'tracer', 'opentelemetry', 'jaeger', 'zipkin', 'opentracing')
+$alertingWords = @('alerting', 'alert', 'alertmanager', 'pagerduty', 'opsgenie')
+$analyticsWords = @('analytics', 'telemetry', 'tracking', 'gtag', 'googletagmanager',
+  'matomo', 'mixpanel', 'posthog', 'hotjar')
+$authWords = @('auth', 'authorization', 'authenticate', 'bearer', 'login', 'logout',
+  'password', 'credential', 'oauth', 'jwt', 'apikey', 'api_key', 'basic_auth',
+  'session_token', 'signin', 'sign_in')
+
+# The source files whose code names the /metrics path.
+function Get-MetricsFiles {
+  $out = @()
+  foreach ($file in @(& git ls-files '*.mbt' 2>$null)) {
+    if ($file.EndsWith('_test.mbt') -or $file.EndsWith('_wbtest.mbt')) { continue }
+    foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $PWD $file), $enc)) {
+      if ((Get-Code $line) -like '*/metrics*') { $out += $file; break }
+    }
+  }
+  $out
+}
+
+# One claim, checked against the tree.
+function Test-GapClaim($doc, $line, $claim) {
+  $lower = $claim.ToLowerInvariant()
+
+  if ($lower -match 'no\s+iac([^a-z]|$)') {
+    $script:gapsChecked++
+    $files = @(Get-IacFiles)
+    if ($files.Count -gt 0) {
+      Write-Fail ("{0,-22} {1} line {2} says there is no IaC, but the tree has {3}" -f 'gaps', $doc, $line, ($files -join ' '))
+      $script:gapsBad = $true
+    }
+  }
+
+  if ($lower -match 'no\s+hosted\s+environment') {
+    $script:gapsChecked++
+    $files = @(Get-HostedFiles)
+    if ($files.Count -gt 0) {
+      Write-Fail ("{0,-22} {1} line {2} says there is no hosted environment, but the tree has {3}" -f 'gaps', $doc, $line, ($files -join ' '))
+      $script:gapsBad = $true
+    }
+  }
+
+  if ($lower -match 'no\s+[^\s]*/metrics') {
+    $script:gapsChecked++
+    $files = @(Get-MetricsFiles)
+    if ($files.Count -gt 0) {
+      Write-Fail ("{0,-22} {1} line {2} says there is no /metrics endpoint, but {3} serves one" -f 'gaps', $doc, $line, ($files -join ' '))
+      $script:gapsBad = $true
+    }
+  }
+
+  if ($lower -match 'no\s+tracing([^a-z]|$)') {
+    $script:gapsChecked++
+    Get-CodeWordFiles $tracingWords
+    if ($script:codeWordFiles.Count -gt 0) {
+      Write-Fail ("{0,-22} {1} line {2} says there is no tracing, but {3} has {4} in it" -f 'gaps', $doc, $line, $script:codeWordFile, $script:codeWordWord)
+      $script:gapsBad = $true
+    }
+  }
+
+  if ($lower -match 'no\s+alerting([^a-z]|$)') {
+    $script:gapsChecked++
+    Get-CodeWordFiles $alertingWords
+    if ($script:codeWordFiles.Count -gt 0) {
+      Write-Fail ("{0,-22} {1} line {2} says there is no alerting, but {3} has {4} in it" -f 'gaps', $doc, $line, $script:codeWordFile, $script:codeWordWord)
+      $script:gapsBad = $true
+    }
+  }
+
+  if ($lower -match 'no\s+analytics([^a-z]|$)') {
+    $script:gapsChecked++
+    Get-CodeWordFiles $analyticsWords
+    if ($script:codeWordFiles.Count -gt 0) {
+      Write-Fail ("{0,-22} {1} line {2} says there is no analytics, but {3} has {4} in it" -f 'gaps', $doc, $line, $script:codeWordFile, $script:codeWordWord)
+      $script:gapsBad = $true
+    }
+  }
+
+  if ($lower -match 'no\s+auth(entication)?([^a-z]|$)') {
+    $script:gapsChecked++
+    Get-CodeWordFiles $authWords
+    if ($script:codeWordFiles.Count -gt 0) {
+      Write-Fail ("{0,-22} {1} line {2} says there is no auth, but {3} has {4} in it" -f 'gaps', $doc, $line, $script:codeWordFile, $script:codeWordWord)
+      $script:gapsBad = $true
+    }
+  }
+}
+
+# Every claim the documents make, checked against the tree.
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-GapClaim $doc $claim.line $claim.text
+  }
+}
+# the README says the same things in its own words
+foreach ($claim in (Get-DocClaims 'README.md')) {
+  Test-GapClaim 'README.md' $claim.line $claim.text
+}
+
+if (-not $script:gapsBad) { Write-Ok 'gaps' ("{0} denials" -f $script:gapsChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

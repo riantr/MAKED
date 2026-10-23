@@ -6335,6 +6335,236 @@ if [ "$USED_BY_BAD" -eq 0 ]; then
   ok "used by" "$USED_BY_CHECKED rows"
 fi
 
+# --- the gaps the documents say are gaps ---------------------------------------
+#
+# The summary has a section that says what the product does not have, and the
+# other documents and the README say the same things in their own words. Each
+# denial is a claim about the tree: the tree must not have the thing denied.
+#
+# A denial is found by its phrase, and the thing it denies is looked for by
+# the words that name it. Those words are the tree's vocabulary, not the
+# document's: a document says "no auth", and an authentication in the tree
+# would be a login, a password, a credential or a bearer token.
+#
+# The search is on the CODE, not on the comments. A comment that says "there
+# is no auth" is a denial, not an authentication, and a comment that says
+# "tracking the corpus" is not analytics.
+#
+# A document that describes the past is a record of the past, so it is left
+# alone: what the tree had then is not what the tree has now.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+GAPS_BAD=0
+GAPS_CHECKED=0
+
+# The files that are infrastructure as code.
+IAC_FILES=""
+iac_files() {
+  local rel files=""
+  for rel in $(git ls-files 2>/dev/null); do
+    case "$rel" in
+      *.tf|*.tfvars|*.bicep|*.hcl|ansible.cfg|playbook*.yml|Chart.yaml|\
+      kustomization.yaml|Pulumi.yaml|serverless.yml|*.cfn|samconfig.toml|\
+      appspec.yml|*.template.json)
+        files="$files $rel"
+        ;;
+    esac
+  done
+  trim "$files"; IAC_FILES="$TRIMMED"
+}
+
+# The files that provision a hosted environment.
+HOSTED_FILES=""
+hosted_files() {
+  local rel files=""
+  for rel in $(git ls-files 2>/dev/null); do
+    case "$rel" in
+      fly.toml|railway.json|railway.toml|render.yaml|vercel.json|netlify.toml|\
+      Procfile|heroku.yml|app.yaml|azure.yaml|cloudbuild.yaml|*.kubeconfig|\
+      web.config|*.nomad|*.service|k8s/*|kubernetes/*|helm/*|cloudfoundry/*)
+        files="$files $rel"
+        ;;
+    esac
+  done
+  trim "$files"; HOSTED_FILES="$TRIMMED"
+}
+
+# The code of a source file, without its comments. The quotes go first: a
+# string that holds a "//" is a string, not a comment. The result is in
+# CODE, because a subshell per line would be too slow.
+CODE=""
+code_of() {
+  local line="$1" code
+  code="${line//\"/}"
+  code="${code%%//*}"
+  CODE="$code"
+}
+
+# The source files whose code carries one of a list of words. The list is
+# space separated, the search is a whole-word one, and it does not care
+# about case. CODE_WORD_FILES holds the files, CODE_WORD_FILE the first
+# one, and CODE_WORD_WORD the word that was found in it.
+CODE_WORD_FILES=""
+CODE_WORD_FILE=""
+CODE_WORD_WORD=""
+code_word_files() {
+  local words="$1" file line code word hit
+  CODE_WORD_FILES=""
+  CODE_WORD_FILE=""
+  CODE_WORD_WORD=""
+  for file in $(git ls-files '*.mbt' 2>/dev/null); do
+    case "$file" in *_test.mbt|*_wbtest.mbt) continue ;; esac
+    hit=""
+    while IFS= read -r line; do
+      code_of "$line"
+      code="$CODE"
+      for word in $words; do
+        if [[ "${code,,}" =~ (^|[^a-z0-9_])${word}([^a-z0-9_]|$) ]]; then
+          hit="$word"
+          break
+        fi
+      done
+      [ -n "$hit" ] && break
+    done < "$file"
+    if [ -n "$hit" ]; then
+      CODE_WORD_FILES="$CODE_WORD_FILES $file"
+      if [ -z "$CODE_WORD_FILE" ]; then
+        CODE_WORD_FILE="$file"
+        CODE_WORD_WORD="$hit"
+      fi
+    fi
+  done
+  trim "$CODE_WORD_FILES"; CODE_WORD_FILES="$TRIMMED"
+}
+
+# The words that name the things the documents deny.
+TRACING_WORDS="tracing tracer opentelemetry jaeger zipkin opentracing"
+ALERTING_WORDS="alerting alert alertmanager pagerduty opsgenie"
+ANALYTICS_WORDS="analytics telemetry tracking gtag googletagmanager matomo mixpanel posthog hotjar"
+AUTH_WORDS="auth authorization authenticate bearer login logout password credential oauth jwt apikey api_key basic_auth session_token signin sign_in"
+
+# The source files whose code names the /metrics path.
+METRICS_FILES=""
+metrics_files() {
+  local file line code
+  METRICS_FILES=""
+  for file in $(git ls-files '*.mbt' 2>/dev/null); do
+    case "$file" in *_test.mbt|*_wbtest.mbt) continue ;; esac
+    while IFS= read -r line; do
+      code_of "$line"
+      code="$CODE"
+      case "$code" in
+        */metrics*) METRICS_FILES="$METRICS_FILES $file"; break ;;
+      esac
+    done < "$file"
+  done
+  trim "$METRICS_FILES"; METRICS_FILES="$TRIMMED"
+}
+
+# One claim, checked against the tree.
+gap_claim_check() {
+  local doc="$1" line="$2" claim="$3" lower
+  lower="${claim,,}"
+
+  if [[ "$lower" =~ no[[:space:]]+iac([^a-z]|$) ]]; then
+    GAPS_CHECKED=$((GAPS_CHECKED + 1))
+    if [ -n "$IAC_FILES" ]; then
+      fail "$(printf '%-22s %s line %s says there is no IaC, but the tree has %s' \
+        'gaps' "$doc" "$line" "$IAC_FILES")"
+      GAPS_BAD=1
+    fi
+  fi
+
+  if [[ "$lower" =~ no[[:space:]]+hosted[[:space:]]environment ]]; then
+    GAPS_CHECKED=$((GAPS_CHECKED + 1))
+    if [ -n "$HOSTED_FILES" ]; then
+      fail "$(printf '%-22s %s line %s says there is no hosted environment, but the tree has %s' \
+        'gaps' "$doc" "$line" "$HOSTED_FILES")"
+      GAPS_BAD=1
+    fi
+  fi
+
+  if [[ "$lower" =~ no[[:space:]]+[^[:space:]]*/metrics ]]; then
+    GAPS_CHECKED=$((GAPS_CHECKED + 1))
+    if [ -n "$METRICS_FILES" ]; then
+      fail "$(printf '%-22s %s line %s says there is no /metrics endpoint, but %s serves one' \
+        'gaps' "$doc" "$line" "$METRICS_FILES")"
+      GAPS_BAD=1
+    fi
+  fi
+
+  if [[ "$lower" =~ no[[:space:]]+tracing([^a-z]|$) ]]; then
+    GAPS_CHECKED=$((GAPS_CHECKED + 1))
+    code_word_files "$TRACING_WORDS"
+    if [ -n "$CODE_WORD_FILES" ]; then
+      fail "$(printf '%-22s %s line %s says there is no tracing, but %s has %s in it' \
+        'gaps' "$doc" "$line" "$CODE_WORD_FILE" "$CODE_WORD_WORD")"
+      GAPS_BAD=1
+    fi
+  fi
+
+  if [[ "$lower" =~ no[[:space:]]+alerting([^a-z]|$) ]]; then
+    GAPS_CHECKED=$((GAPS_CHECKED + 1))
+    code_word_files "$ALERTING_WORDS"
+    if [ -n "$CODE_WORD_FILES" ]; then
+      fail "$(printf '%-22s %s line %s says there is no alerting, but %s has %s in it' \
+        'gaps' "$doc" "$line" "$CODE_WORD_FILE" "$CODE_WORD_WORD")"
+      GAPS_BAD=1
+    fi
+  fi
+
+  if [[ "$lower" =~ no[[:space:]]+analytics([^a-z]|$) ]]; then
+    GAPS_CHECKED=$((GAPS_CHECKED + 1))
+    code_word_files "$ANALYTICS_WORDS"
+    if [ -n "$CODE_WORD_FILES" ]; then
+      fail "$(printf '%-22s %s line %s says there is no analytics, but %s has %s in it' \
+        'gaps' "$doc" "$line" "$CODE_WORD_FILE" "$CODE_WORD_WORD")"
+      GAPS_BAD=1
+    fi
+  fi
+
+  if [[ "$lower" =~ no[[:space:]]+auth(entication)?([^a-z]|$) ]]; then
+    GAPS_CHECKED=$((GAPS_CHECKED + 1))
+    code_word_files "$AUTH_WORDS"
+    if [ -n "$CODE_WORD_FILES" ]; then
+      fail "$(printf '%-22s %s line %s says there is no auth, but %s has %s in it' \
+        'gaps' "$doc" "$line" "$CODE_WORD_FILE" "$CODE_WORD_WORD")"
+      GAPS_BAD=1
+    fi
+  fi
+}
+
+# Every claim the documents make, checked against the tree.
+check_gap_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      gap_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+  # the README says the same things in its own words
+  doc_claims "README.md"
+  while IFS=$'\t' read -r line claim; do
+    [ -n "$claim" ] || continue
+    gap_claim_check "README.md" "$line" "$claim"
+  done <<< "$DOC_CLAIMS"
+}
+
+iac_files
+hosted_files
+metrics_files
+check_gap_claims
+
+if [ "$GAPS_BAD" -eq 0 ]; then
+  ok "gaps" "$GAPS_CHECKED denials"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."
