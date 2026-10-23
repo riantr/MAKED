@@ -5230,6 +5230,250 @@ if [ "$TLS_BAD" -eq 0 ]; then
   ok "tls" "$TLS_CHECKED claims"
 fi
 
+# --- the coupling the table states -------------------------------------------
+#
+# A coupling row that counts the calls says how tightly two packages are
+# tied together: "Eight function calls: install_from_environment, ...". The
+# count and the list are a claim about the tree, and the tree can be asked.
+#
+# A call into a package is one of three things: a qualified call
+# (@maked.create_app), a method on a value that package returned
+# (app.to_module), or a method chained straight onto one
+# (@maked.current_corpus().describe). A method on some other receiver
+# (ctx.add_middleware, which is moonback's) is not a call into that package
+# -- so the tree says eight where a naive reading of the names says nine.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+COUPLING_BAD=0
+COUPLING_CHECKED=0
+
+# Every match of a pattern in a text, one per line, in MATCHES.
+MATCHES=""
+all_matches() {
+  local text="$1" pattern="$2" index="${3:-1}" rest
+  MATCHES=""
+  rest="$text"
+  while [[ "$rest" =~ $pattern ]]; do
+    MATCHES="$MATCHES${BASH_REMATCH[$index]}"$'\n'
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+  done
+}
+
+# A set of names, sorted and without repeats, in SORTED_SET.
+SORTED_SET=""
+sorted_set() {
+  local out
+  out=$(printf '%s\n' $1 | LC_ALL=C sort -u | tr '\n' ' ' || true)
+  trim "$out"; SORTED_SET="$TRIMMED"
+}
+
+# The public functions a package has.
+PUB_NAMES=""
+pub_names() {
+  local pkg="$1" file line name
+  PUB_NAMES=""
+  for file in $(git ls-files "$pkg" 2>/dev/null); do
+    case "$file" in *_test.mbt) continue ;; esac
+    while IFS= read -r line; do
+      if [[ "$line" =~ ^[[:space:]]*pub[[:space:]]+(async[[:space:]]+)?fn[[:space:]]+([A-Za-z_][A-Za-z0-9_]*::)?([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*\( ]]; then
+        name="${BASH_REMATCH[3]}"
+        case " $PUB_NAMES " in
+          *" $name "*) continue ;;
+        esac
+        PUB_NAMES="$PUB_NAMES $name"
+      fi
+    done < "$file"
+  done
+  trim "$PUB_NAMES"; PUB_NAMES="$TRIMMED"
+}
+
+# The name a package is called by in another package's source.
+PKG_ALIAS=""
+pkg_alias() {
+  local caller="$1" callee="$2" line
+  PKG_ALIAS=""
+  [ -f "$caller/moon.pkg" ] || return
+  while IFS= read -r line; do
+    if [[ "$line" =~ [\"][^\"]*/${callee}[\"]([[:space:]]+@([A-Za-z_][A-Za-z0-9_]*))? ]]; then
+      if [ -n "${BASH_REMATCH[2]}" ]; then
+        PKG_ALIAS="${BASH_REMATCH[2]}"
+      else
+        PKG_ALIAS="${callee##*/}"
+      fi
+      return
+    fi
+  done < "$caller/moon.pkg"
+}
+
+# The functions of one package that another package calls.
+CALLED_NAMES=""
+called_names() {
+  local caller="$1" alias="$2" file line var vars name
+  CALLED_NAMES=""
+  for file in $(git ls-files "$caller" 2>/dev/null); do
+    case "$file" in *_test.mbt) continue ;; esac
+    vars=""
+    while IFS= read -r line; do
+      all_matches "$line" "let[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=[[:space:]]*@${alias}\."
+      while IFS= read -r var; do
+        [ -n "$var" ] || continue
+        vars="$vars $var"
+      done <<< "$MATCHES"
+    done < "$file"
+    while IFS= read -r line; do
+      all_matches "$line" "@${alias}\.([A-Za-z_][A-Za-z0-9_]*)"
+      while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        case " $PUB_NAMES " in
+          *" $name "*) CALLED_NAMES="$CALLED_NAMES $name" ;;
+        esac
+      done <<< "$MATCHES"
+      for var in $vars; do
+        all_matches "$line" "(^|[^A-Za-z0-9_])${var}\.([A-Za-z_][A-Za-z0-9_]*)" 2
+        while IFS= read -r name; do
+          [ -n "$name" ] || continue
+          case " $PUB_NAMES " in
+            *" $name "*) CALLED_NAMES="$CALLED_NAMES $name" ;;
+          esac
+        done <<< "$MATCHES"
+      done
+      all_matches "$line" "@${alias}\.[A-Za-z_][A-Za-z0-9_]*\([^()]*\)\.([A-Za-z_][A-Za-z0-9_]*)"
+      while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        case " $PUB_NAMES " in
+          *" $name "*) CALLED_NAMES="$CALLED_NAMES $name" ;;
+        esac
+      done <<< "$MATCHES"
+    done < "$file"
+  done
+}
+
+# One coupling row, checked against the calls the tree makes.
+coupling_claim_check() {
+  local doc="$1" line="$2" claim="$3"
+  local rest first second word list caller callee alias count tree_count name
+  local tree_calls doc_symbols
+  case "$claim" in
+    \|*) ;;
+    *) return ;;
+  esac
+  rest="${claim#*|}"
+  first="${rest%%|*}"
+  second="${rest#*|}"
+  second="${second%%|*}"
+  trim "$first"; first="$TRIMMED"
+  trim "$second"; second="$TRIMMED"
+  # the row has to name two packages
+  set -- $first
+  if [ $# -ne 3 ]; then
+    return
+  fi
+  caller="$1"; callee="$3"
+  case " $CODE_PKGS " in
+    *" $caller "*) ;;
+    *) return ;;
+  esac
+  case " $CODE_PKGS " in
+    *" $callee "*) ;;
+    *) return ;;
+  esac
+  # the cell has to state a count of calls
+  if [[ ! "$second" =~ ([A-Za-z]+)[[:space:]]+function[[:space:]]+calls?: ]]; then
+    return
+  fi
+  word="${BASH_REMATCH[1]}"
+  list="${second#*:}"
+  # the count, in words or in digits
+  count=$(word_number "$(printf '%s' "$word" | tr 'A-Z' 'a-z')")
+  if [ -z "$count" ]; then
+    if [[ "$word" =~ ^[0-9]+$ ]]; then
+      count="$word"
+    fi
+  fi
+  if [ -z "$count" ]; then
+    return
+  fi
+  # the symbols the row names
+  doc_symbols=""
+  for name in $(printf '%s' "$list" | tr ',' ' '); do
+    name="${name//()/}"
+    name="${name%.}"
+    trim "$name"; name="$TRIMMED"
+    [ -n "$name" ] || continue
+    case " $doc_symbols " in
+      *" $name "*) continue ;;
+    esac
+    doc_symbols="$doc_symbols $name"
+  done
+  trim "$doc_symbols"; doc_symbols="$TRIMMED"
+  # the calls the tree makes
+  pub_names "$callee"
+  pkg_alias "$caller" "$callee"
+  alias="$PKG_ALIAS"
+  if [ -z "$alias" ]; then
+    return
+  fi
+  called_names "$caller" "$alias"
+  sorted_set "$CALLED_NAMES"
+  tree_calls="$SORTED_SET"
+  tree_count=0
+  for name in $tree_calls; do
+    tree_count=$((tree_count + 1))
+  done
+  # the symbols the row names, one by one
+  for name in $doc_symbols; do
+    COUPLING_CHECKED=$((COUPLING_CHECKED + 1))
+    case " $tree_calls " in
+      *" $name "*) ;;
+      *)
+        fail "$(printf '%-22s %s line %s names %s, but %s does not call it' \
+          'coupling calls' "$doc" "$line" "$name" "$caller")"
+        COUPLING_BAD=1
+        ;;
+    esac
+  done
+  # the calls the tree makes that the row does not name
+  for name in $tree_calls; do
+    case " $doc_symbols " in
+      *" $name "*) ;;
+      *)
+        fail "$(printf '%-22s %s line %s does not name %s, but %s calls it' \
+          'coupling calls' "$doc" "$line" "$name" "$caller")"
+        COUPLING_BAD=1
+        ;;
+    esac
+  done
+  # and the count the row states
+  if [ "$tree_count" != "$count" ]; then
+    fail "$(printf '%-22s %s line %s says %s calls into %s, but the tree has %s' \
+      'coupling calls' "$doc" "$line" "$word" "$callee" "$tree_count")"
+    COUPLING_BAD=1
+  fi
+}
+
+# Every coupling row, checked against the calls the tree makes.
+check_coupling_claims() {
+  local doc line claim
+  code_packages
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      coupling_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+check_coupling_claims
+
+if [ "$COUPLING_BAD" -eq 0 ]; then
+  ok "coupling calls" "$COUPLING_CHECKED calls"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

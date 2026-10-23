@@ -4873,6 +4873,171 @@ foreach ($doc in $archDocs) {
 if (-not $script:proxyBad) { Write-Ok 'proxy' ("{0} claims" -f $script:proxyChecked) }
 if (-not $script:tlsBad) { Write-Ok 'tls' ("{0} claims" -f $script:tlsChecked) }
 
+# --- the coupling the table states -------------------------------------------
+#
+# A coupling row that counts the calls says how tightly two packages are
+# tied together: "Eight function calls: install_from_environment, ...". The
+# count and the list are a claim about the tree, and the tree can be asked.
+#
+# A call into a package is one of three things: a qualified call
+# (@maked.create_app), a method on a value that package returned
+# (app.to_module), or a method chained straight onto one
+# (@maked.current_corpus().describe). A method on some other receiver
+# (ctx.add_middleware, which is moonback's) is not a call into that package
+# -- so the tree says eight where a naive reading of the names says nine.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:couplingBad = $false
+$script:couplingChecked = 0
+$script:couplingPkgs = @()
+
+# The packages the tree has.
+function Get-CouplingPackages {
+  $out = @()
+  foreach ($rel in @(& git ls-files 2>$null)) {
+    if ($rel -notmatch '(^|/)moon\.pkg$') { continue }
+    $dir = ($rel -replace '/moon\.pkg$', '')
+    if ($dir -ceq 'moon.pkg') { continue }
+    $out += $dir
+  }
+  $out
+}
+
+# The public functions a package has.
+function Get-PubNames($pkg) {
+  $out = @()
+  foreach ($rel in @(& git ls-files $pkg 2>$null)) {
+    if ($rel.EndsWith('_test.mbt')) { continue }
+    $file = Join-Path $PWD $rel
+    if (-not (Test-Path $file)) { continue }
+    $text = [System.IO.File]::ReadAllText($file, $enc)
+    foreach ($m in [regex]::Matches($text, '(?m)^\s*pub\s+(?:async\s+)?fn\s+(?:[A-Za-z_][A-Za-z0-9_]*::)?([A-Za-z_][A-Za-z0-9_]*)\s*\(')) {
+      $name = $m.Groups[1].Value
+      if ($out -cnotcontains $name) { $out += $name }
+    }
+  }
+  $out
+}
+
+# The name a package is called by in another package's source.
+function Get-PkgAlias($caller, $callee) {
+  $path = Join-Path $PWD (Join-Path $caller 'moon.pkg')
+  if (-not (Test-Path $path)) { return '' }
+  foreach ($line in [System.IO.File]::ReadAllLines($path, $enc)) {
+    $m = [regex]::Match($line, '["][^"]*/' + [regex]::Escape($callee) + '["]([ \t]+@([A-Za-z_][A-Za-z0-9_]*))?')
+    if ($m.Success) {
+      if ($m.Groups[2].Success) { return $m.Groups[2].Value }
+      return ($callee -split '/')[-1]
+    }
+  }
+  ''
+}
+
+# The functions of one package that another package calls.
+function Get-CalledNames($caller, $alias, $pub) {
+  $out = @()
+  foreach ($rel in @(& git ls-files $caller 2>$null)) {
+    if ($rel.EndsWith('_test.mbt')) { continue }
+    $file = Join-Path $PWD $rel
+    if (-not (Test-Path $file)) { continue }
+    $text = [System.IO.File]::ReadAllText($file, $enc)
+    $vars = @()
+    foreach ($m in [regex]::Matches($text, 'let\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*@' + $alias + '\.')) {
+      $vars += $m.Groups[1].Value
+    }
+    foreach ($m in [regex]::Matches($text, '@' + $alias + '\.([A-Za-z_][A-Za-z0-9_]*)')) {
+      if ($pub -ccontains $m.Groups[1].Value) { $out += $m.Groups[1].Value }
+    }
+    foreach ($v in $vars) {
+      foreach ($m in [regex]::Matches($text, '(?m)(?:^|[^A-Za-z0-9_])' + $v + '\.([A-Za-z_][A-Za-z0-9_]*)')) {
+        if ($pub -ccontains $m.Groups[1].Value) { $out += $m.Groups[1].Value }
+      }
+    }
+    foreach ($m in [regex]::Matches($text, '@' + $alias + '\.[A-Za-z_][A-Za-z0-9_]*\([^()]*\)\.([A-Za-z_][A-Za-z0-9_]*)')) {
+      if ($pub -ccontains $m.Groups[1].Value) { $out += $m.Groups[1].Value }
+    }
+  }
+  $out | Select-Object -Unique
+}
+
+# One coupling row, checked against the calls the tree makes.
+function Test-CouplingClaim($doc, $line, $claim) {
+  if (-not $claim.StartsWith('|')) { return }
+  $cells = $claim.Split('|')
+  if ($cells.Count -lt 3) { return }
+  $first = $cells[1].Trim()
+  $second = $cells[2].Trim()
+  # the row has to name two packages
+  $parts = @($first -split '\s+')
+  if ($parts.Count -ne 3) { return }
+  $caller = $parts[0]
+  $callee = $parts[2]
+  if ($script:couplingPkgs -cnotcontains $caller) { return }
+  if ($script:couplingPkgs -cnotcontains $callee) { return }
+  # the cell has to state a count of calls
+  $m = [regex]::Match($second, '([A-Za-z]+)[ \t]+function[ \t]+calls?:')
+  if (-not $m.Success) { return }
+  $word = $m.Groups[1].Value
+  $colon = $second.IndexOf(':')
+  if ($colon -lt 0) { return }
+  $list = $second.Substring($colon + 1)
+  # the count, in words or in digits
+  $count = ''
+  $lower = $word.ToLower()
+  if ($numberWords.ContainsKey($lower)) { $count = $numberWords[$lower] }
+  if ($count -eq '' -and $word -match '^[0-9]+$') { $count = $word }
+  if ($count -eq '') { return }
+  # the symbols the row names
+  $docSymbols = @()
+  foreach ($sym in ($list -split ',')) {
+    $sym = ($sym -replace '\(\)', '').Trim()
+    $sym = $sym.TrimEnd('.')
+    if ($sym -eq '') { continue }
+    if ($docSymbols -cnotcontains $sym) { $docSymbols += $sym }
+  }
+  # the calls the tree makes
+  $pub = @(Get-PubNames $callee)
+  $alias = Get-PkgAlias $caller $callee
+  if ($alias -eq '') { return }
+  $treeCalls = @(Get-CalledNames $caller $alias $pub)
+  # The calls are sorted, so the two twins print them in the same order.
+  [Array]::Sort($treeCalls, [System.StringComparer]::Ordinal)
+  # the symbols the row names, one by one
+  foreach ($sym in $docSymbols) {
+    $script:couplingChecked++
+    if ($treeCalls -ccontains $sym) { continue }
+    Write-Fail ("{0,-22} {1} line {2} names {3}, but {4} does not call it" -f 'coupling calls', $doc, $line, $sym, $caller)
+    $script:couplingBad = $true
+  }
+  # the calls the tree makes that the row does not name
+  foreach ($sym in $treeCalls) {
+    if ($docSymbols -ccontains $sym) { continue }
+    Write-Fail ("{0,-22} {1} line {2} does not name {3}, but {4} calls it" -f 'coupling calls', $doc, $line, $sym, $caller)
+    $script:couplingBad = $true
+  }
+  # and the count the row states
+  if ($treeCalls.Count -ne [int]$count) {
+    Write-Fail ("{0,-22} {1} line {2} says {3} calls into {4}, but the tree has {5}" -f 'coupling calls', $doc, $line, $word, $callee, $treeCalls.Count)
+    $script:couplingBad = $true
+  }
+}
+
+$script:couplingPkgs = @(Get-CouplingPackages)
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-CouplingClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:couplingBad) { Write-Ok 'coupling calls' ("{0} calls" -f $script:couplingChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)
