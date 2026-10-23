@@ -5890,6 +5890,164 @@ foreach ($claim in (Get-DocClaims 'README.md')) {
 
 if (-not $script:gapsBad) { Write-Ok 'gaps' ("{0} denials" -f $script:gapsChecked) }
 
+# --- the requests the frontend makes at start-up -------------------------------
+#
+# The start-up is a chain: the init asks for the bootstrap, the answer asks
+# for the loop status, and the second answer asks for nothing. A document
+# that says "one request at start-up" is telling the reader that the page
+# load is one round trip, and it is not.
+#
+# The chain is found in the tree. The init is the block that starts with
+# "init=fn(emit) {" and ends with "},"; every answer is handled by the arm
+# of the message it carries, and the arm after it is the one for the failure.
+# The chain ends when an answer asks for nothing.
+#
+# A claim that names the start-up request is pointing at it, so the line it
+# cites has to be the line the tree makes it on.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:startupBad = $false
+$script:startupChecked = 0
+$script:startupCount = 0
+$script:startupLine = 0
+$frontendApp = 'frontend/app.mbt'
+
+# The count a claim states: a number, or the word a number is written with.
+$countRe = '([0-9]+|one|two|three|four|five|six|seven|eight|nine|ten)(\s+http)?\s+requests?'
+
+# The number a word states.
+function Get-NumberValue($word) {
+  switch ($word) {
+    'one' { return 1 }
+    'two' { return 2 }
+    'three' { return 3 }
+    'four' { return 4 }
+    'five' { return 5 }
+    'six' { return 6 }
+    'seven' { return 7 }
+    'eight' { return 8 }
+    'nine' { return 9 }
+    'ten' { return 10 }
+  }
+  $word
+}
+
+# The lines of the frontend, with the spaces taken off.
+function Get-AppLines {
+  $out = @()
+  foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $PWD $frontendApp), $enc)) {
+    $out += $line.Trim()
+  }
+  $out
+}
+
+# The requests in a run of lines, and the line the first one is on.
+function Get-RangeRequests($lines, $from, $to) {
+  $count = 0
+  $first = 0
+  for ($i = $from; $i -le $to; $i++) {
+    if ($lines[$i] -like '*@http.*') {
+      if ($first -eq 0) { $first = $i + 1 }
+      $count++
+    }
+  }
+  @{ count = $count; first = $first }
+}
+
+# The message a run of lines answers with.
+function Get-BlockMessage($lines, $from, $to) {
+  for ($i = $from; $i -le $to; $i++) {
+    $m = [regex]::Match($lines[$i], 'emit\.map\(fn\(result\) \{ ([A-Za-z_][A-Za-z0-9_]*)\(result\) \}\)')
+    if ($m.Success) { return $m.Groups[1].Value }
+  }
+  ''
+}
+
+# The start-up chain: how many requests it makes, and the line the first one
+# is on.
+function Get-StartupChain($lines) {
+  $start = -1
+  $end = -1
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($start -lt 0) {
+      if ($lines[$i].StartsWith('init=fn(emit) {')) { $start = $i }
+      continue
+    }
+    if ($lines[$i] -eq '},') { $end = $i; break }
+  }
+  if ($start -lt 0 -or $end -lt 0) { return @{ count = 0; line = 0 } }
+  $r = Get-RangeRequests $lines $start $end
+  $count = $r.count
+  $first = $r.first
+  $msg = Get-BlockMessage $lines $start $end
+  $seen = @()
+  while ($msg -ne '') {
+    if ($seen -ccontains $msg) { break }
+    $seen += $msg
+    $a = -1
+    $b = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+      if ($a -lt 0) {
+        if ($lines[$i].StartsWith($msg + '(Ok(')) { $a = $i }
+        continue
+      }
+      if ($lines[$i].StartsWith($msg + '(Err(')) { $b = $i; break }
+    }
+    if ($a -lt 0 -or $b -lt 0) { break }
+    $r = Get-RangeRequests $lines $a $b
+    $count += $r.count
+    $next = Get-BlockMessage $lines $a $b
+    if ($next -eq '') { break }
+    $msg = $next
+  }
+  @{ count = $count; line = $first }
+}
+
+# One claim, checked against the start-up chain.
+function Test-StartupClaim($doc, $line, $claim) {
+  $lower = $claim.ToLowerInvariant()
+  # the count the claim states
+  if ($lower -match 'start-?up' -and $lower -match $countRe) {
+    $n = [int](Get-NumberValue $Matches[1])
+    $script:startupChecked++
+    if ($n -ne $script:startupCount) {
+      Write-Fail ("{0,-22} {1} line {2} says {3} requests at start-up, but the tree makes {4}" -f 'startup fetch', $doc, $line, $n, $script:startupCount)
+      $script:startupBad = $true
+    }
+    return
+  }
+  # a claim that names the start-up request is pointing at it
+  if (-not $claim.Contains('/api/bootstrap')) { return }
+  if ($lower -notmatch 'startup|start-up|start\(\)') { return }
+  Get-CitedSource $claim
+  if ($script:citeFile -eq '') { return }
+  if ($script:citeFile -cne $frontendApp) { return }
+  $script:startupChecked++
+  if (-not (Test-CitationCovers $script:citeSpec $script:startupLine)) {
+    Write-Fail ("{0,-22} {1} line {2} cites {3}:{4}, but the tree asks for the bootstrap on line {5}" -f 'startup fetch', $doc, $line, $script:citeFile, $script:citeSpec, $script:startupLine)
+    $script:startupBad = $true
+  }
+}
+
+$appLines = @(Get-AppLines)
+$startup = Get-StartupChain $appLines
+$script:startupCount = $startup.count
+$script:startupLine = $startup.line
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-StartupClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:startupBad) { Write-Ok 'startup fetch' ("{0} claims" -f $script:startupChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

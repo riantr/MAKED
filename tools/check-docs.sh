@@ -6565,6 +6565,200 @@ if [ "$GAPS_BAD" -eq 0 ]; then
   ok "gaps" "$GAPS_CHECKED denials"
 fi
 
+# --- the requests the frontend makes at start-up -------------------------------
+#
+# The start-up is a chain: the init asks for the bootstrap, the answer asks
+# for the loop status, and the second answer asks for nothing. A document
+# that says "one request at start-up" is telling the reader that the page
+# load is one round trip, and it is not.
+#
+# The chain is found in the tree. The init is the block that starts with
+# "init=fn(emit) {" and ends with "},"; every answer is handled by the arm
+# of the message it carries, and the arm after it is the one for the failure.
+# The chain ends when an answer asks for nothing.
+#
+# A claim that names the start-up request is pointing at it, so the line it
+# cites has to be the line the tree makes it on.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+STARTUP_BAD=0
+STARTUP_CHECKED=0
+STARTUP_COUNT=0
+STARTUP_LINE=0
+FRONTEND_APP="frontend/app.mbt"
+
+# The count a claim states: a number, or the word a number is written with.
+COUNT_RE='([0-9]+|one|two|three|four|five|six|seven|eight|nine|ten)([[:space:]]+http)?[[:space:]]+requests?'
+
+# The lines of the frontend, with the spaces taken off.
+APP_LINES=()
+app_lines() {
+  local line
+  APP_LINES=()
+  while IFS= read -r line; do
+    trim "$line"
+    APP_LINES+=("$TRIMMED")
+  done < "$FRONTEND_APP"
+}
+
+# The requests in a run of lines, and the line the first one is on.
+RANGE_COUNT=0
+RANGE_FIRST=0
+range_requests() {
+  local from="$1" to="$2" i
+  RANGE_COUNT=0
+  RANGE_FIRST=0
+  for ((i = from; i <= to; i++)); do
+    case "${APP_LINES[$i]}" in
+      *@http.*)
+        if [ "$RANGE_FIRST" -eq 0 ]; then RANGE_FIRST=$((i + 1)); fi
+        RANGE_COUNT=$((RANGE_COUNT + 1))
+        ;;
+    esac
+  done
+}
+
+# The message a run of lines answers with.
+BLOCK_MESSAGE=""
+EMIT_RE='emit\.map\(fn\(result\) \{ ([A-Za-z_][A-Za-z0-9_]*)\(result\) \}\)'
+block_message() {
+  local from="$1" to="$2" i
+  BLOCK_MESSAGE=""
+  for ((i = from; i <= to; i++)); do
+    if [[ "${APP_LINES[$i]}" =~ $EMIT_RE ]]; then
+      BLOCK_MESSAGE="${BASH_REMATCH[1]}"
+      return
+    fi
+  done
+}
+
+# The start-up chain: how many requests it makes, and the line the first one
+# is on.
+startup_chain() {
+  local i start=-1 end=-1 msg next seen="" count=0 a b
+  STARTUP_COUNT=0
+  STARTUP_LINE=0
+  for i in "${!APP_LINES[@]}"; do
+    if [ "$start" -lt 0 ]; then
+      case "${APP_LINES[$i]}" in
+        "init=fn(emit) {"*) start=$i ;;
+      esac
+      continue
+    fi
+    if [ "${APP_LINES[$i]}" = "}," ]; then end=$i; break; fi
+  done
+  if [ "$start" -lt 0 ] || [ "$end" -lt 0 ]; then return; fi
+  range_requests "$start" "$end"
+  count=$RANGE_COUNT
+  STARTUP_LINE=$RANGE_FIRST
+  block_message "$start" "$end"
+  msg="$BLOCK_MESSAGE"
+  while [ -n "$msg" ]; do
+    case " $seen " in
+      *" $msg "*) break ;;
+    esac
+    seen="$seen $msg"
+    a=-1
+    b=-1
+    for i in "${!APP_LINES[@]}"; do
+      if [ "$a" -lt 0 ]; then
+        case "${APP_LINES[$i]}" in
+          "$msg(Ok("*) a=$i ;;
+        esac
+        continue
+      fi
+      case "${APP_LINES[$i]}" in
+        "$msg(Err("*) b=$i; break ;;
+      esac
+    done
+    if [ "$a" -lt 0 ] || [ "$b" -lt 0 ]; then break; fi
+    range_requests "$a" "$b"
+    count=$((count + RANGE_COUNT))
+    block_message "$a" "$b"
+    next="$BLOCK_MESSAGE"
+    [ -n "$next" ] || break
+    msg="$next"
+  done
+  STARTUP_COUNT=$count
+}
+
+# The number a word states.
+number_value() {
+  case "$1" in
+    one) echo 1 ;;
+    two) echo 2 ;;
+    three) echo 3 ;;
+    four) echo 4 ;;
+    five) echo 5 ;;
+    six) echo 6 ;;
+    seven) echo 7 ;;
+    eight) echo 8 ;;
+    nine) echo 9 ;;
+    ten) echo 10 ;;
+    *) echo "$1" ;;
+  esac
+}
+
+# One claim, checked against the start-up chain.
+startup_claim_check() {
+  local doc="$1" line="$2" claim="$3" lower n
+  lower="${claim,,}"
+  # the count the claim states
+  if [[ "$lower" =~ start-?up ]] && [[ "$lower" =~ $COUNT_RE ]]; then
+    n=$(number_value "${BASH_REMATCH[1]}")
+    STARTUP_CHECKED=$((STARTUP_CHECKED + 1))
+    if [ "$n" -ne "$STARTUP_COUNT" ]; then
+      fail "$(printf '%-22s %s line %s says %s requests at start-up, but the tree makes %s' \
+        'startup fetch' "$doc" "$line" "$n" "$STARTUP_COUNT")"
+      STARTUP_BAD=1
+    fi
+    return
+  fi
+  # a claim that names the start-up request is pointing at it
+  case "$claim" in
+    *"/api/bootstrap"*) ;;
+    *) return ;;
+  esac
+  case "$lower" in
+    *startup*|*start-up*|*"start()"*) ;;
+    *) return ;;
+  esac
+  cite_source "$claim"
+  [ -n "$CITE_FILE" ] || return
+  [ "$CITE_FILE" = "$FRONTEND_APP" ] || return
+  STARTUP_CHECKED=$((STARTUP_CHECKED + 1))
+  citation_covers "$CITE_SPEC" "$STARTUP_LINE"
+  if [ "$CITATION_COVERS" -eq 0 ]; then
+    fail "$(printf '%-22s %s line %s cites %s:%s, but the tree asks for the bootstrap on line %s' \
+      'startup fetch' "$doc" "$line" "$CITE_FILE" "$CITE_SPEC" "$STARTUP_LINE")"
+    STARTUP_BAD=1
+  fi
+}
+
+# Every claim the documents make, checked against the start-up chain.
+check_startup_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      startup_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+app_lines
+startup_chain
+check_startup_claims
+
+if [ "$STARTUP_BAD" -eq 0 ]; then
+  ok "startup fetch" "$STARTUP_CHECKED claims"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

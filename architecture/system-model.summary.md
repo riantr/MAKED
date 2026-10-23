@@ -32,8 +32,9 @@ SQLite) and a JavaScript frontend (rabbita SPA).
    tables are writable. The original django CMS had admin + Celery; this
    scope is the ten public pages plus the reader's own working set.
 
-5. **Elm-style frontend**: rabbita TEA (Model/Update/View/Subscription). One
-   HTTP request at startup, then client-side routing via History API.
+5. **Elm-style frontend**: rabbita TEA (Model/Update/View/Subscription). At
+   start-up the client makes 2 requests -- the bootstrap, then the loop
+   status -- and after that the routing is client-side, over the History API.
 
 6. **Well-tested invariants**: 562 tests across backend and frontend, focused
    on silent-failure modes (SQLite statement lifecycle, ring geometry, JSON
