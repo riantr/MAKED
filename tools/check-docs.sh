@@ -5843,6 +5843,46 @@ if [ "$SHARED_BAD" -eq 0 ]; then
   ok "shared edge" "$SHARED_CHECKED claims"
 fi
 
+# --- the counts the summary repeats --------------------------------------------
+#
+# The summary repeats three numbers: the tests, the mutation anchors and the
+# integration checks. The tests are checked already; the other two were not,
+# so they could go stale in the summary while the README and the tree stayed
+# right.
+#
+# The anchors are counted in the tree: every mutation has one `old =` line,
+# so the anchors in the three suites are the mutations they anchor. The
+# integration checks cannot be counted from the script -- some of its
+# assertions sit in loops, and only a run knows how many it made -- so the
+# number is read where the tree keeps it: the README's own table, which the
+# integration suite checks on every run.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+# The anchors in one mutation suite. An anchor is one `old =` line.
+count_anchors() {
+  local suite="$1"
+  grep -cE '^[ \t]*old[ \t]*=' "$suite" || true
+}
+
+ALL_ANCHORS=$(( $(count_anchors tools/mutate-backend.ps1) \
+              + $(count_anchors tools/mutate-frontend.ps1) \
+              + $(count_anchors tools/mutate-loop.ps1) ))
+
+# The integration checks the README states.
+doc_number '\|[[:space:]]*Integration checks[[:space:]]*\|[[:space:]]*([0-9]+)[[:space:]]*\|' "README.md"
+README_INTEGRATION="$DOC_NUMBER"
+
+if [ -z "$README_INTEGRATION" ]; then
+  fail "$(printf '%-22s could not be read from the README' 'summary integration')"
+else
+  check_claim_number "summary anchors" '([0-9]+) mutation anchors' \
+    "$ALL_ANCHORS" "$SUMMARY"
+  check_claim_number "summary integration" '([0-9]+) integration[[:space:]]+checks' \
+    "$README_INTEGRATION" "$SUMMARY"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

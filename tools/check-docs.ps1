@@ -5307,6 +5307,47 @@ foreach ($doc in $archDocs) {
 
 if (-not $script:sharedBad) { Write-Ok 'shared edge' ("{0} claims" -f $script:sharedChecked) }
 
+# --- the counts the summary repeats --------------------------------------------
+#
+# The summary repeats three numbers: the tests, the mutation anchors and the
+# integration checks. The tests are checked already; the other two were not,
+# so they could go stale in the summary while the README and the tree stayed
+# right.
+#
+# The anchors are counted in the tree: every mutation has one `old =` line,
+# so the anchors in the three suites are the mutations they anchor. The
+# integration checks cannot be counted from the script -- some of its
+# assertions sit in loops, and only a run knows how many it made -- so the
+# number is read where the tree keeps it: the README's own table, which the
+# integration suite checks on every run.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+# The anchors in one mutation suite. An anchor is one `old =` line.
+function Get-AnchorCount($suite) {
+  $count = 0
+  foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $PWD $suite), $enc)) {
+    if ($line -match '^[ \t]*old[ \t]*=') { $count++ }
+  }
+  $count
+}
+
+$allAnchors = (Get-AnchorCount 'tools/mutate-backend.ps1') + (Get-AnchorCount 'tools/mutate-frontend.ps1') + (Get-AnchorCount 'tools/mutate-loop.ps1')
+
+# The integration checks the README states.
+$readmeText = [System.IO.File]::ReadAllText((Join-Path $PWD 'README.md'), $enc)
+$readmeIntegration = ''
+$readmeMatch = [regex]::Match($readmeText, '\|\s*Integration checks\s*\|\s*([0-9]+)\s*\|')
+if ($readmeMatch.Success) { $readmeIntegration = $readmeMatch.Groups[1].Value }
+
+if ($readmeIntegration -eq '') {
+  Write-Fail ("{0,-22} could not be read from the README" -f 'summary integration')
+} else {
+  Test-ClaimNumber 'summary anchors' '([0-9]+) mutation anchors' $allAnchors $summary
+  Test-ClaimNumber 'summary integration' '([0-9]+) integration\s+checks' $readmeIntegration $summary
+}
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)
