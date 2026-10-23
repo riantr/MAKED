@@ -4737,6 +4737,73 @@ foreach ($doc in $archDocs) {
 
 if (-not $script:metricBad) { Write-Ok 'metrics' ("{0} claims" -f $script:metricChecked) }
 
+# --- the impact tables' callers -----------------------------------------------
+#
+# A row that names an affected file and the symbols in it is saying: if this
+# symbol changes, this file breaks. That is only true if the file uses the
+# symbol. A file that does not use it is not affected by it, and a reader who
+# trusts the table will look in the wrong place.
+#
+# The row has to name a source file of the tree to be checked at all: a row
+# whose first cell is a directory, an environment variable or a symbol is
+# saying something else.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:impactBad = $false
+$script:impactChecked = 0
+$script:impactSources = @()
+
+# The source files the tree has.
+function Get-ImpactSources {
+  @(& git ls-files '*.mbt' '*.ps1' 2>$null)
+}
+
+# One row, checked against the file it names.
+function Test-ImpactClaim($doc, $line, $claim) {
+  if (-not $claim.StartsWith('|')) { return }
+  $rest = $claim.Substring(1)
+  $first = ($rest -split '\|')[0].Trim()
+  if (-not ($first.StartsWith('`') -and $first.EndsWith('`'))) { return }
+  $path = $first.Substring(1, $first.Length - 2)
+  if ($path -notmatch '\.(mbt|ps1)$') { return }
+  if ($script:impactSources -cnotcontains $path) { return }
+  $file = Join-Path $PWD $path
+  if (-not (Test-Path $file)) { return }
+  $body = [System.IO.File]::ReadAllText($file, $enc)
+  # every symbol the row names, in the cells after the first
+  $rest = ($rest -split '\|', 2)[1]
+  if ($null -eq $rest) { return }
+  foreach ($m in [regex]::Matches($rest, $tickRe)) {
+    $symbol = $m.Groups[1].Value
+    $symbol = ($symbol -split '\(')[0]
+    $symbol = ($symbol -split ' ')[0]
+    $last = ($symbol -split '::')[-1]
+    $last = ($last -split '\.')[-1]
+    if ($last -eq '') { continue }
+    $script:impactChecked++
+    if (-not $body.Contains($last)) {
+      Write-Fail ("{0,-22} {1} line {2} says {3} breaks on {4}, but {3} does not use it" -f 'impact caller', $doc, $line, $path, $symbol)
+      $script:impactBad = $true
+    }
+  }
+}
+
+$script:impactSources = @(Get-ImpactSources)
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-ImpactClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:impactBad) { Write-Ok 'impact caller' ("{0} symbols" -f $script:impactChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

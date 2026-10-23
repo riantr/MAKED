@@ -46,23 +46,6 @@ colmugx/mcp@0.18.1                  ← The agent's server
 
 ## Change impact analysis
 
-### If you change `backend/pages.mbt`
-
-**Blast radius**: backend, cmd/mcp, frontend (via JSON contract)
-
-| Affected | What breaks | Severity |
-|----------|-------------|----------|
-| `backend/api.mbt` | `ring_domains()`, `seed_pages()`, `Page::to_json()` callers | compile error if signatures change |
-| `backend/database.mbt` | `Page` struct fields, `seed()` parameters | compile error if Page shape changes |
-| `backend/database_test.mbt` | All tests that construct Page or assert on seed content | test failure |
-| `frontend/page.mbt` | `decode_pages()` field names must match `to_json()` output | silent degradation (total decoder → fallback values) |
-| `frontend/frontend_test.mbt` | JSON fixture shapes in decode_pages tests | test failure |
-
-**Key risk**: the frontend's JSON decoder is total by design — if a field name
-changes, the frontend silently renders empty strings instead of crashing. The
-mutation tests (`tools/mutate-backend.ps1`) catch backend-side breakage, but
-the JSON contract has no schema validation.
-
 ### If you change `backend/database.mbt`
 
 **Blast radius**: backend, cmd/mcp
@@ -84,7 +67,7 @@ finalize) is the silent-failure surface. The tests are mutation-tested
 | Affected | What breaks |
 |----------|-------------|
 | `backend/api.mbt` | `App::get()`, `App::post()`, `App::put()`, `App::delete()`, `App::route()` |
-| `backend/maked_app.mbt` | `App::new()`, `App::add_middleware()`, `App::to_module()` |
+| `backend/maked_app.mbt` | `App::new()`, `App::add_middleware()` |
 | `cmd/server/main.mbt` | `app.to_module()` |
 
 **Key risk**: the Handler/Middleware type signatures. Changing them ripples
@@ -126,7 +109,9 @@ match `backend/pages.mbt`'s `Page::to_json()` keys. No compile-time check.
 | Affected | What breaks |
 |----------|-------------|
 | `backend/database.mbt` | `Page` struct fields, `seed()` parameters, the `pages` table's columns |
-| `backend/api.mbt` | `Page::to_json()`, `domains_json()`, the `?lang=` handlers |
+| `backend/bootstrap.mbt` | `seed_pages()` callers |
+| `backend/api.mbt` | `Page::to_json()`, `domains_json()`, `ring_domains()`, the `?lang=` handlers |
+| `backend/database_test.mbt` | All tests that construct Page or assert on seed content |
 | `frontend/page.mbt` | the decoder's field names must match `to_json()`'s keys |
 | `frontend/frontend_test.mbt` | the JSON fixtures the decoder is tested against |
 | `tools/mutate-backend.ps1` | the guards that point at the bilingual fields |
@@ -135,7 +120,9 @@ match `backend/pages.mbt`'s `Page::to_json()` keys. No compile-time check.
 role, summary and body -- exist twice, once per language, and `Lang::pick`
 is the single place the choice is made. A field added to one language and
 not the other is not a compile error; it is a surface that silently stays
-in one language.
+in one language. The frontend's JSON decoder is total by design, so a field
+name that changes renders empty strings instead of crashing, and the
+JSON contract has no schema validation.
 
 ### If you change `frontend/logo.mbt`
 
@@ -166,6 +153,6 @@ literals in the test.
 | backend → moonback | **Medium** — Handler adapter, Module construction, Responder lifecycle. |
 | backend → sqlite3 | **Medium** — Statement lifecycle (prepare/reset/bind/step/finalize). |
 | frontend → rabbita | **High** — TEA signatures, Html type, subscription model, HTTP client. |
-| cmd/server → backend | **Low** — Three function calls: create_app, to_module, static_files. |
+| cmd/server → backend | **Low** — Eight function calls: install_from_environment, current_model, create_app, to_module, static_files, spa_fallback, current_corpus, describe. |
 | cmd/web → frontend | **Minimal** — One function call: app(). |
 | cmd/mcp → backend | **Low** — The loop's tools, read through the backend's agent module. |

@@ -5052,6 +5052,95 @@ if [ "$METRIC_BAD" -eq 0 ]; then
   ok "metrics" "$METRIC_CHECKED claims"
 fi
 
+# --- the impact tables' callers -----------------------------------------------
+#
+# A row that names an affected file and the symbols in it is saying: if this
+# symbol changes, this file breaks. That is only true if the file uses the
+# symbol. A file that does not use it is not affected by it, and a reader who
+# trusts the table will look in the wrong place.
+#
+# The row has to name a source file of the tree to be checked at all: a row
+# whose first cell is a directory, an environment variable or a symbol is
+# saying something else.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+# The source files the tree has.
+IMPACT_SOURCES=""
+impact_sources() {
+  IMPACT_SOURCES=$(git ls-files '*.mbt' '*.ps1' 2>/dev/null | tr '\n' ' ' || true)
+  trim "$IMPACT_SOURCES"; IMPACT_SOURCES="$TRIMMED"
+}
+
+IMPACT_BAD=0
+IMPACT_CHECKED=0
+
+# One row, checked against the file it names.
+impact_claim_check() {
+  local doc="$1" line="$2" claim="$3" rest first path token symbol last
+  case "$claim" in
+    \|*) ;;
+    *) return ;;
+  esac
+  # the first cell of the row
+  rest="${claim#*|}"
+  first="${rest%%|*}"
+  trim "$first"; first="$TRIMMED"
+  case "$first" in
+    '`'*'`') ;;
+    *) return ;;
+  esac
+  path="${first:1:${#first}-2}"
+  case "$path" in
+    *.mbt|*.ps1) ;;
+    *) return ;;
+  esac
+  case " $IMPACT_SOURCES " in
+    *" $path "*) ;;
+    *) return ;;
+  esac
+  [ -f "$path" ] || return
+  # every symbol the row names, in the cells after the first
+  rest="${rest#*|}"
+  while [[ "$rest" =~ $TICK_RE ]]; do
+    token="${BASH_REMATCH[1]}"
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+    symbol="${token%%(*}"
+    symbol="${symbol%% *}"
+    last="${symbol##*::}"
+    last="${last##*.}"
+    [ -n "$last" ] || continue
+    IMPACT_CHECKED=$((IMPACT_CHECKED + 1))
+    if ! grep -qF "$last" "$path"; then
+      fail "$(printf '%-22s %s line %s says %s breaks on %s, but %s does not use it' \
+        'impact caller' "$doc" "$line" "$path" "$symbol" "$path")"
+      IMPACT_BAD=1
+    fi
+  done
+}
+
+# Every claim the design documents make, checked against the impact tables.
+check_impact_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      impact_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+impact_sources
+check_impact_claims
+
+if [ "$IMPACT_BAD" -eq 0 ]; then
+  ok "impact caller" "$IMPACT_CHECKED symbols"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."
