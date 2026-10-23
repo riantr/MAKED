@@ -5117,6 +5117,139 @@ foreach ($doc in $archDocs) {
 
 if (-not $script:cycleBad) { Write-Ok 'cycles' ("{0} claims" -f $script:cycleChecked) }
 
+# --- the gaps the evidence has to support -------------------------------------
+#
+# The deployment evidence has a table of gaps, and a gap is a claim that
+# something is NOT there: no systemd unit, no exported metrics, no backup
+# strategy. The evidence cell has to be true of the tree, or the gap is not
+# a gap.
+#
+# Two shapes of evidence are read. A search that comes back empty ("`find`
+# for *.service returns nothing") is true when the tree has no file that
+# matches the pattern. A denial of a thing ("No cron, no WAL config") is
+# true when the tree has no such thing: the imports, when the denial names
+# imports, and the product's own source otherwise.
+#
+# The scope comes from the evidence, and the evidence gives it. The frontend
+# has a variable called `stats`, so "no stats" would be a sentence about a
+# library, not about that variable -- and the evidence cell that says it
+# also says "imports", so the gate looks in the imports.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:absenceBad = $false
+$script:absenceChecked = 0
+
+# The tracked files that match a pattern.
+function Get-FilesMatching($pattern) {
+  $out = @()
+  foreach ($rel in @(& git ls-files 2>$null)) {
+    if ($rel -clike $pattern) { $out += $rel }
+  }
+  $out
+}
+
+# The import paths that carry a word.
+function Get-ImportsWith($word) {
+  $out = @()
+  $whole = $word -match '^[A-Za-z_][A-Za-z0-9_]*$'
+  foreach ($path in @(Get-TreeImports)) {
+    if ($whole) {
+      if ($path -match '(^|[^A-Za-z0-9_])' + [regex]::Escape($word) + '([^A-Za-z0-9_]|$)') { $out += $path }
+    } else {
+      if ($path.Contains($word)) { $out += $path }
+    }
+  }
+  $out
+}
+
+# The files of the product's own source that carry a word. The tests are
+# left out: a claim about what the server does is not a claim about what
+# the tests say.
+#
+# A plain word is looked for as a whole word, so "wal" does not find
+# "walked". A path is looked for as it is: "/metrics" is not a word.
+function Get-SourceWith($word) {
+  $out = @()
+  $whole = $word -match '^[A-Za-z_][A-Za-z0-9_]*$'
+  foreach ($rel in @(& git ls-files '*.mbt' 2>$null)) {
+    if ($rel.EndsWith('_test.mbt')) { continue }
+    $file = Join-Path $PWD $rel
+    if (-not (Test-Path $file)) { continue }
+    $text = [System.IO.File]::ReadAllText($file, $enc)
+    if ($whole) {
+      if ($text -match '(?m)(^|[^A-Za-z0-9_])' + [regex]::Escape($word) + '([^A-Za-z0-9_]|$)') { $out += $rel }
+    } else {
+      if ($text.Contains($word)) { $out += $rel }
+    }
+  }
+  $out
+}
+
+# One gap row, checked against the tree.
+function Test-AbsenceClaim($doc, $line, $claim) {
+  if (-not $claim.StartsWith('|')) { return }
+  $cells = $claim.Split('|')
+  if ($cells.Count -lt 3) { return }
+  $gap = $cells[1].Trim()
+  $evidence = $cells[2].Trim()
+  # a gap is a row that says something is not there
+  if (-not ($gap -cmatch '^(No|no) ')) { return }
+  # a search that comes back empty
+  $m = [regex]::Match($evidence, 'for\s+([^\s]+)\s+returns\s+nothing')
+  if ($m.Success) {
+    $script:absenceChecked++
+    $hits = @(Get-FilesMatching $m.Groups[1].Value)
+    if ($hits.Count -gt 0) {
+      Write-Fail ("{0,-22} {1} line {2} says nothing matches {3}, but {4} does" -f 'absence evidence', $doc, $line, $m.Groups[1].Value, ($hits -join ' '))
+      $script:absenceBad = $true
+    }
+    return
+  }
+  # a denial of a thing, one at a time. The word keeps its case: "WAL" is
+  # the SQLite mode, and "wal" is a part of "walked".
+  $lower = $evidence.ToLower()
+  $orig = $evidence
+  while ($lower -match 'no ') {
+    $rest = $lower.Substring($lower.IndexOf('no ') + 3)
+    $len = $lower.Length - $rest.Length
+    $after = $orig.Substring($len)
+    $word = $after.Split(' ')[0]
+    $word = $word -replace '`', ''
+    $word = ($word -split ',')[0]
+    $word = ($word -split ';')[0]
+    $word = ($word -split '\.')[0]
+    $phrase = $after
+    $restPhrase = $after.ToLower()
+    $next = $restPhrase.IndexOf('no ')
+    if ($next -ge 0) { $phrase = $after.Substring(0, $next) }
+    if ($word -ne '') {
+      $script:absenceChecked++
+      $hits = @()
+      if ($phrase -match 'import') { $hits = @(Get-ImportsWith $word) } else { $hits = @(Get-SourceWith $word) }
+      if ($hits.Count -gt 0) {
+        Write-Fail ("{0,-22} {1} line {2} says there is no {3}, but {4} has it" -f 'absence evidence', $doc, $line, $word, ($hits -join ' '))
+        $script:absenceBad = $true
+      }
+    }
+    $lower = $rest
+    $orig = $after
+  }
+}
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-AbsenceClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:absenceBad) { Write-Ok 'absence evidence' ("{0} claims" -f $script:absenceChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

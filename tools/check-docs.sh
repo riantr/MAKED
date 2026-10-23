@@ -5570,6 +5570,202 @@ if [ "$CYCLE_BAD" -eq 0 ]; then
   ok "cycles" "$CYCLE_CHECKED claims"
 fi
 
+# --- the gaps the evidence has to support -------------------------------------
+#
+# The deployment evidence has a table of gaps, and a gap is a claim that
+# something is NOT there: no systemd unit, no exported metrics, no backup
+# strategy. The evidence cell has to be true of the tree, or the gap is not
+# a gap.
+#
+# Two shapes of evidence are read. A search that comes back empty ("`find`
+# for *.service returns nothing") is true when the tree has no file that
+# matches the pattern. A denial of a thing ("No cron, no WAL config") is
+# true when the tree has no such thing: the imports, when the denial names
+# imports, and the product's own source otherwise.
+#
+# The scope comes from the evidence, and the evidence gives it. The frontend
+# has a variable called `stats`, so "no stats" would be a sentence about a
+# library, not about that variable -- and the evidence cell that says it
+# also says "imports", so the gate looks in the imports.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+ABSENCE_BAD=0
+ABSENCE_CHECKED=0
+
+# The tracked files that match a pattern.
+FILES_MATCHING=""
+files_matching() {
+  local pattern="$1" file
+  FILES_MATCHING=""
+  for file in $(git ls-files 2>/dev/null); do
+    case "$file" in
+      $pattern) FILES_MATCHING="$FILES_MATCHING $file" ;;
+    esac
+  done
+  trim "$FILES_MATCHING"; FILES_MATCHING="$TRIMMED"
+}
+
+# The import paths that carry a word.
+IMPORTS_WITH=""
+imports_with() {
+  local word="$1" path whole=0
+  IMPORTS_WITH=""
+  if [[ "$word" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    whole=1
+  fi
+  for path in $(tree_imports); do
+    if [ "$whole" -eq 1 ]; then
+      if [[ "$path" =~ (^|[^A-Za-z0-9_])${word}([^A-Za-z0-9_]|$) ]]; then
+        IMPORTS_WITH="$IMPORTS_WITH $path"
+      fi
+    else
+      case "$path" in
+        *"$word"*) IMPORTS_WITH="$IMPORTS_WITH $path" ;;
+      esac
+    fi
+  done
+  trim "$IMPORTS_WITH"; IMPORTS_WITH="$TRIMMED"
+}
+
+# The files of the product's own source that carry a word. The tests are
+# left out: a claim about what the server does is not a claim about what
+# the tests say.
+#
+# A plain word is looked for as a whole word, so "wal" does not find
+# "walked". A path is looked for as it is: "/metrics" is not a word.
+SOURCE_WITH=""
+source_with() {
+  local word="$1" file line whole=0 hit=0
+  SOURCE_WITH=""
+  if [[ "$word" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    whole=1
+  fi
+  for file in $(git ls-files '*.mbt' 2>/dev/null); do
+    case "$file" in
+      *_test.mbt) continue ;;
+    esac
+    hit=0
+    while IFS= read -r line; do
+      if [ "$whole" -eq 1 ]; then
+        if [[ "$line" =~ (^|[^A-Za-z0-9_])${word}([^A-Za-z0-9_]|$) ]]; then
+          hit=1
+          break
+        fi
+      else
+        case "$line" in
+          *"$word"*) hit=1; break ;;
+        esac
+      fi
+    done < "$file"
+    if [ "$hit" -eq 1 ]; then
+      SOURCE_WITH="$SOURCE_WITH $file"
+    fi
+  done
+  trim "$SOURCE_WITH"; SOURCE_WITH="$TRIMMED"
+}
+
+# One gap row, checked against the tree.
+absence_claim_check() {
+  local doc="$1" line="$2" claim="$3"
+  local rest gap evidence lower after word phrase hits scope
+  case "$claim" in
+    \|*) ;;
+    *) return ;;
+  esac
+  rest="${claim#*|}"
+  gap="${rest%%|*}"
+  rest="${rest#*|}"
+  evidence="${rest%%|*}"
+  trim "$gap"; gap="$TRIMMED"
+  trim "$evidence"; evidence="$TRIMMED"
+  # a gap is a row that says something is not there
+  case "$gap" in
+    "No "*|"no "*) ;;
+    *) return ;;
+  esac
+  # a search that comes back empty
+  if [[ "$evidence" =~ for[[:space:]]+([^[:space:]]+)[[:space:]]+returns[[:space:]]+nothing ]]; then
+    ABSENCE_CHECKED=$((ABSENCE_CHECKED + 1))
+    files_matching "${BASH_REMATCH[1]}"
+    if [ -n "$FILES_MATCHING" ]; then
+      fail "$(printf '%-22s %s line %s says nothing matches %s, but %s does' \
+        'absence evidence' "$doc" "$line" "${BASH_REMATCH[1]}" "$FILES_MATCHING")"
+      ABSENCE_BAD=1
+    fi
+    return
+  fi
+  # a denial of a thing, one at a time. The word keeps its case: "WAL" is
+  # the SQLite mode, and "wal" is a part of "walked".
+  lower="${evidence,,}"
+  orig="$evidence"
+  while :; do
+    case "$lower" in
+      *no\ *) ;;
+      *) break ;;
+    esac
+    rest="${lower#*no }"
+    len=$(( ${#lower} - ${#rest} ))
+    after="${orig:$len}"
+    word="${after%% *}"
+    word="${word//\`/}"
+    word="${word%%,*}"
+    word="${word%%;*}"
+    word="${word%%.*}"
+    phrase="$after"
+    rest_phrase="${after,,}"
+    case "$rest_phrase" in
+      *no\ *)
+        tail_phrase="${rest_phrase#*no }"
+        plen=$(( ${#rest_phrase} - ${#tail_phrase} ))
+        phrase="${after:0:$plen}"
+        ;;
+    esac
+    if [ -n "$word" ]; then
+      ABSENCE_CHECKED=$((ABSENCE_CHECKED + 1))
+      scope="source"
+      case "$phrase" in
+        *import*) scope="imports" ;;
+      esac
+      if [ "$scope" = "imports" ]; then
+        imports_with "$word"
+        hits="$IMPORTS_WITH"
+      else
+        source_with "$word"
+        hits="$SOURCE_WITH"
+      fi
+      if [ -n "$hits" ]; then
+        fail "$(printf '%-22s %s line %s says there is no %s, but %s has it' \
+          'absence evidence' "$doc" "$line" "$word" "$hits")"
+        ABSENCE_BAD=1
+      fi
+    fi
+    lower="$rest"
+    orig="$after"
+  done
+}
+
+# Every gap row, checked against the tree.
+check_absence_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      absence_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+check_absence_claims
+
+if [ "$ABSENCE_BAD" -eq 0 ]; then
+  ok "absence evidence" "$ABSENCE_CHECKED claims"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."
