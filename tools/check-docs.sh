@@ -1514,6 +1514,133 @@ else
     'run note executable')"
 fi
 
+# --- the release archive, as the note describes it ----------------------------
+#
+# The note that ships inside the archive is the first thing a reader of a
+# release sees. It says what is in the archive: the executable, the browser
+# files, the example machines under models/, the tables and the corpora under
+# research/, and the folder under research/notes/ that one of those corpora
+# names. A reader who unpacks the archive and finds no models/ has been told
+# a lie by the note, and nothing checked it.
+#
+# The tree's answer is the release workflow: it is what puts the archive
+# together, so what it stages under stage/maked is what the archive has.
+#
+# The corpus is the other side of the same promise. A corpus the tree ships
+# that names a folder is a corpus that reads nothing unless the archive
+# carries that folder -- the release workflow says so in its own words.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+ARCHIVE_BAD=0
+ARCHIVE_CHECKED=0
+ARCHIVE_PATHS=""
+ARCHIVE_NOTE_DIRS=""
+ARCHIVE_CORPUS_DIRS=""
+
+# The paths the release workflow puts in the archive.
+#
+# Every path it stages lives under stage/maked, and the workflow writes them
+# with a slash and with a backslash, so both are read.
+code_archive_paths() {
+  local path
+  ARCHIVE_PATHS=""
+  for path in $(grep -ohE 'stage[/\\]maked[/\\][A-Za-z0-9_.-]+([/\\][A-Za-z0-9_.-]+)*' \
+      .github/workflows/publish.yml 2>/dev/null | tr '\\' '/'); do
+    ARCHIVE_PATHS="$ARCHIVE_PATHS ${path#stage/maked/}"
+  done
+  # the list is built with a space in front of every name
+  ARCHIVE_PATHS="${ARCHIVE_PATHS# }"
+  ARCHIVE_PATHS="${ARCHIVE_PATHS% }"
+}
+
+# The directories the note names.
+#
+# A directory is written with a slash at the end, and a link is not a
+# directory: the note's own URLs end with a slash too.
+doc_note_dirs() {
+  local text="$1" token
+  ARCHIVE_NOTE_DIRS=""
+  for token in $text; do
+    case "$token" in
+      *://*) continue ;;
+    esac
+    token="${token%%[.,;:!?)]*}"
+    case "$token" in
+      */) ;;
+      *) continue ;;
+    esac
+    token="${token%/}"
+    [ -n "$token" ] || continue
+    ARCHIVE_NOTE_DIRS="$ARCHIVE_NOTE_DIRS $token"
+  done
+}
+
+# The folders the corpora name.
+#
+# A corpus is a yaml file that says it is one, and a corpus that names a
+# folder reads that folder.
+code_corpus_dirs() {
+  local file path
+  ARCHIVE_CORPUS_DIRS=""
+  for file in research/*.yaml; do
+    [ -f "$file" ] || continue
+    grep -qF 'maked.corpus.v1' "$file" 2>/dev/null || continue
+    path=$(grep -oE '^ *path: *[^ "]+' "$file" 2>/dev/null | head -1 \
+      | sed -E 's/^ *path: *//')
+    [ -n "$path" ] || continue
+    path="${path#./}"
+    [ -n "$path" ] || continue
+    ARCHIVE_CORPUS_DIRS="$ARCHIVE_CORPUS_DIRS $path"
+  done
+  # the list is built with a space in front of every name
+  ARCHIVE_CORPUS_DIRS="${ARCHIVE_CORPUS_DIRS# }"
+  ARCHIVE_CORPUS_DIRS="${ARCHIVE_CORPUS_DIRS% }"
+}
+
+# Does the archive have this path?
+archive_has() {
+  local name="$1" path
+  for path in $ARCHIVE_PATHS; do
+    [ "$path" = "$name" ] && return 0
+    case "$path" in
+      "$name"/*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# The archive, checked against what the note and the corpora say.
+check_archive_claims() {
+  local dir
+  code_archive_paths
+  doc_note_dirs "$(< "$RUN_NOTE")"
+  code_corpus_dirs
+  for dir in $ARCHIVE_NOTE_DIRS; do
+    ARCHIVE_CHECKED=$((ARCHIVE_CHECKED + 1))
+    if ! archive_has "$dir"; then
+      fail "$(printf '%-22s the note says the archive has %s, and the release workflow does not stage it' \
+        'release archive' "$dir")"
+      ARCHIVE_BAD=1
+    fi
+  done
+  for dir in $ARCHIVE_CORPUS_DIRS; do
+    ARCHIVE_CHECKED=$((ARCHIVE_CHECKED + 1))
+    if ! archive_has "$dir"; then
+      fail "$(printf '%-22s the corpus names %s, and the release workflow does not stage it' \
+        'release archive' "$dir")"
+      ARCHIVE_BAD=1
+    fi
+  done
+}
+
+check_archive_claims
+
+if [ "$ARCHIVE_BAD" -eq 0 ]; then
+  ok "release archive" "$ARCHIVE_CHECKED claims"
+fi
+
 # --- .githooks/README.md: the note beside the hook ---------------------------
 #
 # The hook and the note beside it have to agree. A note that names a command

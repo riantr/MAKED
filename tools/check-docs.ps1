@@ -1442,6 +1442,110 @@ if ($publishText.Contains('stage/maked/server') -and $runText.Contains('server.e
   Write-Fail ("{0,-22} the note and the release workflow disagree about the executable" -f 'run note executable')
 }
 
+# --- the release archive, as the note describes it ----------------------------
+#
+# The note that ships inside the archive is the first thing a reader of a
+# release sees. It says what is in the archive: the executable, the browser
+# files, the example machines under models/, the tables and the corpora under
+# research/, and the folder under research/notes/ that one of those corpora
+# names. A reader who unpacks the archive and finds no models/ has been told
+# a lie by the note, and nothing checked it.
+#
+# The tree's answer is the release workflow: it is what puts the archive
+# together, so what it stages under stage/maked is what the archive has.
+#
+# The corpus is the other side of the same promise. A corpus the tree ships
+# that names a folder is a corpus that reads nothing unless the archive
+# carries that folder -- the release workflow says so in its own words.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:archiveBad = $false
+$script:archiveChecked = 0
+$script:archivePaths = @()
+
+# The paths the release workflow puts in the archive.
+#
+# Every path it stages lives under stage/maked, and the workflow writes them
+# with a slash and with a backslash, so both are read.
+function Get-ArchivePaths {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD '.github/workflows/publish.yml'), $enc)
+  foreach ($m in [regex]::Matches($text, 'stage[/\\]maked[/\\][A-Za-z0-9_.-]+([/\\][A-Za-z0-9_.-]+)*')) {
+    $p = $m.Value.Replace('\', '/')
+    $out += $p.Substring('stage/maked/'.Length)
+  }
+  $out
+}
+
+# The directories the note names.
+#
+# A directory is written with a slash at the end, and a link is not a
+# directory: the note's own URLs end with a slash too.
+function Get-NoteDirs($text) {
+  $out = @()
+  foreach ($token in ($text -split '\s+')) {
+    if ($token -eq '') { continue }
+    if ($token.Contains('://')) { continue }
+    $t = $token -replace '[.,;:!?)]+$', ''
+    if (-not $t.EndsWith('/')) { continue }
+    $t = $t.TrimEnd('/')
+    if ($t -eq '') { continue }
+    $out += $t
+  }
+  $out
+}
+
+# The folders the corpora name.
+#
+# A corpus is a yaml file that says it is one, and a corpus that names a
+# folder reads that folder.
+function Get-CorpusDirs {
+  $out = @()
+  foreach ($file in @(Get-ChildItem -Path (Join-Path $PWD 'research') -Filter '*.yaml' -File | Sort-Object Name)) {
+    $text = [System.IO.File]::ReadAllText($file.FullName, $enc)
+    if (-not $text.Contains('maked.corpus.v1')) { continue }
+    $m = [regex]::Match($text, '(?m)^ *path: *[^ "\r\n]+')
+    if (-not $m.Success) { continue }
+    $p = $m.Value -replace '^ *path: *', ''
+    if ($p.StartsWith('./')) { $p = $p.Substring(2) }
+    if ($p -eq '') { continue }
+    $out += $p
+  }
+  $out
+}
+
+# Does the archive have this path?
+function Test-ArchiveHas($name) {
+  foreach ($p in $script:archivePaths) {
+    if ($p -ceq $name) { return $true }
+    if ($p.StartsWith($name + '/')) { return $true }
+  }
+  $false
+}
+
+$script:archivePaths = @(Get-ArchivePaths)
+$archiveNoteDirs = @(Get-NoteDirs $runText)
+$archiveCorpusDirs = @(Get-CorpusDirs)
+
+foreach ($dir in $archiveNoteDirs) {
+  $script:archiveChecked++
+  if (-not (Test-ArchiveHas $dir)) {
+    Write-Fail ("{0,-22} the note says the archive has {1}, and the release workflow does not stage it" -f 'release archive', $dir)
+    $script:archiveBad = $true
+  }
+}
+foreach ($dir in $archiveCorpusDirs) {
+  $script:archiveChecked++
+  if (-not (Test-ArchiveHas $dir)) {
+    Write-Fail ("{0,-22} the corpus names {1}, and the release workflow does not stage it" -f 'release archive', $dir)
+    $script:archiveBad = $true
+  }
+}
+
+if (-not $script:archiveBad) { Write-Ok 'release archive' ("{0} claims" -f $script:archiveChecked) }
+
 # --- .githooks/README.md: the note beside the hook ---------------------------
 #
 # The hook and the note beside it have to agree. A note that names a command
