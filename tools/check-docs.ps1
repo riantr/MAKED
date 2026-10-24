@@ -4212,7 +4212,7 @@ $script:dslProtoChecked = 0
 # The secure ones are not here: the edge gate reads the denials and the
 # channel gate reads the claims that the channel is secure, and this gate is
 # about the other mechanisms.
-$script:dslMechanisms = @(
+$script:mechanismWords = @(
   'http', 'stdio', 'fs', 'file', 'sqlite', 'sqlite3', 'tcp', 'udp', 'ftp',
   'smtp', 'imap', 'pop3', 'ssh', 'websocket', 'grpc', 'amqp', 'mqtt', 'redis',
   'kafka', 'postgres', 'postgresql', 'mysql', 'mariadb', 'mongo', 'mongodb',
@@ -4312,7 +4312,7 @@ function Get-ProtocolMechanisms($protocol) {
     foreach ($part in ($word -split '[^A-Za-z0-9]+')) {
       $w = $part.ToLowerInvariant()
       if ($w -eq '') { continue }
-      if ($script:dslMechanisms -cnotcontains $w) { continue }
+      if ($script:mechanismWords -cnotcontains $w) { continue }
       if ($out -ccontains $w) { continue }
       $out += $w
     }
@@ -5330,6 +5330,167 @@ foreach ($doc in $archDocs) {
 
 if (-not $script:externalBad) {
   Write-Ok 'external call' ("{0} calls in {1}" -f $script:outboundCalls, ($script:outboundPkgs -join ' '))
+}
+
+# --- the protocols the deployment table gives its boundaries --------------------
+#
+# The deployment document has a table of the boundaries the server has, and the
+# last column of each row says how the boundary is crossed: HTTP for the
+# browser, an in-process FFI call for the database, an in-process file read
+# for the filesystem, HTTP for the corpus feed. Those are the tree's
+# mechanisms, and nothing checked them: the table could say the corpus feed
+# is FTP, or the file reads go over HTTP, and every document would go on
+# saying what it always said.
+#
+# The tree's mechanisms come from the tree:
+#
+#   - the database is the SQL library the storage layer opens -- a @sqlite3
+#     connection -- and a file of it is reached by a native call.
+#   - the filesystem is read with @fs, in the server's own process.
+#   - the network is HTTP: the server listens on a socket and prints http://
+#     URLs, and the one outbound call the tree makes is an @http.get.
+#
+# A row's boundary says what is on the other side of it, and the mechanism
+# the tree uses for that thing is the one the protocol cell has to name. A
+# cell that names a mechanism the tree does not use for that boundary is
+# wrong, and a cell that names no mechanism at all does not say how the
+# boundary is crossed.
+#
+# The cell may also say HOW the crossing happens, and that is a claim about
+# the process as much as about the mechanism: the database and the
+# filesystem are reached inside the server's own process -- a native call and
+# a file read -- while the network is not. So a cell that says the crossing
+# is in process may only sit on a boundary the tree reaches in process.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:deployProtoBad = $false
+$script:deployProtoChecked = 0
+
+# The mechanisms the tree uses, by the thing they reach.
+#
+# The SQL library is the one the storage layer opens. A document may name it
+# with or without the version digits -- the tree opens a sqlite3, and the
+# document says SQLite -- so both names are mechanisms.
+#
+# The filesystem is read with @fs, so the package is a mechanism, and so are
+# the words the names of those reads are made of: the tree calls read_file, so
+# "file" is one of them.
+#
+# The network is what the server speaks.
+function Get-DeploySqlMechanisms {
+  $out = @()
+  $lib = Get-SqlLibrary
+  if ($lib -eq '') { return $out }
+  $out += $lib
+  $stripped = ($lib -replace '[0-9]+$', '')
+  if ($stripped -cne $lib) { $out += $stripped }
+  $out
+}
+
+function Get-DeployFileMechanisms {
+  $out = @()
+  $used = $false
+  foreach ($pkg in $script:codePkgs) {
+    foreach ($file in @(Get-ChildItem -Path (Join-Path $PWD $pkg) -Filter '*.mbt' -File -ErrorAction SilentlyContinue)) {
+      if ($file.Name.EndsWith('_test.mbt')) { continue }
+      $text = [System.IO.File]::ReadAllText($file.FullName, $enc)
+      foreach ($m in [regex]::Matches($text, '@fs\.[a-zA-Z_]+')) {
+        $used = $true
+        $name = $m.Value.Substring(4)
+        foreach ($part in ($name -split '[^A-Za-z0-9]+')) {
+          $w = $part.ToLowerInvariant()
+          if ($w -eq '') { continue }
+          if ($script:mechanismWords -cnotcontains $w) { continue }
+          if ($out -ccontains $w) { continue }
+          $out += $w
+        }
+      }
+    }
+  }
+  if (-not $used) { return @() }
+  if ($out -cnotcontains 'fs') { $out = @('fs') + $out }
+  $out
+}
+
+# The mechanisms a protocol cell names, in the order it names them.
+function Get-DeployProtocolMechanisms($protocol) {
+  $out = @()
+  foreach ($word in ($protocol -split '\s+')) {
+    foreach ($part in ($word -split '[^A-Za-z0-9]+')) {
+      $w = $part.ToLowerInvariant()
+      if ($w -eq '') { continue }
+      if ($script:mechanismWords -cnotcontains $w) { continue }
+      if ($out -ccontains $w) { continue }
+      $out += $w
+    }
+  }
+  $out
+}
+
+# The boundaries the deployment document states, checked against the tree.
+$deployMd = 'architecture/deployment.md'
+$deployProtoLines = [System.IO.File]::ReadAllLines((Join-Path $PWD $deployMd), $enc)
+$deploySqlMech = @(Get-DeploySqlMechanisms)
+$deployFileMech = @(Get-DeployFileMechanisms)
+$deployInTable = $false
+for ($i = 0; $i -lt $deployProtoLines.Count; $i++) {
+  $l = $deployProtoLines[$i]
+  if ($l -clike '| Boundary |*') { $deployInTable = $true; continue }
+  if ($l -clike '|---*') { continue }
+  if (-not $deployInTable) { continue }
+  if ($l -clike '| *') {
+    # the boundary is the first cell, the protocol is the last one
+    $cells = $l.Trim().Split('|')
+    $subject = $cells[1].Trim()
+    $last = $cells.Count - 1
+    if ($cells[$last].Trim() -eq '') { $last-- }
+    $protocol = $cells[$last].Trim()
+    $script:deployProtoChecked++
+    # the thing on the other side of the boundary, and the mechanism the tree
+    # uses to reach it
+    $kind = 'net'
+    $low = $subject.ToLowerInvariant()
+    foreach ($word in $deploySqlMech) {
+      if ($low.Contains($word)) { $kind = 'sql'; break }
+    }
+    if ($kind -ceq 'net') {
+      foreach ($word in $deployFileMech) {
+        if ($low.Contains($word)) { $kind = 'file'; break }
+      }
+    }
+    if ($kind -ceq 'sql') { $allowed = @(Get-DeploySqlMechanisms) }
+    elseif ($kind -ceq 'file') { $allowed = @(Get-DeployFileMechanisms) }
+    else { $allowed = @(Get-ServerTransports) }
+    $named = @(Get-DeployProtocolMechanisms $protocol)
+    $ok = $true
+    foreach ($mech in $named) {
+      if ($allowed -cnotcontains $mech) { $ok = $false }
+    }
+    if ($ok -and $named.Count -eq 0) { $ok = $false }
+    if (-not $ok) {
+      Write-Fail ("{0,-22} {1} line {2} says the boundary [{3}] is crossed by [{4}], and the tree crosses it by [{5}]" -f `
+        'deploy protocols', $deployMd, ($i + 1), $subject, ($named -join ' '), ($allowed -join ' '))
+      $script:deployProtoBad = $true
+    }
+    # a cell that says the boundary is crossed in process may only be on a
+    # boundary the tree reaches inside its own process
+    $inProc = $false
+    $pl = $protocol.ToLowerInvariant()
+    if ($pl.Contains('in-process') -or $pl.Contains('in process')) { $inProc = $true }
+    if ($inProc -and $kind -ceq 'net') {
+      Write-Fail ("{0,-22} {1} line {2} says the boundary [{3}] is crossed in process, but the tree reaches it over the network" -f `
+        'deploy protocols', $deployMd, ($i + 1), $subject)
+      $script:deployProtoBad = $true
+    }
+    continue
+  }
+  $deployInTable = $false
+}
+
+if (-not $script:deployProtoBad) {
+  Write-Ok 'deploy protocols' ("{0} boundaries" -f $script:deployProtoChecked)
 }
 
 # --- the CORS the tree does not have ------------------------------------------

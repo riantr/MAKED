@@ -4351,7 +4351,7 @@ DSL_PROTO_CHECKED=0
 # The secure ones are not here: the edge gate reads the denials and the
 # channel gate reads the claims that the channel is secure, and this gate is
 # about the other mechanisms.
-DSL_MECHANISMS="http stdio fs file sqlite sqlite3 tcp udp ftp smtp imap pop3 ssh websocket grpc amqp mqtt redis kafka postgres postgresql mysql mariadb mongo mongodb memcached elasticsearch duckdb oracle ldap pipe socket unix rpc ipc"
+MECHANISM_WORDS="http stdio fs file sqlite sqlite3 tcp udp ftp smtp imap pop3 ssh websocket grpc amqp mqtt redis kafka postgres postgresql mysql mariadb mongo mongodb memcached elasticsearch duckdb oracle ldap pipe socket unix rpc ipc"
 
 # The libraries each container of the model is made of, and the container
 # that is only the SQL library, and the container that speaks MCP.
@@ -4456,7 +4456,7 @@ dsl_protocol_mechanisms() {
     for part in $(printf '%s' "$word" | tr -c 'A-Za-z0-9' ' '); do
       low="${part,,}"
       [ -n "$low" ] || continue
-      case " $DSL_MECHANISMS " in
+      case " $MECHANISM_WORDS " in
         *" $low "*) ;;
         *) continue ;;
       esac
@@ -5765,6 +5765,209 @@ check_external_claims
 
 if [ "$EXTERNAL_BAD" -eq 0 ]; then
   ok "external call" "$OUTBOUND_CALLS calls in $OUTBOUND_PKGS"
+fi
+
+# --- the protocols the deployment table gives its boundaries --------------------
+#
+# The deployment document has a table of the boundaries the server has, and the
+# last column of each row says how the boundary is crossed: HTTP for the
+# browser, an in-process FFI call for the database, an in-process file read
+# for the filesystem, HTTP for the corpus feed. Those are the tree's
+# mechanisms, and nothing checked them: the table could say the corpus feed
+# is FTP, or the file reads go over HTTP, and every document would go on
+# saying what it always said.
+#
+# The tree's mechanisms come from the tree:
+#
+#   - the database is the SQL library the storage layer opens -- a @sqlite3
+#     connection -- and a file of it is reached by a native call.
+#   - the filesystem is read with @fs, in the server's own process.
+#   - the network is HTTP: the server listens on a socket and prints http://
+#     URLs, and the one outbound call the tree makes is an @http.get.
+#
+# A row's boundary says what is on the other side of it, and the mechanism
+# the tree uses for that thing is the one the protocol cell has to name. A
+# cell that names a mechanism the tree does not use for that boundary is
+# wrong, and a cell that names no mechanism at all does not say how the
+# boundary is crossed.
+#
+# The cell may also say HOW the crossing happens, and that is a claim about
+# the process as much as about the mechanism: the database and the
+# filesystem are reached inside the server's own process -- a native call and
+# a file read -- while the network is not. So a cell that says the crossing
+# is in process may only sit on a boundary the tree reaches in process.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+DEPLOY_PROTO_BAD=0
+DEPLOY_PROTO_CHECKED=0
+
+# The mechanisms the tree uses, by the thing they reach.
+#
+# The SQL library is the one the storage layer opens. A document may name it
+# with or without the version digits -- the tree opens a sqlite3, and the
+# document says SQLite -- so both names are mechanisms.
+#
+# The filesystem is read with @fs, so the package is a mechanism, and so are
+# the words the names of those reads are made of: the tree calls read_file, so
+# "file" is one of them.
+#
+# The network is what the server speaks.
+code_deploy_sql_mechanisms() {
+  local lib stripped
+  lib="$(code_sql_library)"
+  [ -n "$lib" ] || return
+  echo "$lib"
+  stripped="${lib%%[0-9]*}"
+  [ "$stripped" = "$lib" ] || echo "$stripped"
+}
+
+code_deploy_file_mechanisms() {
+  local pkg file name part low out="" used=0
+  for pkg in $CODE_PKGS; do
+    for file in "$pkg"/*.mbt; do
+      [ -f "$file" ] || continue
+      case "$file" in
+        *_test.mbt) continue ;;
+      esac
+      while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        used=1
+        name="${name#@fs.}"
+        for part in $(printf '%s' "$name" | tr -c 'A-Za-z0-9' ' '); do
+          low="${part,,}"
+          [ -n "$low" ] || continue
+          case " $MECHANISM_WORDS " in
+            *" $low "*) ;;
+            *) continue ;;
+          esac
+          case " $out " in
+            *" $low "*) ;;
+            *) out="$out $low" ;;
+          esac
+        done
+      done <<< "$(grep -oE '@fs\.[a-zA-Z_]+' "$file" 2>/dev/null || true)"
+    done
+  done
+  [ "$used" -eq 1 ] || return
+  trim "$out"; out="$TRIMMED"
+  case " $out " in
+    *" fs "*) ;;
+    *) out="fs $out" ;;
+  esac
+  trim "$out"; out="$TRIMMED"
+  echo "$out"
+}
+
+# The mechanisms a protocol cell names, in the order it names them.
+deploy_protocol_mechanisms() {
+  local protocol="$1" word part low
+  DEPLOY_PROTO_MECHANISMS=""
+  for word in $protocol; do
+    for part in $(printf '%s' "$word" | tr -c 'A-Za-z0-9' ' '); do
+      low="${part,,}"
+      [ -n "$low" ] || continue
+      case " $MECHANISM_WORDS " in
+        *" $low "*) ;;
+        *) continue ;;
+      esac
+      case " $DEPLOY_PROTO_MECHANISMS " in
+        *" $low "*) continue ;;
+      esac
+      DEPLOY_PROTO_MECHANISMS="$DEPLOY_PROTO_MECHANISMS $low"
+    done
+  done
+}
+
+# The boundaries the deployment document states, checked against the tree.
+check_deploy_protocols() {
+  local line n=0 subject row protocol named allowed kind low ok inproc word
+  local sql_words file_words
+  local in_table=0
+  sql_words="$(code_deploy_sql_mechanisms | tr '\n' ' ')"
+  trim "$sql_words"; sql_words="$TRIMMED"
+  file_words="$(code_deploy_file_mechanisms | tr '\n' ' ')"
+  trim "$file_words"; file_words="$TRIMMED"
+  while IFS= read -r line; do
+    n=$((n + 1))
+    case "$line" in
+      "| Boundary |"*) in_table=1; continue ;;
+      "|---"*) continue ;;
+    esac
+    [ "$in_table" -eq 1 ] || continue
+    case "$line" in
+      "| "*) ;;
+      *) in_table=0; continue ;;
+    esac
+    # the boundary is the first cell, the protocol is the last one
+    row="$line"
+    trim "$row"; row="$TRIMMED"
+    case "$row" in
+      *"|") row="${row%|}" ;;
+    esac
+    subject="${row#*|}"
+    subject="${subject%%|*}"
+    trim "$subject"; subject="$TRIMMED"
+    protocol="${row##*|}"
+    trim "$protocol"; protocol="$TRIMMED"
+    DEPLOY_PROTO_CHECKED=$((DEPLOY_PROTO_CHECKED + 1))
+    # the thing on the other side of the boundary, and the mechanism the tree
+    # uses to reach it
+    kind='net'
+    low="${subject,,}"
+    for word in $sql_words; do
+      [ -n "$word" ] || continue
+      if [[ "$low" == *"${word}"* ]]; then kind='sql'; break; fi
+    done
+    if [ "$kind" = 'net' ]; then
+      for word in $file_words; do
+        [ -n "$word" ] || continue
+        if [[ "$low" == *"${word}"* ]]; then kind='file'; break; fi
+      done
+    fi
+    case "$kind" in
+      sql) allowed="$(code_deploy_sql_mechanisms | tr '\n' ' ')" ;;
+      file) allowed="$(code_deploy_file_mechanisms | tr '\n' ' ')" ;;
+      *) allowed="$(code_server_transports | tr '\n' ' ')" ;;
+    esac
+    trim "$allowed"; allowed="$TRIMMED"
+    deploy_protocol_mechanisms "$protocol"
+    named="$DEPLOY_PROTO_MECHANISMS"
+    trim "$named"; named="$TRIMMED"
+    ok=1
+    for word in $named; do
+      case " $allowed " in
+        *" $word "*) ;;
+        *) ok=0 ;;
+      esac
+    done
+    if [ "$ok" -eq 1 ] && [ -z "$named" ]; then
+      ok=0
+    fi
+    if [ "$ok" -eq 0 ]; then
+      fail "$(printf '%-22s %s line %s says the boundary [%s] is crossed by [%s], and the tree crosses it by [%s]' \
+        'deploy protocols' "$DEPLOY_MD" "$n" "$subject" "$named" "$allowed")"
+      DEPLOY_PROTO_BAD=1
+    fi
+    # a cell that says the boundary is crossed in process may only be on a
+    # boundary the tree reaches inside its own process
+    inproc=0
+    case "${protocol,,}" in
+      *in-process*|*"in process"*) inproc=1 ;;
+    esac
+    if [ "$inproc" -eq 1 ] && [ "$kind" = 'net' ]; then
+      fail "$(printf '%-22s %s line %s says the boundary [%s] is crossed in process, but the tree reaches it over the network' \
+        'deploy protocols' "$DEPLOY_MD" "$n" "$subject")"
+      DEPLOY_PROTO_BAD=1
+    fi
+  done < "$DEPLOY_MD"
+}
+
+check_deploy_protocols
+
+if [ "$DEPLOY_PROTO_BAD" -eq 0 ]; then
+  ok "deploy protocols" "$DEPLOY_PROTO_CHECKED boundaries"
 fi
 
 # --- the CORS the tree does not have ------------------------------------------

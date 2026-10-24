@@ -119,7 +119,7 @@ route.
 | Boundary | What crosses it | Protocol |
 |----------|----------------|----------|
 | Browser → server | HTTP requests (HTML, JS, CSS, JSON) | HTTP/1.1 on localhost |
-| Server → SQLite | FFI calls (prepare, reset, bind, step, finalize) | In-process FFI |
+| Server → SQLite | FFI calls (prepare, reset, bind, step, finalize) | In-process SQLite FFI |
 | Server → filesystem | File reads (index.html, main.js, styles.css) | In-process fs |
 | Server → corpus feed | Corpus fetch (the arXiv API or an RSS feed) | HTTP to the feed you configured |
 
