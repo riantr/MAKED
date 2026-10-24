@@ -6831,6 +6831,182 @@ foreach ($doc in $archDocs) {
 
 if (-not $script:backendBad) { Write-Ok 'backend chain' ("{0} claims" -f $script:backendChecked) }
 
+# --- the SQLite statement lifecycle ------------------------------------------
+#
+# The storage layer has a lifecycle of its own, and the documents state it in
+# ten places: the risk note, the coupling table, the deployment topology and
+# its graph, the dependency graph, the flow document, the flow evidence, the
+# flow graph, and the model graph.
+#
+# The lifecycle is the tree's, and the tree states it twice:
+#
+#   * the storage layer's own header names the operations it promises -- that
+#     prepare only compiles, that a statement has to be reset before it is
+#     reused, that bind overwrites the bindings in place; and
+#   * the code calls those operations on a prepared statement.
+#
+# The operations the header names AND the code calls are the lifecycle. The
+# header names the public surface as well, and the public surface is not a
+# lifecycle: it is the functions the storage layer publishes, and the gate
+# reads those out of the code too.
+#
+# A claim that names more than half of the lifecycle is stating the lifecycle,
+# and it has to state all of it: a claim that leaves one out sends a reader
+# looking for a safeguard the list does not have.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:stmtBad = $false
+$script:stmtChecked = 0
+$script:stmtLifecycle = @()
+$script:stmtVocab = @()
+$script:stmtThreshold = 0
+$script:stmtVars = @()
+$stmtDb = 'backend/database.mbt'
+
+# The names the storage layer's header names.
+#
+# The header is the run of comment lines at the top of the file. A name in it
+# is written between backticks, so the text is cut on the backticks and the
+# pieces that are a single name are the names.
+function Get-StmtHeaderNames {
+  $lines = [System.IO.File]::ReadAllLines((Join-Path $PWD $stmtDb), $enc)
+  $text = ''
+  foreach ($l in $lines) {
+    if (-not $l.StartsWith('///')) { break }
+    $text += $l + "`n"
+  }
+  $out = @()
+  $pieces = $text -split [char]96
+  for ($i = 1; $i -lt $pieces.Count; $i += 2) {
+    $piece = $pieces[$i]
+    if ($piece -cmatch '^[A-Za-z_][A-Za-z0-9_]*$') { $out += $piece }
+  }
+  $out
+}
+
+# The functions the storage layer publishes.
+function Get-StmtPublicFns {
+  $out = @()
+  foreach ($l in [System.IO.File]::ReadAllLines((Join-Path $PWD $stmtDb), $enc)) {
+    if (-not $l.StartsWith('pub fn ')) { continue }
+    $i = $l.IndexOf('::')
+    if ($i -lt 0) { continue }
+    $name = $l.Substring($i + 2)
+    $k = $name.IndexOf('(')
+    if ($k -ge 0) { $name = $name.Substring(0, $k) }
+    $name = $name.Trim()
+    if ($name -cnotmatch '^[A-Za-z_][A-Za-z0-9_]*$') { continue }
+    $out += $name
+  }
+  $out
+}
+
+# The names a prepared statement is bound to.
+#
+# A name is a statement when it is bound by a prepare and never bound to
+# anything else: the storage layer also has a "steps" that is a list of rows,
+# and the calls on that one are not calls on a statement.
+function Get-StmtVars {
+  $prep = @()
+  $other = @()
+  foreach ($l in [System.IO.File]::ReadAllLines((Join-Path $PWD $stmtDb), $enc)) {
+    $i = $l.IndexOf('let ')
+    if ($i -lt 0) { continue }
+    $rest = $l.Substring($i + 4)
+    $k = $rest.IndexOf(' = ')
+    if ($k -lt 0) { continue }
+    $name = $rest.Substring(0, $k)
+    if ($name -cnotmatch '^[A-Za-z_][A-Za-z0-9_]*$') { continue }
+    if ($l.Contains('.prepare(')) { $prep += $name } else { $other += $name }
+  }
+  $out = @()
+  foreach ($n in $prep) { if ($other -cnotcontains $n) { $out += $n } }
+  $out
+}
+
+# The operations the code calls on a prepared statement.
+function Get-StmtOps {
+  $out = @()
+  foreach ($l in [System.IO.File]::ReadAllLines((Join-Path $PWD $stmtDb), $enc)) {
+    foreach ($v in $script:stmtVars) {
+      $rx = '(?<![A-Za-z0-9_])' + [regex]::Escape($v) + '\.([a-z_][a-z0-9_]*)\('
+      foreach ($m in [regex]::Matches($l, $rx)) { $out += $m.Groups[1].Value }
+    }
+  }
+  # the operation that makes the statement is one of them
+  $out += 'prepare'
+  $out
+}
+
+# The operations a claim names.
+#
+# A graph writes its line breaks as \n, \l and \r, and those are not letters:
+# they are cut out of the claim before it is read, so that the operation
+# after a break is still the operation.
+function Get-StmtNamed($claim) {
+  $low = $claim.ToLowerInvariant()
+  $low = $low.Replace('\n', ' ').Replace('\l', ' ').Replace('\r', ' ')
+  $out = @()
+  foreach ($op in $script:stmtVocab) {
+    $rx = '(?<![A-Za-z0-9_])' + [regex]::Escape($op) + '(?![A-Za-z0-9_])'
+    if ($low -match $rx) { $out += $op }
+  }
+  $out
+}
+
+# One claim, checked against the lifecycle the tree has.
+function Test-StmtClaim($doc, $line, $claim) {
+  $named = @(Get-StmtNamed $claim)
+  if ($named.Count -eq 0) { return }
+  $life = 0
+  foreach ($op in $script:stmtLifecycle) {
+    if ($named -ccontains $op) { $life++ }
+  }
+  if ($life -lt $script:stmtThreshold) { return }
+  $script:stmtChecked++
+  $said = (@($named | Sort-Object -Unique) -join ' ')
+  $tree = ($script:stmtLifecycle -join ' ')
+  if ($said -cne $tree) {
+    Write-Fail ("{0,-22} {1} line {2} says the lifecycle is [{3}], the tree's is [{4}]" -f 'stmt lifecycle', $doc, $line, $said, $tree)
+    $script:stmtBad = $true
+  }
+}
+
+# The lifecycle, and the words a claim may use to state it.
+$stmtHeader = @(Get-StmtHeaderNames)
+$stmtPublic = @(Get-StmtPublicFns)
+$script:stmtVars = @(Get-StmtVars)
+$stmtOps = @(Get-StmtOps)
+$stmtVocab = @()
+$stmtLife = @()
+foreach ($n in $stmtHeader) {
+  if ($stmtPublic -ccontains $n) { continue }
+  $stmtVocab += $n
+  if ($stmtOps -ccontains $n) { $stmtLife += $n }
+}
+foreach ($n in $stmtOps) {
+  if ($stmtVocab -cnotcontains $n) { $stmtVocab += $n }
+}
+$script:stmtVocab = @($stmtVocab | Sort-Object -Unique)
+$script:stmtLifecycle = @($stmtLife | Sort-Object -Unique)
+# a claim that names more than half of the lifecycle is stating it
+$script:stmtThreshold = [int][math]::Floor($script:stmtLifecycle.Count / 2) + 1
+
+# Every claim the documents make, checked against the lifecycle.
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-StmtClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:stmtBad) { Write-Ok 'stmt lifecycle' ("{0} claims" -f $script:stmtChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

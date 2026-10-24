@@ -7731,6 +7731,235 @@ if [ "$BACKEND_BAD" -eq 0 ]; then
   ok "backend chain" "$BACKEND_CHECKED claims"
 fi
 
+# --- the SQLite statement lifecycle ------------------------------------------
+#
+# The storage layer has a lifecycle of its own, and the documents state it in
+# ten places: the risk note, the coupling table, the deployment topology and
+# its graph, the dependency graph, the flow document, the flow evidence, the
+# flow graph, and the model graph.
+#
+# The lifecycle is the tree's, and the tree states it twice:
+#
+#   * the storage layer's own header names the operations it promises -- that
+#     prepare only compiles, that a statement has to be reset before it is
+#     reused, that bind overwrites the bindings in place; and
+#   * the code calls those operations on a prepared statement.
+#
+# The operations the header names AND the code calls are the lifecycle. The
+# header names the public surface as well, and the public surface is not a
+# lifecycle: it is the functions the storage layer publishes, and the gate
+# reads those out of the code too.
+#
+# A claim that names more than half of the lifecycle is stating the lifecycle,
+# and it has to state all of it: a claim that leaves one out sends a reader
+# looking for a safeguard the list does not have.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+STMT_BAD=0
+STMT_CHECKED=0
+STMT_LIFECYCLE=""
+STMT_VOCAB=""
+STMT_THRESHOLD=0
+STMT_DB="backend/database.mbt"
+STMT_HEADER=""
+STMT_PUBLIC=""
+STMT_PREP_VARS=""
+STMT_OTHER_VARS=""
+STMT_VARS=""
+STMT_OPS=""
+STMT_NAMED=""
+
+# The names the storage layer's header names.
+#
+# The header is the run of comment lines at the top of the file. A name in it
+# is written between backticks, so the text is cut on the backticks and the
+# pieces that are a single name are the names.
+stmt_header_names() {
+  local line text="" name
+  STMT_HEADER=""
+  while IFS= read -r line; do
+    case "$line" in
+      "///"*) ;;
+      *) break ;;
+    esac
+    text="$text$line"$'\n'
+  done < "$STMT_DB"
+  while IFS= read -r name; do
+    [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    STMT_HEADER="$STMT_HEADER $name"
+  done <<< "$(printf '%s' "$text" | grep -oE '`[^`]+`' | tr -d '`')"
+  trim "$STMT_HEADER"; STMT_HEADER="$TRIMMED"
+}
+
+# The functions the storage layer publishes.
+stmt_public_fns() {
+  local line name
+  STMT_PUBLIC=""
+  while IFS= read -r line; do
+    case "$line" in
+      "pub fn "*"::"*) ;;
+      *) continue ;;
+    esac
+    name="${line#*::}"
+    name="${name%%(*}"
+    trim "$name"; name="$TRIMMED"
+    [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    STMT_PUBLIC="$STMT_PUBLIC $name"
+  done < "$STMT_DB"
+  trim "$STMT_PUBLIC"; STMT_PUBLIC="$TRIMMED"
+}
+
+# The names a prepared statement is bound to.
+#
+# A name is a statement when it is bound by a prepare and never bound to
+# anything else: the storage layer also has a "steps" that is a list of rows,
+# and the calls on that one are not calls on a statement.
+stmt_bindings() {
+  local line name
+  STMT_PREP_VARS=""
+  STMT_OTHER_VARS=""
+  while IFS= read -r line; do
+    case "$line" in
+      *"let "*) ;;
+      *) continue ;;
+    esac
+    name="${line#*let }"
+    case "$name" in
+      [A-Za-z_]*" = "*) ;;
+      *) continue ;;
+    esac
+    name="${name%% = *}"
+    [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    case "$line" in
+      *".prepare("*) STMT_PREP_VARS="$STMT_PREP_VARS $name" ;;
+      *) STMT_OTHER_VARS="$STMT_OTHER_VARS $name" ;;
+    esac
+  done < "$STMT_DB"
+  STMT_VARS=""
+  for name in $STMT_PREP_VARS; do
+    case " $STMT_OTHER_VARS " in
+      *" $name "*) continue ;;
+    esac
+    STMT_VARS="$STMT_VARS $name"
+  done
+  trim "$STMT_VARS"; STMT_VARS="$TRIMMED"
+}
+
+# The operations the code calls on a prepared statement.
+stmt_ops() {
+  local line name op rest
+  STMT_OPS=""
+  while IFS= read -r line; do
+    for name in $STMT_VARS; do
+      rest="$line"
+      while [[ "$rest" =~ ([^A-Za-z0-9_]|^)${name}\.([a-z_][a-z0-9_]*)\( ]]; do
+        op="${BASH_REMATCH[2]}"
+        STMT_OPS="$STMT_OPS $op"
+        rest="${rest#*"${BASH_REMATCH[0]}"}"
+      done
+    done
+  done < "$STMT_DB"
+  # the operation that makes the statement is one of them
+  STMT_OPS="$STMT_OPS prepare"
+}
+
+# The lifecycle, and the words a claim may use to state it.
+stmt_sets() {
+  local name n=0
+  stmt_header_names
+  stmt_public_fns
+  stmt_bindings
+  stmt_ops
+  STMT_LIFECYCLE=""
+  STMT_VOCAB=""
+  for name in $STMT_HEADER; do
+    case " $STMT_PUBLIC " in
+      *" $name "*) continue ;;
+    esac
+    STMT_VOCAB="$STMT_VOCAB $name"
+    case " $STMT_OPS " in
+      *" $name "*) STMT_LIFECYCLE="$STMT_LIFECYCLE $name" ;;
+    esac
+  done
+  for name in $STMT_OPS; do
+    case " $STMT_VOCAB " in
+      *" $name "*) continue ;;
+    esac
+    STMT_VOCAB="$STMT_VOCAB $name"
+  done
+  sorted_set "$STMT_LIFECYCLE"; STMT_LIFECYCLE="$SORTED_SET"
+  sorted_set "$STMT_VOCAB"; STMT_VOCAB="$SORTED_SET"
+  # a claim that names more than half of the lifecycle is stating it
+  for name in $STMT_LIFECYCLE; do n=$((n + 1)); done
+  STMT_THRESHOLD=$((n / 2 + 1))
+}
+
+# The operations a claim names.
+#
+# A graph writes its line breaks as \n, \l and \r, and those are not letters:
+# they are cut out of the claim before it is read, so that the operation
+# after a break is still the operation.
+stmt_named() {
+  local claim="$1" op
+  local low="${claim,,}"
+  STMT_NAMED=""
+  low="${low//\\n/ }"
+  low="${low//\\l/ }"
+  low="${low//\\r/ }"
+  for op in $STMT_VOCAB; do
+    if [[ "$low" =~ ([^A-Za-z0-9_]|^)${op}([^A-Za-z0-9_]|$) ]]; then
+      STMT_NAMED="$STMT_NAMED $op"
+    fi
+  done
+  trim "$STMT_NAMED"; STMT_NAMED="$TRIMMED"
+}
+
+# One claim, checked against the lifecycle the tree has.
+stmt_claim_check() {
+  local doc="$1" line="$2" claim="$3"
+  local named life=0 op said tree
+  stmt_named "$claim"
+  named="$STMT_NAMED"
+  [ -n "$named" ] || return
+  for op in $STMT_LIFECYCLE; do
+    case " $named " in
+      *" $op "*) life=$((life + 1)) ;;
+    esac
+  done
+  [ "$life" -ge "$STMT_THRESHOLD" ] || return
+  STMT_CHECKED=$((STMT_CHECKED + 1))
+  sorted_set "$named"; said="$SORTED_SET"
+  tree="$STMT_LIFECYCLE"
+  if [ "$said" != "$tree" ]; then
+    fail "$(printf '%-22s %s line %s says the lifecycle is [%s], the tree'"'"'s is [%s]' \
+      'stmt lifecycle' "$doc" "$line" "$said" "$tree")"
+    STMT_BAD=1
+  fi
+}
+
+# Every claim the documents make, checked against the lifecycle.
+check_stmt_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      stmt_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+stmt_sets
+check_stmt_claims
+
+if [ "$STMT_BAD" -eq 0 ]; then
+  ok "stmt lifecycle" "$STMT_CHECKED claims"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."
