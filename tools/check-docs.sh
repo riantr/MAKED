@@ -3914,6 +3914,136 @@ if [ "$BUNDLE_BAD" -eq 0 ]; then
   ok "bundle files" "$BUNDLE_LISTS lists"
 fi
 
+# --- the technologies the model gives its containers ---------------------------
+#
+# The model says what each of its containers is built from: a native binary on
+# moonback and sqlite3, a js bundle on rabbita, a sqlite3 file, a native
+# binary that speaks MCP. Those are the tree's libraries, and nothing checks
+# them: the model could name a library the tree has never heard of, and every
+# document would go on saying what it always said.
+#
+# The libraries are the tree's: the dependencies the module declares in
+# moon.mod, by their package name.
+#
+# A technology says which libraries it is made of. A list of them is a list of
+# names side by side ("moonback + sqlite3"), and every name in that list has
+# to be a library the tree depends on. A technology that says it in a sentence
+# instead ("MCP over stdio or HTTP") has to name a library the tree depends
+# on.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+DSL_TECH_BAD=0
+DSL_TECH_CHECKED=0
+DSL_TECH_LIBS=""
+
+# The libraries the module depends on: the package name of every dependency.
+code_module_libraries() {
+  local line module name
+  DSL_TECH_LIBS=""
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    module="${line%%@*}"
+    name="${module##*/}"
+    [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    DSL_TECH_LIBS="$DSL_TECH_LIBS $name"
+  done < <(sed -nE 's/^ *"([^"]+)@([^"]+)".*/\1/p' moon.mod)
+  trim "$DSL_TECH_LIBS"; DSL_TECH_LIBS="$TRIMMED"
+}
+
+# Is this name one the tree depends on?
+#
+# The comparison is on the case: the model writes MCP and the dependency is
+# called mcp, and they are the same library.
+dsl_library_known() {
+  local name="$1" lib
+  local low="${name,,}"
+  for lib in $DSL_TECH_LIBS; do
+    if [ "$low" = "${lib,,}" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Does this text name a library the tree depends on?
+dsl_names_library() {
+  local text="$1" lib
+  local low="${text,,}"
+  for lib in $DSL_TECH_LIBS; do
+    if [[ "$low" =~ ([^A-Za-z0-9_]|^)${lib,,}([^A-Za-z0-9_]|$) ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# One technology, checked against the libraries the tree depends on.
+dsl_technology_check() {
+  local line="$1" tech="$2" body piece bad=""
+  # the brackets, if there are any
+  body=""
+  case "$tech" in
+    *"("*")"*) body="${tech#*\(}"; body="${body%\)*}" ;;
+  esac
+  [ -n "$body" ] || body="$tech"
+  DSL_TECH_CHECKED=$((DSL_TECH_CHECKED + 1))
+  case "$body" in
+    *+*)
+      # a list of libraries
+      local rest="$body"
+      while [ -n "$rest" ]; do
+        piece="${rest%%+*}"
+        if [ "$piece" = "$rest" ]; then rest=""; else rest="${rest#*+}"; fi
+        trim "$piece"; piece="$TRIMMED"
+        [ -n "$piece" ] || continue
+        if ! dsl_library_known "$piece"; then
+          bad="$bad $piece"
+        fi
+      done
+      if [ -n "$bad" ]; then
+        trim "$bad"; bad="$TRIMMED"
+        fail "$(printf '%-22s %s line %s names the library [%s], the tree does not depend on it' \
+          'dsl technologies' "$SYSTEM_MODEL_DSL" "$line" "$bad")"
+        DSL_TECH_BAD=1
+      fi
+      ;;
+    *)
+      # a sentence: it has to name a library the tree depends on
+      if ! dsl_names_library "$body"; then
+        fail "$(printf '%-22s %s line %s names no library the tree depends on' \
+          'dsl technologies' "$SYSTEM_MODEL_DSL" "$line")"
+        DSL_TECH_BAD=1
+      fi
+      ;;
+  esac
+}
+
+# Every container the model gives, checked against the libraries.
+check_dsl_technologies() {
+  local line tech n=0
+  local re='= container "[^"]*" "[^"]*" "([^"]*)"'
+  while IFS= read -r line; do
+    n=$((n + 1))
+    case "$line" in
+      *"= container "*) ;;
+      *) continue ;;
+    esac
+    if [[ "$line" =~ $re ]]; then
+      tech="${BASH_REMATCH[1]}"
+      dsl_technology_check "$n" "$tech"
+    fi
+  done < "$SYSTEM_MODEL_DSL"
+}
+
+code_module_libraries
+check_dsl_technologies
+
+if [ "$DSL_TECH_BAD" -eq 0 ]; then
+  ok "dsl technologies" "$DSL_TECH_CHECKED containers"
+fi
+
 # --- the node colours ----------------------------------------------------------
 #
 # The mark draws five nodes, and the tree names the colour each one keeps in

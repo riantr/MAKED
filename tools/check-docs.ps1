@@ -3830,6 +3830,110 @@ if ($script:bundleFiles.Count -eq 0) {
 
 if (-not $script:bundleBad) { Write-Ok 'bundle files' ("{0} lists" -f $script:bundleLists) }
 
+# --- the technologies the model gives its containers ---------------------------
+#
+# The model says what each of its containers is built from: a native binary on
+# moonback and sqlite3, a js bundle on rabbita, a sqlite3 file, a native
+# binary that speaks MCP. Those are the tree's libraries, and nothing checks
+# them: the model could name a library the tree has never heard of, and every
+# document would go on saying what it always said.
+#
+# The libraries are the tree's: the dependencies the module declares in
+# moon.mod, by their package name.
+#
+# A technology says which libraries it is made of. A list of them is a list of
+# names side by side ("moonback + sqlite3"), and every name in that list has
+# to be a library the tree depends on. A technology that says it in a sentence
+# instead ("MCP over stdio or HTTP") has to name a library the tree depends
+# on.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:dslTechBad = $false
+$script:dslTechChecked = 0
+$script:dslTechLibs = @()
+
+# The libraries the module depends on: the package name of every dependency.
+function Get-ModuleLibraries {
+  $out = @()
+  foreach ($l in [System.IO.File]::ReadAllLines((Join-Path $PWD 'moon.mod'), $enc)) {
+    if ($l -cnotmatch '^\s*"([^"]+)@([^"]+)".*$') { continue }
+    $module = $Matches[1]
+    $name = $module.Substring($module.LastIndexOf('/') + 1)
+    if ($name -cnotmatch '^[A-Za-z_][A-Za-z0-9_]*$') { continue }
+    $out += $name
+  }
+  $out
+}
+
+# Is this name one the tree depends on?
+#
+# The comparison is on the case: the model writes MCP and the dependency is
+# called mcp, and they are the same library.
+function Test-DslLibrary($name) {
+  $low = $name.ToLowerInvariant()
+  foreach ($lib in $script:dslTechLibs) {
+    if ($low -ceq $lib.ToLowerInvariant()) { return $true }
+  }
+  $false
+}
+
+# Does this text name a library the tree depends on?
+function Test-DslNamesLibrary($text) {
+  $low = $text.ToLowerInvariant()
+  foreach ($lib in $script:dslTechLibs) {
+    $rx = '(?<![A-Za-z0-9_])' + [regex]::Escape($lib.ToLowerInvariant()) + '(?![A-Za-z0-9_])'
+    if ($low -match $rx) { return $true }
+  }
+  $false
+}
+
+# One technology, checked against the libraries the tree depends on.
+function Test-DslTechnology($line, $tech) {
+  $script:dslTechChecked++
+  # the brackets, if there are any
+  $body = $tech
+  $open = $tech.IndexOf('(')
+  $close = $tech.LastIndexOf(')')
+  if ($open -ge 0 -and $close -gt $open) {
+    $body = $tech.Substring($open + 1, $close - $open - 1)
+  }
+  if ($body -cnotmatch '\+') {
+    # a sentence: it has to name a library the tree depends on
+    if (-not (Test-DslNamesLibrary $body)) {
+      Write-Fail ("{0,-22} {1} line {2} names no library the tree depends on" -f 'dsl technologies', $systemModelDsl, $line)
+      $script:dslTechBad = $true
+    }
+    return
+  }
+  # a list of libraries
+  $bad = @()
+  foreach ($piece in ($body -split '\+')) {
+    $p = $piece.Trim()
+    if ($p -eq '') { continue }
+    if (-not (Test-DslLibrary $p)) { $bad += $p }
+  }
+  if ($bad.Count -gt 0) {
+    Write-Fail ("{0,-22} {1} line {2} names the library [{3}], the tree does not depend on it" -f 'dsl technologies', $systemModelDsl, $line, ($bad -join ' '))
+    $script:dslTechBad = $true
+  }
+}
+
+# Every container the model gives, checked against the libraries.
+$script:dslTechLibs = @(Get-ModuleLibraries)
+$dslTechRe = '= container "[^"]*" "[^"]*" "([^"]*)"'
+$dslTechLines = [System.IO.File]::ReadAllLines((Join-Path $PWD $systemModelDsl), $enc)
+for ($i = 0; $i -lt $dslTechLines.Count; $i++) {
+  $l = $dslTechLines[$i]
+  if ($l -cnotmatch '= container ') { continue }
+  $m = [regex]::Match($l, $dslTechRe)
+  if (-not $m.Success) { continue }
+  Test-DslTechnology ($i + 1) $m.Groups[1].Value
+}
+
+if (-not $script:dslTechBad) { Write-Ok 'dsl technologies' ("{0} containers" -f $script:dslTechChecked) }
+
 # --- the node colours ---------------------------------------------------------
 #
 # The mark draws five nodes, and the tree names the colour each one keeps in
