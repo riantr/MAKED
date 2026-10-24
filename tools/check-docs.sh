@@ -7716,6 +7716,205 @@ if [ "$GAPS_BAD" -eq 0 ]; then
   ok "gaps" "$GAPS_CHECKED denials"
 fi
 
+# --- the gaps the tables promise ------------------------------------------------
+#
+# The deployment document has a table of the gaps, and the deployment evidence
+# has another one: the things the tree does not have yet. Every row of a table
+# of gaps is a claim about the tree, and it is a claim in both directions. The
+# thing the row names must not be in the tree, and the row must say so: a row
+# that says the tree has no systemd unit is right only while the tree has no
+# systemd unit, and a row that says the tree has one is right only while it
+# has.
+#
+# The capabilities the rows name come from the tree:
+#
+#   - a systemd unit is a *.service file, and a supervisor is a supervisor
+#     config or the word in the tree's own code.
+#   - TLS is a certificate in the tree.
+#   - exported metrics are a /metrics endpoint.
+#   - tracing, alerting and a backup strategy are the words the tree would
+#     use for them.
+#   - structured logging is a log line that prints a JSON document.
+#
+# A table of gaps is found by its header: the first cell of the header row is
+# "Gap". The gap cell of a row is the first cell of the row.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+GAPROW_BAD=0
+GAPROW_CHECKED=0
+
+# The capabilities a gap row can name.
+GAP_CAPABILITIES="systemd
+supervisor
+tls
+exported metrics
+tracing
+alerting
+backup
+structured logging"
+
+# The source files whose code logs a JSON document.
+STRUCTURED_LOG_FILES=""
+structured_log_files() {
+  local file line
+  STRUCTURED_LOG_FILES=""
+  for file in $(git ls-files '*.mbt' 2>/dev/null); do
+    case "$file" in *_test.mbt|*_wbtest.mbt) continue ;; esac
+    while IFS= read -r line; do
+      case "$line" in
+        *eprintln\(*|*println\(*) ;;
+        *) continue ;;
+      esac
+      case "$line" in
+        *'"{"'*|*@json*|*stringify*)
+          STRUCTURED_LOG_FILES="$STRUCTURED_LOG_FILES $file"
+          break
+          ;;
+      esac
+    done < "$file"
+  done
+  trim "$STRUCTURED_LOG_FILES"; STRUCTURED_LOG_FILES="$TRIMMED"
+}
+
+# The places the tree would have the thing a capability names.
+GAP_HITS=""
+gap_capability_places() {
+  local name="$1"
+  GAP_HITS=""
+  case "$name" in
+    systemd)
+      files_matching '*.service'
+      GAP_HITS="$FILES_MATCHING"
+      ;;
+    supervisor)
+      files_matching '*supervisor*'
+      GAP_HITS="$FILES_MATCHING"
+      code_word_files 'supervisor'
+      [ -z "$CODE_WORD_FILES" ] || GAP_HITS="$GAP_HITS $CODE_WORD_FILES"
+      ;;
+    tls)
+      edge_places
+      GAP_HITS="$TLS_PLACES"
+      ;;
+    metrics)
+      metrics_files
+      GAP_HITS="$METRICS_FILES"
+      ;;
+    tracing)
+      code_word_files "$TRACING_WORDS"
+      GAP_HITS="$CODE_WORD_FILES"
+      ;;
+    alerting)
+      code_word_files "$ALERTING_WORDS"
+      GAP_HITS="$CODE_WORD_FILES"
+      ;;
+    backup)
+      code_word_files 'backup'
+      GAP_HITS="$CODE_WORD_FILES"
+      ;;
+    logging)
+      structured_log_files
+      GAP_HITS="$STRUCTURED_LOG_FILES"
+      ;;
+  esac
+  trim "$GAP_HITS"; GAP_HITS="$TRIMMED"
+}
+
+# The name the tree knows a capability by.
+gap_capability_name() {
+  case "$1" in
+    'exported metrics') echo "metrics" ;;
+    'structured logging') echo "logging" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+# Does the cell name this capability? A single word has to be a whole word;
+# a phrase is a phrase.
+gap_cell_has() {
+  local cell="$1" phrase="$2" low="${2,,}"
+  case "$phrase" in
+    *' '*)
+      case "${cell,,}" in
+        *"$phrase"*) return 0 ;;
+      esac
+      return 1
+      ;;
+  esac
+  if [[ "${cell,,}" =~ (^|[^a-z0-9_])${low}([^a-z0-9_]|$) ]]; then
+    return 0
+  fi
+  return 1
+}
+
+# The gap cells of the tables whose first column is "Gap".
+GAP_CELLS=""
+gap_cells() {
+  local doc line n=0 in_table=0 cell
+  GAP_CELLS=""
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    n=0
+    in_table=0
+    while IFS= read -r line; do
+      n=$((n + 1))
+      case "$line" in
+        "| Gap |"*) in_table=1; continue ;;
+        "|---"*) continue ;;
+      esac
+      [ "$in_table" -eq 1 ] || continue
+      case "$line" in
+        "| "*) ;;
+        *) in_table=0; continue ;;
+      esac
+      cell="${line#*|}"
+      cell="${cell%%|*}"
+      trim "$cell"; cell="$TRIMMED"
+      [ -n "$cell" ] || continue
+      GAP_CELLS="${GAP_CELLS}${doc}"$'\037'"${n}"$'\037'"${cell}"$'\n'
+    done < "$doc"
+  done
+}
+
+# The gap rows, checked against the tree.
+check_gap_rows() {
+  local doc line cell denied phrase name hits
+  while IFS=$'\037' read -r doc line cell; do
+    [ -n "$cell" ] || continue
+    denied=0
+    case "${cell,,}" in
+      "no "*) denied=1 ;;
+    esac
+    while IFS= read -r phrase; do
+      [ -n "$phrase" ] || continue
+      gap_cell_has "$cell" "$phrase" || continue
+      name="$(gap_capability_name "$phrase")"
+      gap_capability_places "$name"
+      hits="$GAP_HITS"
+      GAPROW_CHECKED=$((GAPROW_CHECKED + 1))
+      if [ -n "$hits" ] && [ "$denied" -eq 1 ]; then
+        fail "$(printf '%-22s %s line %s says there is no %s, but the tree has %s' \
+          'gap row' "$doc" "$line" "$phrase" "$hits")"
+        GAPROW_BAD=1
+      elif [ -z "$hits" ] && [ "$denied" -eq 0 ]; then
+        fail "$(printf '%-22s %s line %s says the tree has %s, but it does not' \
+          'gap row' "$doc" "$line" "$phrase")"
+        GAPROW_BAD=1
+      fi
+    done <<< "$GAP_CAPABILITIES"
+  done <<< "$GAP_CELLS"
+}
+
+gap_cells
+check_gap_rows
+
+if [ "$GAPROW_BAD" -eq 0 ]; then
+  ok "gap row" "$GAPROW_CHECKED claims"
+fi
+
 # --- the requests the frontend makes at start-up -------------------------------
 #
 # The start-up is a chain: the init asks for the bootstrap, the answer asks

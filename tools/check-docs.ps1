@@ -6847,6 +6847,149 @@ foreach ($claim in (Get-DocClaims 'README.md')) {
 
 if (-not $script:gapsBad) { Write-Ok 'gaps' ("{0} denials" -f $script:gapsChecked) }
 
+# --- the gaps the tables promise ------------------------------------------------
+#
+# The deployment document has a table of the gaps, and the deployment evidence
+# has another one: the things the tree does not have yet. Every row of a table
+# of gaps is a claim about the tree, and it is a claim in both directions. The
+# thing the row names must not be in the tree, and the row must say so: a row
+# that says the tree has no systemd unit is right only while the tree has no
+# systemd unit, and a row that says the tree has one is right only while it
+# has.
+#
+# The capabilities the rows name come from the tree:
+#
+#   - a systemd unit is a *.service file, and a supervisor is a supervisor
+#     config or the word in the tree's own code.
+#   - TLS is a certificate in the tree.
+#   - exported metrics are a /metrics endpoint.
+#   - tracing, alerting and a backup strategy are the words the tree would
+#     use for them.
+#   - structured logging is a log line that prints a JSON document.
+#
+# A table of gaps is found by its header: the first cell of the header row is
+# "Gap". The gap cell of a row is the first cell of the row.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:gapRowBad = $false
+$script:gapRowChecked = 0
+
+# The capabilities a gap row can name.
+$gapCapabilities = @('systemd', 'supervisor', 'tls', 'exported metrics', 'tracing',
+  'alerting', 'backup', 'structured logging')
+
+# The source files whose code logs a JSON document.
+function Get-StructuredLogFiles {
+  $out = @()
+  foreach ($file in @(& git ls-files '*.mbt' 2>$null)) {
+    if ($file.EndsWith('_test.mbt') -or $file.EndsWith('_wbtest.mbt')) { continue }
+    foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $PWD $file), $enc)) {
+      if (($line -notmatch 'eprintln\(') -and ($line -notmatch 'println\(')) { continue }
+      if ($line.Contains('"{') -or $line.Contains('@json') -or $line.Contains('stringify')) {
+        $out += $file
+        break
+      }
+    }
+  }
+  $out
+}
+
+# The places the tree would have the thing a capability names.
+function Get-GapCapabilityPlaces($name) {
+  $out = @()
+  if ($name -ceq 'systemd') {
+    $out += @(Get-FilesMatching '*.service')
+  } elseif ($name -ceq 'supervisor') {
+    $out += @(Get-FilesMatching '*supervisor*')
+    Get-CodeWordFiles @('supervisor')
+    $out += @($script:codeWordFiles)
+  } elseif ($name -ceq 'tls') {
+    $edges = Get-EdgePlaces
+    $out += @($edges.tls)
+  } elseif ($name -ceq 'metrics') {
+    $out += @(Get-MetricsFiles)
+  } elseif ($name -ceq 'tracing') {
+    Get-CodeWordFiles $tracingWords
+    $out += @($script:codeWordFiles)
+  } elseif ($name -ceq 'alerting') {
+    Get-CodeWordFiles $alertingWords
+    $out += @($script:codeWordFiles)
+  } elseif ($name -ceq 'backup') {
+    Get-CodeWordFiles @('backup')
+    $out += @($script:codeWordFiles)
+  } elseif ($name -ceq 'logging') {
+    $out += @(Get-StructuredLogFiles)
+  }
+  $out
+}
+
+# The name the tree knows a capability by.
+function Get-GapCapabilityName($phrase) {
+  if ($phrase -ceq 'exported metrics') { return 'metrics' }
+  if ($phrase -ceq 'structured logging') { return 'logging' }
+  $phrase
+}
+
+# Does the cell name this capability? A single word has to be a whole word;
+# a phrase is a phrase.
+function Test-GapCellHas($cell, $phrase) {
+  $low = $cell.ToLowerInvariant()
+  if ($phrase.Contains(' ')) {
+    return $low.Contains($phrase.ToLowerInvariant())
+  }
+  $re = '(^|[^a-z0-9_])' + [regex]::Escape($phrase.ToLowerInvariant()) + '([^a-z0-9_]|$)'
+  return $low -match $re
+}
+
+# The gap cells of the tables whose first column is "Gap".
+$gapCells = @()
+foreach ($doc in $archDocs) {
+  if ($markedDocs -ccontains $doc) { continue }
+  $docLines = [System.IO.File]::ReadAllLines((Join-Path $PWD $doc), $enc)
+  $inTable = $false
+  for ($i = 0; $i -lt $docLines.Count; $i++) {
+    $l = $docLines[$i]
+    if ($l -clike '| Gap |*') { $inTable = $true; continue }
+    if ($l -clike '|---*') { continue }
+    if (-not $inTable) { continue }
+    if ($l -clike '| *') {
+      $cells = $l.Split('|')
+      $cell = $cells[1].Trim()
+      if ($cell -ne '') { $gapCells += ,@($doc, ($i + 1), $cell) }
+      continue
+    }
+    $inTable = $false
+  }
+}
+
+# The gap rows, checked against the tree.
+foreach ($row in $gapCells) {
+  $doc = $row[0]
+  $line = $row[1]
+  $cell = $row[2]
+  $denied = $false
+  if ($cell.ToLowerInvariant().StartsWith('no ')) { $denied = $true }
+  foreach ($phrase in $gapCapabilities) {
+    if (-not (Test-GapCellHas $cell $phrase)) { continue }
+    $name = Get-GapCapabilityName $phrase
+    $hits = @(Get-GapCapabilityPlaces $name)
+    $script:gapRowChecked++
+    if ($hits.Count -gt 0 -and $denied) {
+      Write-Fail ("{0,-22} {1} line {2} says there is no {3}, but the tree has {4}" -f `
+        'gap row', $doc, $line, $phrase, ($hits -join ' '))
+      $script:gapRowBad = $true
+    } elseif ($hits.Count -eq 0 -and -not $denied) {
+      Write-Fail ("{0,-22} {1} line {2} says the tree has {3}, but it does not" -f `
+        'gap row', $doc, $line, $phrase)
+      $script:gapRowBad = $true
+    }
+  }
+}
+
+if (-not $script:gapRowBad) { Write-Ok 'gap row' ("{0} claims" -f $script:gapRowChecked) }
+
 # --- the requests the frontend makes at start-up -------------------------------
 #
 # The start-up is a chain: the init asks for the bootstrap, the answer asks
