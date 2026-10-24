@@ -5573,6 +5573,77 @@ if [ "$TLS_BAD" -eq 0 ]; then
   ok "tls" "$TLS_CHECKED claims"
 fi
 
+# --- the channel the documents say is secure ----------------------------------
+#
+# The edge gate above reads the denials: a document that says there is no TLS
+# has to be right about there being no TLS. This is the other side of it. A
+# document that says the channel IS secure -- that the browser reaches the
+# server over HTTPS, that the agent speaks to it over TLS -- is making the
+# opposite promise, and that promise needs a certificate to keep it. The tree
+# has none.
+#
+# The word is a channel, not a link: "https://mooncakes.io" is a URL that a
+# reader clicks, and "HTTPS" is the protocol the server is reached with. A
+# claim that denies TLS is not this gate's business: the gate above owns the
+# denials.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+TLS_CHANNEL_BAD=0
+TLS_CHANNEL_CHECKED=0
+
+# A claim that says the channel is secure.
+#
+# The trailing class leaves out the colon as well as the word characters, so
+# that "https://" -- a link -- is not a channel.
+SECURE_CHANNEL_RE='([^A-Za-z0-9_]|^)(https|tls|ssl)([^A-Za-z0-9_:]|$)'
+
+# One claim, checked against the certificates the tree has.
+tls_channel_claim_check() {
+  local doc="$1" line="$2" claim="$3" lower
+  lower="${claim,,}"
+  # a claim that does not talk about the channel's security is not this gate's
+  # business
+  [[ "$lower" =~ $SECURE_CHANNEL_RE ]] || return
+  TLS_CHANNEL_CHECKED=$((TLS_CHANNEL_CHECKED + 1))
+  # a denial is the edge gate's business
+  if [[ "$lower" =~ $NO_TLS_RE ]]; then
+    return
+  fi
+  if [ -z "$TLS_PLACES" ]; then
+    fail "$(printf '%-22s %s line %s says the channel is secure, and the tree has no certificate' \
+      'tls channel' "$doc" "$line")"
+    TLS_CHANNEL_BAD=1
+  fi
+}
+
+# Every claim the documents make, checked against the certificates the tree has.
+check_tls_channel_claims() {
+  local doc line claim n=0
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      tls_channel_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+  # the model is read a line at a time, the way a graph is
+  while IFS= read -r line; do
+    n=$((n + 1))
+    [ -n "$line" ] || continue
+    tls_channel_claim_check "$SYSTEM_MODEL_DSL" "$n" "$line"
+  done < "$SYSTEM_MODEL_DSL"
+}
+
+check_tls_channel_claims
+
+if [ "$TLS_CHANNEL_BAD" -eq 0 ]; then
+  ok "tls channel" "$TLS_CHANNEL_CHECKED claims"
+fi
+
 # --- the coupling the table states -------------------------------------------
 #
 # A coupling row that counts the calls says how tightly two packages are

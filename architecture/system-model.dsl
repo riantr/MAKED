@@ -29,7 +29,7 @@ workspace {
     }
 
     // --- Relationships ---
-    user -> backend "Loads site, navigates pages" "HTTPS"
+    user -> backend "Loads site, navigates pages" "HTTP"
     agent -> agent_server "Spawns it, and speaks MCP to it" "stdio or HTTP"
     agent_server -> backend "Reads where the loop stands, and moves it" "in process"
     backend -> database "Reads/writes page content" "SQLite FFI"

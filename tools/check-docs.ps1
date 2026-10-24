@@ -5140,6 +5140,67 @@ foreach ($doc in $archDocs) {
 if (-not $script:proxyBad) { Write-Ok 'proxy' ("{0} claims" -f $script:proxyChecked) }
 if (-not $script:tlsBad) { Write-Ok 'tls' ("{0} claims" -f $script:tlsChecked) }
 
+# --- the channel the documents say is secure ----------------------------------
+#
+# The edge gate above reads the denials: a document that says there is no TLS
+# has to be right about there being no TLS. This is the other side of it. A
+# document that says the channel IS secure -- that the browser reaches the
+# server over HTTPS, that the agent speaks to it over TLS -- is making the
+# opposite promise, and that promise needs a certificate to keep it. The tree
+# has none.
+#
+# The word is a channel, not a link: "https://mooncakes.io" is a URL that a
+# reader clicks, and "HTTPS" is the protocol the server is reached with. A
+# claim that denies TLS is not this gate's business: the gate above owns the
+# denials.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:tlsChannelBad = $false
+$script:tlsChannelChecked = 0
+
+# A claim that says the channel is secure.
+#
+# The trailing class leaves out the colon as well as the word characters, so
+# that "https://" -- a link -- is not a channel.
+$secureChannelRe = '(?<![A-Za-z0-9_])(https|tls|ssl)(?![A-Za-z0-9_:])'
+
+# One claim, checked against the certificates the tree has.
+function Test-TlsChannelClaim($doc, $line, $claim) {
+  $lower = $claim.ToLowerInvariant()
+  # a claim that does not talk about the channel's security is not this gate's
+  # business
+  if ($lower -notmatch $secureChannelRe) { return }
+  $script:tlsChannelChecked++
+  # a denial is the edge gate's business
+  if ($lower -match $noTlsRe) { return }
+  if ($script:tlsPlaces.Count -eq 0) {
+    Write-Fail ("{0,-22} {1} line {2} says the channel is secure, and the tree has no certificate" -f 'tls channel', $doc, $line)
+    $script:tlsChannelBad = $true
+  }
+}
+
+# Every claim the documents make, checked against the certificates the tree has.
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-TlsChannelClaim $doc $claim.line $claim.text
+  }
+}
+# the model is read a line at a time, the way a graph is
+$tlsChannelLines = [System.IO.File]::ReadAllLines((Join-Path $PWD $systemModelDsl), $enc)
+for ($i = 0; $i -lt $tlsChannelLines.Count; $i++) {
+  $l = $tlsChannelLines[$i]
+  if ($l -eq '') { continue }
+  Test-TlsChannelClaim $systemModelDsl ($i + 1) $l
+}
+
+if (-not $script:tlsChannelBad) { Write-Ok 'tls channel' ("{0} claims" -f $script:tlsChannelChecked) }
+
 # --- the coupling the table states -------------------------------------------
 #
 # A coupling row that counts the calls says how tightly two packages are
