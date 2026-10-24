@@ -5493,6 +5493,65 @@ if (-not $script:deployProtoBad) {
   Write-Ok 'deploy protocols' ("{0} boundaries" -f $script:deployProtoChecked)
 }
 
+# --- the port the deployment document states ------------------------------------
+#
+# The deployment document says what port the server listens on, and it says it
+# in more than one place: the topology diagram, the components table and the
+# run notes. The tree's port is the default of MAKED_PORT, and the document
+# has to agree with it in every place it speaks -- a document that says 8080
+# in the table and 9090 in the diagram sends the reader to a port that is
+# neither.
+#
+# A port is a number of four digits or more. A number that is a line of a file
+# is not a port, so the citations are taken out before the numbers are read.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:deployPortBad = $false
+$script:deployPortPlaces = 0
+$script:deployPortWrong = @()
+
+# The port the tree listens on: the default of MAKED_PORT.
+function Get-TreePort {
+  foreach ($setting in $codeSettings) {
+    if ($setting -clike 'MAKED_PORT *') {
+      $parts = $setting -split ' ', 2
+      return $parts[1]
+    }
+  }
+  ''
+}
+
+# The ports the deployment document states.
+function Get-DocPorts {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $deployMd), $enc)
+  $text = [regex]::Replace($text, '[A-Za-z0-9_.-]+\.[A-Za-z0-9]+:[0-9]+', '')
+  foreach ($m in [regex]::Matches($text, '[0-9]{4,}')) { $out += $m.Value }
+  $out
+}
+
+$treePort = Get-TreePort
+if ($treePort -ne '') {
+  foreach ($port in @(Get-DocPorts)) {
+    if ($port -eq '') { continue }
+    $script:deployPortPlaces++
+    if ($port -cne $treePort) {
+      if ($script:deployPortWrong -cnotcontains $port) { $script:deployPortWrong += $port }
+    }
+  }
+  foreach ($wrong in $script:deployPortWrong) {
+    Write-Fail ("{0,-22} {1} states the port {2}, and the tree listens on {3}" -f `
+      'deploy port', $deployMd, $wrong, $treePort)
+    $script:deployPortBad = $true
+  }
+}
+
+if (-not $script:deployPortBad) {
+  Write-Ok 'deploy port' ("{0} places" -f $script:deployPortPlaces)
+}
+
 # --- the CORS the tree does not have ------------------------------------------
 #
 # A claim that says the tree has no CORS is making a promise to the browser:

@@ -5970,6 +5970,69 @@ if [ "$DEPLOY_PROTO_BAD" -eq 0 ]; then
   ok "deploy protocols" "$DEPLOY_PROTO_CHECKED boundaries"
 fi
 
+# --- the port the deployment document states ------------------------------------
+#
+# The deployment document says what port the server listens on, and it says it
+# in more than one place: the topology diagram, the components table and the
+# run notes. The tree's port is the default of MAKED_PORT, and the document
+# has to agree with it in every place it speaks -- a document that says 8080
+# in the table and 9090 in the diagram sends the reader to a port that is
+# neither.
+#
+# A port is a number of four digits or more. A number that is a line of a file
+# is not a port, so the citations are taken out before the numbers are read.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+DEPLOY_PORT_BAD=0
+DEPLOY_PORT_PLACES=0
+DEPLOY_PORT_WRONG=""
+
+# The port the tree listens on: the default of MAKED_PORT.
+TREE_PORT=""
+tree_port() {
+  local line
+  TREE_PORT=""
+  while IFS= read -r line; do
+    case "$line" in
+      MAKED_PORT\ *) TREE_PORT="${line#MAKED_PORT }"; return ;;
+    esac
+  done <<< "$CODE_SETTINGS"
+}
+
+# The ports the deployment document states.
+DOC_PORTS=""
+doc_ports() {
+  DOC_PORTS=""
+  sed -E 's/[A-Za-z0-9_.-]+\.[A-Za-z0-9]+:[0-9]+//g' "$DEPLOY_MD" \
+    | grep -oE '[0-9]{4,}' || true
+}
+
+tree_port
+if [ -n "$TREE_PORT" ]; then
+  DOC_PORTS="$(doc_ports)"
+  while IFS= read -r port; do
+    [ -n "$port" ] || continue
+    DEPLOY_PORT_PLACES=$((DEPLOY_PORT_PLACES + 1))
+    if [ "$port" != "$TREE_PORT" ]; then
+      case " $DEPLOY_PORT_WRONG " in
+        *" $port "*) ;;
+        *) DEPLOY_PORT_WRONG="$DEPLOY_PORT_WRONG $port" ;;
+      esac
+    fi
+  done <<< "$DOC_PORTS"
+  for wrong in $DEPLOY_PORT_WRONG; do
+    fail "$(printf '%-22s %s states the port %s, and the tree listens on %s' \
+      'deploy port' "$DEPLOY_MD" "$wrong" "$TREE_PORT")"
+    DEPLOY_PORT_BAD=1
+  done
+fi
+
+if [ "$DEPLOY_PORT_BAD" -eq 0 ]; then
+  ok "deploy port" "$DEPLOY_PORT_PLACES places"
+fi
+
 # --- the CORS the tree does not have ------------------------------------------
 #
 # A claim that says the tree has no CORS is making a promise to the browser:
