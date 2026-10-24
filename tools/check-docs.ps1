@@ -2497,6 +2497,142 @@ Test-ClaimNumber 'flow page bodies' '\(([0-9]+) pages, hardcoded HTML bodies\)' 
 Test-ClaimNumber 'flow page columns' 'bind\(([0-9]+) params\)' `
   (Count-PageColumns) $flowsMd
 
+# --- architecture/flows.md: the statements the flow prepares --------------------
+#
+# The flow document shows the reader the statements the server runs: which SQL
+# it prepares, and which parameters it binds to it. The number of those
+# parameters is checked above -- "bind(12 params)" is the count of the
+# columns. The index each parameter is bound at, and the SQL itself, were
+# not: a flow that prepared a statement the tree never prepares, or that
+# bound the third parameter of a statement that has one parameter, sent the
+# reader to code that is not there.
+#
+# The tree is the backend's own functions. Each one that prepares a statement
+# has a body, and the body holds the SQL it prepares and the indices it
+# binds. The document names a statement by the pieces of its SQL -- it writes
+# "SELECT ... WHERE slug = ?" -- and the tree's function that holds every one
+# of those pieces is the statement the document means.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:flowSqlBad = $false
+$script:flowSqlChecked = 0
+
+# The functions of the tree that prepare a statement: the name, the
+# parameters they bind and the body they hold.
+#
+# A function is the line that declares it and the lines up to the next
+# declaration. The body is those lines joined with spaces, so that a piece of
+# SQL can be looked for in it. The test files are not the code the server
+# runs, so they are not read.
+function Get-StatementFunctions {
+  $out = @()
+  foreach ($file in $script:flowSqlFiles) {
+    $lines = [System.IO.File]::ReadAllLines($file.FullName, $enc)
+    $name = ''
+    $indices = @()
+    $body = @()
+    foreach ($line in $lines) {
+      if ($line -match '^\s*(pub\s*(\([A-Za-z_][A-Za-z0-9_]*\)\s*)?)?(async\s+)?fn\s') {
+        if ($name -ne '' -and (($body -join ' ') -match 'prepare\(')) {
+          $out += ,([pscustomobject]@{ Name = $name; Indices = $indices; Body = ($body -join ' ') })
+        }
+        $name = ''
+        $indices = @()
+        $body = @()
+        $m = [regex]::Match($line, 'fn\s')
+        if ($m.Success) {
+          $name = $line.Substring($m.Index + $m.Length)
+          $name = [regex]::Replace($name, '[^A-Za-z0-9_:].*$', '')
+        }
+        continue
+      }
+      $body += $line
+      foreach ($m in [regex]::Matches($line, 'bind\(index=\d+')) {
+        $indices += ($m.Value -replace '^bind\(index=', '')
+      }
+    }
+    if ($name -ne '' -and (($body -join ' ') -match 'prepare\(')) {
+      $out += ,([pscustomobject]@{ Name = $name; Indices = $indices; Body = ($body -join ' ') })
+    }
+  }
+  $out
+}
+
+$script:flowSqlFiles = @()
+$script:flowSqlFiles += @(Get-ChildItem -Path (Join-Path $PWD 'backend') -Filter '*.mbt' -File)
+$script:flowSqlFiles += @(Get-ChildItem -Path (Join-Path $PWD 'cmd') -Filter '*.mbt' -File -Recurse)
+$script:flowSqlFunctions = @(Get-StatementFunctions)
+
+$flowSqlLines = [System.IO.File]::ReadAllLines((Join-Path $PWD $flowsMd), $enc)
+$stmtName = ''
+$stmtIndices = @()
+for ($i = 0; $i -lt $flowSqlLines.Count; $i++) {
+  $line = $flowSqlLines[$i]
+  $n = $i + 1
+  $m = [regex]::Match($line, 'prepare\s+(SELECT|INSERT|UPDATE|DELETE|PRAGMA|CREATE|WITH)\s')
+  if ($m.Success) {
+    $sql = $line.Substring($line.IndexOf('prepare ') + 8)
+    $fragments = @()
+    foreach ($piece in ($sql -split '\.\.\.')) {
+      $t = $piece.Trim()
+      if ($t -ne '') { $fragments += $t }
+    }
+    $stmtName = ''
+    $stmtIndices = @()
+    foreach ($f in $script:flowSqlFunctions) {
+      $all = $true
+      foreach ($frag in $fragments) {
+        if (-not $f.Body.Contains($frag)) { $all = $false; break }
+      }
+      if (-not $all) { continue }
+      $stmtName = $f.Name
+      $stmtIndices = $f.Indices
+      break
+    }
+    $script:flowSqlChecked++
+    if ($stmtName -eq '') {
+      Write-Fail ("{0,-22} {1} line {2} prepares SQL the tree does not have: {3}" -f `
+        'flow sql', $flowsMd, $n, $sql)
+      $script:flowSqlBad = $true
+    }
+    continue
+  }
+  $b = [regex]::Match($line, 'bind\((\d+),\s*"([^"]*)"\)')
+  if ($b.Success) {
+    $index = $b.Groups[1].Value
+    $value = $b.Groups[2].Value
+    $script:flowSqlChecked++
+    if ($stmtName -eq '') {
+      Write-Fail ("{0,-22} {1} line {2} binds a parameter of a statement it does not prepare" -f `
+        'flow sql', $flowsMd, $n)
+      $script:flowSqlBad = $true
+      continue
+    }
+    if (-not ($stmtIndices -contains $index)) {
+      Write-Fail ("{0,-22} {1} line {2} binds parameter {3}, and the tree binds {4}" -f `
+        'flow sql', $flowsMd, $n, $index, (($stmtIndices -join ' ').Trim()))
+      $script:flowSqlBad = $true
+    }
+    $hasValue = $false
+    foreach ($file in $script:flowSqlFiles) {
+      if (Select-String -Path $file.FullName -SimpleMatch -Quiet -Pattern ('"' + $value + '"')) {
+        $hasValue = $true
+        break
+      }
+    }
+    if (-not $hasValue) {
+      Write-Fail ("{0,-22} {1} line {2} binds a value the tree does not have: {3}" -f `
+        'flow sql', $flowsMd, $n, $value)
+      $script:flowSqlBad = $true
+    }
+  }
+}
+if (-not $script:flowSqlBad) {
+  Write-Ok 'flow sql' "$($script:flowSqlChecked) claims"
+}
+
 Test-StatedNumber 'ci.sh header gates' $ciGates `
   (Get-FlatNumber $ciFlat 'runs all ([0-9]+) of them') "ci.sh's header"
 Test-StatedNumber 'agent guide gates' $ciGates `

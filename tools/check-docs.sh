@@ -2528,6 +2528,148 @@ check_claim_number "flow page bodies" '\(([0-9]+) pages, hardcoded HTML bodies\)
 check_claim_number "flow page columns" 'bind\(([0-9]+) params\)' \
   "$(count_page_columns)" "$FLOWS_MD"
 
+# --- architecture/flows.md: the statements the flow prepares --------------------
+#
+# The flow document shows the reader the statements the server runs: which SQL
+# it prepares, and which parameters it binds to it. The number of those
+# parameters is checked above -- "bind(12 params)" is the count of the
+# columns. The index each parameter is bound at, and the SQL itself, were
+# not: a flow that prepared a statement the tree never prepares, or that
+# bound the third parameter of a statement that has one parameter, sent the
+# reader to code that is not there.
+#
+# The tree is the backend's own functions. Each one that prepares a statement
+# has a body, and the body holds the SQL it prepares and the indices it
+# binds. The document names a statement by the pieces of its SQL -- it writes
+# "SELECT ... WHERE slug = ?" -- and the tree's function that holds every one
+# of those pieces is the statement the document means.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+FLOW_SQL_BAD=0
+FLOW_SQL_CHECKED=0
+
+# The functions of the tree that prepare a statement: the name, the
+# parameters they bind and the body they hold.
+#
+# A function is the line that declares it and the lines up to the next
+# declaration. The body is those lines joined with spaces, so that a piece of
+# SQL can be looked for in it. The test files are not the code the server
+# runs, so they are not read.
+code_statement_functions() {
+  awk '
+    /^[[:space:]]*(pub[[:space:]]*(\([A-Za-z_][A-Za-z0-9_]*\)[[:space:]]*)?)?(async[[:space:]]+)?fn[[:space:]]/ {
+      if (name != "" && body ~ /prepare\(/) printf "%s\037%s\037%s\n", name, indices, body
+      name = ""
+      indices = ""
+      body = ""
+      if (match($0, /fn[[:space:]]/)) {
+        name = substr($0, RSTART + RLENGTH)
+        sub(/[^A-Za-z0-9_:].*$/, "", name)
+      }
+      next
+    }
+    {
+      body = body " " $0
+      rest = $0
+      while (match(rest, /bind\(index=[0-9]+/)) {
+        indices = indices " " substr(rest, RSTART + 11, RLENGTH - 11)
+        rest = substr(rest, RSTART + RLENGTH)
+      }
+    }
+    END {
+      if (name != "" && body ~ /prepare\(/) printf "%s\037%s\037%s\n", name, indices, body
+    }
+  ' backend/*.mbt cmd/*/*.mbt
+}
+
+FLOW_STATEMENT_FUNCTIONS="$(code_statement_functions)"
+
+# The pieces of the SQL a claim states: the document writes "SELECT ... WHERE
+# slug = ?", and the pieces between the ellipses are the ones the tree has to
+# hold. A piece is kept whole: it is a piece of SQL, not a word.
+flow_sql_fragments() {
+  local sql="$1" rest="$1" piece
+  FLOW_SQL_FRAGMENTS=()
+  while [ -n "$rest" ]; do
+    piece="${rest%%...*}"
+    if [ "$piece" = "$rest" ]; then
+      rest=""
+    else
+      rest="${rest#*...}"
+    fi
+    # the spaces around the piece are not part of it
+    piece="${piece#"${piece%%[![:space:]]*}"}"
+    piece="${piece%"${piece##*[![:space:]]}"}"
+    [ -n "$piece" ] || continue
+    FLOW_SQL_FRAGMENTS+=("$piece")
+  done
+}
+
+# The statements the flow document states, checked against the tree.
+check_flow_sql() {
+  local line n=0 stmt='' stmt_indices='' sql fragment name indices body
+  local found
+  while IFS= read -r line; do
+    n=$((n + 1))
+    if [[ "$line" =~ prepare[[:space:]]+(SELECT|INSERT|UPDATE|DELETE|PRAGMA|CREATE|WITH)[[:space:]] ]]; then
+      sql="${line#*prepare }"
+      flow_sql_fragments "$sql"
+      stmt=''
+      stmt_indices=''
+      found=''
+      while IFS=$'\037' read -r name indices body; do
+        [ -n "$name" ] || continue
+        found=1
+        for fragment in "${FLOW_SQL_FRAGMENTS[@]}"; do
+          if [[ "$body" != *"$fragment"* ]]; then
+            found=''
+            break
+          fi
+        done
+        [ -n "$found" ] || continue
+        stmt="$name"
+        stmt_indices="$indices"
+        break
+      done <<< "$FLOW_STATEMENT_FUNCTIONS"
+      FLOW_SQL_CHECKED=$((FLOW_SQL_CHECKED + 1))
+      if [ -z "$stmt" ]; then
+        fail "$(printf '%-22s %s line %s prepares SQL the tree does not have: %s' \
+          'flow sql' "$FLOWS_MD" "$n" "$sql")"
+        FLOW_SQL_BAD=1
+      fi
+      continue
+    fi
+    if [[ "$line" =~ bind\(([0-9]+),[[:space:]]*\"([^\"]*)\"\) ]]; then
+      local index="${BASH_REMATCH[1]}" value="${BASH_REMATCH[2]}"
+      FLOW_SQL_CHECKED=$((FLOW_SQL_CHECKED + 1))
+      if [ -z "$stmt" ]; then
+        fail "$(printf '%-22s %s line %s binds a parameter of a statement it does not prepare' \
+          'flow sql' "$FLOWS_MD" "$n")"
+        FLOW_SQL_BAD=1
+        continue
+      fi
+      if [[ " $stmt_indices " != *" $index "* ]]; then
+        fail "$(printf '%-22s %s line %s binds parameter %s, and the tree binds %s' \
+          'flow sql' "$FLOWS_MD" "$n" "$index" "${stmt_indices# }")"
+        FLOW_SQL_BAD=1
+      fi
+      if ! grep -qF "\"$value\"" backend/*.mbt cmd/*/*.mbt 2>/dev/null; then
+        fail "$(printf '%-22s %s line %s binds a value the tree does not have: %s' \
+          'flow sql' "$FLOWS_MD" "$n" "$value")"
+        FLOW_SQL_BAD=1
+      fi
+    fi
+  done < "$FLOWS_MD"
+}
+
+check_flow_sql
+
+if [ "$FLOW_SQL_BAD" -eq 0 ]; then
+  ok "flow sql" "$FLOW_SQL_CHECKED claims"
+fi
+
 check_stated "ci.sh header gates" "$CI_GATES" \
   "$(flat_number "$CI_FLAT" 'runs all ([0-9]+) of them')" "ci.sh's header"
 check_stated "agent guide gates" "$CI_GATES" \

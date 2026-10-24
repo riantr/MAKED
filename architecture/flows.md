@@ -118,7 +118,7 @@ to String-keyed, so handlers never touch StringView lifetimes.
 ```
 seed_pages() → Array[Page] (8 pages, hardcoded HTML bodies)
   → Database::seed(pages)
-    → prepare INSERT ... ON CONFLICT DO UPDATE
+    → prepare INSERT ... ON CONFLICT(slug) DO UPDATE
     → for each page: reset → bind(12 params) → step
     → finalize
   → [SQLite file: maked.db, pages table]
