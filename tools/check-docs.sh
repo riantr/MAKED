@@ -4313,6 +4313,271 @@ if [ "$DSL_TECH_BAD" -eq 0 ]; then
   ok "dsl technologies" "$DSL_TECH_CHECKED containers"
 fi
 
+# --- the mechanisms the model gives its relationships ---------------------------
+#
+# The model says how each of its relationships is carried: HTTP for the
+# browser, stdio or HTTP for the agent, in process for the agent's server
+# talking to the backend, SQLite FFI for the database. Those are the tree's
+# mechanisms, and nothing checked them: the model could say the database is a
+# Postgres FFI, or that the agent speaks SMTP, and every document would go on
+# saying what it always said.
+#
+# The tree's mechanisms come from the tree:
+#
+#   - the SQL library is the one the storage layer opens -- a @sqlite3
+#     connection. A file of that library is reached by a native call and not
+#     over a network, so the mechanism for that edge is the library itself.
+#   - the MCP server offers the transports its own source offers: stdio, and
+#     HTTP when it is given a port.
+#   - the server the browser talks to speaks HTTP: it listens on a socket and
+#     prints http:// URLs.
+#   - the MCP server reaches the backend in its own process: it calls the
+#     backend's package and makes no network call at all.
+#
+# A protocol names mechanisms in words. The words it names have to be the ones
+# the tree has for that edge, and a protocol for an edge the tree crosses has
+# to name one of them. A protocol that names a path has to name a route the
+# tree serves.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+DSL_PROTO_BAD=0
+DSL_PROTO_CHECKED=0
+
+# The words that name a mechanism. A word in a protocol is a claim about a
+# mechanism only when it is one of these; the rest of a protocol is prose.
+#
+# The secure ones are not here: the edge gate reads the denials and the
+# channel gate reads the claims that the channel is secure, and this gate is
+# about the other mechanisms.
+DSL_MECHANISMS="http stdio fs file sqlite sqlite3 tcp udp ftp smtp imap pop3 ssh websocket grpc amqp mqtt redis kafka postgres postgresql mysql mariadb mongo mongodb memcached elasticsearch duckdb oracle ldap pipe socket unix rpc ipc"
+
+# The libraries each container of the model is made of, and the container
+# that is only the SQL library, and the container that speaks MCP.
+#
+# A technology says which libraries it is made of: a list of them is a list
+# of names side by side ("moonback + sqlite3"), and a technology that says it
+# in a sentence names one.
+code_dsl_containers() {
+  local line tech body piece name libs rest
+  local re='=[[:space:]]+container[[:space:]]+"[^"]*"[[:space:]]+"[^"]*"[[:space:]]+"([^"]*)"'
+  while IFS= read -r line; do
+    case "$line" in
+      *"= container "*) ;;
+      *) continue ;;
+    esac
+    [[ "$line" =~ $re ]] || continue
+    tech="${BASH_REMATCH[1]}"
+    name="${line%%= container*}"
+    name="${name#"${name%%[![:space:]]*}"}"
+    name="${name%"${name##*[![:space:]]}"}"
+    body=""
+    case "$tech" in
+      *"("*")"*) body="${tech#*\(}"; body="${body%\)*}" ;;
+    esac
+    [ -n "$body" ] || body="$tech"
+    libs=""
+    case "$body" in
+      *+*)
+        rest="$body"
+        while [ -n "$rest" ]; do
+          piece="${rest%%+*}"
+          if [ "$piece" = "$rest" ]; then rest=""; else rest="${rest#*+}"; fi
+          trim "$piece"; piece="$TRIMMED"
+          [ -n "$piece" ] || continue
+          dsl_library_known "$piece" && libs="$libs $piece"
+        done
+        ;;
+      *)
+        for piece in $DSL_TECH_LIBS; do
+          if [[ "${body,,}" =~ (^|[^A-Za-z0-9_])${piece,,}([^A-Za-z0-9_]|$) ]]; then
+            libs="$libs $piece"
+          fi
+        done
+        ;;
+    esac
+    trim "$libs"; libs="$TRIMMED"
+    printf '%s\037%s\n' "$name" "$libs"
+  done < "$SYSTEM_MODEL_DSL"
+}
+
+# The library the storage layer opens: the tree's SQL one.
+code_sql_library() {
+  local lib
+  for lib in $DSL_TECH_LIBS; do
+    if grep -q "@$lib\.Connection" backend/database.mbt 2>/dev/null; then
+      echo "$lib"
+      return
+    fi
+  done
+}
+
+# The library the MCP server uses: the tree's MCP one.
+code_mcp_library() {
+  local lib
+  for lib in $DSL_TECH_LIBS; do
+    if grep -q "@$lib\." cmd/mcp/main.mbt 2>/dev/null; then
+      echo "$lib"
+      return
+    fi
+  done
+}
+
+# The transports the MCP server offers: the ones its own source names.
+code_mcp_transports() {
+  local word
+  for word in stdio http; do
+    if grep -qi "$word" cmd/mcp/main.mbt 2>/dev/null; then
+      echo "$word"
+    fi
+  done
+}
+
+# The transports the server the browser talks to speaks.
+code_server_transports() {
+  local word
+  for word in http; do
+    if grep -qi "$word" cmd/server/main.mbt 2>/dev/null; then
+      echo "$word"
+    fi
+  done
+}
+
+# The mechanisms a protocol names, in the order it names them.
+#
+# Only the words that name a mechanism are mechanisms; the rest of a protocol
+# is prose ("static files", "in process", "GET"). A word is read in its
+# parts, so that "HTTP/1.1" names HTTP.
+dsl_protocol_mechanisms() {
+  local protocol="$1" word part low
+  DSL_PROTO_MECHANISMS=""
+  for word in $protocol; do
+    for part in $(printf '%s' "$word" | tr -c 'A-Za-z0-9' ' '); do
+      low="${part,,}"
+      [ -n "$low" ] || continue
+      case " $DSL_MECHANISMS " in
+        *" $low "*) ;;
+        *) continue ;;
+      esac
+      case " $DSL_PROTO_MECHANISMS " in
+        *" $low "*) continue ;;
+      esac
+      DSL_PROTO_MECHANISMS="$DSL_PROTO_MECHANISMS $low"
+    done
+  done
+}
+
+# Does the tree serve this path, with this method?
+#
+# The tree's endpoints are "METHOD path". The space inside one of them is
+# turned into a bar first, so that each endpoint is a word of its own and a
+# path is never split in two.
+tree_serves_path() {
+  local want_path="$1" want_method="$2" endpoint emethod epath
+  for endpoint in $(printf '%s\n' "$TREE_ENDPOINTS" | sed 's/ /|/'); do
+    emethod="${endpoint%%|*}"
+    epath="${endpoint#*|}"
+    [ "$epath" = "$want_path" ] || continue
+    if [ -z "$want_method" ] || [ "$emethod" = "$want_method" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# The relationships the model gives, checked against the tree.
+check_dsl_protocols() {
+  local line n=0 from to desc protocol named allowed ok
+  local re='([[:alnum:]_]+)[[:space:]]*->[[:space:]]*([[:alnum:]_]+)[[:space:]]+"([^"]*)"[[:space:]]+"([^"]*)"'
+  local sql_lib mcp_lib sql_container mcp_container
+  local src_libs dst_libs path method word mechanism
+  local entry name libs
+  sql_lib="$(code_sql_library)"
+  mcp_lib="$(code_mcp_library)"
+  sql_container=''
+  mcp_container=''
+  while IFS=$'\037' read -r name libs; do
+    [ -n "$name" ] || continue
+    if [ -n "$sql_lib" ] && [ "$libs" = "$sql_lib" ]; then sql_container="$name"; fi
+    if [ -n "$mcp_lib" ]; then
+      case " $libs " in
+        *" $mcp_lib "*) mcp_container="$name" ;;
+      esac
+    fi
+  done <<< "$(code_dsl_containers)"
+  while IFS= read -r line; do
+    n=$((n + 1))
+    [[ "$line" =~ $re ]] || continue
+    from="${BASH_REMATCH[1]}"
+    to="${BASH_REMATCH[2]}"
+    protocol="${BASH_REMATCH[4]}"
+    DSL_PROTO_CHECKED=$((DSL_PROTO_CHECKED + 1))
+    # the libraries the two ends are made of
+    src_libs=''
+    dst_libs=''
+    while IFS=$'\037' read -r name libs; do
+      [ -n "$name" ] || continue
+      [ "$name" = "$from" ] && src_libs="$libs"
+      [ "$name" = "$to" ] && dst_libs="$libs"
+    done <<< "$(code_dsl_containers)"
+    # the mechanisms the tree has for that edge
+    allowed=''
+    if [ -n "$sql_lib" ] && [ "$dst_libs" = "$sql_lib" ]; then
+      # the file of the SQL library is reached by a native call
+      allowed="${sql_lib%%[0-9]*}"
+    elif [ -n "$mcp_lib" ] && [ "$dst_libs" = "$mcp_lib" ]; then
+      allowed="$(code_mcp_transports | tr '\n' ' ')"
+    elif [ -n "$mcp_container" ] && [ "$from" = "$mcp_container" ]; then
+      # the MCP server reaches the backend in its own process
+      allowed=''
+    else
+      allowed="$(code_server_transports | tr '\n' ' ')"
+    fi
+    dsl_protocol_mechanisms "$protocol"
+    named="$DSL_PROTO_MECHANISMS"
+    trim "$named"; named="$TRIMMED"
+    trim "$allowed"; allowed="$TRIMMED"
+    ok=1
+    for mechanism in $named; do
+      case " $allowed " in
+        *" $mechanism "*) ;;
+        *) ok=0 ;;
+      esac
+    done
+    if [ "$ok" -eq 1 ] && [ -n "$allowed" ] && [ -z "$named" ]; then
+      ok=0
+    fi
+    if [ "$ok" -eq 0 ]; then
+      fail "$(printf '%-22s %s line %s names [%s], and the tree carries that edge by [%s]' \
+        'dsl protocols' "$SYSTEM_MODEL_DSL" "$n" "$named" "$allowed")"
+      DSL_PROTO_BAD=1
+      continue
+    fi
+    # a path in the protocol is a route the tree has to serve
+    path=''
+    method=''
+    for word in $protocol; do
+      word="${word%%[.,;:!?)]*}"
+      case "$word" in
+        /*) path="$word" ;;
+        GET|POST|PUT|DELETE|PATCH|HEAD) [ -n "$method" ] || method="$word" ;;
+      esac
+    done
+    if [ -n "$path" ] && ! tree_serves_path "$path" "$method"; then
+      fail "$(printf '%-22s %s line %s names the route %s, and the tree serves no such route' \
+        'dsl protocols' "$SYSTEM_MODEL_DSL" "$n" "$path")"
+      DSL_PROTO_BAD=1
+    fi
+  done < "$SYSTEM_MODEL_DSL"
+}
+
+check_dsl_protocols
+
+if [ "$DSL_PROTO_BAD" -eq 0 ]; then
+  ok "dsl protocols" "$DSL_PROTO_CHECKED relationships"
+fi
+
 # --- the node colours ----------------------------------------------------------
 #
 # The mark draws five nodes, and the tree names the colour each one keeps in

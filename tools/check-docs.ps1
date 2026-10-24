@@ -4174,6 +4174,234 @@ for ($i = 0; $i -lt $dslTechLines.Count; $i++) {
 
 if (-not $script:dslTechBad) { Write-Ok 'dsl technologies' ("{0} containers" -f $script:dslTechChecked) }
 
+# --- the mechanisms the model gives its relationships ---------------------------
+#
+# The model says how each of its relationships is carried: HTTP for the
+# browser, stdio or HTTP for the agent, in process for the agent's server
+# talking to the backend, SQLite FFI for the database. Those are the tree's
+# mechanisms, and nothing checked them: the model could say the database is a
+# Postgres FFI, or that the agent speaks SMTP, and every document would go on
+# saying what it always said.
+#
+# The tree's mechanisms come from the tree:
+#
+#   - the SQL library is the one the storage layer opens -- a @sqlite3
+#     connection. A file of that library is reached by a native call and not
+#     over a network, so the mechanism for that edge is the library itself.
+#   - the MCP server offers the transports its own source offers: stdio, and
+#     HTTP when it is given a port.
+#   - the server the browser talks to speaks HTTP: it listens on a socket and
+#     prints http:// URLs.
+#   - the MCP server reaches the backend in its own process: it calls the
+#     backend's package and makes no network call at all.
+#
+# A protocol names mechanisms in words. The words it names have to be the ones
+# the tree has for that edge, and a protocol for an edge the tree crosses has
+# to name one of them. A protocol that names a path has to name a route the
+# tree serves.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:dslProtoBad = $false
+$script:dslProtoChecked = 0
+
+# The words that name a mechanism. A word in a protocol is a claim about a
+# mechanism only when it is one of these; the rest of a protocol is prose.
+#
+# The secure ones are not here: the edge gate reads the denials and the
+# channel gate reads the claims that the channel is secure, and this gate is
+# about the other mechanisms.
+$script:dslMechanisms = @(
+  'http', 'stdio', 'fs', 'file', 'sqlite', 'sqlite3', 'tcp', 'udp', 'ftp',
+  'smtp', 'imap', 'pop3', 'ssh', 'websocket', 'grpc', 'amqp', 'mqtt', 'redis',
+  'kafka', 'postgres', 'postgresql', 'mysql', 'mariadb', 'mongo', 'mongodb',
+  'memcached', 'elasticsearch', 'duckdb', 'oracle', 'ldap', 'pipe', 'socket',
+  'unix', 'rpc', 'ipc'
+)
+
+# The libraries each container of the model is made of, and the container
+# that is only the SQL library, and the container that speaks MCP.
+#
+# A technology says which libraries it is made of: a list of them is a list
+# of names side by side ("moonback + sqlite3"), and a technology that says it
+# in a sentence names one.
+function Get-DslContainers {
+  $out = @()
+  $lines = [System.IO.File]::ReadAllLines((Join-Path $PWD $systemModelDsl), $enc)
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    $l = $lines[$i]
+    if ($l -cnotmatch '= container ') { continue }
+    $m = [regex]::Match($l, '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*container\s+"[^"]*"\s+"[^"]*"\s+"([^"]*)"')
+    if (-not $m.Success) { continue }
+    $name = $m.Groups[1].Value
+    $tech = $m.Groups[2].Value
+    $body = $tech
+    $open = $tech.IndexOf('(')
+    $close = $tech.LastIndexOf(')')
+    if ($open -ge 0 -and $close -gt $open) {
+      $body = $tech.Substring($open + 1, $close - $open - 1)
+    }
+    $libs = @()
+    if ($body -cnotmatch '\+') {
+      # a sentence: the libraries it names are the ones it names
+      $low = $body.ToLowerInvariant()
+      foreach ($lib in $script:dslTechLibs) {
+        $rx = '(?<![A-Za-z0-9_])' + [regex]::Escape($lib.ToLowerInvariant()) + '(?![A-Za-z0-9_])'
+        if ($low -match $rx) { $libs += $lib }
+      }
+    } else {
+      # a list of libraries
+      foreach ($piece in ($body -split '\+')) {
+        $p = $piece.Trim()
+        if ($p -eq '') { continue }
+        if (Test-DslLibrary $p) { $libs += $p }
+      }
+    }
+    $out += ,([pscustomobject]@{ Name = $name; Libs = $libs })
+  }
+  $out
+}
+
+# The library the storage layer opens: the tree's SQL one.
+function Get-SqlLibrary {
+  foreach ($lib in $script:dslTechLibs) {
+    $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/database.mbt'), $enc)
+    if ($text.Contains('@' + $lib + '.Connection')) { return $lib }
+  }
+  ''
+}
+
+# The library the MCP server uses: the tree's MCP one.
+function Get-McpLibrary {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'cmd/mcp/main.mbt'), $enc)
+  foreach ($lib in $script:dslTechLibs) {
+    if ($text.Contains('@' + $lib + '.')) { return $lib }
+  }
+  ''
+}
+
+# The transports the MCP server offers: the ones its own source names.
+function Get-McpTransports {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'cmd/mcp/main.mbt'), $enc).ToLowerInvariant()
+  foreach ($word in @('stdio', 'http')) {
+    if ($text.Contains($word)) { $out += $word }
+  }
+  $out
+}
+
+# The transports the server the browser talks to speaks.
+function Get-ServerTransports {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'cmd/server/main.mbt'), $enc).ToLowerInvariant()
+  foreach ($word in @('http')) {
+    if ($text.Contains($word)) { $out += $word }
+  }
+  $out
+}
+
+# The mechanisms a protocol names, in the order it names them.
+#
+# Only the words that name a mechanism are mechanisms; the rest of a protocol
+# is prose ("static files", "in process", "GET"). A word is read in its
+# parts, so that "HTTP/1.1" names HTTP.
+function Get-ProtocolMechanisms($protocol) {
+  $out = @()
+  foreach ($word in ($protocol -split '\s+')) {
+    foreach ($part in ($word -split '[^A-Za-z0-9]+')) {
+      $w = $part.ToLowerInvariant()
+      if ($w -eq '') { continue }
+      if ($script:dslMechanisms -cnotcontains $w) { continue }
+      if ($out -ccontains $w) { continue }
+      $out += $w
+    }
+  }
+  $out
+}
+
+# Does the tree serve this path, with this method?
+#
+# The tree's endpoints are "METHOD path".
+function Test-TreeServesPath($wantPath, $wantMethod) {
+  foreach ($endpoint in (Get-TreeEndpoints)) {
+    $parts = $endpoint -split ' ', 2
+    if ($parts[1] -cne $wantPath) { continue }
+    if ($wantMethod -eq '' -or $parts[0] -ceq $wantMethod) { return $true }
+  }
+  $false
+}
+
+# The relationships the model gives, checked against the tree.
+$script:dslContainers = @(Get-DslContainers)
+$script:dslSqlLib = Get-SqlLibrary
+$script:dslMcpLib = Get-McpLibrary
+$script:dslSqlContainer = ''
+$script:dslMcpContainer = ''
+foreach ($c in $script:dslContainers) {
+  if ($script:dslSqlLib -ne '' -and $c.Libs.Count -eq 1 -and $c.Libs[0] -ceq $script:dslSqlLib) {
+    $script:dslSqlContainer = $c.Name
+  }
+  if ($script:dslMcpLib -ne '' -and $c.Libs -ccontains $script:dslMcpLib) {
+    $script:dslMcpContainer = $c.Name
+  }
+}
+$dslProtoRe = '([A-Za-z_][A-Za-z0-9_]*)\s*->\s*([A-Za-z_][A-Za-z0-9_]*)\s+"[^"]*"\s+"([^"]*)"'
+$dslProtoLines = [System.IO.File]::ReadAllLines((Join-Path $PWD $systemModelDsl), $enc)
+for ($i = 0; $i -lt $dslProtoLines.Count; $i++) {
+  $l = $dslProtoLines[$i]
+  $m = [regex]::Match($l, $dslProtoRe)
+  if (-not $m.Success) { continue }
+  $from = $m.Groups[1].Value
+  $to = $m.Groups[2].Value
+  $protocol = $m.Groups[3].Value
+  $script:dslProtoChecked++
+  $dstLibs = @()
+  foreach ($c in $script:dslContainers) {
+    if ($c.Name -ceq $to) { $dstLibs = $c.Libs }
+  }
+  # the mechanisms the tree has for that edge
+  $allowed = @()
+  if ($script:dslSqlLib -ne '' -and $dstLibs.Count -eq 1 -and $dstLibs[0] -ceq $script:dslSqlLib) {
+    # the file of the SQL library is reached by a native call
+    $allowed += ($script:dslSqlLib -replace '[0-9]+$', '')
+  } elseif ($script:dslMcpLib -ne '' -and $dstLibs -ccontains $script:dslMcpLib) {
+    $allowed += @(Get-McpTransports)
+  } elseif ($script:dslMcpContainer -ne '' -and $from -ceq $script:dslMcpContainer) {
+    # the MCP server reaches the backend in its own process
+    $allowed = @()
+  } else {
+    $allowed += @(Get-ServerTransports)
+  }
+  $named = @(Get-ProtocolMechanisms $protocol)
+  $ok = $true
+  foreach ($mech in $named) {
+    if ($allowed -cnotcontains $mech) { $ok = $false }
+  }
+  if ($ok -and $allowed.Count -gt 0 -and $named.Count -eq 0) { $ok = $false }
+  if (-not $ok) {
+    Write-Fail ("{0,-22} {1} line {2} names [{3}], and the tree carries that edge by [{4}]" -f `
+      'dsl protocols', $systemModelDsl, ($i + 1), ($named -join ' '), ($allowed -join ' '))
+    $script:dslProtoBad = $true
+    continue
+  }
+  # a path in the protocol is a route the tree has to serve
+  $path = ''
+  $method = ''
+  foreach ($word in ($protocol -split '\s+')) {
+    $w = ($word -replace '[.,;:!?)\]]+$', '')
+    if ($w.StartsWith('/')) { $path = $w }
+    if ($method -eq '' -and @('GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD') -ccontains $w) { $method = $w }
+  }
+  if ($path -ne '' -and -not (Test-TreeServesPath $path $method)) {
+    Write-Fail ("{0,-22} {1} line {2} names the route {3}, and the tree serves no such route" -f `
+      'dsl protocols', $systemModelDsl, ($i + 1), $path)
+    $script:dslProtoBad = $true
+  }
+}
+
+if (-not $script:dslProtoBad) { Write-Ok 'dsl protocols' ("{0} relationships" -f $script:dslProtoChecked) }
+
 # --- the node colours ---------------------------------------------------------
 #
 # The mark draws five nodes, and the tree names the colour each one keeps in
