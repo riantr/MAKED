@@ -3718,6 +3718,202 @@ if [ "$STAGE_BAD" -eq 0 ]; then
   ok "bundle staging" "$STAGE_NAMES"
 fi
 
+# --- the files the site ships ------------------------------------------------
+#
+# The site is the files the server serves: the ones the tree keeps under the
+# dist directory, and the bundle the build stages there. Four documents say
+# what those files are -- the evidence table, the deployment document, the
+# deployment graph and the model -- and all four were free to be wrong:
+# nothing read the tree to see what the site actually ships.
+#
+# A document states the list when it puts two or more of the files side by
+# side: "index.html, main.js, styles.css". The files it looks for are the
+# kinds the site ships -- html, js, css -- because the kinds come from the
+# tree: a wider shape reads "build.ps1, ci.yml" in a sentence about the build
+# as a list of the site's files. Two files a sentence mentions one after the
+# other are a story, and a story is left alone. The table that lists the
+# site's files is read as well: a table that names one of the files has to
+# name all of them.
+#
+# The files the tree keeps are read with git, so a build that has run does not
+# change the answer. The file the build stages is read out of the places that
+# stage it.
+
+BUNDLE_FILES=""
+BUNDLE_KINDS=""
+BUNDLE_BAD=0
+BUNDLE_LISTS=0
+BUNDLE_ROWS=""
+
+# The files the site ships.
+tree_bundle_files() {
+  local out="" file name
+  out=$(git ls-files frontend/dist 2>/dev/null | sed -e 's|.*/||' || true)
+  for file in $STAGE_FILES; do
+    for name in $(grep -ohE 'frontend/dist/[A-Za-z0-9_.-]+' "$file" 2>/dev/null || true); do
+      out="$out
+${name##*/}"
+    done
+  done
+  printf '%s\n' "$out" | grep -v '^$' | LC_ALL=C sort -u
+}
+
+# The kinds of file the bundle holds: the extensions of its files.
+tree_bundle_kinds() {
+  local name
+  for name in $BUNDLE_FILES; do
+    case "$name" in
+      *.*) printf '%s\n' "${name##*.}" ;;
+    esac
+  done | LC_ALL=C sort -u | tr '\n' ' '
+}
+
+# Is this name a file of the bundle's kind?
+bundle_kind_name() {
+  local name="$1" kind
+  for kind in $BUNDLE_KINDS; do
+    case "$name" in
+      *".$kind") return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# A list of files, checked against the files the site ships.
+bundle_list_check() {
+  local doc="$1" line="$2" run="$3" name seen="" count=0 total=0
+  [ -n "$run" ] || return
+  for name in $run; do
+    case " $seen " in
+      *" $name "*) continue ;;
+    esac
+    if [ -z "$seen" ]; then seen="$name"; else seen="$seen $name"; fi
+    count=$((count + 1))
+  done
+  # One name is not a list: a sentence that mentions one file is a story.
+  [ "$count" -ge 2 ] || return
+  for name in $seen; do
+    case " $BUNDLE_FILES " in
+      *" $name "*) ;;
+      *)
+        fail "$(printf '%-22s %s line %s names [%s], and the site ships no such file' \
+          'bundle files' "$doc" "$line" "$name")"
+        BUNDLE_BAD=1
+        return
+        ;;
+    esac
+  done
+  for name in $BUNDLE_FILES; do total=$((total + 1)); done
+  if [ "$count" -ne "$total" ]; then
+    fail "$(printf '%-22s %s line %s states [%s], the site ships [%s]' \
+      'bundle files' "$doc" "$line" "$seen" "$BUNDLE_FILES")"
+    BUNDLE_BAD=1
+    return
+  fi
+  BUNDLE_LISTS=$((BUNDLE_LISTS + 1))
+}
+
+# Does the claim name a file of the bundle's kind at all? A claim that does
+# not cannot be stating a list, and the collapse below is not free.
+bundle_claim_maybe() {
+  local claim="$1" kind
+  for kind in $BUNDLE_KINDS; do
+    case "$claim" in
+      *".$kind"*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# One claim, checked against the files the site ships.
+bundle_claim_check() {
+  local doc="$1" line="$2" claim="$3" text token run=""
+  bundle_claim_maybe "$claim" || return
+  # The claim is collapsed: every character that is not a letter, a digit, a
+  # dot, an underscore or a dash becomes a space, so the names that sit side
+  # by side in the collapsed claim are the ones that sat side by side in the
+  # claim itself. The graphs write their line breaks as "\n", and that escape
+  # would glue itself to the name behind it.
+  text="${claim//\\n/ }"
+  text="${text//[^A-Za-z0-9_.-]/ }"
+  local -a tokens=()
+  read -ra tokens <<< "$text"
+  for token in "${tokens[@]}"; do
+    if bundle_kind_name "$token"; then
+      run="$run $token"
+      continue
+    fi
+    bundle_list_check "$doc" "$line" "$run"
+    run=""
+  done
+  bundle_list_check "$doc" "$line" "$run"
+}
+
+# The rows of the table that lists the site's files.
+#
+# A row whose first cell is a file under the dist directory is a row of that
+# table, and a table that names one of the files the site ships has to name
+# all of them: a table one file short sends a reader looking for a file the
+# site does not have.
+doc_bundle_rows() {
+  local file="$1" name
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    case " $BUNDLE_ROWS " in
+      *" $name "*) continue ;;
+    esac
+    if [ -z "$BUNDLE_ROWS" ]; then BUNDLE_ROWS="$name"; else BUNDLE_ROWS="$BUNDLE_ROWS $name"; fi
+  done <<< "$(grep -oE '^\| `frontend/dist/[A-Za-z0-9_.-]+`' "$file" 2>/dev/null \
+    | sed -e 's|.*/||' -e 's|`||' || true)"
+}
+
+BUNDLE_FILES=$(tree_bundle_files | tr '\n' ' ')
+trim "$BUNDLE_FILES"; BUNDLE_FILES="$TRIMMED"
+BUNDLE_KINDS=$(tree_bundle_kinds)
+
+if [ -z "$BUNDLE_FILES" ]; then
+  fail "$(printf '%-22s the tree ships no files, or it does not say so the way this gate reads it' \
+    'bundle files')"
+  BUNDLE_BAD=1
+else
+  for doc in "${ARCH_DOCS[@]}" "$SYSTEM_MODEL_DSL"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      bundle_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+    doc_bundle_rows "$doc"
+  done
+
+  # every file the table names is a file the site ships
+  for name in $BUNDLE_ROWS; do
+    case " $BUNDLE_FILES " in
+      *" $name "*) ;;
+      *)
+        fail "$(printf '%-22s the documents list [%s], and the site ships no such file' \
+          'bundle files' "$name")"
+        BUNDLE_BAD=1
+        ;;
+    esac
+  done
+  # and the table names them all
+  bundle_rows_count=0
+  for name in $BUNDLE_ROWS; do bundle_rows_count=$((bundle_rows_count + 1)); done
+  bundle_files_count=0
+  for name in $BUNDLE_FILES; do bundle_files_count=$((bundle_files_count + 1)); done
+  if [ "$bundle_rows_count" -ne "$bundle_files_count" ]; then
+    fail "$(printf '%-22s the documents list [%s], the site ships [%s]' \
+      'bundle files' "$BUNDLE_ROWS" "$BUNDLE_FILES")"
+    BUNDLE_BAD=1
+  fi
+fi
+
+if [ "$BUNDLE_BAD" -eq 0 ]; then
+  ok "bundle files" "$BUNDLE_LISTS lists"
+fi
+
 # --- the node colours ----------------------------------------------------------
 #
 # The mark draws five nodes, and the tree names the colour each one keeps in
@@ -4140,14 +4336,26 @@ NAME_FIRST_RE='^([A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)?)'
 TICK_RE='`([^`]+)`'
 
 code_tree_names() {
-  local files out name
+  local files out name file
   TREE_NAME_COUNT=0
   files=$(git ls-files 2>/dev/null \
     | grep -vE '^(architecture/|README\.md|AGENTS\.md|AGENT\.md)' \
     | grep -vE '\.(md|dot)$' \
     | grep -vE '^tools/check-docs\.(sh|ps1)$' || true)
   [ -n "$files" ] || return
-  out=$(LC_ALL=C awk '{ print }' $files | LC_ALL=C grep -oE "$NAME_RE" | LC_ALL=C sort -u || true)
+  # A file that is gone is not a file the tree has: the names it held are not
+  # names to look for. The list is filtered BEFORE the names are read, because
+  # a reader that stops at the first file it cannot open loses every name that
+  # came after it -- and the PowerShell twin, which skips the file it cannot
+  # open, kept them.
+  local -a present=()
+  while IFS= read -r file; do
+    [ -n "$file" ] || continue
+    [ -f "$file" ] || continue
+    present+=("$file")
+  done <<< "$files"
+  [ "${#present[@]}" -gt 0 ] || return
+  out=$(LC_ALL=C grep -hoE "$NAME_RE" "${present[@]}" | LC_ALL=C sort -u || true)
   while IFS= read -r name; do
     [ -n "$name" ] || continue
     TREE_NAME["$name"]=1

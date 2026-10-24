@@ -3667,6 +3667,169 @@ if ($script:stageFiles.Count -eq 0) {
 
 if (-not $script:stageBad) { Write-Ok 'bundle staging' ($script:stageNames -join ' ') }
 
+# --- the files the site ships ------------------------------------------------
+#
+# The site is the files the server serves: the ones the tree keeps under the
+# dist directory, and the bundle the build stages there. Four documents say
+# what those files are -- the evidence table, the deployment document, the
+# deployment graph and the model -- and all four were free to be wrong:
+# nothing read the tree to see what the site actually ships.
+#
+# A document states the list when it puts two or more of the files side by
+# side: "index.html, main.js, styles.css". The files it looks for are the
+# kinds the site ships -- html, js, css -- because the kinds come from the
+# tree: a wider shape reads "build.ps1, ci.yml" in a sentence about the build
+# as a list of the site's files. Two files a sentence mentions one after the
+# other are a story, and a story is left alone. The table that lists the
+# site's files is read as well: a table that names one of the files has to
+# name all of them.
+#
+# The files the tree keeps are read with git, so a build that has run does not
+# change the answer. The file the build stages is read out of the places that
+# stage it.
+
+$script:bundleFiles = @()
+$script:bundleKinds = @()
+$script:bundleBad = $false
+$script:bundleLists = 0
+$script:bundleRows = @()
+
+# The files the site ships.
+function Get-TreeBundleFiles {
+  $out = @()
+  foreach ($rel in @(& git ls-files frontend/dist 2>$null)) {
+    if ($rel -eq '') { continue }
+    $out += ,$rel.Split('/')[-1]
+  }
+  foreach ($rel in $script:stageFiles) {
+    $path = Join-Path $PWD $rel
+    if (-not (Test-Path $path)) { continue }
+    $text = [System.IO.File]::ReadAllText($path, $enc)
+    foreach ($m in [regex]::Matches($text, 'frontend/dist/([A-Za-z0-9_.-]+)')) {
+      $out += ,$m.Groups[1].Value
+    }
+  }
+  Sort-Set $out
+}
+
+# The kinds of file the bundle holds: the extensions of its files.
+function Get-TreeBundleKinds {
+  $out = @()
+  foreach ($name in $script:bundleFiles) {
+    if ($name -notmatch '\.') { continue }
+    $out += ,$name.Split('.')[-1]
+  }
+  Sort-Set $out
+}
+
+# Is this name a file of the bundle's kind?
+function Test-BundleKindName($name) {
+  foreach ($kind in $script:bundleKinds) {
+    if ($name.EndsWith(".$kind")) { return $true }
+  }
+  $false
+}
+
+# A list of files, checked against the files the site ships.
+function Test-BundleList($doc, $line, $run) {
+  if ($run.Count -eq 0) { return }
+  $seen = @()
+  foreach ($name in $run) {
+    if ($seen -ccontains $name) { continue }
+    $seen += $name
+  }
+  # One name is not a list: a sentence that mentions one file is a story.
+  if ($seen.Count -lt 2) { return }
+  foreach ($name in $seen) {
+    if ($script:bundleFiles -ccontains $name) { continue }
+    Write-Fail ("{0,-22} {1} line {2} names [{3}], and the site ships no such file" -f 'bundle files', $doc, $line, $name)
+    $script:bundleBad = $true
+    return
+  }
+  if ($seen.Count -ne $script:bundleFiles.Count) {
+    Write-Fail ("{0,-22} {1} line {2} states [{3}], the site ships [{4}]" -f 'bundle files', $doc, $line, ($seen -join ' '), ($script:bundleFiles -join ' '))
+    $script:bundleBad = $true
+    return
+  }
+  $script:bundleLists++
+}
+
+# One claim, checked against the files the site ships.
+function Test-BundleClaim($doc, $line, $claim) {
+  # The claim is collapsed: every character that is not a letter, a digit, a
+  # dot, an underscore or a dash becomes a space, so the names that sit side
+  # by side in the collapsed claim are the ones that sat side by side in the
+  # claim itself. The graphs write their line breaks as "\n", and that escape
+  # would glue itself to the name behind it.
+  $text = $claim.Replace('\n', ' ')
+  $text = [regex]::Replace($text, '[^A-Za-z0-9_.-]', ' ')
+  $run = @()
+  foreach ($token in @($text -split ' ')) {
+    if ($token -eq '') { continue }
+    if (Test-BundleKindName $token) {
+      $run += $token
+      continue
+    }
+    Test-BundleList $doc $line $run
+    $run = @()
+  }
+  Test-BundleList $doc $line $run
+}
+
+# The rows of the table that lists the site's files.
+#
+# A row whose first cell is a file under the dist directory is a row of that
+# table, and a table that names one of the files the site ships has to name
+# all of them: a table one file short sends a reader looking for a file the
+# site does not have.
+function Get-DocBundleRows($doc) {
+  $out = @()
+  $path = Join-Path $PWD $doc
+  if (-not (Test-Path $path)) { return $out }
+  foreach ($line in [System.IO.File]::ReadAllLines($path, $enc)) {
+    $m = [regex]::Match($line, '^\| `frontend/dist/([A-Za-z0-9_.-]+)`')
+    if (-not $m.Success) { continue }
+    $out += ,$m.Groups[1].Value
+  }
+  $out
+}
+
+$script:bundleFiles = @(Get-TreeBundleFiles)
+$script:bundleKinds = @(Get-TreeBundleKinds)
+
+if ($script:bundleFiles.Count -eq 0) {
+  Write-Fail ("{0,-22} the tree ships no files, or it does not say so the way this gate reads it" -f 'bundle files')
+  $script:bundleBad = $true
+} else {
+  foreach ($doc in @($archDocs + $systemModelDsl)) {
+    # A document that describes the past is a record of the past. Its claims
+    # are about the tree as it was, so they are not checked against the tree
+    # as it is.
+    if ($markedDocs -ccontains $doc) { continue }
+    foreach ($claim in (Get-DocClaims $doc)) {
+      Test-BundleClaim $doc $claim.line $claim.text
+    }
+    foreach ($name in (Get-DocBundleRows $doc)) {
+      if ($script:bundleRows -ccontains $name) { continue }
+      $script:bundleRows += $name
+    }
+  }
+
+  # every file the table names is a file the site ships
+  foreach ($name in $script:bundleRows) {
+    if ($script:bundleFiles -ccontains $name) { continue }
+    Write-Fail ("{0,-22} the documents list [{1}], and the site ships no such file" -f 'bundle files', $name)
+    $script:bundleBad = $true
+  }
+  # and the table names them all
+  if ($script:bundleRows.Count -ne $script:bundleFiles.Count) {
+    Write-Fail ("{0,-22} the documents list [{1}], the site ships [{2}]" -f 'bundle files', ($script:bundleRows -join ' '), ($script:bundleFiles -join ' '))
+    $script:bundleBad = $true
+  }
+}
+
+if (-not $script:bundleBad) { Write-Ok 'bundle files' ("{0} lists" -f $script:bundleLists) }
+
 # --- the node colours ---------------------------------------------------------
 #
 # The mark draws five nodes, and the tree names the colour each one keeps in
