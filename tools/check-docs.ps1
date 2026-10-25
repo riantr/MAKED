@@ -7867,6 +7867,84 @@ if (-not $script:ringOrderBad) {
   Write-Ok 'ring order' ("{0} runs" -f $script:ringOrderChecked)
 }
 
+# --- the test counts the evidence states ---------------------------------------
+#
+# The evidence table says, for each test file it names, how many tests that
+# file holds. Two gates watch two of those files by name; every other row is
+# watched by nothing. The measurement that found the gap: a row was added for
+# backend/session_test.mbt saying 99 tests, and the file has 19, and the whole
+# gate suite still said that every claim in the documents matches the tree.
+#
+# The count is the tree's own: a test is a `test "name" {` block, or an
+# `async test "name" {` one, and both shapes exist in this tree. The table
+# names fewer files than the tree has -- it is an evidence table, not an
+# inventory -- so the claim is about the files it does name.
+
+$script:testCountBad = $false
+$script:testCountChecked = 0
+
+# The rows of the Tests table the evidence states: the file and the number of
+# tests the row says it holds.
+function Get-EvidenceTestRows {
+  $out = @()
+  $path = Join-Path $PWD $evidence
+  if (-not (Test-Path $path)) { return $out }
+  $inside = $false
+  foreach ($line in [System.IO.File]::ReadAllLines($path, $enc)) {
+    if (-not $inside) {
+      if ($line -cmatch '^## Tests') { $inside = $true }
+      continue
+    }
+    if ($line -cmatch '^## ') { $inside = $false; continue }
+    if (-not $line.StartsWith('|')) { continue }
+    $cells = $line.Split('|')
+    if ($cells.Count -lt 4) { continue }
+    $file = $cells[1].Trim()
+    $what = $cells[2].Trim()
+    if ($file -ceq 'Test file' -or $file -cmatch '^-') { continue }
+    # the file is written in brackets
+    $file = $file.Trim('`')
+    if ($what -cmatch '^([0-9]+) tests') { $out += ,@($file, $Matches[1]) }
+  }
+  $out
+}
+
+# The number of tests a file holds.
+#
+# The blanks are [ \t] here and [[:blank:]] in the bash twin, because a .NET \s
+# would match a newline and a POSIX [ \t] would match the letter t. The two
+# patterns are the same one, written in the two dialects.
+function Get-TestCount {
+  param([string]$File)
+  $path = Join-Path $PWD $File
+  if (-not (Test-Path $path)) { return 0 }
+  $text = [System.IO.File]::ReadAllText($path, $enc)
+  ([regex]::Matches($text, '(?m)^[ \t]*(async[ \t]+)?test[ \t]+"[^"\r\n]*"[ \t]*\{')).Count
+}
+
+foreach ($row in (Get-EvidenceTestRows)) {
+  $file = $row[0]
+  $count = $row[1]
+  if (-not $file) { continue }
+  $script:testCountChecked++
+  if (-not (Test-Path (Join-Path $PWD $file))) {
+    Write-Fail ("{0,-22} {1} names the test file {2}, and the tree does not have it" -f `
+      'test count', $evidence, $file)
+    $script:testCountBad = $true
+    continue
+  }
+  $actual = Get-TestCount $file
+  if ("$actual" -cne "$count") {
+    Write-Fail ("{0,-22} {1} says {2} holds {3} tests, and the tree has {4}" -f `
+      'test count', $evidence, $file, $count, $actual)
+    $script:testCountBad = $true
+  }
+}
+
+if (-not $script:testCountBad) {
+  Write-Ok 'test count' ("{0} rows" -f $script:testCountChecked)
+}
+
 # --- the gaps the documents say are gaps ---------------------------------------
 #
 # The summary has a section that says what the product does not have, and the

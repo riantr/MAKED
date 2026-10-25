@@ -8912,6 +8912,75 @@ if [ "$RING_ORDER_BAD" -eq 0 ]; then
   ok "ring order" "$RING_ORDER_CHECKED runs"
 fi
 
+# --- the test counts the evidence states ---------------------------------------
+#
+# The evidence table says, for each test file it names, how many tests that
+# file holds. Two gates watch two of those files by name; every other row is
+# watched by nothing. The measurement that found the gap: a row was added for
+# backend/session_test.mbt saying 99 tests, and the file has 19, and the whole
+# gate suite still said that every claim in the documents matches the tree.
+#
+# The count is the tree's own: a test is a `test "name" {` block, or an
+# `async test "name" {` one, and both shapes exist in this tree. The table
+# names fewer files than the tree has -- it is an evidence table, not an
+# inventory -- so the claim is about the files it does name.
+
+TEST_COUNT_BAD=0
+TEST_COUNT_CHECKED=0
+
+# The rows of the Tests table the evidence states: the file, a tab, and the
+# number of tests the row says it holds.
+evidence_test_rows() {
+  awk '
+    /^## Tests/ { inside = 1; next }
+    inside && /^## / { inside = 0 }
+    inside && /^\|/ {
+      n = split($0, c, "|")
+      if (n < 4) next
+      file = c[2]; what = c[3]
+      gsub(/^[ \t]+|[ \t]+$/, "", file)
+      gsub(/^[ \t]+|[ \t]+$/, "", what)
+      if (file == "Test file" || file ~ /^-/) next
+      # the file is written in brackets
+      gsub(/^`|`$/, "", file)
+      if (what !~ /^[0-9]+ tests/) next
+      count = what
+      sub(/ tests.*$/, "", count)
+      print file "\t" count
+    }
+  ' "$EVIDENCE"
+}
+
+# The number of tests a file holds.
+#
+# The blanks are [[:blank:]] here and [ \t] in the PowerShell twin, because a
+# .NET \s would match a newline and a POSIX [ \t] would match the letter t.
+# The two patterns are the same one, written in the two dialects.
+test_count() {
+  grep -cE '^([[:blank:]])*(async[[:blank:]]+)?test[[:blank:]]+"[^"]*"[[:blank:]]*\{' "$1" 2>/dev/null || true
+}
+
+while IFS=$'\t' read -r file count; do
+  [ -n "$file" ] || continue
+  TEST_COUNT_CHECKED=$((TEST_COUNT_CHECKED + 1))
+  if [ ! -f "$file" ]; then
+    fail "$(printf '%-22s %s names the test file %s, and the tree does not have it' \
+      'test count' "$EVIDENCE" "$file")"
+    TEST_COUNT_BAD=1
+    continue
+  fi
+  actual="$(test_count "$file")"
+  if [ "$actual" != "$count" ]; then
+    fail "$(printf '%-22s %s says %s holds %s tests, and the tree has %s' \
+      'test count' "$EVIDENCE" "$file" "$count" "$actual")"
+    TEST_COUNT_BAD=1
+  fi
+done <<< "$(evidence_test_rows)"
+
+if [ "$TEST_COUNT_BAD" -eq 0 ]; then
+  ok "test count" "$TEST_COUNT_CHECKED rows"
+fi
+
 # --- the gaps the documents say are gaps ---------------------------------------
 #
 # The summary has a section that says what the product does not have, and the
