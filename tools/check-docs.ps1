@@ -4227,6 +4227,139 @@ if ($script:assetDist -eq '') {
 
 if (-not $script:assetBad) { Write-Ok 'asset source' ("{0} rows" -f $script:assetChecked) }
 
+# --- the components the deployment document puts on the machine ----------------
+#
+# The runtime topology table says what each component is and where it lives: the
+# server is a process, the database is a file at a path, the static files are a
+# directory at a path. Nothing read the tree to see whether that was true: the
+# table could have called the database a directory, or put it at a path the
+# server does not read, and no gate would have said a word.
+#
+# The tree says both things.
+#
+# A path the tree has is a DIRECTORY when the tree has files under it -- git
+# does not track an empty directory, so a path with files under it is a
+# directory the tree fills -- and a FILE otherwise.
+#
+# A path the tree has is a path the server reads (the default of one of its
+# settings) or a path the tree keeps (a file git tracks). The table may only
+# put a component at such a path.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:componentBad = $false
+$script:componentChecked = 0
+$script:componentPaths = @()
+$script:componentFiles = @()
+
+# The defaults the server reads: the paths it is pointed at.
+function Get-CodeSettingPaths {
+  $out = @()
+  foreach ($setting in $codeSettings) {
+    $parts = $setting -split ' ', 2
+    if ($parts.Count -lt 2) { continue }
+    if ($out -cnotcontains $parts[1]) { $out += $parts[1] }
+  }
+  $out
+}
+
+# The files the tree keeps.
+function Get-TreeComponentFiles {
+  $out = @()
+  foreach ($rel in @(& git ls-files 2>$null)) {
+    if ($rel -eq '') { continue }
+    $out += $rel
+  }
+  Sort-Set $out
+}
+
+# Does the tree have this path? A path the server reads, or a file it keeps.
+function Test-ComponentPath($path) {
+  if ($script:componentPaths -ccontains $path) { return $true }
+  if ($script:componentFiles -ccontains $path) { return $true }
+  $false
+}
+
+# What the tree has: a directory, or a file.
+function Get-ComponentKind($path) {
+  $prefix = $path + '/'
+  foreach ($file in $script:componentFiles) {
+    if ($file.StartsWith($prefix)) { return 'directory' }
+  }
+  'file'
+}
+
+# The rows of the table that puts the components on the machine.
+#
+# The table is the one whose header names a component and a location. The rows
+# are the lines after it.
+function Get-ComponentRows($file) {
+  $out = @()
+  $path = Join-Path $PWD $file
+  if (-not (Test-Path $path)) { return $out }
+  $lines = [System.IO.File]::ReadAllLines($path, $enc)
+  $inTable = $false
+  for ($i = 0; $i -lt $lines.Length; $i++) {
+    $line = $lines[$i]
+    if (-not $line.StartsWith('|')) { $inTable = $false; continue }
+    $parts = ($line.Substring(1)) -split '\|'
+    $c1 = $parts[0].Trim()
+    $c2 = ''
+    $c3 = ''
+    if ($parts.Count -ge 2) { $c2 = $parts[1].Trim() }
+    if ($parts.Count -ge 3) { $c3 = $parts[2].Trim() }
+    if (-not $inTable) {
+      if ($c1 -ceq 'Component' -and $c3 -ceq 'Location') { $inTable = $true }
+      continue
+    }
+    if ($c1 -eq '' -or $c1 -clike '---*') { continue }
+    $out += ,@{ line = ($i + 1); name = $c1; type = $c2; location = $c3 }
+  }
+  $out
+}
+
+# One row, checked against the tree.
+function Test-ComponentRow($doc, $line, $name, $type, $location) {
+  $script:componentChecked++
+  $low = $type.ToLower()
+  foreach ($m in [regex]::Matches($location, '`([^`]+)`')) {
+    $path = $m.Groups[1].Value
+    # a trailing slash is how a document writes a directory
+    if ($path.EndsWith('/')) { $path = $path.Substring(0, $path.Length - 1) }
+    if (-not (Test-ComponentPath $path)) {
+      Write-Fail ("{0,-22} {1} line {2} puts [{3}] at [{4}], and the tree has no such path" -f 'deploy component', $doc, $line, $name, $path)
+      $script:componentBad = $true
+      continue
+    }
+    $kind = Get-ComponentKind $path
+    if (-not $low.StartsWith($kind)) {
+      Write-Fail ("{0,-22} {1} line {2} says [{3}] is a {4}, the tree has it as a {5}" -f 'deploy component', $doc, $line, $name, $low, $kind)
+      $script:componentBad = $true
+    }
+  }
+}
+
+$script:componentPaths = @(Get-CodeSettingPaths)
+$script:componentFiles = @(Get-TreeComponentFiles)
+
+foreach ($doc in @($archDocs + $agentsDoc)) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($row in (Get-ComponentRows $doc)) {
+    Test-ComponentRow $doc $row.line $row.name $row.type $row.location
+  }
+}
+
+if ($script:componentChecked -eq 0) {
+  Write-Fail ("{0,-22} no document says where the components live" -f 'deploy component')
+  $script:componentBad = $true
+}
+
+if (-not $script:componentBad) { Write-Ok 'deploy component' ("{0} rows" -f $script:componentChecked) }
+
 # --- the technologies the model gives its containers ---------------------------
 #
 # The model says what each of its containers is built from: a native binary on

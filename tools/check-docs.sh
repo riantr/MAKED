@@ -4212,8 +4212,6 @@ ASSET_TRACKED=""
 ASSET_CELL_NATURE=""
 ASSET_TREE_NATURE=""
 ASSET_BUILD_OUTPUTS=""
-ASSET_C1=""
-ASSET_C2=""
 ASSET_ROWS=""
 ASSET_TICK='`'
 
@@ -4276,19 +4274,37 @@ asset_cell_nature() {
 #
 # A row is a line that starts with a pipe. The cells are what is between the
 # pipes, and the pipes are not part of the cell.
+ROW_C1=""
+ROW_C2=""
+ROW_C3=""
+ROW_C4=""
 row_cells() {
   local line="$1" rest
-  ASSET_C1=""
-  ASSET_C2=""
+  ROW_C1=""
+  ROW_C2=""
+  ROW_C3=""
+  ROW_C4=""
   rest="${line#\|}"
-  ASSET_C1="${rest%%|*}"
+  ROW_C1="${rest%%|*}"
   rest="${rest#*\|}"
   case "$rest" in
-    *'|'*) ASSET_C2="${rest%%|*}" ;;
-    *) ASSET_C2="$rest" ;;
+    *'|'*) ROW_C2="${rest%%|*}" ;;
+    *) ROW_C2="$rest" ;;
   esac
-  trim "$ASSET_C1"; ASSET_C1="$TRIMMED"
-  trim "$ASSET_C2"; ASSET_C2="$TRIMMED"
+  rest="${rest#*\|}"
+  case "$rest" in
+    *'|'*) ROW_C3="${rest%%|*}" ;;
+    *) ROW_C3="$rest" ;;
+  esac
+  rest="${rest#*\|}"
+  case "$rest" in
+    *'|'*) ROW_C4="${rest%%|*}" ;;
+    *) ROW_C4="$rest" ;;
+  esac
+  trim "$ROW_C1"; ROW_C1="$TRIMMED"
+  trim "$ROW_C2"; ROW_C2="$TRIMMED"
+  trim "$ROW_C3"; ROW_C3="$TRIMMED"
+  trim "$ROW_C4"; ROW_C4="$TRIMMED"
 }
 
 # The rows of the table that gives the site's files their source.
@@ -4306,17 +4322,17 @@ asset_rows() {
     esac
     row_cells "$line"
     if [ "$in_table" -eq 0 ]; then
-      if [ "$ASSET_C1" = "File" ] && [ "$ASSET_C2" = "Source" ]; then
+      if [ "$ROW_C1" = "File" ] && [ "$ROW_C2" = "Source" ]; then
         in_table=1
       fi
       continue
     fi
-    first="${ASSET_C1//$ASSET_TICK/}"
+    first="${ROW_C1//$ASSET_TICK/}"
     case "$first" in
       "$ASSET_DIST"/*) ;;
       *) continue ;;
     esac
-    ASSET_ROWS="$ASSET_ROWS$n"$'\t'"$first"$'\t'"$ASSET_C2"$'\n'
+    ASSET_ROWS="$ASSET_ROWS$n"$'\t'"$first"$'\t'"$ROW_C2"$'\n'
   done < "$file"
 }
 
@@ -4384,6 +4400,154 @@ fi
 
 if [ "$ASSET_BAD" -eq 0 ]; then
   ok "asset source" "$ASSET_CHECKED rows"
+fi
+
+# --- the components the deployment document puts on the machine ----------------
+#
+# The runtime topology table says what each component is and where it lives: the
+# server is a process, the database is a file at a path, the static files are a
+# directory at a path. Nothing read the tree to see whether that was true: the
+# table could have called the database a directory, or put it at a path the
+# server does not read, and no gate would have said a word.
+#
+# The tree says both things.
+#
+# A path the tree has is a DIRECTORY when the tree has files under it -- git
+# does not track an empty directory, so a path with files under it is a
+# directory the tree fills -- and a FILE otherwise.
+#
+# A path the tree has is a path the server reads (the default of one of its
+# settings) or a path the tree keeps (a file git tracks). The table may only
+# put a component at such a path.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+COMPONENT_BAD=0
+COMPONENT_CHECKED=0
+COMPONENT_PATHS=""
+COMPONENT_FILES=""
+COMPONENT_KIND=""
+COMPONENT_ROWS=""
+COMPONENT_TICK='`'
+
+# The defaults the server reads: the paths it is pointed at.
+code_setting_paths() {
+  local line name value
+  COMPONENT_PATHS=""
+  while IFS= read -r line; do
+    name="${line%% *}"
+    value="${line#* }"
+    [ "$name" != "$value" ] || continue
+    COMPONENT_PATHS="$COMPONENT_PATHS $value"
+  done <<< "$CODE_SETTINGS"
+  trim "$COMPONENT_PATHS"; COMPONENT_PATHS="$TRIMMED"
+}
+
+# The files the tree keeps.
+tree_component_files() {
+  COMPONENT_FILES=$(git ls-files 2>/dev/null | LC_ALL=C sort -u || true)
+}
+
+# Does the tree have this path? A path the server reads, or a file it keeps.
+component_has_path() {
+  local path="$1" value line
+  for value in $COMPONENT_PATHS; do
+    if [ "$value" = "$path" ]; then return 0; fi
+  done
+  while IFS= read -r line; do
+    if [ "$line" = "$path" ]; then return 0; fi
+  done <<< "$COMPONENT_FILES"
+  return 1
+}
+
+# What the tree has: a directory, or a file.
+component_kind() {
+  local path="$1"
+  COMPONENT_KIND="file"
+  case "$COMPONENT_FILES" in
+    *"
+$path/"*) COMPONENT_KIND="directory" ;;
+  esac
+}
+
+# The rows of the table that puts the components on the machine.
+#
+# The table is the one whose header names a component and a location. The rows
+# are the lines after it.
+COMPONENT_ROWS=""
+component_rows() {
+  local file="$1" line in_table=0 n=0
+  COMPONENT_ROWS=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    case "$line" in
+      '|'*) ;;
+      *) in_table=0; continue ;;
+    esac
+    row_cells "$line"
+    if [ "$in_table" -eq 0 ]; then
+      if [ "$ROW_C1" = "Component" ] && [ "$ROW_C3" = "Location" ]; then
+        in_table=1
+      fi
+      continue
+    fi
+    case "$ROW_C1" in
+      ''|'---'*) continue ;;
+    esac
+    COMPONENT_ROWS="$COMPONENT_ROWS$n"$'\t'"$ROW_C1"$'\t'"$ROW_C2"$'\t'"$ROW_C3"$'\n'
+  done < "$file"
+}
+
+# One row, checked against the tree.
+component_row_check() {
+  local doc="$1" line="$2" name="$3" type="$4" location="$5" path kind low
+  COMPONENT_CHECKED=$((COMPONENT_CHECKED + 1))
+  low="${type,,}"
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    # a trailing slash is how a document writes a directory
+    path="${path%/}"
+    if ! component_has_path "$path"; then
+      fail "$(printf '%-22s %s line %s puts [%s] at [%s], and the tree has no such path' \
+        'deploy component' "$doc" "$line" "$name" "$path")"
+      COMPONENT_BAD=1
+      continue
+    fi
+    component_kind "$path"
+    kind="$COMPONENT_KIND"
+    case "$low" in
+      "$kind"*) ;;
+      *)
+        fail "$(printf '%-22s %s line %s says [%s] is a %s, the tree has it as a %s' \
+          'deploy component' "$doc" "$line" "$name" "$low" "$kind")"
+        COMPONENT_BAD=1
+        ;;
+    esac
+  done <<< "$(printf '%s' "$location" | grep -oE '`[^`]+`' | tr -d '`' || true)"
+}
+
+code_setting_paths
+tree_component_files
+
+for doc in "${ARCH_DOCS[@]}" "$AGENTS_DOC"; do
+  not_in "$doc" "$MARKED_DOCS"
+  [ -n "$NOT_IN" ] || continue
+  component_rows "$doc"
+  while IFS=$'\t' read -r line name type location; do
+    [ -n "$name" ] || continue
+    component_row_check "$doc" "$line" "$name" "$type" "$location"
+  done <<< "$COMPONENT_ROWS"
+done
+
+if [ "$COMPONENT_CHECKED" -eq 0 ]; then
+  fail "$(printf '%-22s no document says where the components live' \
+    'deploy component')"
+  COMPONENT_BAD=1
+fi
+
+if [ "$COMPONENT_BAD" -eq 0 ]; then
+  ok "deploy component" "$COMPONENT_CHECKED rows"
 fi
 
 # --- the technologies the model gives its containers ---------------------------
