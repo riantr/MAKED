@@ -4310,7 +4310,9 @@ row_cells() {
 # The rows of the table that gives the site's files their source.
 #
 # The table is the one whose header names a file and a source. The rows are the
-# lines after it whose first cell is a file of the dist directory.
+# lines after it whose first cell is a file of the dist directory. The third
+# cell -- the purpose -- is carried along: the gates that read this table do
+# not all read the same column of it.
 asset_rows() {
   local file="$1" line in_table=0 n=0 first
   ASSET_ROWS=""
@@ -4332,7 +4334,7 @@ asset_rows() {
       "$ASSET_DIST"/*) ;;
       *) continue ;;
     esac
-    ASSET_ROWS="$ASSET_ROWS$n"$'\t'"$first"$'\t'"$ROW_C2"$'\n'
+    ASSET_ROWS="$ASSET_ROWS$n"$'\t'"$first"$'\t'"$ROW_C2"$'\t'"$ROW_C3"$'\n'
   done < "$file"
 }
 
@@ -4386,7 +4388,7 @@ else
     not_in "$doc" "$MARKED_DOCS"
     [ -n "$NOT_IN" ] || continue
     asset_rows "$doc"
-    while IFS=$'\t' read -r line file cell; do
+    while IFS=$'\t' read -r line file cell purpose; do
       [ -n "$file" ] || continue
       asset_row_check "$doc" "$line" "$file" "$cell"
     done <<< "$ASSET_ROWS"
@@ -6583,6 +6585,186 @@ fi
 
 if [ "$DEPLOY_PORT_BAD" -eq 0 ]; then
   ok "deploy port" "$DEPLOY_PORT_PLACES places"
+fi
+
+# --- the SPA fallback the deployment document describes -----------------------
+#
+# The deployment diagram says which paths the SPA fallback answers, and the
+# static assets table says which of the site's files is the shell it answers
+# with. Neither was read against the tree: the diagram said the fallback
+# answers "/*.html", and the tree refuses every path whose last segment names
+# a file -- a missing stylesheet or script has to 404, not come back as HTML
+# that the browser will try to execute.
+#
+# The tree says both things.
+#
+# The rule about the paths: the fallback answers a request whose last path
+# segment has NO dot. The rule is read out of the tree -- the predicate that
+# decides has to refuse a segment that contains a dot -- so a tree that stopped
+# refusing them would make the document right again.
+#
+# The file: the fallback reads ONE file out of the dist directory it is given,
+# and that file is the shell. The document has to call the same file the shell.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+DEPLOY_SPA_BAD=0
+DEPLOY_SPA_CHECKED=0
+DEPLOY_SPA_SHELL=""
+DEPLOY_SPA_REFUSES=0
+DEPLOY_SPA_PATTERN=""
+DEPLOY_SPA_NAMED=0
+
+# The file the fallback reads: the one file it builds out of the dist
+# directory it is given.
+code_spa_shell() {
+  local name
+  DEPLOY_SPA_SHELL=""
+  tree_dist_dir
+  [ -n "$ASSET_DIST" ] || return
+  name=$(grep -oE '=[[:blank:]]*dist[[:blank:]]*\+[[:blank:]]*"/[^"]+"' backend/maked_app.mbt 2>/dev/null \
+    | head -1 | grep -oE '"/[^"]+"' | tr -d '"' || true)
+  [ -n "$name" ] || return
+  DEPLOY_SPA_SHELL="$ASSET_DIST$name"
+}
+
+# Does the tree refuse a path whose last segment names a file?
+#
+# The predicate that decides is the one that has to refuse it, and it refuses
+# it by negating the check for a dot in the last segment.
+code_spa_refuses_dotted() {
+  DEPLOY_SPA_REFUSES=0
+  if grep -qE "!.*contains_char\([[:blank:]]*'\.'[[:blank:]]*\)" backend/maked_app.mbt 2>/dev/null; then
+    DEPLOY_SPA_REFUSES=1
+  fi
+}
+
+# The path pattern the diagram gives the SPA fallback.
+#
+# The diagram is a box drawing: the name of a middleware and the pattern it
+# answers sit in the same column, on neighbouring rows. The cells of the row
+# that names the fallback are cut out first, and the pattern is the cell of
+# that same number in the next row -- the box characters line the two rows up
+# column by column.
+#
+# The box character is written as its bytes, so that this script stays ASCII.
+BOX_CHAR=$(printf '\xe2\x94\x82')
+BOX_CELLS=()
+
+# The cells of a box-drawn row: the pieces between the box characters.
+row_box_cells() {
+  local line="$1" rest="$1" i=0 head
+  BOX_CELLS=()
+  while :; do
+    case "$rest" in
+      *"$BOX_CHAR"*) ;;
+      *) break ;;
+    esac
+    head="${rest%%"$BOX_CHAR"*}"
+    BOX_CELLS[$i]="$head"
+    i=$((i + 1))
+    rest="${rest#*"$BOX_CHAR"}"
+  done
+  BOX_CELLS[$i]="$rest"
+}
+
+deploy_spa_pattern() {
+  DEPLOY_SPA_PATTERN=""
+  local line label_line="" label_len=0 found=0 i idx=-1
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ "$found" -eq 1 ]; then
+      if [ "${#line}" -eq "$label_len" ]; then
+        row_box_cells "$line"
+        if [ "$idx" -ge 0 ] && [ "$idx" -lt "${#BOX_CELLS[@]}" ]; then
+          trim "${BOX_CELLS[$idx]}"; DEPLOY_SPA_PATTERN="$TRIMMED"
+        fi
+      fi
+      return
+    fi
+    case "$line" in
+      *fallback*"$BOX_CHAR"*) ;;
+      *) continue ;;
+    esac
+    label_line="$line"
+    label_len=${#label_line}
+    row_box_cells "$label_line"
+    i=0
+    while [ "$i" -lt "${#BOX_CELLS[@]}" ]; do
+      case "${BOX_CELLS[$i]}" in
+        *fallback*) idx=$i; break ;;
+      esac
+      i=$((i + 1))
+    done
+    found=1
+  done < "$DEPLOY_MD"
+}
+
+# The pattern the document gives, checked against the rule the tree has.
+deploy_spa_pattern_check() {
+  local pattern="$1" last
+  [ -n "$pattern" ] || return
+  DEPLOY_SPA_CHECKED=$((DEPLOY_SPA_CHECKED + 1))
+  [ "$DEPLOY_SPA_REFUSES" -eq 1 ] || return
+  last="${pattern##*/}"
+  case "$last" in
+    *.*)
+      fail "$(printf '%-22s %s says the SPA fallback answers [%s], and the tree refuses every path whose last segment names a file' \
+        'deploy spa' "$DEPLOY_MD" "$pattern")"
+      DEPLOY_SPA_BAD=1
+      ;;
+  esac
+}
+
+# The file the document calls the shell, checked against the file the tree
+# reads.
+deploy_spa_shell_check() {
+  local doc="$1" line="$2" file="$3" purpose="$4" low
+  low="${purpose,,}"
+  case "$low" in
+    *shell*) ;;
+    *) return ;;
+  esac
+  DEPLOY_SPA_CHECKED=$((DEPLOY_SPA_CHECKED + 1))
+  DEPLOY_SPA_NAMED=1
+  if [ "$file" != "$DEPLOY_SPA_SHELL" ]; then
+    fail "$(printf '%-22s %s line %s calls [%s] the shell, and the tree reads the shell from [%s]' \
+      'deploy spa' "$doc" "$line" "$file" "$DEPLOY_SPA_SHELL")"
+    DEPLOY_SPA_BAD=1
+  fi
+}
+
+code_spa_shell
+code_spa_refuses_dotted
+deploy_spa_pattern
+deploy_spa_pattern_check "$DEPLOY_SPA_PATTERN"
+
+DEPLOY_SPA_NAMED=0
+for doc in "${ARCH_DOCS[@]}" "$AGENTS_DOC"; do
+  not_in "$doc" "$MARKED_DOCS"
+  [ -n "$NOT_IN" ] || continue
+  asset_rows "$doc"
+  while IFS=$'\t' read -r line file cell purpose; do
+    [ -n "$file" ] || continue
+    deploy_spa_shell_check "$doc" "$line" "$file" "$purpose"
+  done <<< "$ASSET_ROWS"
+done
+
+# the tree reads the shell from one file, and a document has to say which
+if [ "$DEPLOY_SPA_NAMED" -eq 0 ] && [ -n "$DEPLOY_SPA_SHELL" ]; then
+  fail "$(printf '%-22s the tree reads the shell from [%s], and no document says so' \
+    'deploy spa' "$DEPLOY_SPA_SHELL")"
+  DEPLOY_SPA_BAD=1
+fi
+
+if [ "$DEPLOY_SPA_CHECKED" -eq 0 ]; then
+  fail "$(printf '%-22s no document says what the SPA fallback answers' \
+    'deploy spa')"
+  DEPLOY_SPA_BAD=1
+fi
+
+if [ "$DEPLOY_SPA_BAD" -eq 0 ]; then
+  ok "deploy spa" "$DEPLOY_SPA_CHECKED claims"
 fi
 
 # --- the CORS the tree does not have ------------------------------------------

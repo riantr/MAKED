@@ -21,7 +21,7 @@ serves the API, static files, and SPA fallback.
 │  │  ┌─────────┐ ┌──────────┐ ┌───────────┐  │  │
 │  │  │ moonback│ │  static  │ │   spa     │  │  │
 │  │  │  router │ │  files   │ │  fallback │  │  │
-│  │  │ /api/*  │ │ dist/*   │ │ /*.html   │  │  │
+│  │  │ /api/*  │ │ dist/*   │ │ /*        │  │  │
 │  │  └────┬────┘ └────┬─────┘ └─────┬─────┘  │  │
 │  │       │           │             │         │  │
 │  │       ▼           ▼             ▼         │  │
@@ -41,6 +41,13 @@ serves the API, static files, and SPA fallback.
 │  └─────────┘                                    │
 └─────────────────────────────────────────────────┘
 ```
+
+The SPA fallback answers a browser navigation whose last path segment names
+no file, and it answers it with the SPA shell `frontend/dist/index.html`. The
+router has the `/api` paths and the static middleware has the files under
+`frontend/dist`, so what is left over is a navigation; a path that names an
+asset that is missing 404s, because the fallback is never asked to answer for
+it.
 
 ## Build pipeline
 

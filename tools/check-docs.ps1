@@ -4150,7 +4150,9 @@ function Get-AssetCellNature($cell) {
 # The rows of the table that gives the site's files their source.
 #
 # The table is the one whose header names a file and a source. The rows are the
-# lines after it whose first cell is a file of the dist directory.
+# lines after it whose first cell is a file of the dist directory. The third
+# cell -- the purpose -- is carried along: the gates that read this table do
+# not all read the same column of it.
 function Get-AssetRows($file) {
   $out = @()
   $path = Join-Path $PWD $file
@@ -4163,14 +4165,16 @@ function Get-AssetRows($file) {
     $parts = ($line.Substring(1)) -split '\|'
     $c1 = $parts[0].Trim()
     $c2 = ''
+    $c3 = ''
     if ($parts.Count -ge 2) { $c2 = $parts[1].Trim() }
+    if ($parts.Count -ge 3) { $c3 = $parts[2].Trim() }
     if (-not $inTable) {
       if ($c1 -ceq 'File' -and $c2 -ceq 'Source') { $inTable = $true }
       continue
     }
     $first = $c1.Replace('`', '')
     if (-not $first.StartsWith($script:assetDist + '/')) { continue }
-    $out += ,@{ line = ($i + 1); file = $first; cell = $c2 }
+    $out += ,@{ line = ($i + 1); file = $first; cell = $c2; purpose = $c3 }
   }
   $out
 }
@@ -5968,6 +5972,148 @@ if ($treePort -ne '') {
 
 if (-not $script:deployPortBad) {
   Write-Ok 'deploy port' ("{0} places" -f $script:deployPortPlaces)
+}
+
+# --- the SPA fallback the deployment document describes -----------------------
+#
+# The deployment diagram says which paths the SPA fallback answers, and the
+# static assets table says which of the site's files is the shell it answers
+# with. Neither was read against the tree: the diagram said the fallback
+# answers "/*.html", and the tree refuses every path whose last segment names
+# a file -- a missing stylesheet or script has to 404, not come back as HTML
+# that the browser will try to execute.
+#
+# The tree says both things.
+#
+# The rule about the paths: the fallback answers a request whose last path
+# segment has NO dot. The rule is read out of the tree -- the predicate that
+# decides has to refuse a segment that contains a dot -- so a tree that stopped
+# refusing them would make the document right again.
+#
+# The file: the fallback reads ONE file out of the dist directory it is given,
+# and that file is the shell. The document has to call the same file the shell.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:deploySpaBad = $false
+$script:deploySpaChecked = 0
+$script:deploySpaShell = ''
+$script:deploySpaRefuses = $false
+$script:deploySpaPattern = ''
+$script:deploySpaNamed = $false
+
+# The file the fallback reads: the one file it builds out of the dist
+# directory it is given.
+function Get-CodeSpaShell {
+  $script:deploySpaShell = ''
+  $script:assetDist = Get-TreeDistDir
+  if ($script:assetDist -eq '') { return '' }
+  $path = Join-Path $PWD 'backend/maked_app.mbt'
+  if (-not (Test-Path $path)) { return '' }
+  $text = [System.IO.File]::ReadAllText($path, $enc)
+  $m = [regex]::Match($text, '=[ \t]*dist[ \t]*\+[ \t]*"(/[^"]+)"')
+  if (-not $m.Success) { return '' }
+  $script:deploySpaShell = $script:assetDist + $m.Groups[1].Value
+  $script:deploySpaShell
+}
+
+# Does the tree refuse a path whose last segment names a file?
+#
+# The predicate that decides is the one that has to refuse it, and it refuses
+# it by negating the check for a dot in the last segment.
+function Test-CodeSpaRefusesDotted {
+  $path = Join-Path $PWD 'backend/maked_app.mbt'
+  if (-not (Test-Path $path)) { return $false }
+  $text = [System.IO.File]::ReadAllText($path, $enc)
+  return ($text -cmatch "![^\r\n]*contains_char\([ \t]*'\.'[ \t]*\)")
+}
+
+# The path pattern the diagram gives the SPA fallback.
+#
+# The diagram is a box drawing: the name of a middleware and the pattern it
+# answers sit in the same column, on neighbouring rows. The cells of the row
+# that names the fallback are cut out first, and the pattern is the cell of
+# that same number in the next row -- the box characters line the two rows up
+# column by column.
+function Get-DeploySpaPattern {
+  $script:deploySpaPattern = ''
+  $path = Join-Path $PWD $deployMd
+  if (-not (Test-Path $path)) { return '' }
+  $box = [char]0x2502
+  $lines = [System.IO.File]::ReadAllLines($path, $enc)
+  $labelRow = -1
+  $index = -1
+  for ($i = 0; $i -lt $lines.Length; $i++) {
+    $line = $lines[$i]
+    if (-not $line.Contains('fallback')) { continue }
+    if (-not $line.Contains($box)) { continue }
+    $cells = $line.Split($box)
+    for ($c = 0; $c -lt $cells.Count; $c++) {
+      if ($cells[$c].Contains('fallback')) { $index = $c; break }
+    }
+    $labelRow = $i
+    break
+  }
+  if ($labelRow -lt 0 -or $index -lt 0) { return '' }
+  for ($m = $labelRow + 1; $m -lt $lines.Length; $m++) {
+    if ($lines[$m].Length -ne $lines[$labelRow].Length) { continue }
+    $cells = $lines[$m].Split($box)
+    if ($index -ge $cells.Count) { return '' }
+    $script:deploySpaPattern = $cells[$index].Trim()
+    return $script:deploySpaPattern
+  }
+  $script:deploySpaPattern
+}
+
+$script:deploySpaShell = Get-CodeSpaShell
+$script:deploySpaRefuses = Test-CodeSpaRefusesDotted
+$script:deploySpaPattern = Get-DeploySpaPattern
+
+if ($script:deploySpaPattern -ne '') {
+  $script:deploySpaChecked++
+  if ($script:deploySpaRefuses) {
+    $last = ($script:deploySpaPattern.Split('/'))[-1]
+    if ($last.Contains('.')) {
+      Write-Fail ("{0,-22} {1} says the SPA fallback answers [{2}], and the tree refuses every path whose last segment names a file" -f `
+        'deploy spa', $deployMd, $script:deploySpaPattern)
+      $script:deploySpaBad = $true
+    }
+  }
+}
+
+foreach ($doc in @($archDocs + $agentsDoc)) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($row in (Get-AssetRows $doc)) {
+    $purpose = $row.purpose.ToLowerInvariant()
+    if (-not $purpose.Contains('shell')) { continue }
+    $script:deploySpaChecked++
+    $script:deploySpaNamed = $true
+    if ($row.file -cne $script:deploySpaShell) {
+      Write-Fail ("{0,-22} {1} line {2} calls [{3}] the shell, and the tree reads the shell from [{4}]" -f `
+        'deploy spa', $doc, $row.line, $row.file, $script:deploySpaShell)
+      $script:deploySpaBad = $true
+    }
+  }
+}
+
+# the tree reads the shell from one file, and a document has to say which
+if (-not $script:deploySpaNamed -and $script:deploySpaShell -ne '') {
+  Write-Fail ("{0,-22} the tree reads the shell from [{1}], and no document says so" -f `
+    'deploy spa', $script:deploySpaShell)
+  $script:deploySpaBad = $true
+}
+
+if ($script:deploySpaChecked -eq 0) {
+  Write-Fail ("{0,-22} no document says what the SPA fallback answers" -f 'deploy spa')
+  $script:deploySpaBad = $true
+}
+
+if (-not $script:deploySpaBad) {
+  Write-Ok 'deploy spa' ("{0} claims" -f $script:deploySpaChecked)
 }
 
 # --- the CORS the tree does not have ------------------------------------------
