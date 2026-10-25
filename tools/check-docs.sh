@@ -8805,6 +8805,113 @@ if [ "$IMPORT_BLOCK_BAD" -eq 0 ]; then
   ok "import block" "$IMPORT_BLOCK_CHECKED rows"
 fi
 
+# --- the order the ring's domains are in ---------------------------------------
+#
+# The ring is a ring, and the ORDER is the claim: Model before Data before
+# Experience. The README states its order in two places and the README's own
+# gate watches them. The order the architecture documents state was watched by
+# nothing. The measurement that found the gap: architecture/system-model.md
+# stated the ring as (Model, Attack, Knowledge, Experience, Data), the tree
+# says Model, Data, Experience, Attack, Knowledge, and every gate still said
+# that every claim in the documents matches the tree.
+#
+# The tree's ring is the tuples of backend/pages.mbt, in the order they are
+# written. A document is read for the RUNS it writes of those titles -- a run
+# is two or more of the tree's own titles side by side -- and every run has to
+# be a contiguous part of the ring: "Model Data" is the ring's first two, and
+# "Data Model" is not the ring at all. A document that names one domain says
+# nothing about the order, so a run of one is not a claim.
+
+RING_ORDER_BAD=0
+RING_ORDER_CHECKED=0
+
+# The documents that state the ring. The README is not in the list: the
+# README's own gate watches its order, and a claim is watched once.
+RING_ORDER_DOCS="$AGENT_DOC architecture/system-model.md architecture/system-model.summary.md \
+architecture/system-model.evidence.md architecture/dependencies.md \
+architecture/dependencies.evidence.md architecture/deployment.md \
+architecture/deployment.evidence.md architecture/flows.md architecture/flows.evidence.md"
+
+# The titles of the ring's domains, out of the tree.
+ring_titles() {
+  grep -oE '\("[a-z]+", "[^"]+", "[A-Z]"' backend/pages.mbt \
+    | sed -E 's/\("[a-z]+", "([^"]+)".*/\1/' | tr '\n' ' ' | sed -e 's/ *$//'
+}
+
+# The tree's titles as an alternation, to find the runs with.
+ring_title_alternation() {
+  local titles="$1" out="" title
+  for title in $titles; do
+    if [ -z "$out" ]; then out="$title"; else out="$out|$title"; fi
+  done
+  printf '(%s)' "$out"
+}
+
+# The runs of the tree's titles a document writes, one per line, the titles of
+# each run in the order the document writes them.
+doc_ring_runs() {
+  local file="$1" alt="$2"
+  [ -f "$file" ] || return 0
+  tr '\n' ' ' < "$file" | tr -s ' ' \
+    | grep -oE "$alt([^A-Za-z0-9]+$alt)*" \
+    | while IFS= read -r match; do
+        [ -n "$match" ] || continue
+        printf '%s\n' "$(printf '%s' "$match" | grep -oE "$alt" | tr '\n' ' ' | sed -e 's/ *$//')"
+      done
+}
+
+# Is a run of titles a contiguous part of the ring?
+run_in_ring() {
+  local run="$1" titles="$2" n i j ok
+  local -a r=() t=()
+  read -ra r <<< "$run"
+  read -ra t <<< "$titles"
+  n=${#r[@]}
+  [ "$n" -gt 0 ] || return 1
+  for ((i = 0; i + n <= ${#t[@]}; i++)); do
+    ok=1
+    for ((j = 0; j < n; j++)); do
+      if [ "${t[i+j]}" != "${r[j]}" ]; then ok=0; break; fi
+    done
+    if [ "$ok" -eq 1 ]; then return 0; fi
+  done
+  return 1
+}
+
+RING_TITLES=$(ring_titles)
+RING_ALT=$(ring_title_alternation "$RING_TITLES")
+
+for doc in $RING_ORDER_DOCS; do
+  [ -f "$doc" ] || continue
+  # a document that describes the past is history: it is not corrected
+  case " $MARKED_DOCS " in
+    *" $doc "*) continue ;;
+  esac
+  seen=""
+  while IFS= read -r run; do
+    [ -n "$run" ] || continue
+    # one title is not an order: a run of two or more holds a space
+    case "$run" in
+      *" "*) ;;
+      *) continue ;;
+    esac
+    case " $seen " in
+      *" $run "*) continue ;;
+    esac
+    seen="$seen $run"
+    RING_ORDER_CHECKED=$((RING_ORDER_CHECKED + 1))
+    if ! run_in_ring "$run" "$RING_TITLES"; then
+      fail "$(printf '%-22s %s writes the ring as [%s], and the tree says [%s]' \
+        'ring order' "$doc" "$run" "$RING_TITLES")"
+      RING_ORDER_BAD=1
+    fi
+  done <<< "$(doc_ring_runs "$doc" "$RING_ALT")"
+done
+
+if [ "$RING_ORDER_BAD" -eq 0 ]; then
+  ok "ring order" "$RING_ORDER_CHECKED runs"
+fi
+
 # --- the gaps the documents say are gaps ---------------------------------------
 #
 # The summary has a section that says what the product does not have, and the

@@ -7754,6 +7754,119 @@ if (-not $script:importBlockBad) {
   Write-Ok 'import block' ("{0} rows" -f $script:importBlockChecked)
 }
 
+# --- the order the ring's domains are in ---------------------------------------
+#
+# The ring is a ring, and the ORDER is the claim: Model before Data before
+# Experience. The README states its order in two places and the README's own
+# gate watches them. The order the architecture documents state was watched by
+# nothing. The measurement that found the gap: architecture/system-model.md
+# stated the ring as (Model, Attack, Knowledge, Experience, Data), the tree
+# says Model, Data, Experience, Attack, Knowledge, and every gate still said
+# that every claim in the documents matches the tree.
+#
+# The tree's ring is the tuples of backend/pages.mbt, in the order they are
+# written. A document is read for the RUNS it writes of those titles -- a run
+# is two or more of the tree's own titles side by side -- and every run has to
+# be a contiguous part of the ring: "Model Data" is the ring's first two, and
+# "Data Model" is not the ring at all. A document that names one domain says
+# nothing about the order, so a run of one is not a claim.
+
+$script:ringOrderBad = $false
+$script:ringOrderChecked = 0
+
+# The documents that state the ring. The README is not in the list: the
+# README's own gate watches its order, and a claim is watched once.
+$ringOrderDocs = @(
+  $agentDoc, 'architecture/system-model.md', 'architecture/system-model.summary.md',
+  'architecture/system-model.evidence.md', 'architecture/dependencies.md',
+  'architecture/dependencies.evidence.md', 'architecture/deployment.md',
+  'architecture/deployment.evidence.md', 'architecture/flows.md',
+  'architecture/flows.evidence.md'
+)
+
+# The titles of the ring's domains, out of the tree.
+function Get-RingTitles {
+  $out = @()
+  $path = Join-Path $PWD 'backend/pages.mbt'
+  if (-not (Test-Path $path)) { return $out }
+  $text = [System.IO.File]::ReadAllText($path, $enc)
+  foreach ($m in [regex]::Matches($text, '\("[a-z]+", "([^"]+)", "[A-Z]"')) {
+    $out += $m.Groups[1].Value
+  }
+  $out
+}
+
+# The tree's titles as an alternation, to find the runs with.
+function Get-RingAlternation {
+  param([string[]]$Titles)
+  $parts = @()
+  foreach ($t in $Titles) { $parts += ([regex]::Escape($t)) }
+  '(' + ($parts -join '|') + ')'
+}
+
+# The runs of the tree's titles a document writes, one per entry, the titles
+# of each run in the order the document writes them.
+function Get-DocRingRuns {
+  param([string]$File, [string]$Alt)
+  $out = @()
+  $path = Join-Path $PWD $File
+  if (-not (Test-Path $path)) { return $out }
+  $text = [System.IO.File]::ReadAllText($path, $enc)
+  $text = $text.Replace("`r`n", ' ').Replace("`n", ' ')
+  $text = [regex]::Replace($text, ' +', ' ')
+  $run = $Alt + '([^A-Za-z0-9]+' + $Alt + ')*'
+  foreach ($m in [regex]::Matches($text, $run)) {
+    $titles = @()
+    foreach ($t in [regex]::Matches($m.Value, $Alt)) { $titles += $t.Value }
+    $out += ($titles -join ' ')
+  }
+  $out
+}
+
+# Is a run of titles a contiguous part of the ring?
+function Test-RunInRing {
+  param([string]$Run, [string[]]$Titles)
+  $r = @($Run -split ' ')
+  $n = $r.Count
+  if ($n -lt 1) { return $false }
+  for ($i = 0; $i + $n -le $Titles.Count; $i++) {
+    $ok = $true
+    for ($j = 0; $j -lt $n; $j++) {
+      if ($Titles[$i + $j] -cne $r[$j]) { $ok = $false; break }
+    }
+    if ($ok) { return $true }
+  }
+  $false
+}
+
+$ringTitles = @(Get-RingTitles)
+$ringAlt = Get-RingAlternation $ringTitles
+
+foreach ($doc in $ringOrderDocs) {
+  if (-not (Test-Path (Join-Path $PWD $doc))) { continue }
+  # a document that describes the past is history: it is not corrected
+  if ($markedDocs -ccontains $doc) { continue }
+  $seen = @()
+  foreach ($run in (Get-DocRingRuns $doc $ringAlt)) {
+    if (-not $run) { continue }
+    $parts = @($run -split ' ')
+    # one title is not an order
+    if ($parts.Count -lt 2) { continue }
+    if ($seen -ccontains $run) { continue }
+    $seen += $run
+    $script:ringOrderChecked++
+    if (-not (Test-RunInRing $run $ringTitles)) {
+      Write-Fail ("{0,-22} {1} writes the ring as [{2}], and the tree says [{3}]" -f `
+        'ring order', $doc, $run, ($ringTitles -join ' '))
+      $script:ringOrderBad = $true
+    }
+  }
+}
+
+if (-not $script:ringOrderBad) {
+  Write-Ok 'ring order' ("{0} runs" -f $script:ringOrderChecked)
+}
+
 # --- the gaps the documents say are gaps ---------------------------------------
 #
 # The summary has a section that says what the product does not have, and the

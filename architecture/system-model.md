@@ -9,7 +9,7 @@ structured, and where the boundaries lie.
 
 MAKED is a two-target web application written entirely in
 [MoonBit](https://docs.moonbitlang.com). It organises content around five
-domains (Model, Attack, Knowledge, Experience, Data) arranged as a closed ring
+domains (Model, Data, Experience, Attack, Knowledge) arranged as a closed ring
 around a taijitu. The content is served from SQLite, and the pages that carry
 it speak two languages.
 
