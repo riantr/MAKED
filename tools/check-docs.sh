@@ -4183,6 +4183,209 @@ if [ "$BUNDLE_BAD" -eq 0 ]; then
   ok "bundle files" "$BUNDLE_LISTS lists"
 fi
 
+# --- where each asset of the site comes from ----------------------------------
+#
+# The static assets table says where the three files of the site come from: two
+# of them are written by hand and the third is built by the build script, the CI
+# workflow and the image. Nothing read the tree to see whether that was true:
+# the table could have called the bundle hand-written, or the shell generated,
+# and no gate would have said a word.
+#
+# Git is the oracle for the first half. A file of the dist directory that git
+# tracks is source the tree keeps, and a file git does not track is a file the
+# build makes. The document has to say the same thing about every row.
+#
+# How a cell says it is read from the tree's own vocabulary: the scripts that
+# stage the bundle, and the build output root they copy out of. A cell that
+# names one of those is saying the file is built; a cell that names none of
+# them is saying the file is source. A cell that says a file is built also has
+# to point at the build output it comes from, and that output has to be one the
+# tree builds.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+ASSET_BAD=0
+ASSET_CHECKED=0
+ASSET_DIST=""
+ASSET_TRACKED=""
+ASSET_CELL_NATURE=""
+ASSET_TREE_NATURE=""
+ASSET_BUILD_OUTPUTS=""
+ASSET_C1=""
+ASSET_C2=""
+ASSET_ROWS=""
+ASSET_TICK='`'
+
+# The dist directory: the default of MAKED_DIST. The server serves that
+# directory, so it is the directory the site lives in.
+tree_dist_dir() {
+  local line
+  ASSET_DIST=""
+  while IFS= read -r line; do
+    case "$line" in
+      MAKED_DIST\ *) ASSET_DIST="${line#MAKED_DIST }"; return ;;
+    esac
+  done <<< "$CODE_SETTINGS"
+}
+
+# The files of the dist directory git keeps: the source of the site.
+#
+# Git is asked, not the file system, so a build that has run does not change
+# the answer.
+tree_asset_tracked() {
+  ASSET_TRACKED=""
+  [ -n "$ASSET_DIST" ] || return
+  ASSET_TRACKED=$(git ls-files "$ASSET_DIST" 2>/dev/null | LC_ALL=C sort -u || true)
+}
+
+# What the tree has: source, or built.
+tree_asset_nature() {
+  local name="$1"
+  ASSET_TREE_NATURE="built"
+  if printf '%s\n' "$ASSET_TRACKED" | grep -qxF "$ASSET_DIST/$name"; then
+    ASSET_TREE_NATURE="source"
+  fi
+}
+
+# What the document's cell says: built, or source.
+#
+# The vocabulary is the tree's: the scripts that stage the bundle, and the
+# build output root they copy out of. A cell that names one of those is saying
+# the file is built. A cell that names none of them is saying the file is
+# source. The words are the ones that say a file is made rather than written.
+asset_cell_nature() {
+  local cell="$1" low name lowname
+  ASSET_CELL_NATURE="source"
+  low="${cell,,}"
+  for name in $STAGE_NAMES; do
+    lowname="${name,,}"
+    case "$low" in
+      *"$lowname"*) ASSET_CELL_NATURE="built"; return ;;
+    esac
+  done
+  case "$low" in
+    *generated*|*copied*|*produced*|*compiled*|*staged*|*'_build/'*)
+      ASSET_CELL_NATURE="built"
+      return
+      ;;
+  esac
+}
+
+# The first two cells of a table row.
+#
+# A row is a line that starts with a pipe. The cells are what is between the
+# pipes, and the pipes are not part of the cell.
+row_cells() {
+  local line="$1" rest
+  ASSET_C1=""
+  ASSET_C2=""
+  rest="${line#\|}"
+  ASSET_C1="${rest%%|*}"
+  rest="${rest#*\|}"
+  case "$rest" in
+    *'|'*) ASSET_C2="${rest%%|*}" ;;
+    *) ASSET_C2="$rest" ;;
+  esac
+  trim "$ASSET_C1"; ASSET_C1="$TRIMMED"
+  trim "$ASSET_C2"; ASSET_C2="$TRIMMED"
+}
+
+# The rows of the table that gives the site's files their source.
+#
+# The table is the one whose header names a file and a source. The rows are the
+# lines after it whose first cell is a file of the dist directory.
+asset_rows() {
+  local file="$1" line in_table=0 n=0 first
+  ASSET_ROWS=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    case "$line" in
+      '|'*) ;;
+      *) in_table=0; continue ;;
+    esac
+    row_cells "$line"
+    if [ "$in_table" -eq 0 ]; then
+      if [ "$ASSET_C1" = "File" ] && [ "$ASSET_C2" = "Source" ]; then
+        in_table=1
+      fi
+      continue
+    fi
+    first="${ASSET_C1//$ASSET_TICK/}"
+    case "$first" in
+      "$ASSET_DIST"/*) ;;
+      *) continue ;;
+    esac
+    ASSET_ROWS="$ASSET_ROWS$n"$'\t'"$first"$'\t'"$ASSET_C2"$'\n'
+  done < "$file"
+}
+
+# One row, checked against the tree.
+asset_row_check() {
+  local doc="$1" line="$2" file="$3" cell="$4" name tree nature path found=0
+  name="${file##*/}"
+  ASSET_CHECKED=$((ASSET_CHECKED + 1))
+  tree_asset_nature "$name"
+  tree="$ASSET_TREE_NATURE"
+  asset_cell_nature "$cell"
+  nature="$ASSET_CELL_NATURE"
+  if [ "$nature" != "$tree" ]; then
+    fail "$(printf '%-22s %s line %s says [%s] is %s, the tree has it as %s' \
+      'asset source' "$doc" "$line" "$name" "$nature" "$tree")"
+    ASSET_BAD=1
+    return
+  fi
+  # a file the build makes has to say which build output it comes from
+  [ "$nature" = "built" ] || return
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    found=1
+    case " $ASSET_BUILD_OUTPUTS " in
+      *" $path "*) ;;
+      *)
+        fail "$(printf '%-22s %s line %s states [%s], and the tree builds no such path' \
+          'asset source' "$doc" "$line" "$path")"
+        ASSET_BAD=1
+        return
+        ;;
+    esac
+  done <<< "$(printf '%s' "$cell" | grep -oE '_build/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*' || true)"
+  if [ "$found" -eq 0 ]; then
+    fail "$(printf '%-22s %s line %s says [%s] is built, and names no build output' \
+      'asset source' "$doc" "$line" "$name")"
+    ASSET_BAD=1
+  fi
+}
+
+tree_dist_dir
+tree_asset_tracked
+join_lines "$TREE_BUILD_OUTPUTS"; ASSET_BUILD_OUTPUTS="$JOIN_LINES"
+
+if [ -z "$ASSET_DIST" ]; then
+  fail "$(printf '%-22s the tree does not say where the site lives' \
+    'asset source')"
+  ASSET_BAD=1
+else
+  for doc in "${ARCH_DOCS[@]}" "$AGENTS_DOC"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    asset_rows "$doc"
+    while IFS=$'\t' read -r line file cell; do
+      [ -n "$file" ] || continue
+      asset_row_check "$doc" "$line" "$file" "$cell"
+    done <<< "$ASSET_ROWS"
+  done
+  if [ "$ASSET_CHECKED" -eq 0 ]; then
+    fail "$(printf '%-22s no document says where the files of the site come from' \
+      'asset source')"
+    ASSET_BAD=1
+  fi
+fi
+
+if [ "$ASSET_BAD" -eq 0 ]; then
+  ok "asset source" "$ASSET_CHECKED rows"
+fi
+
 # --- the technologies the model gives its containers ---------------------------
 #
 # The model says what each of its containers is built from: a native binary on

@@ -4070,6 +4070,163 @@ if ($script:bundleFiles.Count -eq 0) {
 
 if (-not $script:bundleBad) { Write-Ok 'bundle files' ("{0} lists" -f $script:bundleLists) }
 
+# --- where each asset of the site comes from -----------------------------------
+#
+# The static assets table says where the three files of the site come from: two
+# of them are written by hand and the third is built by the build script, the CI
+# workflow and the image. Nothing read the tree to see whether that was true:
+# the table could have called the bundle hand-written, or the shell generated,
+# and no gate would have said a word.
+#
+# Git is the oracle for the first half. A file of the dist directory that git
+# tracks is source the tree keeps, and a file git does not track is a file the
+# build makes. The document has to say the same thing about every row.
+#
+# How a cell says it is read from the tree's own vocabulary: the scripts that
+# stage the bundle, and the build output root they copy out of. A cell that
+# names one of those is saying the file is built; a cell that names none of
+# them is saying the file is source. A cell that says a file is built also has
+# to point at the build output it comes from, and that output has to be one the
+# tree builds.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:assetBad = $false
+$script:assetChecked = 0
+$script:assetDist = ''
+$script:assetTracked = @()
+$script:assetBuildOutputs = @()
+
+# The dist directory: the default of MAKED_DIST. The server serves that
+# directory, so it is the directory the site lives in.
+function Get-TreeDistDir {
+  foreach ($setting in $codeSettings) {
+    if ($setting -clike 'MAKED_DIST *') {
+      $parts = $setting -split ' ', 2
+      return $parts[1]
+    }
+  }
+  ''
+}
+
+# The files of the dist directory git keeps: the source of the site.
+#
+# Git is asked, not the file system, so a build that has run does not change
+# the answer.
+function Get-TreeAssetTracked {
+  $out = @()
+  if ($script:assetDist -eq '') { return $out }
+  foreach ($rel in @(& git ls-files $script:assetDist 2>$null)) {
+    if ($rel -eq '') { continue }
+    $out += $rel.Trim()
+  }
+  Sort-Set $out
+}
+
+# What the tree has: source, or built.
+function Get-TreeAssetNature($name) {
+  if ($script:assetTracked -ccontains ($script:assetDist + '/' + $name)) { return 'source' }
+  'built'
+}
+
+# What the document's cell says: built, or source.
+#
+# The vocabulary is the tree's: the scripts that stage the bundle, and the
+# build output root they copy out of. A cell that names one of those is saying
+# the file is built. A cell that names none of them is saying the file is
+# source. The words are the ones that say a file is made rather than written.
+function Get-AssetCellNature($cell) {
+  $low = $cell.ToLower()
+  foreach ($name in $script:stageNames) {
+    if ($low.Contains($name.ToLower())) { return 'built' }
+  }
+  foreach ($word in @('generated', 'copied', 'produced', 'compiled', 'staged', '_build/')) {
+    if ($low.Contains($word)) { return 'built' }
+  }
+  'source'
+}
+
+# The rows of the table that gives the site's files their source.
+#
+# The table is the one whose header names a file and a source. The rows are the
+# lines after it whose first cell is a file of the dist directory.
+function Get-AssetRows($file) {
+  $out = @()
+  $path = Join-Path $PWD $file
+  if (-not (Test-Path $path)) { return $out }
+  $lines = [System.IO.File]::ReadAllLines($path, $enc)
+  $inTable = $false
+  for ($i = 0; $i -lt $lines.Length; $i++) {
+    $line = $lines[$i]
+    if (-not $line.StartsWith('|')) { $inTable = $false; continue }
+    $parts = ($line.Substring(1)) -split '\|'
+    $c1 = $parts[0].Trim()
+    $c2 = ''
+    if ($parts.Count -ge 2) { $c2 = $parts[1].Trim() }
+    if (-not $inTable) {
+      if ($c1 -ceq 'File' -and $c2 -ceq 'Source') { $inTable = $true }
+      continue
+    }
+    $first = $c1.Replace('`', '')
+    if (-not $first.StartsWith($script:assetDist + '/')) { continue }
+    $out += ,@{ line = ($i + 1); file = $first; cell = $c2 }
+  }
+  $out
+}
+
+$script:assetDist = Get-TreeDistDir
+$script:assetTracked = @(Get-TreeAssetTracked)
+$script:assetBuildOutputs = @(Get-TreeBuildOutputs)
+
+if ($script:assetDist -eq '') {
+  Write-Fail ("{0,-22} the tree does not say where the site lives" -f 'asset source')
+  $script:assetBad = $true
+} else {
+  foreach ($doc in @($archDocs + $agentsDoc)) {
+    # A document that describes the past is a record of the past. Its claims
+    # are about the tree as it was, so they are not checked against the tree
+    # as it is.
+    if ($markedDocs -ccontains $doc) { continue }
+    foreach ($row in (Get-AssetRows $doc)) {
+      $line = $row.line
+      $file = $row.file
+      $cell = $row.cell
+      $name = $file.Split('/')[-1]
+      $script:assetChecked++
+      $tree = Get-TreeAssetNature $name
+      $nature = Get-AssetCellNature $cell
+      if ($nature -cne $tree) {
+        Write-Fail ("{0,-22} {1} line {2} says [{3}] is {4}, the tree has it as {5}" -f 'asset source', $doc, $line, $name, $nature, $tree)
+        $script:assetBad = $true
+        continue
+      }
+      # a file the build makes has to say which build output it comes from
+      if ($nature -cne 'built') { continue }
+      $found = $false
+      foreach ($m in [regex]::Matches($cell, '_build/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*')) {
+        $path = $m.Value
+        $found = $true
+        if ($script:assetBuildOutputs -cnotcontains $path) {
+          Write-Fail ("{0,-22} {1} line {2} states [{3}], and the tree builds no such path" -f 'asset source', $doc, $line, $path)
+          $script:assetBad = $true
+          break
+        }
+      }
+      if (-not $found) {
+        Write-Fail ("{0,-22} {1} line {2} says [{3}] is built, and names no build output" -f 'asset source', $doc, $line, $name)
+        $script:assetBad = $true
+      }
+    }
+  }
+  if ($script:assetChecked -eq 0) {
+    Write-Fail ("{0,-22} no document says where the files of the site come from" -f 'asset source')
+    $script:assetBad = $true
+  }
+}
+
+if (-not $script:assetBad) { Write-Ok 'asset source' ("{0} rows" -f $script:assetChecked) }
+
 # --- the technologies the model gives its containers ---------------------------
 #
 # The model says what each of its containers is built from: a native binary on
