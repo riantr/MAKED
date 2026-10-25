@@ -6337,6 +6337,191 @@ if [ "$DEPLOY_PROTO_BAD" -eq 0 ]; then
   ok "deploy protocols" "$DEPLOY_PROTO_CHECKED boundaries"
 fi
 
+# --- the formats the boundaries carry -----------------------------------------
+#
+# The network table says what crosses each boundary. For the boundary the
+# browser is on it says which formats cross: HTML, JS, CSS and JSON. Nothing
+# read the tree to see whether that was true: the table could have said YAML,
+# and no gate would have said a word.
+#
+# The tree's formats are the kinds of the files the site ships and the content
+# types the backend answers with. A document does not have to name every format
+# the tree serves -- a site may add an asset -- but every format it names has
+# to be one the tree serves.
+#
+# A cell lists formats when what is in its brackets is a list of bare words. The
+# other rows of the table are not format lists: the database row names the
+# operations of a prepared statement and the filesystem row names files. The
+# corpus row is skipped as well, because what crosses it is the feed's own
+# format and not the tree's.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+DEPLOY_FORMAT_BAD=0
+DEPLOY_FORMAT_CHECKED=0
+DEPLOY_FORMAT_FORMATS=""
+DEPLOY_FORMAT_LIST=""
+DEPLOY_FORMAT_ROWS=""
+
+# The content types the backend answers with.
+code_content_types() {
+  local file kind
+  for file in backend/*.mbt; do
+    [ -f "$file" ] || continue
+    case "$file" in *_test.mbt) continue ;; esac
+    for kind in $(grep -ohE '"(application|text)/[a-z]+' "$file" 2>/dev/null \
+        | tr -d '"' | sed -E 's|.*/||' || true); do
+      printf '%s\n' "$kind"
+    done
+  done | LC_ALL=C sort -u
+}
+
+# The formats the tree serves.
+#
+# The set is built here and not with sorted_set: that helper is defined later
+# in this file, and a gate that calls a helper above its definition fails on
+# the shell that reads the script top to bottom.
+tree_served_formats() {
+  local out="" kind
+  for kind in $BUNDLE_KINDS $(code_content_types); do
+    out="$out $kind"
+  done
+  printf '%s\n' $out | LC_ALL=C sort -u | tr '\n' ' ' | sed -e 's/ *$//'
+}
+
+# The word the tree calls its corpus by: the corpus sources are the tree's own
+# reading of a feed.
+code_corpus_word() {
+  local file base
+  for file in backend/corpus_sources.mbt backend/corpus.mbt; do
+    [ -f "$file" ] || continue
+    base="${file##*/}"
+    base="${base%%.*}"
+    base="${base%%_*}"
+    printf '%s\n' "$base"
+    return
+  done
+}
+
+# The formats a crossing cell lists.
+#
+# The list is the text in the brackets, cut on the commas. It is a list of
+# formats when every piece of it is a bare word: a piece with a space or a dot
+# in it is a sentence or a file name, and not a format.
+deploy_crossing_formats() {
+  local cell="$1" body token
+  DEPLOY_FORMAT_LIST=""
+  case "$cell" in
+    *'('*')'*) ;;
+    *) return ;;
+  esac
+  body="${cell#*\(}"
+  body="${body%%\)*}"
+  local -a parts=()
+  IFS=',' read -ra parts <<< "$body"
+  for token in "${parts[@]}"; do
+    trim "$token"; token="$TRIMMED"
+    if [ -z "$token" ]; then DEPLOY_FORMAT_LIST=""; return; fi
+    case "$token" in
+      *[!A-Za-z0-9+-]*) DEPLOY_FORMAT_LIST=""; return ;;
+    esac
+    case " $DEPLOY_FORMAT_LIST " in
+      *" $token "*) ;;
+      *) DEPLOY_FORMAT_LIST="$DEPLOY_FORMAT_LIST $token" ;;
+    esac
+  done
+  trim "$DEPLOY_FORMAT_LIST"; DEPLOY_FORMAT_LIST="$TRIMMED"
+}
+
+# The rows of the network table.
+DEPLOY_FORMAT_ROWS=""
+deploy_format_rows() {
+  local file="$1" line in_table=0 n=0
+  DEPLOY_FORMAT_ROWS=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    case "$line" in
+      '|---'*) continue ;;
+      '| '*) ;;
+      *) in_table=0; continue ;;
+    esac
+    row_cells "$line"
+    if [ "$in_table" -eq 0 ]; then
+      if [ "$ROW_C1" = "Boundary" ] && [ "$ROW_C2" = "What crosses it" ]; then
+        in_table=1
+      fi
+      continue
+    fi
+    case "$ROW_C1" in
+      ''|'---'*) continue ;;
+    esac
+    DEPLOY_FORMAT_ROWS="$DEPLOY_FORMAT_ROWS$n"$'\t'"$ROW_C1"$'\t'"$ROW_C2"$'\n'
+  done < "$file"
+}
+
+# One row, checked against the formats the tree serves.
+deploy_format_row_check() {
+  local doc="$1" line="$2" subject="$3" crossing="$4" corpus word
+  # what crosses the corpus boundary is the feed's own format
+  corpus="$(code_corpus_word)"
+  if [ -n "$corpus" ]; then
+    case "${subject,,}" in
+      *"$corpus"*) return ;;
+    esac
+  fi
+  deploy_crossing_formats "$crossing"
+  [ -n "$DEPLOY_FORMAT_LIST" ] || return
+  DEPLOY_FORMAT_CHECKED=$((DEPLOY_FORMAT_CHECKED + 1))
+  for word in $DEPLOY_FORMAT_LIST; do
+    case " $DEPLOY_FORMAT_FORMATS " in
+      *" ${word,,} "*) ;;
+      *)
+        fail "$(printf '%-22s %s line %s states [%s], and the tree serves no such format' \
+          'deploy format' "$doc" "$line" "$word")"
+        DEPLOY_FORMAT_BAD=1
+        ;;
+    esac
+  done
+}
+
+DEPLOY_FORMAT_FORMATS=$(tree_served_formats)
+DEPLOY_SQL_WORDS=$(code_deploy_sql_mechanisms | tr '\n' ' ')
+trim "$DEPLOY_SQL_WORDS"; DEPLOY_SQL_WORDS="$TRIMMED"
+DEPLOY_FILE_WORDS=$(code_deploy_file_mechanisms | tr '\n' ' ')
+trim "$DEPLOY_FILE_WORDS"; DEPLOY_FILE_WORDS="$TRIMMED"
+
+deploy_format_rows "$DEPLOY_MD"
+while IFS=$'\t' read -r line subject crossing; do
+  [ -n "$subject" ] || continue
+  # only the boundaries the tree reaches over the network carry the tree's
+  # formats; the database and the filesystem are reached in process
+  kind='net'
+  low="${subject,,}"
+  for word in $DEPLOY_SQL_WORDS; do
+    [ -n "$word" ] || continue
+    if [[ "$low" == *"${word}"* ]]; then kind='sql'; break; fi
+  done
+  if [ "$kind" = 'net' ]; then
+    for word in $DEPLOY_FILE_WORDS; do
+      [ -n "$word" ] || continue
+      if [[ "$low" == *"${word}"* ]]; then kind='file'; break; fi
+    done
+  fi
+  [ "$kind" = 'net' ] || continue
+  deploy_format_row_check "$DEPLOY_MD" "$line" "$subject" "$crossing"
+done <<< "$DEPLOY_FORMAT_ROWS"
+
+if [ "$DEPLOY_FORMAT_CHECKED" -eq 0 ]; then
+  fail "$(printf '%-22s no document says which formats the boundaries carry' \
+    'deploy format')"
+  DEPLOY_FORMAT_BAD=1
+fi
+
+if [ "$DEPLOY_FORMAT_BAD" -eq 0 ]; then
+  ok "deploy format" "$DEPLOY_FORMAT_CHECKED crossings"
+fi
+
 # --- the port the deployment document states ------------------------------------
 #
 # The deployment document says what port the server listens on, and it says it

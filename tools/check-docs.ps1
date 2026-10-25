@@ -5783,6 +5783,134 @@ if (-not $script:deployProtoBad) {
   Write-Ok 'deploy protocols' ("{0} boundaries" -f $script:deployProtoChecked)
 }
 
+# --- the formats the boundaries carry -----------------------------------------
+#
+# The network table says what crosses each boundary. For the boundary the
+# browser is on it says which formats cross: HTML, JS, CSS and JSON. Nothing
+# read the tree to see whether that was true: the table could have said YAML,
+# and no gate would have said a word.
+#
+# The tree's formats are the kinds of the files the site ships and the content
+# types the backend answers with. A document does not have to name every format
+# the tree serves -- a site may add an asset -- but every format it names has
+# to be one the tree serves.
+#
+# A cell lists formats when what is in its brackets is a list of bare words. The
+# other rows of the table are not format lists: the database row names the
+# operations of a prepared statement and the filesystem row names files. The
+# corpus row is skipped as well, because what crosses it is the feed's own
+# format and not the tree's.
+#
+# The bash twin says the same thing. The two are twins: they print the same
+# lines and they go red together.
+
+$script:deployFormatBad = $false
+$script:deployFormatChecked = 0
+$script:deployFormatFormats = @()
+
+# The content types the backend answers with.
+function Get-CodeContentTypes {
+  $out = @()
+  foreach ($file in @(Get-ChildItem -Path 'backend' -Filter '*.mbt' -File)) {
+    if ($file.Name -like '*_test.mbt') { continue }
+    $text = [System.IO.File]::ReadAllText($file.FullName, $enc)
+    foreach ($m in [regex]::Matches($text, '"(application|text)/([a-z]+)')) {
+      $kind = $m.Groups[2].Value
+      if ($out -cnotcontains $kind) { $out += $kind }
+    }
+  }
+  Sort-Set $out
+}
+
+# The formats the tree serves.
+function Get-TreeServedFormats {
+  $out = @($script:bundleKinds)
+  foreach ($kind in @(Get-CodeContentTypes)) {
+    if ($out -cnotcontains $kind) { $out += $kind }
+  }
+  Sort-Set $out
+}
+
+# The word the tree calls its corpus by: the corpus sources are the tree's own
+# reading of a feed.
+function Get-CodeCorpusWord {
+  foreach ($file in @('backend/corpus_sources.mbt', 'backend/corpus.mbt')) {
+    if (-not (Test-Path (Join-Path $PWD $file))) { continue }
+    $base = $file.Split('/')[-1]
+    $base = $base.Split('.')[0]
+    $base = $base.Split('_')[0]
+    return $base
+  }
+  ''
+}
+
+# The formats a crossing cell lists.
+#
+# The list is the text in the brackets, cut on the commas. It is a list of
+# formats when every piece of it is a bare word: a piece with a space or a dot
+# in it is a sentence or a file name, and not a format.
+function Get-CrossingFormats($cell) {
+  $out = @()
+  $m = [regex]::Match($cell, '\(([^()]*)\)')
+  if (-not $m.Success) { return $out }
+  foreach ($piece in ($m.Groups[1].Value -split ',')) {
+    $token = $piece.Trim()
+    if ($token -eq '') { return @() }
+    if ($token -notmatch '^[A-Za-z0-9+-]+$') { return @() }
+    if ($out -cnotcontains $token) { $out += $token }
+  }
+  $out
+}
+
+$script:deployFormatFormats = @(Get-TreeServedFormats)
+$deployFormatCorpus = Get-CodeCorpusWord
+$deployFormatInTable = $false
+for ($i = 0; $i -lt $deployProtoLines.Count; $i++) {
+  $l = $deployProtoLines[$i]
+  if ($l -clike '| Boundary |*') { $deployFormatInTable = $true; continue }
+  if ($l -clike '|---*') { continue }
+  if (-not $deployFormatInTable) { continue }
+  if (-not ($l -clike '| *')) { $deployFormatInTable = $false; continue }
+  $cells = $l.Trim().Split('|')
+  $subject = $cells[1].Trim()
+  $crossing = ''
+  if ($cells.Count -ge 3) { $crossing = $cells[2].Trim() }
+  # only the boundaries the tree reaches over the network carry the tree's
+  # formats; the database and the filesystem are reached in process
+  $kind = 'net'
+  $low = $subject.ToLowerInvariant()
+  foreach ($word in $deploySqlMech) {
+    if ($low.Contains($word)) { $kind = 'sql'; break }
+  }
+  if ($kind -ceq 'net') {
+    foreach ($word in $deployFileMech) {
+      if ($low.Contains($word)) { $kind = 'file'; break }
+    }
+  }
+  if ($kind -cne 'net') { continue }
+  # what crosses the corpus boundary is the feed's own format
+  if ($deployFormatCorpus -ne '' -and $subject.ToLowerInvariant().Contains($deployFormatCorpus)) { continue }
+  $formats = @(Get-CrossingFormats $crossing)
+  if ($formats.Count -eq 0) { continue }
+  $script:deployFormatChecked++
+  foreach ($word in $formats) {
+    if ($script:deployFormatFormats -cnotcontains $word.ToLowerInvariant()) {
+      Write-Fail ("{0,-22} {1} line {2} states [{3}], and the tree serves no such format" -f `
+        'deploy format', $deployMd, ($i + 1), $word)
+      $script:deployFormatBad = $true
+    }
+  }
+}
+
+if ($script:deployFormatChecked -eq 0) {
+  Write-Fail ("{0,-22} no document says which formats the boundaries carry" -f 'deploy format')
+  $script:deployFormatBad = $true
+}
+
+if (-not $script:deployFormatBad) {
+  Write-Ok 'deploy format' ("{0} crossings" -f $script:deployFormatChecked)
+}
+
 # --- the port the deployment document states ------------------------------------
 #
 # The deployment document says what port the server listens on, and it says it
