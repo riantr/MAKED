@@ -4,12 +4,13 @@
 
 | Package | Import block | Source |
 |---------|-------------|--------|
-| backend/ | sqlite3, yaml, async/fs, async/http, core/debug, core/env, core/json, core/math, core/string, moonback, moonback/unstable_static, pdflite/markdown, moonbit_doubleML, pyroduct/group, pyroduct/society, pyroduct/src | `backend/moon.pkg:8-25` |
+| backend/ | sqlite3, yaml, async/fs, async/http, core/debug, core/env, core/json, core/math, core/string, moonback, moonback/unstable_static (@static), pdflite/markdown (@pdflite_md), moonbit_doubleML (@dml), pyroduct/group, pyroduct/society, pyroduct/src (@sm) | `backend/moon.pkg:8-25` |
 | backend/ (test only) | async | `backend/moon.pkg:29-31` |
 | frontend/ | rabbita, rabbita/cmd, rabbita/html, rabbita/http, rabbita/nav, rabbita/sub, rabbita/svg, rabbita/url, core/json, core/math, core/string | `frontend/moon.pkg:16-26` |
 | frontend/ (test only) | core/debug | `frontend/moon.pkg:30-32` |
 | cmd/server/ | backend (@maked), async, async/fs, core/env, core/string, moonback | `cmd/server/moon.pkg:2-9` |
-| cmd/web/ | frontend (@frontend), rabbita | `cmd/web/moon.pkg:2-5` |
+| cmd/web/ | frontend, rabbita | `cmd/web/moon.pkg:2-5` |
+| cmd/mcp/ | backend (@maked), mcp, mcp/tool, mcp/types (@mcp_types), mcp/runtime, async, async/io, async/stdio, core/debug, core/env, core/json, core/string | `cmd/mcp/moon.pkg:16-29` |
 
 ## Dependency versions (from moon.mod)
 

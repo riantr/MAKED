@@ -8547,6 +8547,264 @@ if [ "$GRAPH_NODE_BAD" -eq 0 ]; then
   ok "graph node" "$GRAPH_NODE_CHECKED edges"
 fi
 
+# --- the import blocks the dependency evidence states --------------------------
+#
+# The dependency evidence states, for every package of the tree, the import
+# block that package declares. Two claims are in each row: the package is one
+# the tree has, and the list beside it is the package's own imports.
+#
+# Nothing read the table to see whether that was true. The measurement that
+# found the gap: the table left cmd/mcp out altogether, and the row it had for
+# cmd/server named one import fewer than that package imports -- and the
+# whole gate suite still said that every claim in the documents matches the
+# tree.
+#
+# The names the table uses are the tree's own, written short. A package of
+# this module is named by its own directory; a package from the registry is
+# named by its repository, and by the last segment when the import goes
+# deeper than the repository: moonbitlang/async/fs is "async/fs", and
+# moonbitlang/moonback/middlewares/unstable_static is
+# "moonback/unstable_static". The alias an import is bound under is written
+# in brackets, the way the table already writes it.
+
+IMPORT_BLOCK_BAD=0
+IMPORT_BLOCK_CHECKED=0
+
+# The name of this module, out of moon.mod.
+MODULE_NAME=$(sed -nE 's/^name[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' moon.mod 2>/dev/null | head -1)
+
+# The import blocks of a manifest: the kind of the block, a tab, the path, a
+# tab, the alias. A block is the main one, unless the manifest marks it
+# `for "test"`.
+manifest_import_blocks() {
+  awk '
+    { lines[NR] = $0 }
+    END {
+      inside = 0
+      for (i = 1; i <= NR; i++) {
+        line = lines[i]
+        if (!inside) {
+          if (line ~ /^[[:space:]]*import[[:space:]]*\{/) { inside = 1; block = "" }
+          continue
+        }
+        if (line ~ /\}/) {
+          kind = "main"
+          if (line ~ /for[[:space:]]+"test"/) kind = "test"
+          else if (i < NR && lines[i+1] ~ /for[[:space:]]*"test"/) kind = "test"
+          rest = block
+          while (match(rest, /"[^"]+"([ \t]*@[A-Za-z_][A-Za-z0-9_]*)?/)) {
+            item = substr(rest, RSTART, RLENGTH)
+            rest = substr(rest, RSTART + RLENGTH)
+            path = item
+            alias = ""
+            if (match(item, /[ \t]+@[A-Za-z_][A-Za-z0-9_]*$/)) {
+              alias = substr(item, RSTART, RLENGTH)
+              sub(/^[ \t]+/, "", alias)
+              path = substr(item, 1, RSTART - 1)
+            }
+            gsub(/^"|"$/, "", path)
+            gsub(/@[0-9][0-9.]*$/, "", path)
+            print kind "\t" path "\t" alias
+          }
+          inside = 0
+          block = ""
+          continue
+        }
+        block = block " " line
+      }
+    }
+  ' "$1"
+}
+
+# The name the table gives an import path.
+short_import() {
+  local path="$1" rest last
+  case "$path" in
+    "$MODULE_NAME"/*) printf '%s' "${path#"$MODULE_NAME"/}"; return ;;
+  esac
+  rest="${path#*/}"
+  if [ "$rest" = "$path" ]; then printf '%s' "$path"; return; fi
+  last="${rest##*/}"
+  case "$rest" in
+    */*) printf '%s/%s' "${rest%%/*}" "$last" ;;
+    *) printf '%s' "$rest" ;;
+  esac
+}
+
+# The names of the imports a manifest declares in the blocks of one kind,
+# written the way the table writes them.
+manifest_names() {
+  local file="$1" kind="$2" out="" k path alias name
+  while IFS=$'\t' read -r k path alias; do
+    [ "$k" = "$kind" ] || continue
+    [ -n "$path" ] || continue
+    name="$(short_import "$path")"
+    if [ -n "$alias" ]; then
+      out="$out $name($alias)"
+    else
+      out="$out $name"
+    fi
+  done < <(manifest_import_blocks "$file")
+  unique_names "$out"
+}
+
+# A list of names without duplicates, in the order they are first named.
+unique_names() {
+  local out="" item
+  local -a items=()
+  read -ra items <<< "$1"
+  for item in "${items[@]}"; do
+    [ -n "$item" ] || continue
+    case " $out " in
+      *" $item "*) continue ;;
+    esac
+    out="$out $item"
+  done
+  out="${out# }"
+  printf '%s' "$out"
+}
+
+# Do two lists of names name the same set?
+sets_equal() {
+  local a="$1" b="$2" x
+  local -a ai=() bi=()
+  read -ra ai <<< "$a"
+  read -ra bi <<< "$b"
+  [ "${#ai[@]}" -eq "${#bi[@]}" ] || return 1
+  for x in "${ai[@]}"; do
+    case " $b " in
+      *" $x "*) ;;
+      *) return 1 ;;
+    esac
+  done
+  for x in "${bi[@]}"; do
+    case " $a " in
+      *" $x "*) ;;
+      *) return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# A list of names as a sentence lists them.
+join_names() {
+  local out="" item
+  local -a items=()
+  read -ra items <<< "$1"
+  for item in "${items[@]}"; do
+    [ -n "$item" ] || continue
+    if [ -z "$out" ]; then out="$item"; else out="$out, $item"; fi
+  done
+  printf '%s' "$out"
+}
+
+# The rows of the table the dependency evidence states: the package, a tab,
+# and the import block beside it.
+deps_table_rows() {
+  awk '
+    /^## Package dependencies/ { inside = 1; next }
+    inside && /^## / { inside = 0 }
+    inside && /^\|/ {
+      n = split($0, c, "|")
+      if (n < 4) next
+      pkg = c[2]; imp = c[3]
+      gsub(/^[ \t]+|[ \t]+$/, "", pkg)
+      gsub(/^[ \t]+|[ \t]+$/, "", imp)
+      if (pkg == "Package" || pkg ~ /^-/) next
+      print pkg "\t" imp
+    }
+  ' "$DEPS"
+}
+
+# The names a cell of the table lists, written the way the table writes them.
+CELL_ALIAS_RE='^(.*)[[:space:]]*\(@([^)]*)\)$'
+cell_names() {
+  local out="" item name alias
+  local -a items=()
+  IFS=',' read -ra items <<< "$1"
+  for item in "${items[@]}"; do
+    item="${item#"${item%%[![:space:]]*}"}"
+    item="${item%"${item##*[![:space:]]}"}"
+    [ -n "$item" ] || continue
+    name="$item"
+    alias=""
+    if [[ "$item" =~ $CELL_ALIAS_RE ]]; then
+      name="${BASH_REMATCH[1]}"
+      # the greedy match leaves the space in front of the bracket behind
+      name="${name%"${name##*[![:space:]]}"}"
+      alias="@${BASH_REMATCH[2]}"
+    fi
+    if [ -n "$alias" ]; then
+      out="$out $name($alias)"
+    else
+      out="$out $name"
+    fi
+  done
+  unique_names "$out"
+}
+
+DEP_ROWS="$(deps_table_rows)"
+TREE_PKGS="$(tree_packages | tr '\n' ' ')"
+
+for pkg in $TREE_PKGS; do
+  main_names="$(manifest_names "${pkg}moon.pkg" main)"
+  test_names="$(manifest_names "${pkg}moon.pkg" test)"
+  doc_main=""
+  doc_test=""
+  while IFS=$'\t' read -r row_pkg row_cell; do
+    [ -n "$row_pkg" ] || continue
+    if [ "$row_pkg" = "$pkg" ]; then doc_main="$row_cell"; fi
+    if [ "$row_pkg" = "$pkg (test only)" ]; then doc_test="$row_cell"; fi
+  done <<< "$DEP_ROWS"
+
+  IMPORT_BLOCK_CHECKED=$((IMPORT_BLOCK_CHECKED + 1))
+  if [ -z "$doc_main" ]; then
+    fail "$(printf '%-22s %s has no row for the package %s' 'import block' "$DEPS" "$pkg")"
+    IMPORT_BLOCK_BAD=1
+  else
+    doc_names="$(cell_names "$doc_main")"
+    if ! sets_equal "$main_names" "$doc_names"; then
+      fail "$(printf '%-22s %s says %s imports [%s], and the tree imports [%s]' \
+        'import block' "$DEPS" "$pkg" "$(join_names "$doc_names")" "$(join_names "$main_names")")"
+      IMPORT_BLOCK_BAD=1
+    fi
+  fi
+
+  if [ -n "$test_names" ] || [ -n "$doc_test" ]; then
+    IMPORT_BLOCK_CHECKED=$((IMPORT_BLOCK_CHECKED + 1))
+    if [ -z "$doc_test" ]; then
+      fail "$(printf '%-22s %s has no row for the test-only imports of %s' 'import block' "$DEPS" "$pkg")"
+      IMPORT_BLOCK_BAD=1
+    else
+      doc_names="$(cell_names "$doc_test")"
+      if ! sets_equal "$test_names" "$doc_names"; then
+        fail "$(printf '%-22s %s says the test-only imports of %s are [%s], and the tree says [%s]' \
+          'import block' "$DEPS" "$pkg" "$(join_names "$doc_names")" "$(join_names "$test_names")")"
+        IMPORT_BLOCK_BAD=1
+      fi
+    fi
+  fi
+done
+
+# A row for a package the tree does not have is a claim about a package that
+# is not there.
+while IFS=$'\t' read -r row_pkg row_cell; do
+  [ -n "$row_pkg" ] || continue
+  base="${row_pkg%% (test only)*}"
+  case " $TREE_PKGS " in
+    *" $base "*) ;;
+    *)
+      fail "$(printf '%-22s %s has a row for %s, and the tree has no such package' \
+        'import block' "$DEPS" "$row_pkg")"
+      IMPORT_BLOCK_BAD=1
+      ;;
+  esac
+done <<< "$DEP_ROWS"
+
+if [ "$IMPORT_BLOCK_BAD" -eq 0 ]; then
+  ok "import block" "$IMPORT_BLOCK_CHECKED rows"
+fi
+
 # --- the gaps the documents say are gaps ---------------------------------------
 #
 # The summary has a section that says what the product does not have, and the

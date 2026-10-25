@@ -7540,6 +7540,220 @@ if (-not $script:graphNodeBad) {
   Write-Ok 'graph node' ("{0} edges" -f $script:graphNodeChecked)
 }
 
+# --- the import blocks the dependency evidence states --------------------------
+#
+# The dependency evidence states, for every package of the tree, the import
+# block that package declares. Two claims are in each row: the package is one
+# the tree has, and the list beside it is the package's own imports.
+#
+# Nothing read the table to see whether that was true. The measurement that
+# found the gap: the table left cmd/mcp out altogether, and the row it had for
+# cmd/server named one import fewer than that package imports -- and the
+# whole gate suite still said that every claim in the documents matches the
+# tree.
+#
+# The names the table uses are the tree's own, written short. A package of
+# this module is named by its own directory; a package from the registry is
+# named by its repository, and by the last segment when the import goes
+# deeper than the repository: moonbitlang/async/fs is "async/fs", and
+# moonbitlang/moonback/middlewares/unstable_static is
+# "moonback/unstable_static". The alias an import is bound under is written
+# in brackets, the way the table already writes it.
+
+$script:importBlockBad = $false
+$script:importBlockChecked = 0
+
+# The name of this module, out of moon.mod.
+$script:moduleName = ''
+foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $PWD 'moon.mod'), $enc)) {
+  if ($line -cmatch '^name[ \t]*=[ \t]*"([^"]+)"') { $script:moduleName = $Matches[1]; break }
+}
+
+# The import blocks of a manifest: the kind of the block, the path, the alias.
+# A block is the main one, unless the manifest marks it `for "test"`.
+function Get-ManifestBlocks {
+  param([string]$File)
+  $out = @()
+  $path = Join-Path $PWD $File
+  if (-not (Test-Path $path)) { return $out }
+  $lines = [System.IO.File]::ReadAllLines($path, $enc)
+  $inside = $false
+  $block = @()
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    $line = $lines[$i]
+    if (-not $inside) {
+      if ($line -cmatch '^[ \t]*import[ \t]*\{') { $inside = $true; $block = @() }
+      continue
+    }
+    if ($line -cmatch '\}') {
+      $kind = 'main'
+      if ($line -cmatch 'for[ \t]+"test"') { $kind = 'test' }
+      elseif ($i + 1 -lt $lines.Count -and $lines[$i + 1] -cmatch 'for[ \t]*"test"') { $kind = 'test' }
+      $text = ($block -join ' ')
+      foreach ($m in [regex]::Matches($text, '"([^"]+)"([ \t]*@[A-Za-z_][A-Za-z0-9_]*)?')) {
+        $p = $m.Groups[1].Value -replace '@[0-9][0-9.]*$', ''
+        $a = ''
+        if ($m.Groups[2].Success) { $a = $m.Groups[2].Value.Trim() }
+        $out += ,@($kind, $p, $a)
+      }
+      $inside = $false
+      $block = @()
+      continue
+    }
+    $block += $line
+  }
+  $out
+}
+
+# The name the table gives an import path.
+function Get-ShortImport {
+  param([string]$Path)
+  if ($script:moduleName -and $Path.StartsWith($script:moduleName + '/')) {
+    return $Path.Substring($script:moduleName.Length + 1)
+  }
+  $parts = $Path.Split('/')
+  if ($parts.Count -lt 2) { return $Path }
+  if ($parts.Count -eq 2) { return $parts[1] }
+  return ($parts[1] + '/' + $parts[$parts.Count - 1])
+}
+
+# A list of names without duplicates, in the order they are first named.
+function Get-UniqueNames {
+  param([string[]]$Names)
+  $out = @()
+  foreach ($n in $Names) {
+    if (-not $n) { continue }
+    if ($out -ccontains $n) { continue }
+    $out += $n
+  }
+  $out
+}
+
+# The names of the imports a manifest declares in the blocks of one kind,
+# written the way the table writes them.
+function Get-ManifestNames {
+  param([string]$File, [string]$Kind)
+  $out = @()
+  foreach ($b in (Get-ManifestBlocks $File)) {
+    if ($b[0] -cne $Kind) { continue }
+    $name = Get-ShortImport $b[1]
+    if ($b[2]) { $out += ($name + '(' + $b[2] + ')') } else { $out += $name }
+  }
+  Get-UniqueNames $out
+}
+
+# Do two lists of names name the same set?
+function Test-SetsEqual {
+  param([string[]]$A, [string[]]$B)
+  if ($A.Count -ne $B.Count) { return $false }
+  foreach ($x in $A) { if ($B -cnotcontains $x) { return $false } }
+  foreach ($x in $B) { if ($A -cnotcontains $x) { return $false } }
+  $true
+}
+
+# The rows of the table the dependency evidence states: the package and the
+# import block beside it.
+function Get-DepsTableRows {
+  $out = @()
+  $path = Join-Path $PWD $deps
+  if (-not (Test-Path $path)) { return $out }
+  $inside = $false
+  foreach ($line in [System.IO.File]::ReadAllLines($path, $enc)) {
+    if (-not $inside) {
+      if ($line -cmatch '^## Package dependencies') { $inside = $true }
+      continue
+    }
+    if ($line -cmatch '^## ') { $inside = $false; continue }
+    if (-not $line.StartsWith('|')) { continue }
+    $cells = $line.Split('|')
+    if ($cells.Count -lt 4) { continue }
+    $pkg = $cells[1].Trim()
+    $imp = $cells[2].Trim()
+    if ($pkg -ceq 'Package' -or $pkg -cmatch '^-') { continue }
+    $out += ,@($pkg, $imp)
+  }
+  $out
+}
+
+# The names a cell of the table lists, written the way the table writes them.
+function Get-CellNames {
+  param([string]$Cell)
+  $out = @()
+  foreach ($item in $Cell.Split(',')) {
+    $t = $item.Trim()
+    if (-not $t) { continue }
+    $name = $t
+    $alias = ''
+    if ($t -cmatch '^(.*)[ \t]*\(@([^)]*)\)$') {
+      $name = $Matches[1].Trim()
+      $alias = '@' + $Matches[2]
+    }
+    if ($alias) { $out += ($name + '(' + $alias + ')') } else { $out += $name }
+  }
+  Get-UniqueNames $out
+}
+
+$depRows = @(Get-DepsTableRows)
+$treePkgs = @(Get-TreePackageDirs | Sort-Object)
+
+foreach ($pkg in $treePkgs) {
+  $mainNames = @(Get-ManifestNames ($pkg + 'moon.pkg') 'main')
+  $testNames = @(Get-ManifestNames ($pkg + 'moon.pkg') 'test')
+  $docMain = ''
+  $docTest = ''
+  foreach ($row in $depRows) {
+    if ($row[0] -ceq $pkg) { $docMain = $row[1] }
+    if ($row[0] -ceq ($pkg + ' (test only)')) { $docTest = $row[1] }
+  }
+
+  $script:importBlockChecked++
+  if (-not $docMain) {
+    Write-Fail ("{0,-22} {1} has no row for the package {2}" -f 'import block', $deps, $pkg)
+    $script:importBlockBad = $true
+  } else {
+    $docNames = @(Get-CellNames $docMain)
+    if (-not (Test-SetsEqual $mainNames $docNames)) {
+      Write-Fail ("{0,-22} {1} says {2} imports [{3}], and the tree imports [{4}]" -f `
+        'import block', $deps, $pkg, ($docNames -join ', '), ($mainNames -join ', '))
+      $script:importBlockBad = $true
+    }
+  }
+
+  if ($testNames.Count -gt 0 -or $docTest) {
+    $script:importBlockChecked++
+    if (-not $docTest) {
+      Write-Fail ("{0,-22} {1} has no row for the test-only imports of {2}" -f 'import block', $deps, $pkg)
+      $script:importBlockBad = $true
+    } else {
+      $docNames = @(Get-CellNames $docTest)
+      if (-not (Test-SetsEqual $testNames $docNames)) {
+        Write-Fail ("{0,-22} {1} says the test-only imports of {2} are [{3}], and the tree says [{4}]" -f `
+          'import block', $deps, $pkg, ($docNames -join ', '), ($testNames -join ', '))
+        $script:importBlockBad = $true
+      }
+    }
+  }
+}
+
+# A row for a package the tree does not have is a claim about a package that
+# is not there.
+foreach ($row in $depRows) {
+  $rowPkg = $row[0]
+  if (-not $rowPkg) { continue }
+  $base = $rowPkg
+  $at = $base.IndexOf(' (test only)')
+  if ($at -ge 0) { $base = $base.Substring(0, $at) }
+  if ($treePkgs -cnotcontains $base) {
+    Write-Fail ("{0,-22} {1} has a row for {2}, and the tree has no such package" -f `
+      'import block', $deps, $rowPkg)
+    $script:importBlockBad = $true
+  }
+}
+
+if (-not $script:importBlockBad) {
+  Write-Ok 'import block' ("{0} rows" -f $script:importBlockChecked)
+}
+
 # --- the gaps the documents say are gaps ---------------------------------------
 #
 # The summary has a section that says what the product does not have, and the
