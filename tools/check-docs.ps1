@@ -7376,6 +7376,23 @@ function Get-DotNodes {
   $out
 }
 
+# The ids of the nodes the graph defines.
+function Get-DotNodeIds {
+  param([string]$File)
+  $out = @()
+  $path = Join-Path $PWD $File
+  if (-not (Test-Path $path)) { return $out }
+  foreach ($line in [System.IO.File]::ReadAllLines($path, $enc)) {
+    if ($line -cmatch '^[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*\[') {
+      $id = $Matches[1]
+      if ($id -ceq 'node' -or $id -ceq 'edge' -or $id -ceq 'graph' -or
+          $id -ceq 'digraph' -or $id -ceq 'subgraph') { continue }
+      $out += $id
+    }
+  }
+  $out
+}
+
 # The nodes the graph draws in its external subgraph.
 function Get-DotExternal {
   param([string]$File)
@@ -7489,6 +7506,38 @@ foreach ($file in @($dependenciesDot, $systemModelDot)) {
 
 if (-not $script:graphEdgeBad) {
   Write-Ok 'graph edge' ("{0} edges" -f $script:graphEdgeChecked)
+}
+
+# --- the nodes the graphs draw -----------------------------------------------
+#
+# Every edge in a graph names two nodes. A graph that draws an edge to a node
+# it never defines draws a node nobody asked for: the picture shows a name
+# with no label, outside every cluster, and the reader cannot tell what it is
+# supposed to be.
+
+$script:graphNodeBad = $false
+$script:graphNodeChecked = 0
+
+foreach ($file in @($dependenciesDot, $systemModelDot)) {
+  if (-not (Test-Path (Join-Path $PWD $file))) { continue }
+  $defined = @(Get-DotNodeIds $file)
+  foreach ($edge in (Get-DotEdges $file)) {
+    $tail = $edge[0]
+    $head = $edge[1]
+    if (-not $tail -or -not $head) { continue }
+    $script:graphNodeChecked++
+    $missing = ''
+    if ($defined -cnotcontains $tail) { $missing = $tail }
+    if (-not $missing -and $defined -cnotcontains $head) { $missing = $head }
+    if (-not $missing) { continue }
+    Write-Fail ("{0,-22} {1} draws an edge from {2} to {3}, and the graph does not define {4}" -f `
+      'graph node', $file, $tail, $head, $missing)
+    $script:graphNodeBad = $true
+  }
+}
+
+if (-not $script:graphNodeBad) {
+  Write-Ok 'graph node' ("{0} edges" -f $script:graphNodeChecked)
 }
 
 # --- the gaps the documents say are gaps ---------------------------------------

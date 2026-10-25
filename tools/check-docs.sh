@@ -8396,6 +8396,21 @@ dot_nodes() {
   ' "$1"
 }
 
+# The ids of the nodes the graph defines.
+dot_node_ids() {
+  awk '
+    {
+      if ($0 ~ /^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\[/) {
+        id = $0
+        sub(/^[[:space:]]*/, "", id)
+        sub(/[[:space:]]*\[.*$/, "", id)
+        if (id == "node" || id == "edge" || id == "graph" || id == "digraph" || id == "subgraph") next
+        print id
+      }
+    }
+  ' "$1"
+}
+
 # The nodes the graph draws in its external subgraph.
 dot_external() {
   sed -n '/subgraph cluster_external {/,/^[[:space:]]*}/p' "$1" \
@@ -8491,6 +8506,45 @@ done
 
 if [ "$GRAPH_EDGE_BAD" -eq 0 ]; then
   ok "graph edge" "$GRAPH_EDGE_CHECKED edges"
+fi
+
+# --- the nodes the graphs draw -----------------------------------------------
+#
+# Every edge in a graph names two nodes. A graph that draws an edge to a node
+# it never defines draws a node nobody asked for: the picture shows a name
+# with no label, outside every cluster, and the reader cannot tell what it is
+# supposed to be.
+
+GRAPH_NODE_BAD=0
+GRAPH_NODE_CHECKED=0
+
+for file in $GRAPH_EDGE_GRAPHS; do
+  [ -f "$file" ] || continue
+  defined="$(dot_node_ids "$file" | tr '\n' ' ')"
+  while IFS=$'\t' read -r tail head; do
+    [ -n "$tail" ] || continue
+    [ -n "$head" ] || continue
+    GRAPH_NODE_CHECKED=$((GRAPH_NODE_CHECKED + 1))
+    missing=""
+    case " $defined " in
+      *" $tail "*) ;;
+      *) missing="$tail" ;;
+    esac
+    if [ -z "$missing" ]; then
+      case " $defined " in
+        *" $head "*) ;;
+        *) missing="$head" ;;
+      esac
+    fi
+    [ -n "$missing" ] || continue
+    fail "$(printf '%-22s %s draws an edge from %s to %s, and the graph does not define %s' \
+      'graph node' "$file" "$tail" "$head" "$missing")"
+    GRAPH_NODE_BAD=1
+  done <<< "$(dot_edges "$file")"
+done
+
+if [ "$GRAPH_NODE_BAD" -eq 0 ]; then
+  ok "graph node" "$GRAPH_NODE_CHECKED edges"
 fi
 
 # --- the gaps the documents say are gaps ---------------------------------------

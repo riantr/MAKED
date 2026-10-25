@@ -12,6 +12,10 @@
 // project started with, and still said four API endpoints when the server
 // registers thirty-seven.
 //
+// Every edge names two nodes this graph defines, and the gate says so out
+// loud too: an edge to a node that is not here draws a name with nothing
+// behind it, and the reader cannot tell what it is supposed to be.
+//
 // Render with: dot -Tsvg system-model.dot -o system-model.svg
 
 digraph maked_components {
@@ -86,7 +90,6 @@ digraph maked_components {
   assembly -> framework [label="creates App"]
   assembly -> content   [label="opens + seeds"]
   assembly -> api       [label="build_api()"]
-  assembly -> bootstrap [label="reads the files"]
   assembly -> language  [label="asks for"]
   api -> framework      [label="registers\nroutes on"]
   api -> content        [label="reads"]
@@ -126,7 +129,6 @@ digraph maked_components {
   machine -> pyroduct   [label="the model"]
   research -> pyroduct  [label="group, society"]
   research -> doubleml  [label="the regression"]
-  research -> corpus    [label="the corpus"]
   f_app -> rabbita      [label="create_state\nwith_init"]
   f_views -> rabbita    [label="html, nav, svg"]
   f_page -> rabbita     [label="json"]
