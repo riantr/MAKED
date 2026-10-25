@@ -7271,6 +7271,226 @@ foreach ($row in @(Get-DocUsedByRows)) {
 
 if (-not $script:usedByBad) { Write-Ok 'used by' ("{0} rows" -f $script:usedByChecked) }
 
+# --- the edges the graphs draw ----------------------------------------------
+#
+# Two graphs draw the tree's external dependencies: the dependency graph
+# (architecture/dependencies.dot) and the component graph
+# (architecture/system-model.dot). Each draws an edge into a node that stands
+# for an external MoonBit package, and the edge is a claim: the thing on the
+# tail of the edge depends on the package on the head of it.
+#
+# Nothing read the tree to see whether that was true. The measurement that
+# found the gap: the component graph drew an edge from the assembly to
+# moonbitlang/x, and the whole gate suite still said that every claim in the
+# documents matches the tree. The module pins moonbitlang/x; no package
+# imports it.
+#
+# The dependency a node names is the first line of its label with the version
+# taken off. The two graphs name it the two ways -- the dependency graph says
+# "moonbitlang/x@0.5.6" and the component graph says "x@0.5.6" -- and the
+# tree knows both.
+#
+# Who owns the claim depends on what the tail of the edge is:
+#
+#   - the manifest node names moon.mod, so the claim is the module's: the
+#     module's own import block.
+#   - a node that names a package ("backend/") owns it for that package: the
+#     package's own import block.
+#   - a node that names modules (backend/maked_app.mbt) is a layer of the
+#     tree rather than a package, so the claim is the tree's: some package
+#     has to import the dependency.
+#
+# The claim holds when the owner imports the dependency itself, or something
+# under it, or -- when the graph names the dependency the short way -- the
+# module it belongs to.
+
+$script:graphEdgeBad = $false
+$script:graphEdgeChecked = 0
+$script:treePkgPaths = @()
+
+# The import paths a manifest declares, the version taken off.
+function Get-ManifestPaths {
+  param([string]$File)
+  $out = @()
+  $path = Join-Path $PWD $File
+  if (-not (Test-Path $path)) { return $out }
+  $text = [System.IO.File]::ReadAllText($path, $enc)
+  $text = [regex]::Replace($text, '(?m)^\s*//.*$', '')
+  foreach ($m in [regex]::Matches($text, '(?s)import\s*\{(.*?)\}')) {
+    foreach ($p in [regex]::Matches($m.Groups[1].Value, '"([^"]+)"')) {
+      $out += ($p.Groups[1].Value -replace '@[0-9][0-9.]*$', '')
+    }
+  }
+  $out
+}
+
+# The package directories the tree has, the way the bash twin has them: with
+# the trailing slash, so that the manifest of one is its directory plus the
+# name of the manifest.
+function Get-TreePackageDirs {
+  $out = @()
+  foreach ($root in @('backend', 'frontend', 'cmd')) {
+    foreach ($f in (Get-ChildItem (Join-Path $PWD $root) -Recurse -Filter 'moon.pkg' -File)) {
+      $rel = $f.FullName.Substring($PWD.Path.Length + 1).Replace('\', '/')
+      $out += ($rel.Substring(0, $rel.Length - '/moon.pkg'.Length) + '/')
+    }
+  }
+  $out
+}
+
+# The label a line carries.
+function Get-DotLabel {
+  param([string]$Line)
+  $text = [regex]::Replace($Line, '^.*label="', '')
+  [regex]::Replace($text, '".*$', '')
+}
+
+# The first line of every node's label, with the node's id.
+function Get-DotNodes {
+  param([string]$File)
+  $out = @()
+  $pending = ''
+  $path = Join-Path $PWD $File
+  if (-not (Test-Path $path)) { return $out }
+  foreach ($line in [System.IO.File]::ReadAllLines($path, $enc)) {
+    if ($pending -ne '') {
+      if ($line -match 'label="') {
+        $out += ,@($pending, (Get-DotLabel $line))
+        $pending = ''
+      } elseif ($line -match '\]') {
+        $pending = ''
+      }
+      continue
+    }
+    if ($line -cmatch '^[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*\[') {
+      $id = $Matches[1]
+      if ($id -ceq 'node' -or $id -ceq 'edge' -or $id -ceq 'graph' -or
+          $id -ceq 'digraph' -or $id -ceq 'subgraph') { continue }
+      if ($line -match 'label="') {
+        $out += ,@($id, (Get-DotLabel $line))
+      } else {
+        $pending = $id
+      }
+    }
+  }
+  $out
+}
+
+# The nodes the graph draws in its external subgraph.
+function Get-DotExternal {
+  param([string]$File)
+  $out = @()
+  $current = ''
+  $path = Join-Path $PWD $File
+  if (-not (Test-Path $path)) { return $out }
+  foreach ($line in [System.IO.File]::ReadAllLines($path, $enc)) {
+    if ($line -cmatch '^[ \t]*subgraph[ \t]+([A-Za-z0-9_]+)[ \t]*\{') {
+      $current = $Matches[1]
+      continue
+    }
+    if ($current -ne '' -and $line -cmatch '^[ \t]*\}') {
+      $current = ''
+      continue
+    }
+    if ($current -ceq 'cluster_external' -and
+        $line -cmatch '^[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*\[.*label="') {
+      $out += $Matches[1]
+    }
+  }
+  $out
+}
+
+# The edges of the graph.
+function Get-DotEdges {
+  param([string]$File)
+  $out = @()
+  $path = Join-Path $PWD $File
+  if (-not (Test-Path $path)) { return $out }
+  foreach ($line in [System.IO.File]::ReadAllLines($path, $enc)) {
+    if ($line -cmatch '^[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*->[ \t]*([A-Za-z_][A-Za-z0-9_]*)') {
+      $out += ,@($Matches[1], $Matches[2])
+    }
+  }
+  $out
+}
+
+# The first line of a label: the graph writes the lines with a backslash-n.
+function Get-LabelHead {
+  param([string]$Label)
+  $i = $Label.IndexOf('\n')
+  if ($i -ge 0) { return $Label.Substring(0, $i) }
+  $Label
+}
+
+# The dependency a node names: the first line, with the version taken off.
+function Get-DepName {
+  param([string]$Head)
+  if ($Head -cmatch '^(.+)@[0-9]+\.[0-9]+\.[0-9]+$') { return $Matches[1] }
+  $Head
+}
+
+# The import paths of the owner of a claim: the module, a package, or the tree.
+function Get-OwnerPaths {
+  param([string]$Head)
+  if ($Head -ceq 'moon.mod') { return (Get-ManifestPaths 'moon.mod') }
+  if ($Head.EndsWith('/')) { return (Get-ManifestPaths ($Head + 'moon.pkg')) }
+  $script:treePkgPaths
+}
+
+# Does the owner import the dependency?
+function Test-OwnerImports {
+  param([string[]]$Paths, [string]$Dep)
+  foreach ($p in $Paths) {
+    if (-not $p) { continue }
+    if ($p -ceq $Dep) { return $true }
+    if ($p.StartsWith($Dep + '/')) { return $true }
+    # the graph names the dependency the short way: the last segment of the
+    # module it belongs to
+    if ($Dep.Contains('/')) { continue }
+    $parts = $p.Split('/')
+    if ($parts.Count -ge 2 -and $parts[1] -ceq $Dep) { return $true }
+  }
+  $false
+}
+
+foreach ($dir in (Get-TreePackageDirs)) {
+  $script:treePkgPaths += (Get-ManifestPaths ($dir + 'moon.pkg'))
+}
+
+foreach ($file in @($dependenciesDot, $systemModelDot)) {
+  if (-not (Test-Path (Join-Path $PWD $file))) { continue }
+  $nodes = Get-DotNodes $file
+  $external = Get-DotExternal $file
+  foreach ($edge in (Get-DotEdges $file)) {
+    $tail = $edge[0]
+    $head = $edge[1]
+    if (-not $tail -or -not $head) { continue }
+    # only an edge into an external node is a claim about a dependency
+    if ($external -cnotcontains $head) { continue }
+    $headLabel = ''
+    foreach ($n in $nodes) {
+      if ($n[0] -ceq $head) { $headLabel = $n[1]; break }
+    }
+    $tailLabel = ''
+    foreach ($n in $nodes) {
+      if ($n[0] -ceq $tail) { $tailLabel = $n[1]; break }
+    }
+    if (-not $headLabel -or -not $tailLabel) { continue }
+    $dep = Get-DepName (Get-LabelHead $headLabel)
+    $owner = Get-LabelHead $tailLabel
+    $paths = Get-OwnerPaths $owner
+    $script:graphEdgeChecked++
+    if (Test-OwnerImports $paths $dep) { continue }
+    Write-Fail ("{0,-22} {1} draws an edge from {2} to {3}, and the tree does not import {4}" -f `
+      'graph edge', $file, $tail, $head, $dep)
+    $script:graphEdgeBad = $true
+  }
+}
+
+if (-not $script:graphEdgeBad) {
+  Write-Ok 'graph edge' ("{0} edges" -f $script:graphEdgeChecked)
+}
+
 # --- the gaps the documents say are gaps ---------------------------------------
 #
 # The summary has a section that says what the product does not have, and the

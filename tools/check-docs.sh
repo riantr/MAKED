@@ -8283,6 +8283,216 @@ if [ "$USED_BY_BAD" -eq 0 ]; then
   ok "used by" "$USED_BY_CHECKED rows"
 fi
 
+# --- the edges the graphs draw -----------------------------------------------
+#
+# Two graphs draw the tree's external dependencies: the dependency graph
+# (architecture/dependencies.dot) and the component graph
+# (architecture/system-model.dot). Each draws an edge into a node that stands
+# for an external MoonBit package, and the edge is a claim: the thing on the
+# tail of the edge depends on the package on the head of it.
+#
+# Nothing read the tree to see whether that was true. The measurement that
+# found the gap: the component graph drew an edge from the assembly to
+# moonbitlang/x, and the whole gate suite still said that every claim in the
+# documents matches the tree. The module pins moonbitlang/x; no package
+# imports it.
+#
+# The dependency a node names is the first line of its label with the version
+# taken off. The two graphs name it the two ways -- the dependency graph says
+# "moonbitlang/x@0.5.6" and the component graph says "x@0.5.6" -- and the
+# tree knows both.
+#
+# Who owns the claim depends on what the tail of the edge is:
+#
+#   - the manifest node names moon.mod, so the claim is the module's: the
+#     module's own import block.
+#   - a node that names a package ("backend/") owns it for that package: the
+#     package's own import block.
+#   - a node that names modules (backend/maked_app.mbt) is a layer of the
+#     tree rather than a package, so the claim is the tree's: some package
+#     has to import the dependency.
+#
+# The claim holds when the owner imports the dependency itself, or something
+# under it, or -- when the graph names the dependency the short way -- the
+# module it belongs to.
+
+GRAPH_EDGE_BAD=0
+GRAPH_EDGE_CHECKED=0
+GRAPH_EDGE_GRAPHS="$DEPENDENCIES_DOT $SYSTEM_MODEL_DOT"
+
+# The graph writes the lines of a label with a backslash and an n.
+DOT_NL='\n'
+
+# The import paths a manifest declares, the version taken off.
+manifest_paths() {
+  local file="$1" line inside=0 block="" path
+  MANIFEST_PATHS=""
+  [ -f "$file" ] || return
+  while IFS= read -r line; do
+    if [ "$inside" -eq 0 ]; then
+      case "$line" in
+        "import {"*) inside=1; block="" ;;
+      esac
+      continue
+    fi
+    case "$line" in
+      *"}"*)
+        inside=0
+        all_matches "$block" '"([^"]+)"'
+        while IFS= read -r path; do
+          [ -n "$path" ] || continue
+          # the version is a number; anything else after an @ is not one
+          if [[ "$path" =~ @[0-9][0-9.]*$ ]]; then
+            path="${path%@*}"
+          fi
+          MANIFEST_PATHS="$MANIFEST_PATHS $path"
+        done <<< "$MATCHES"
+        ;;
+      *) block="$block $line" ;;
+    esac
+  done < "$file"
+  trim "$MANIFEST_PATHS"; MANIFEST_PATHS="$TRIMMED"
+}
+
+# The import paths of every package the tree has.
+tree_pkg_paths() {
+  local pkg
+  TREE_PKG_PATHS=""
+  for pkg in $(tree_packages); do
+    manifest_paths "${pkg}moon.pkg"
+    TREE_PKG_PATHS="$TREE_PKG_PATHS $MANIFEST_PATHS"
+  done
+  trim "$TREE_PKG_PATHS"; TREE_PKG_PATHS="$TRIMMED"
+}
+
+# The first line of every node's label, with the node's id.
+dot_nodes() {
+  awk '
+    {
+      line = $0
+      if (pending != "") {
+        if (line ~ /label="/) {
+          lbl = line; sub(/^.*label="/, "", lbl); sub(/".*$/, "", lbl)
+          print pending "\t" lbl
+          pending = ""
+        } else if (line ~ /\]/) {
+          pending = ""
+        }
+        next
+      }
+      if (line ~ /^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\[/) {
+        id = line
+        sub(/^[[:space:]]*/, "", id)
+        sub(/[[:space:]]*\[.*$/, "", id)
+        if (id == "node" || id == "edge" || id == "graph" || id == "digraph" || id == "subgraph") next
+        if (line ~ /label="/) {
+          lbl = line; sub(/^.*label="/, "", lbl); sub(/".*$/, "", lbl)
+          print id "\t" lbl
+        } else {
+          pending = id
+        }
+      }
+    }
+  ' "$1"
+}
+
+# The nodes the graph draws in its external subgraph.
+dot_external() {
+  sed -n '/subgraph cluster_external {/,/^[[:space:]]*}/p' "$1" \
+    | sed -n 's/^[[:space:]]*\([A-Za-z_][A-Za-z0-9_]*\)[[:space:]]*\[.*label=".*/\1/p'
+}
+
+# The edges of the graph.
+dot_edges() {
+  sed -n 's/^[[:space:]]*\([A-Za-z_][A-Za-z0-9_]*\)[[:space:]]*->[[:space:]]*\([A-Za-z_][A-Za-z0-9_]*\).*/\1\t\2/p' "$1"
+}
+
+# The first line of a label.
+#
+# The graph writes the lines of a label with a backslash and an n. The
+# pattern has to be quoted: unquoted, a backslash in a glob escapes the
+# character after it, so the pattern would match the letter n and not the
+# two characters the graph writes.
+label_head() {
+  printf '%s' "${1%%"$DOT_NL"*}"
+}
+
+# The dependency a node names: the first line, with the version taken off.
+dep_name() {
+  local head="$1"
+  if [[ "$head" =~ ^(.+)@[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+  else
+    printf '%s' "$head"
+  fi
+}
+
+# The import paths of the owner of a claim: the module, a package, or the tree.
+owner_paths() {
+  local head="$1"
+  case "$head" in
+    moon.mod) manifest_paths "moon.mod"; printf '%s' "$MANIFEST_PATHS" ;;
+    */) manifest_paths "${head}moon.pkg"; printf '%s' "$MANIFEST_PATHS" ;;
+    *) printf '%s' "$TREE_PKG_PATHS" ;;
+  esac
+}
+
+# Does the owner import the dependency?
+owner_imports() {
+  local paths="$1" dep="$2" p last
+  for p in $paths; do
+    [ -n "$p" ] || continue
+    if [ "$p" = "$dep" ]; then return 0; fi
+    case "$p" in
+      "$dep"/*) return 0 ;;
+    esac
+    # the graph names the dependency the short way: the last segment of the
+    # module it belongs to
+    case "$dep" in
+      */*) continue ;;
+    esac
+    last="${p#*/}"
+    last="${last%%/*}"
+    if [ "$last" = "$dep" ]; then return 0; fi
+  done
+  return 1
+}
+
+tree_pkg_paths
+
+for file in $GRAPH_EDGE_GRAPHS; do
+  [ -f "$file" ] || continue
+  nodes="$(dot_nodes "$file")"
+  external="$(dot_external "$file" | tr '\n' ' ')"
+  while IFS=$'\t' read -r tail head; do
+    [ -n "$tail" ] || continue
+    [ -n "$head" ] || continue
+    # only an edge into an external node is a claim about a dependency
+    case " $external " in
+      *" $head "*) ;;
+      *) continue ;;
+    esac
+    head_label="$(printf '%s\n' "$nodes" | awk -F'\t' -v n="$head" '$1==n {print $2; exit}')"
+    tail_label="$(printf '%s\n' "$nodes" | awk -F'\t' -v n="$tail" '$1==n {print $2; exit}')"
+    [ -n "$head_label" ] || continue
+    [ -n "$tail_label" ] || continue
+    dep="$(dep_name "$(label_head "$head_label")")"
+    owner="$(label_head "$tail_label")"
+    paths="$(owner_paths "$owner")"
+    GRAPH_EDGE_CHECKED=$((GRAPH_EDGE_CHECKED + 1))
+    if owner_imports "$paths" "$dep"; then
+      continue
+    fi
+    fail "$(printf '%-22s %s draws an edge from %s to %s, and the tree does not import %s' \
+      'graph edge' "$file" "$tail" "$head" "$dep")"
+    GRAPH_EDGE_BAD=1
+  done <<< "$(dot_edges "$file")"
+done
+
+if [ "$GRAPH_EDGE_BAD" -eq 0 ]; then
+  ok "graph edge" "$GRAPH_EDGE_CHECKED edges"
+fi
+
 # --- the gaps the documents say are gaps ---------------------------------------
 #
 # The summary has a section that says what the product does not have, and the
