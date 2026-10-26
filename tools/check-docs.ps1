@@ -1780,6 +1780,14 @@ $jobCount = Get-CodeJobCount
 
 Test-WordCount 'agent guide jobs' 'jobs' $jobCount $agentsDoc
 
+# The deployment evidence says how many jobs the CI workflow runs, and the
+# count is the tree's: the job keys of .github/workflows/ci.yml. The agent
+# guide's own count was watched; the deployment evidence's was not. The
+# measurement that found the gap: the document said "seven jobs" where the
+# workflow has six, and every gate still said that every claim in the
+# documents matches the tree.
+Test-WordCount 'deploy jobs' 'jobs' $jobCount $deploy
+
 Test-Sets 'CI jobs' (Get-CodeJobNames) (Get-DocJobNames)
 
 # The hook the guide names, and the note beside it. A hook the guide does
@@ -7943,6 +7951,104 @@ foreach ($row in (Get-EvidenceTestRows)) {
 
 if (-not $script:testCountBad) {
   Write-Ok 'test count' ("{0} rows" -f $script:testCountChecked)
+}
+
+# --- the platforms the release builds ------------------------------------------
+#
+# The deployment evidence says which platforms the release is built for, and
+# how many. Both are claims about the release workflow's matrix: the targets it
+# names are the platforms, and the number of them is the number of the matrix.
+#
+# Nothing read them. The measurement that found the gap: the document said
+# "Four platforms" where the matrix has three, and every gate still said that
+# every claim in the documents matches the tree.
+
+$script:releasePlatformBad = $false
+$script:releasePlatformChecked = 0
+
+# The targets the release workflow's matrix names.
+function Get-ReleaseTargets {
+  $out = @()
+  $path = Join-Path $PWD '.github/workflows/publish.yml'
+  if (-not (Test-Path $path)) { return $out }
+  foreach ($line in [System.IO.File]::ReadAllLines($path, $enc)) {
+    if ($line -cmatch '^[ \t]+target:[ \t]+([A-Za-z0-9_.-]+)[ \t]*$') {
+      $out += $Matches[1]
+    }
+  }
+  $out
+}
+
+# The cell of the deployment evidence that states the platforms. A table cell
+# ends at the bar that separates it from the next one, so the cells are cut out
+# of the row, and the cell that names platforms is the one that says how many.
+function Get-PlatformCell {
+  $path = Join-Path $PWD $deploy
+  if (-not (Test-Path $path)) { return '' }
+  $text = [System.IO.File]::ReadAllText($path, $enc)
+  foreach ($cell in $text.Split('|')) {
+    if ($cell -cmatch '(?i)(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[ ]+platforms') {
+      return $cell
+    }
+  }
+  ''
+}
+
+# The count the cell gives the platforms, as a number.
+function Get-PlatformCount {
+  param([string]$Cell)
+  if ($Cell -cmatch '(?i)(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[ ]+platforms') {
+    $word = $Matches[1].ToLowerInvariant()
+    if ($numberWords.ContainsKey($word)) { return $numberWords[$word] }
+  }
+  ''
+}
+
+# The names the cell gives the platforms.
+function Get-PlatformNames {
+  param([string]$Cell)
+  $list = ''
+  if ($Cell -cmatch '^[^:]*:[ \t]*(.*)$') { $list = $Matches[1] }
+  $out = @()
+  foreach ($item in $list.Split(',')) {
+    $t = $item.Trim()
+    if ($t) { $out += $t }
+  }
+  $out
+}
+
+$releaseTargets = @(Get-ReleaseTargets)
+$platformCell = Get-PlatformCell
+if (-not $platformCell) {
+  Write-Fail ("{0,-22} {1} does not say which platforms the release is built for" -f `
+    'release platforms', $deploy)
+  $script:releasePlatformBad = $true
+} else {
+  $script:releasePlatformChecked++
+  $docPlatformCount = Get-PlatformCount $platformCell
+  $docPlatformNames = @(Get-PlatformNames $platformCell)
+  if (-not $docPlatformCount -or "$docPlatformCount" -cne "$($releaseTargets.Count)") {
+    Write-Fail ("{0,-22} {1} says the release is built for {2} platforms, and the matrix has {3}" -f `
+      'release platforms', $deploy, $(if ($docPlatformCount) { $docPlatformCount } else { '?' }), $releaseTargets.Count)
+    $script:releasePlatformBad = $true
+  }
+  $missing = @()
+  foreach ($t in $releaseTargets) {
+    if ($docPlatformNames -cnotcontains $t) { $missing += $t }
+  }
+  $extra = @()
+  foreach ($n in $docPlatformNames) {
+    if ($releaseTargets -cnotcontains $n) { $extra += $n }
+  }
+  if ($missing.Count -gt 0 -or $extra.Count -gt 0) {
+    Write-Fail ("{0,-22} {1} names the platforms [{2}], and the matrix names [{3}]" -f `
+      'release platforms', $deploy, ($docPlatformNames -join ' '), ($releaseTargets -join ' '))
+    $script:releasePlatformBad = $true
+  }
+}
+
+if (-not $script:releasePlatformBad) {
+  Write-Ok 'release platforms' ("{0} platforms" -f $releaseTargets.Count)
 }
 
 # --- the gaps the documents say are gaps ---------------------------------------

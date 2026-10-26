@@ -1856,6 +1856,14 @@ job_count() {
 
 check_word_count "agent guide jobs" "jobs" "$(job_count)" "$AGENTS_DOC"
 
+# The deployment evidence says how many jobs the CI workflow runs, and the
+# count is the tree's: the job keys of .github/workflows/ci.yml. The agent
+# guide's own count was watched; the deployment evidence's was not. The
+# measurement that found the gap: the document said "seven jobs" where the
+# workflow has six, and every gate still said that every claim in the
+# documents matches the tree.
+check_word_count "deploy jobs" "jobs" "$(job_count)" "$DEPLOY"
+
 check_sets "CI jobs" "$(code_job_names)" "$(doc_job_names)"
 
 # The hook the guide names, and the note beside it. A hook the guide does
@@ -8979,6 +8987,105 @@ done <<< "$(evidence_test_rows)"
 
 if [ "$TEST_COUNT_BAD" -eq 0 ]; then
   ok "test count" "$TEST_COUNT_CHECKED rows"
+fi
+
+# --- the platforms the release builds ------------------------------------------
+#
+# The deployment evidence says which platforms the release is built for, and
+# how many. Both are claims about the release workflow's matrix: the targets it
+# names are the platforms, and the number of them is the number of the matrix.
+#
+# Nothing read them. The measurement that found the gap: the document said
+# "Four platforms" where the matrix has three, and every gate still said that
+# every claim in the documents matches the tree.
+
+RELEASE_PLATFORM_BAD=0
+RELEASE_PLATFORM_CHECKED=0
+
+# The targets the release workflow's matrix names.
+code_release_targets() {
+  tr -d '\r' < .github/workflows/publish.yml 2>/dev/null \
+    | sed -nE 's/^[[:blank:]]+target:[[:blank:]]+([A-Za-z0-9_.-]+)[[:blank:]]*$/\1/p'
+}
+
+# The cell of the deployment evidence that states the platforms. A table cell
+# ends at the bar that separates it from the next one, so the cells are cut out
+# of the row, and the cell that names platforms is the one that says how many.
+doc_release_platform_cell() {
+  tr '|' '\n' < "$DEPLOY" \
+    | grep -Ei '(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[ ]+platforms' \
+    | head -1
+}
+
+# The count the cell gives the platforms, as a number.
+doc_release_platform_count() {
+  local cell="$1" word
+  word=$(printf '%s' "$cell" \
+    | grep -oEi '(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[ ]+platforms' \
+    | head -1 | cut -d' ' -f1 | tr 'A-Z' 'a-z')
+  word_number "$word"
+}
+
+# The names the cell gives the platforms.
+doc_release_platform_names() {
+  local cell="$1" list="" item names=""
+  list=$(printf '%s' "$cell" | sed -E 's/^[^:]*:[[:blank:]]*//')
+  local -a items=()
+  IFS=',' read -ra items <<< "$list"
+  for item in "${items[@]}"; do
+    item="${item#"${item%%[![:space:]]*}"}"
+    item="${item%"${item##*[![:space:]]}"}"
+    [ -n "$item" ] || continue
+    names="$names $item"
+  done
+  names="${names# }"
+  printf '%s' "$names"
+}
+
+RELEASE_TARGETS="$(code_release_targets | tr '\n' ' ')"
+RELEASE_TARGETS="${RELEASE_TARGETS% }"
+RELEASE_TARGET_COUNT=0
+for t in $RELEASE_TARGETS; do RELEASE_TARGET_COUNT=$((RELEASE_TARGET_COUNT + 1)); done
+
+PLATFORM_CELL="$(doc_release_platform_cell)"
+if [ -z "$PLATFORM_CELL" ]; then
+  fail "$(printf '%-22s %s does not say which platforms the release is built for' \
+    'release platforms' "$DEPLOY")"
+  RELEASE_PLATFORM_BAD=1
+else
+  RELEASE_PLATFORM_CHECKED=$((RELEASE_PLATFORM_CHECKED + 1))
+  DOC_PLATFORM_COUNT="$(doc_release_platform_count "$PLATFORM_CELL")"
+  DOC_PLATFORM_NAMES="$(doc_release_platform_names "$PLATFORM_CELL")"
+  if [ -z "$DOC_PLATFORM_COUNT" ] || [ "$DOC_PLATFORM_COUNT" != "$RELEASE_TARGET_COUNT" ]; then
+    fail "$(printf '%-22s %s says the release is built for %s platforms, and the matrix has %s' \
+      'release platforms' "$DEPLOY" "${DOC_PLATFORM_COUNT:-?}" "$RELEASE_TARGET_COUNT")"
+    RELEASE_PLATFORM_BAD=1
+  fi
+  missing=""
+  extra=""
+  for t in $RELEASE_TARGETS; do
+    case " $DOC_PLATFORM_NAMES " in
+      *" $t "*) ;;
+      *) missing="$missing $t" ;;
+    esac
+  done
+  for n in $DOC_PLATFORM_NAMES; do
+    case " $RELEASE_TARGETS " in
+      *" $n "*) ;;
+      *) extra="$extra $n" ;;
+    esac
+  done
+  missing="${missing# }"
+  extra="${extra# }"
+  if [ -n "$missing" ] || [ -n "$extra" ]; then
+    fail "$(printf '%-22s %s names the platforms [%s], and the matrix names [%s]' \
+      'release platforms' "$DEPLOY" "$DOC_PLATFORM_NAMES" "$RELEASE_TARGETS")"
+    RELEASE_PLATFORM_BAD=1
+  fi
+fi
+
+if [ "$RELEASE_PLATFORM_BAD" -eq 0 ]; then
+  ok "release platforms" "$RELEASE_TARGET_COUNT platforms"
 fi
 
 # --- the gaps the documents say are gaps ---------------------------------------
