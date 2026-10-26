@@ -24,7 +24,7 @@ literal is. Confidence is **high** unless noted otherwise.
 | Flask-style App with route table + middleware chain | `backend/app.mbt:16-36` | high |
 | Handler type is `async (Request) -> Response` | `backend/app.mbt:17` | high |
 | Middleware type is factory pattern | `backend/app.mbt:22-23` | high |
-| Adapter bridges to moonback's `(Request, Responder) -> Unit` | `backend/app.mbt:92-95` | high |
+| `App::adapt` bridges to moonback's `@moonback.Handler` | `backend/app.mbt:109-112` | high |
 | Catch-all GET `/*rest` returns JSON 404 | `backend/app.mbt:146` | high |
 | Route conflicts use `fail` (not `raise`) | `backend/app.mbt:141` | high |
 | 37 API routes: pages, entries, sessions, loop, research, society, agent | `backend/api.mbt:19-905` | high |

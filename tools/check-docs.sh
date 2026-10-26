@@ -9102,7 +9102,14 @@ fi
 #
 # The names are the tree's own. A claim is about a type when it says so in the
 # document's own words -- "Handler type is ...", "Page struct with ..." -- and
-# the name in front of that word is the type it is about.
+# the name in front of that word is the type it is about. The name may be
+# anywhere in the claim: "Frontend Page struct mirrors backend shape" is
+# about the Page struct too.
+#
+# The measurement that found the second gap: the row that says the frontend
+# Page struct mirrors the backend shape pointed at frontend/page.mbt:16-30,
+# and when that pointer was moved to :17-30 nothing noticed. The claim
+# named the type and the gate did not look at the name.
 
 TYPE_DEF_BAD=0
 TYPE_DEF_CHECKED=0
@@ -9116,11 +9123,11 @@ code_definitions() {
       {
         line = $0
         sub(/^[[:blank:]]+/, "", line)
-        if (match(line, /^(pub(\(all\))?[[:blank:]]+)?(type|struct)[[:blank:]]+[A-Za-z_][A-Za-z0-9_]*/)) {
+        if (match(line, /^(pub(\(all\))?[[:blank:]]+)?(type|struct|enum)[[:blank:]]+[A-Za-z_][A-Za-z0-9_]*/)) {
           head = substr(line, 1, RLENGTH)
-          if (match(head, /(type|struct)[[:blank:]]+[A-Za-z_][A-Za-z0-9_]*/)) {
+          if (match(head, /(type|struct|enum)[[:blank:]]+[A-Za-z_][A-Za-z0-9_]*/)) {
             name = substr(head, RSTART, RLENGTH)
-            sub(/^(type|struct)[[:blank:]]+/, "", name)
+            sub(/^(type|struct|enum)[[:blank:]]+/, "", name)
             print name "\t" file "\t" FNR
           }
         }
@@ -9129,8 +9136,12 @@ code_definitions() {
   done
 }
 
-# The rows of the evidence tables that are about a type: the claim cell starts
-# with the name of the type and the word "type" or "struct" after it.
+# The rows of the evidence tables that are about a type: the name of the type
+# and the word "type" or "struct" after it.
+#
+# The name may be anywhere in the claim. "Frontend Page struct mirrors
+# backend shape" is about the Page struct, and a gate that only looked at
+# the first word of the claim would not see it at all.
 evidence_type_rows() {
   awk -F'|' '
     {
@@ -9138,23 +9149,46 @@ evidence_type_rows() {
       src = $3
       gsub(/^[ \t]+|[ \t]+$/, "", claim)
       gsub(/^[ \t]+|[ \t]+$/, "", src)
-      if (claim !~ /^[A-Za-z_][A-Za-z0-9_]*[ \t]+(type|struct)[ \t]/) next
+      if (src !~ /:/) next
       # the source is written in brackets: `backend/app.mbt:16`
       gsub(/^`|`$/, "", src)
-      split(claim, w, /[ \t]+/)
-      print w[1] "\t" src
+      rest = claim
+      while (match(rest, /[A-Za-z_][A-Za-z0-9_]*[ \t]+(type|struct)[ \t]+/)) {
+        # the match does not start at the beginning of the claim, so the text it
+        # covers is taken from RSTART, not from the first character
+        head = substr(rest, RSTART, RLENGTH)
+        name = head
+        sub(/[ \t]+(type|struct)[ \t]+$/, "", name)
+        print name "\t" src
+        rest = substr(rest, RSTART + RLENGTH)
+      }
     }
   ' "$1"
 }
 
 TYPE_DEFS="$(code_definitions)"
 
+# The names the tree's types go by. A claim that says "Handler type is ..."
+# is about a type, and a claim that says "a value type with a Body enum" is
+# not: "value" is not one of the tree's type names, so the row says nothing
+# about a type in the file it points at.
+TYPE_NAMES=""
+while IFS=$'\t' read -r d_name d_file d_line; do
+  [ -n "$d_name" ] || continue
+  case " $TYPE_NAMES " in
+    *" $d_name "*) continue ;;
+  esac
+  TYPE_NAMES="$TYPE_NAMES $d_name"
+done <<< "$TYPE_DEFS"
+
 for doc in "$EVIDENCE" "$DEPS" "$DEPLOY" architecture/flows.evidence.md; do
   [ -f "$doc" ] || continue
+  # a document that describes the past is history: it is not corrected
+  not_in "$doc" "$MARKED_DOCS"
+  [ -n "$NOT_IN" ] || continue
   while IFS=$'\t' read -r name src; do
     [ -n "$name" ] || continue
     [ -n "$src" ] || continue
-    TYPE_DEF_CHECKED=$((TYPE_DEF_CHECKED + 1))
     # the source names the file and the line, or the range of lines
     src_file="${src%%:*}"
     src_lines="${src#*:}"
@@ -9169,11 +9203,17 @@ for doc in "$EVIDENCE" "$DEPS" "$DEPLOY" architecture/flows.evidence.md; do
       fi
     done <<< "$TYPE_DEFS"
     if [ -z "$def_line" ]; then
+      # a name the tree does not give to any type is not a type name at all
+      case " $TYPE_NAMES " in
+        *" $name "*) ;;
+        *) continue ;;
+      esac
       fail "$(printf '%-22s %s says the %s type is at %s, and that file defines no such type' \
         'type definition' "$doc" "$name" "$src_file")"
       TYPE_DEF_BAD=1
       continue
     fi
+    TYPE_DEF_CHECKED=$((TYPE_DEF_CHECKED + 1))
     case "$src_lines" in
       *-*)
         first="${src_lines%%-*}"

@@ -8065,7 +8065,14 @@ if (-not $script:releasePlatformBad) {
 #
 # The names are the tree's own. A claim is about a type when it says so in the
 # document's own words -- "Handler type is ...", "Page struct with ..." -- and
-# the name in front of that word is the type it is about.
+# the name in front of that word is the type it is about. The name may be
+# anywhere in the claim: "Frontend Page struct mirrors backend shape" is
+# about the Page struct too.
+#
+# The measurement that found the second gap: the row that says the frontend
+# Page struct mirrors the backend shape pointed at frontend/page.mbt:16-30,
+# and when that pointer was moved to :17-30 nothing noticed. The claim
+# named the type and the gate did not look at the name.
 
 $script:typeDefBad = $false
 $script:typeDefChecked = 0
@@ -8081,7 +8088,7 @@ function Get-CodeDefinitions {
       $n = 0
       foreach ($line in [System.IO.File]::ReadAllLines($f.FullName, $enc)) {
         $n++
-        if ($line -cmatch '^[ \t]*(pub(\(all\))?[ \t]+)?(type|struct)[ \t]+([A-Za-z_][A-Za-z0-9_]*)') {
+        if ($line -cmatch '^[ \t]*(pub(\(all\))?[ \t]+)?(type|struct|enum)[ \t]+([A-Za-z_][A-Za-z0-9_]*)') {
           $out += ,@($Matches[4], $rel, $n)
         }
       }
@@ -8090,8 +8097,12 @@ function Get-CodeDefinitions {
   $out
 }
 
-# The rows of the evidence tables that are about a type: the claim cell starts
-# with the name of the type and the word "type" or "struct" after it.
+# The rows of the evidence tables that are about a type: the name of the type
+# and the word "type" or "struct" after it.
+#
+# The name may be anywhere in the claim. "Frontend Page struct mirrors
+# backend shape" is about the Page struct, and a gate that only looked at
+# the first word of the claim would not see it at all.
 function Get-EvidenceTypeRows {
   param([string]$Doc)
   $out = @()
@@ -8103,23 +8114,39 @@ function Get-EvidenceTypeRows {
     if ($cells.Count -lt 4) { continue }
     $claim = $cells[1].Trim()
     $src = $cells[2].Trim()
-    if ($claim -cnotmatch '^([A-Za-z_][A-Za-z0-9_]*)[ \t]+(type|struct)[ \t]') { continue }
+    if (-not $src.Contains(':')) { continue }
     # the source is written in brackets: `backend/app.mbt:16`
     $src = $src.Trim('`')
-    $out += ,@($Matches[1], $src)
+    foreach ($m in [regex]::Matches($claim, '([A-Za-z_][A-Za-z0-9_]*)[ \t]+(type|struct)[ \t]+')) {
+      $out += ,@($m.Groups[1].Value, $src)
+    }
   }
   $out
 }
 
 $typeDefs = @(Get-CodeDefinitions)
 
+# The names the tree's types go by. A claim that says "Handler type is ..."
+# is about a type, and a claim that says "a value type with a Body enum" is
+# not: "value" is not one of the tree's type names, so the row says nothing
+# about a type in the file it points at.
+$typeNames = @()
+foreach ($d in $typeDefs) {
+  if ($typeNames -ccontains $d[0]) { continue }
+  $typeNames += ,$d[0]
+}
+
 foreach ($doc in @($evidence, $deps, $deploy, 'architecture/flows.evidence.md')) {
   if (-not (Test-Path (Join-Path $PWD $doc))) { continue }
-  foreach ($row in (Get-EvidenceTypeRows $doc)) {
+  # a document that describes the past is history: it is not corrected
+  if ($markedDocs -ccontains $doc) { continue }
+  # the call is wrapped so that a document with a single row still hands back
+  # one array: without the wrapper the row itself would be taken apart and the
+  # name and the source would arrive as single characters
+  foreach ($row in @(Get-EvidenceTypeRows $doc)) {
     $name = $row[0]
     $src = $row[1]
     if (-not $name -or -not $src) { continue }
-    $script:typeDefChecked++
     # the source names the file and the line, or the range of lines
     $parts = $src.Split(':')
     $srcFile = $parts[0]
@@ -8132,11 +8159,14 @@ foreach ($doc in @($evidence, $deps, $deploy, 'architecture/flows.evidence.md'))
       if ($d[0] -ceq $name -and $d[1] -ceq $srcFile) { $defLine = $d[2]; break }
     }
     if ($defLine -eq 0) {
+      # a name the tree does not give to any type is not a type name at all
+      if (-not ($typeNames -ccontains $name)) { continue }
       Write-Fail ("{0,-22} {1} says the {2} type is at {3}, and that file defines no such type" -f `
         'type definition', $doc, $name, $srcFile)
       $script:typeDefBad = $true
       continue
     }
+    $script:typeDefChecked++
     if ($srcLines -cmatch '^([0-9]+)-([0-9]+)$') {
       $first = [int]$Matches[1]
       $last = [int]$Matches[2]
