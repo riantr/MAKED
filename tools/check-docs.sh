@@ -9088,6 +9088,114 @@ if [ "$RELEASE_PLATFORM_BAD" -eq 0 ]; then
   ok "release platforms" "$RELEASE_TARGET_COUNT platforms"
 fi
 
+# --- the type definitions the evidence points at --------------------------------
+#
+# The evidence tables say what a type IS, and point at the file and line that
+# holds the type. A pointer to the line above the definition is a pointer to a
+# comment: a reader who follows it finds a sentence about the type rather than
+# the type.
+#
+# The measurement that found the gap: the row that says the Handler type is
+# `async (Request) -> Response` pointed at backend/app.mbt:16, which is the
+# comment above it. The type is defined on line 17. Nothing noticed, and the
+# gate suite still said that every claim in the documents matches the tree.
+#
+# The names are the tree's own. A claim is about a type when it says so in the
+# document's own words -- "Handler type is ...", "Page struct with ..." -- and
+# the name in front of that word is the type it is about.
+
+TYPE_DEF_BAD=0
+TYPE_DEF_CHECKED=0
+
+# The definitions the tree has: the name, a tab, the file, a tab, the line.
+code_definitions() {
+  local f
+  find backend frontend cmd -name '*.mbt' -type f 2>/dev/null | LC_ALL=C sort | \
+  while IFS= read -r f; do
+    awk -v file="$f" '
+      {
+        line = $0
+        sub(/^[[:blank:]]+/, "", line)
+        if (match(line, /^(pub(\(all\))?[[:blank:]]+)?(type|struct)[[:blank:]]+[A-Za-z_][A-Za-z0-9_]*/)) {
+          head = substr(line, 1, RLENGTH)
+          if (match(head, /(type|struct)[[:blank:]]+[A-Za-z_][A-Za-z0-9_]*/)) {
+            name = substr(head, RSTART, RLENGTH)
+            sub(/^(type|struct)[[:blank:]]+/, "", name)
+            print name "\t" file "\t" FNR
+          }
+        }
+      }
+    ' "$f"
+  done
+}
+
+# The rows of the evidence tables that are about a type: the claim cell starts
+# with the name of the type and the word "type" or "struct" after it.
+evidence_type_rows() {
+  awk -F'|' '
+    {
+      claim = $2
+      src = $3
+      gsub(/^[ \t]+|[ \t]+$/, "", claim)
+      gsub(/^[ \t]+|[ \t]+$/, "", src)
+      if (claim !~ /^[A-Za-z_][A-Za-z0-9_]*[ \t]+(type|struct)[ \t]/) next
+      # the source is written in brackets: `backend/app.mbt:16`
+      gsub(/^`|`$/, "", src)
+      split(claim, w, /[ \t]+/)
+      print w[1] "\t" src
+    }
+  ' "$1"
+}
+
+TYPE_DEFS="$(code_definitions)"
+
+for doc in "$EVIDENCE" "$DEPS" "$DEPLOY" architecture/flows.evidence.md; do
+  [ -f "$doc" ] || continue
+  while IFS=$'\t' read -r name src; do
+    [ -n "$name" ] || continue
+    [ -n "$src" ] || continue
+    TYPE_DEF_CHECKED=$((TYPE_DEF_CHECKED + 1))
+    # the source names the file and the line, or the range of lines
+    src_file="${src%%:*}"
+    src_lines="${src#*:}"
+    # the type is looked up in the file the document points at: the tree has
+    # a Page in the backend and a Page in the frontend, and the document may
+    # be about either one
+    def_line=""
+    while IFS=$'\t' read -r d_name d_file d_line; do
+      if [ "$d_name" = "$name" ] && [ "$d_file" = "$src_file" ]; then
+        def_line="$d_line"
+        break
+      fi
+    done <<< "$TYPE_DEFS"
+    if [ -z "$def_line" ]; then
+      fail "$(printf '%-22s %s says the %s type is at %s, and that file defines no such type' \
+        'type definition' "$doc" "$name" "$src_file")"
+      TYPE_DEF_BAD=1
+      continue
+    fi
+    case "$src_lines" in
+      *-*)
+        first="${src_lines%%-*}"
+        last="${src_lines##*-}"
+        ;;
+      *)
+        first="$src_lines"
+        last="$src_lines"
+        ;;
+    esac
+    if [ "$def_line" -lt "$first" ] || [ "$def_line" -gt "$last" ]; then
+      fail "$(printf '%-22s %s points the %s type at %s, and the tree defines it on line %s' \
+        'type definition' "$doc" "$name" "$src_lines" "$def_line")"
+      TYPE_DEF_BAD=1
+    fi
+  done <<< "$(evidence_type_rows "$doc")"
+done
+
+if [ "$TYPE_DEF_BAD" -eq 0 ]; then
+  ok "type definition" "$TYPE_DEF_CHECKED claims"
+fi
+
 # --- the gaps the documents say are gaps ---------------------------------------
 #
 # The summary has a section that says what the product does not have, and the

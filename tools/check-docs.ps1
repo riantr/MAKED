@@ -8051,6 +8051,111 @@ if (-not $script:releasePlatformBad) {
   Write-Ok 'release platforms' ("{0} platforms" -f $releaseTargets.Count)
 }
 
+# --- the type definitions the evidence points at --------------------------------
+#
+# The evidence tables say what a type IS, and point at the file and line that
+# holds the type. A pointer to the line above the definition is a pointer to a
+# comment: a reader who follows it finds a sentence about the type rather than
+# the type.
+#
+# The measurement that found the gap: the row that says the Handler type is
+# `async (Request) -> Response` pointed at backend/app.mbt:16, which is the
+# comment above it. The type is defined on line 17. Nothing noticed, and the
+# gate suite still said that every claim in the documents matches the tree.
+#
+# The names are the tree's own. A claim is about a type when it says so in the
+# document's own words -- "Handler type is ...", "Page struct with ..." -- and
+# the name in front of that word is the type it is about.
+
+$script:typeDefBad = $false
+$script:typeDefChecked = 0
+
+# The definitions the tree has: the name, the file, the line.
+function Get-CodeDefinitions {
+  $out = @()
+  foreach ($dir in @('backend', 'frontend', 'cmd')) {
+    $root = Join-Path $PWD $dir
+    if (-not (Test-Path $root)) { continue }
+    foreach ($f in (Get-ChildItem $root -Recurse -Filter '*.mbt' -File)) {
+      $rel = $f.FullName.Substring($PWD.Path.Length + 1).Replace('\', '/')
+      $n = 0
+      foreach ($line in [System.IO.File]::ReadAllLines($f.FullName, $enc)) {
+        $n++
+        if ($line -cmatch '^[ \t]*(pub(\(all\))?[ \t]+)?(type|struct)[ \t]+([A-Za-z_][A-Za-z0-9_]*)') {
+          $out += ,@($Matches[4], $rel, $n)
+        }
+      }
+    }
+  }
+  $out
+}
+
+# The rows of the evidence tables that are about a type: the claim cell starts
+# with the name of the type and the word "type" or "struct" after it.
+function Get-EvidenceTypeRows {
+  param([string]$Doc)
+  $out = @()
+  $path = Join-Path $PWD $Doc
+  if (-not (Test-Path $path)) { return $out }
+  foreach ($line in [System.IO.File]::ReadAllLines($path, $enc)) {
+    if (-not $line.StartsWith('|')) { continue }
+    $cells = $line.Split('|')
+    if ($cells.Count -lt 4) { continue }
+    $claim = $cells[1].Trim()
+    $src = $cells[2].Trim()
+    if ($claim -cnotmatch '^([A-Za-z_][A-Za-z0-9_]*)[ \t]+(type|struct)[ \t]') { continue }
+    # the source is written in brackets: `backend/app.mbt:16`
+    $src = $src.Trim('`')
+    $out += ,@($Matches[1], $src)
+  }
+  $out
+}
+
+$typeDefs = @(Get-CodeDefinitions)
+
+foreach ($doc in @($evidence, $deps, $deploy, 'architecture/flows.evidence.md')) {
+  if (-not (Test-Path (Join-Path $PWD $doc))) { continue }
+  foreach ($row in (Get-EvidenceTypeRows $doc)) {
+    $name = $row[0]
+    $src = $row[1]
+    if (-not $name -or -not $src) { continue }
+    $script:typeDefChecked++
+    # the source names the file and the line, or the range of lines
+    $parts = $src.Split(':')
+    $srcFile = $parts[0]
+    $srcLines = $parts[1]
+    # the type is looked up in the file the document points at: the tree has
+    # a Page in the backend and a Page in the frontend, and the document may
+    # be about either one
+    $defLine = 0
+    foreach ($d in $typeDefs) {
+      if ($d[0] -ceq $name -and $d[1] -ceq $srcFile) { $defLine = $d[2]; break }
+    }
+    if ($defLine -eq 0) {
+      Write-Fail ("{0,-22} {1} says the {2} type is at {3}, and that file defines no such type" -f `
+        'type definition', $doc, $name, $srcFile)
+      $script:typeDefBad = $true
+      continue
+    }
+    if ($srcLines -cmatch '^([0-9]+)-([0-9]+)$') {
+      $first = [int]$Matches[1]
+      $last = [int]$Matches[2]
+    } else {
+      $first = [int]$srcLines
+      $last = $first
+    }
+    if ($defLine -lt $first -or $defLine -gt $last) {
+      Write-Fail ("{0,-22} {1} points the {2} type at {3}, and the tree defines it on line {4}" -f `
+        'type definition', $doc, $name, $srcLines, $defLine)
+      $script:typeDefBad = $true
+    }
+  }
+}
+
+if (-not $script:typeDefBad) {
+  Write-Ok 'type definition' ("{0} claims" -f $script:typeDefChecked)
+}
+
 # --- the gaps the documents say are gaps ---------------------------------------
 #
 # The summary has a section that says what the product does not have, and the

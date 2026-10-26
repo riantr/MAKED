@@ -22,7 +22,7 @@ literal is. Confidence is **high** unless noted otherwise.
 | Claim | Source | Confidence |
 |-------|--------|------------|
 | Flask-style App with route table + middleware chain | `backend/app.mbt:16-36` | high |
-| Handler type is `async (Request) -> Response` | `backend/app.mbt:16` | high |
+| Handler type is `async (Request) -> Response` | `backend/app.mbt:17` | high |
 | Middleware type is factory pattern | `backend/app.mbt:22-23` | high |
 | Adapter bridges to moonback's `(Request, Responder) -> Unit` | `backend/app.mbt:92-95` | high |
 | Catch-all GET `/*rest` returns JSON 404 | `backend/app.mbt:146` | high |
