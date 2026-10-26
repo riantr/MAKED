@@ -10213,6 +10213,136 @@ if [ "$LITERAL_BAD" -eq 0 ]; then
   ok "literal pointer" "$LITERAL_CHECKED literals"
 fi
 
+# --- the pointers into the tree's build and deployment files --------------------
+#
+# A claim that quotes a literal and points at a line of the tree has to point
+# at the line that holds the literal. The literal pointer gate above already
+# does this for the MoonBit sources. The build and the deployment live in
+# files that are not MoonBit: the Dockerfile, build.ps1, the workflows, the
+# test scripts. Neither pointer gate looked there, because both of them filter
+# their citations on "*.mbt:".
+#
+# The measurement that found the gap: the row that says the native build
+# output is `_build/native/release/build/cmd/server/server` pointed at
+# tools/contract-test.sh:100, and the row that says the js build output is
+# `_build/js/release/build/cmd/web/web.js` pointed at build.ps1:26. When
+# those pointers were moved one line off, and when the image's health check
+# pointer was moved off the Dockerfile's HEALTHCHECK line, nothing in the
+# suite noticed: every gate was green and the suite still said that every
+# claim in the documents matches the tree.
+#
+# The rule is the literal pointer rule, applied to the other half of the
+# tree. The literal has to be at the cited line, and it has to be a whole
+# path: "server" is not inside "server.exe". A literal that names a file of
+# the tree names that file rather than quoting what is in it, so it is left
+# alone.
+
+BUILD_PTR_BAD=0
+BUILD_PTR_CHECKED=0
+
+# The names of the files in the tree.
+TREE_FILE_NAMES=""
+tree_file_names() {
+  local f
+  TREE_FILE_NAMES=""
+  for f in $(git ls-files 2>/dev/null); do
+    TREE_FILE_NAMES="$TREE_FILE_NAMES ${f##*/}"
+  done
+  trim "$TREE_FILE_NAMES"; TREE_FILE_NAMES="$TRIMMED"
+}
+
+# The lines of a file where a literal sits as a whole path.
+BUILD_LIT_LINES=()
+build_literal_lines() {
+  local lit="$1" file="$2" i line before after
+  BUILD_LIT_LINES=()
+  code_lines_of "$file"
+  for ((i = 0; i < ${#CODE_LINES[@]}; i++)); do
+    line="${CODE_LINES[$i]}"
+    case "$line" in
+      *"$lit"*) ;;
+      *) continue ;;
+    esac
+    before="${line%%"$lit"*}"
+    after="${line#*"$lit"}"
+    case "$before" in
+      *[A-Za-z0-9_./-]) continue ;;
+    esac
+    case "$after" in
+      [A-Za-z0-9_./-]*) continue ;;
+    esac
+    BUILD_LIT_LINES+=("$((i + 1))")
+  done
+}
+
+# One claim, checked against the tree's non-MoonBit files.
+build_pointer_claim() {
+  local doc="$1" line="$2" claim="$3"
+  local rest="$3" tok file spec lit a covered i j
+  local cites=() lits=()
+  while [[ "$rest" =~ $LIT_RE ]]; do
+    tok="${BASH_REMATCH[1]}"
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+    if [[ "$tok" =~ ^[A-Za-z0-9_./-]+:[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$ ]]; then
+      file="${tok%%:*}"
+      spec="${tok#*:}"
+      case "$file" in
+        *.mbt) continue ;;
+      esac
+      [ -f "$file" ] || continue
+      cites+=("$file" "$spec")
+      continue
+    fi
+    lits+=("$tok")
+  done
+  [ "${#cites[@]}" -gt 0 ] || return
+  [ "${#lits[@]}" -gt 0 ] || return
+  for ((i = 0; i < ${#cites[@]}; i += 2)); do
+    file="${cites[$i]}"
+    spec="${cites[$((i + 1))]}"
+    for ((j = 0; j < ${#lits[@]}; j++)); do
+      lit="${lits[$j]}"
+      case " $TREE_FILE_NAMES " in
+        *" $lit "*) continue ;;
+      esac
+      build_literal_lines "$lit" "$file"
+      [ "${#BUILD_LIT_LINES[@]}" -gt 0 ] || continue
+      # a literal that sits in more than one place is left alone: the claim
+      # does not say which place it meant
+      [ "${#BUILD_LIT_LINES[@]}" -eq 1 ] || continue
+      BUILD_PTR_CHECKED=$((BUILD_PTR_CHECKED + 1))
+      covered=0
+      for a in "${BUILD_LIT_LINES[@]}"; do
+        citation_covers "$spec" "$a"
+        if [ "$CITATION_COVERS" -eq 1 ]; then
+          covered=1
+          break
+        fi
+      done
+      if [ "$covered" -eq 0 ]; then
+        fail "$(printf '%-22s %s line %s cites %s:%s, but %s is on line %s' \
+          'build pointer' "$doc" "$line" "$file" "$spec" "$lit" "${BUILD_LIT_LINES[0]}")"
+        BUILD_PTR_BAD=1
+      fi
+    done
+  done
+}
+
+tree_file_names
+for doc in "${ARCH_DOCS[@]}"; do
+  not_in "$doc" "$MARKED_DOCS"
+  [ -n "$NOT_IN" ] || continue
+  doc_claims "$doc"
+  while IFS=$'\t' read -r line claim; do
+    [ -n "$claim" ] || continue
+    build_pointer_claim "$doc" "$line" "$claim"
+  done <<< "$DOC_CLAIMS"
+done
+
+if [ "$BUILD_PTR_BAD" -eq 0 ]; then
+  ok "build pointer" "$BUILD_PTR_CHECKED pointers"
+fi
+
 # --- the numbers the flow evidence states -------------------------------------
 #
 # The evidence table gives every step of the flow a source, and four of its

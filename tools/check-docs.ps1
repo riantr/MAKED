@@ -8970,6 +8970,115 @@ foreach ($doc in $archDocs) {
 
 if (-not $script:literalBad) { Write-Ok 'literal pointer' ("{0} literals" -f $script:literalChecked) }
 
+# --- the pointers into the tree's build and deployment files -------------------
+#
+# A claim that quotes a literal and points at a line of the tree has to point
+# at the line that holds the literal. The literal pointer gate above already
+# does this for the MoonBit sources. The build and the deployment live in
+# files that are not MoonBit: the Dockerfile, build.ps1, the workflows, the
+# test scripts. Neither pointer gate looked there, because both of them filter
+# their citations on "*.mbt:".
+#
+# The measurement that found the gap: the row that says the native build
+# output is `_build/native/release/build/cmd/server/server` pointed at
+# tools/contract-test.sh:100, and the row that says the js build output is
+# `_build/js/release/build/cmd/web/web.js` pointed at build.ps1:26. When
+# those pointers were moved one line off, and when the image's health check
+# pointer was moved off the Dockerfile's HEALTHCHECK line, nothing in the
+# suite noticed: every gate was green and the suite still said that every
+# claim in the documents matches the tree.
+#
+# The rule is the literal pointer rule, applied to the other half of the
+# tree. The literal has to be at the cited line, and it has to be a whole
+# path: "server" is not inside "server.exe". A literal that names a file of
+# the tree names that file rather than quoting what is in it, so it is left
+# alone.
+
+$script:buildPtrBad = $false
+$script:buildPtrChecked = 0
+
+# The names of the files in the tree.
+function Get-TreeFileNames {
+  $out = @()
+  foreach ($rel in @(& git ls-files 2>$null)) {
+    if ($rel -eq '') { continue }
+    $out += ,$rel.Split('/')[-1]
+  }
+  $out
+}
+
+# The lines of a file where a literal sits as a whole path.
+function Get-BuildLiteralLines($file, $lit) {
+  $out = @()
+  $path = Join-Path $PWD $file
+  if (-not (Test-Path $path)) { return $out }
+  $lines = [System.IO.File]::ReadAllLines($path, $enc)
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    $code = Get-CodeText $lines[$i]
+    $at = $code.IndexOf($lit)
+    if ($at -lt 0) { continue }
+    # the occurrence has to be a whole path: the character before it and the
+    # character after it must not make it part of a longer name
+    if ($at -gt 0 -and $code[$at - 1] -match '[A-Za-z0-9_./-]') { continue }
+    $end = $at + $lit.Length
+    if ($end -lt $code.Length -and $code[$end] -match '[A-Za-z0-9_./-]') { continue }
+    $out += ,($i + 1)
+  }
+  $out
+}
+
+# One claim, checked against the tree's non-MoonBit files.
+function Test-BuildPointerClaim($doc, $line, $claim) {
+  $cites = @()
+  $lits = @()
+  foreach ($m in [regex]::Matches($claim, $litRe)) {
+    $tok = $m.Groups[1].Value
+    if ($tok -cmatch '^[A-Za-z0-9_./-]+:[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$') {
+      $i = $tok.IndexOf(':')
+      $file = $tok.Substring(0, $i)
+      if ($file -clike '*.mbt') { continue }
+      if (-not (Test-Path (Join-Path $PWD $file))) { continue }
+      $cites += ,@($file, $tok.Substring($i + 1))
+      continue
+    }
+    $lits += ,$tok
+  }
+  if ($cites.Count -eq 0) { return }
+  if ($lits.Count -eq 0) { return }
+  foreach ($c in $cites) {
+    $file = $c[0]
+    $spec = $c[1]
+    foreach ($lit in $lits) {
+      if ($treeFileNames -ccontains $lit) { continue }
+      $lines = @(Get-BuildLiteralLines $file $lit)
+      if ($lines.Count -eq 0) { continue }
+      # a literal that sits in more than one place is left alone: the claim
+      # does not say which place it meant
+      if ($lines.Count -ne 1) { continue }
+      $script:buildPtrChecked++
+      if (-not (Test-CitationCovers $spec $lines[0])) {
+        Write-Fail ("{0,-22} {1} line {2} cites {3}:{4}, but {5} is on line {6}" -f `
+          'build pointer', $doc, $line, $file, $spec, $lit, $lines[0])
+        $script:buildPtrBad = $true
+      }
+    }
+  }
+}
+
+$treeFileNames = @(Get-TreeFileNames)
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-BuildPointerClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:buildPtrBad) { Write-Ok 'build pointer' ("{0} pointers" -f $script:buildPtrChecked) }
+
 # --- the numbers the flow evidence states -------------------------------------
 #
 # The evidence table gives every step of the flow a source, and four of its
