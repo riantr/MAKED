@@ -11317,6 +11317,89 @@ if [ "$BLAST_SYM_BAD" -eq 0 ]; then
   ok "blast symbol" "$BLAST_SYM_CHECKED symbols"
 fi
 
+# --- the symbols a blast radius names in plain words ---------------------------
+#
+# The cell says what breaks in two ways: in backticks, and in plain words.
+# "view() calls header, domain_cards, page_view, etc." -- the first is a
+# symbol the gate above reads, and the second is prose with a name in it.  No
+# gate read the plain words: the impact caller gate reads the backticked
+# tokens of the row, and the blast symbol gate reads the backticked tokens
+# of the cell.
+#
+# The filter is a SHAPE, not a vocabulary: a plain word that carries an
+# underscore is a name the tree spells that way, and prose does not.  A plain
+# word without an underscore -- header, navigation, nodes -- cannot be told
+# apart from prose, and is left alone: a gate that needed a list of English
+# words would be a gate that knew the answers.
+#
+# The rule: the tree has to define the name, and the row's affected file has
+# to hold it.  A name the tree does not define is a claim about a tree that
+# is not there; a name the affected file does not hold is a claim about a
+# file that does not touch it.
+#
+# The bash twin says the same thing.  The two are twins: they print the same
+# lines and they go red together.
+
+BLAST_PLAIN_BAD=0
+BLAST_PLAIN_CHECKED=0
+
+# The plain words of a cell: the text between the backticked parts.
+BLAST_PLAIN_TEXT=""
+blast_plain_text() {
+  local cell="$1"
+  local -a parts=()
+  local i out=""
+  IFS='`' read -r -a parts <<< "$cell"
+  for ((i = 0; i < ${#parts[@]}; i += 2)); do
+    out="$out ${parts[i]}"
+  done
+  BLAST_PLAIN_TEXT="$out"
+}
+
+# One row of a blast table, checked against the tree.
+blast_plain_row_check() {
+  local doc="$1" line="$2" section="$3" aff="$4" what="$5"
+  local word clean
+  blast_plain_text "$what"
+  for word in $BLAST_PLAIN_TEXT; do
+    clean="${word//[^A-Za-z0-9_]/}"
+    [[ "$clean" =~ ^[A-Za-z][A-Za-z0-9_]*_[A-Za-z0-9_]+$ ]] || continue
+    BLAST_PLAIN_CHECKED=$((BLAST_PLAIN_CHECKED + 1))
+    if [ -z "${BLAST_SYMBOL["$clean"]:-}" ]; then
+      fail "$(printf '%-22s %s line %s says [%s] breaks, and the tree defines no such symbol' \
+        'blast plain symbol' "$doc" "$line" "$clean")"
+      BLAST_PLAIN_BAD=1
+      continue
+    fi
+    if ! file_says_name "$aff" "$clean"; then
+      fail "$(printf '%-22s %s line %s says [%s] breaks in %s, and that file does not hold it' \
+        'blast plain symbol' "$doc" "$line" "$clean" "$aff")"
+      BLAST_PLAIN_BAD=1
+    fi
+  done
+}
+
+# Every row of every blast table, checked against the tree.
+check_blast_plain_symbols() {
+  local line section aff what
+  blast_symbols_load
+  while IFS=$'\t' read -r line section aff what; do
+    [ -n "$line" ] || continue
+    blast_plain_row_check "$DEPS_MD" "$line" "$section" "$aff" "$what"
+  done <<< "$(blast_symbol_rows)"
+}
+
+check_blast_plain_symbols
+
+if [ "$BLAST_PLAIN_CHECKED" -eq 0 ]; then
+  fail "$(printf '%-22s no blast table names a symbol in plain words' 'blast plain symbol')"
+  BLAST_PLAIN_BAD=1
+fi
+
+if [ "$BLAST_PLAIN_BAD" -eq 0 ]; then
+  ok "blast plain symbol" "$BLAST_PLAIN_CHECKED symbols"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

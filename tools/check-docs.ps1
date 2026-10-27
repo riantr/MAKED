@@ -9859,6 +9859,71 @@ if ($script:blastSymChecked -eq 0) {
 
 if (-not $script:blastSymBad) { Write-Ok 'blast symbol' ("{0} symbols" -f $script:blastSymChecked) }
 
+# --- the symbols a blast radius names in plain words ---------------------------
+#
+# The cell says what breaks in two ways: in backticks, and in plain words.
+# "view() calls header, domain_cards, page_view, etc." -- the first is a
+# symbol the gate above reads, and the second is prose with a name in it.  No
+# gate read the plain words: the impact caller gate reads the backticked
+# tokens of the row, and the blast symbol gate reads the backticked tokens
+# of the cell.
+#
+# The filter is a SHAPE, not a vocabulary: a plain word that carries an
+# underscore is a name the tree spells that way, and prose does not.  A plain
+# word without an underscore -- header, navigation, nodes -- cannot be told
+# apart from prose, and is left alone: a gate that needed a list of English
+# words would be a gate that knew the answers.
+#
+# The rule: the tree has to define the name, and the row's affected file has
+# to hold it.  A name the tree does not define is a claim about a tree that
+# is not there; a name the affected file does not hold is a claim about a
+# file that does not touch it.
+#
+# The bash twin says the same thing.  The two are twins: they print the same
+# lines and they go red together.
+
+$script:blastPlainBad = $false
+$script:blastPlainChecked = 0
+
+# The plain words of a cell: the text between the backticked parts.
+function Get-BlastPlainText($cell) {
+  $parts = $cell -split '`'
+  $out = ''
+  for ($i = 0; $i -lt $parts.Count; $i += 2) { $out += ' ' + $parts[$i] }
+  $out
+}
+
+# One row of a blast table, checked against the tree.
+function Test-BlastPlainRow($doc, $line, $section, $aff, $what) {
+  $text = Get-BlastPlainText $what
+  foreach ($word in ($text -split '\s+')) {
+    if ($word -eq '') { continue }
+    $clean = ($word -replace '[^A-Za-z0-9_]', '')
+    if ($clean -cnotmatch '^[A-Za-z][A-Za-z0-9_]*_[A-Za-z0-9_]+$') { continue }
+    $script:blastPlainChecked++
+    if (-not $script:blastSymbols.ContainsKey($clean)) {
+      Write-Fail ("{0,-22} {1} line {2} says [{3}] breaks, and the tree defines no such symbol" -f 'blast plain symbol', $doc, $line, $clean)
+      $script:blastPlainBad = $true
+      continue
+    }
+    if (-not (Test-FileSaysName $aff $clean)) {
+      Write-Fail ("{0,-22} {1} line {2} says [{3}] breaks in {4}, and that file does not hold it" -f 'blast plain symbol', $doc, $line, $clean, $aff)
+      $script:blastPlainBad = $true
+    }
+  }
+}
+
+foreach ($row in @(Get-BlastSymbolRows)) {
+  Test-BlastPlainRow $depsMd $row[0] $row[1] $row[2] $row[3]
+}
+
+if ($script:blastPlainChecked -eq 0) {
+  Write-Fail ("{0,-22} no blast table names a symbol in plain words" -f 'blast plain symbol')
+  $script:blastPlainBad = $true
+}
+
+if (-not $script:blastPlainBad) { Write-Ok 'blast plain symbol' ("{0} symbols" -f $script:blastPlainChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)
