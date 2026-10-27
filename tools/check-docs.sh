@@ -11400,6 +11400,143 @@ if [ "$BLAST_PLAIN_BAD" -eq 0 ]; then
   ok "blast plain symbol" "$BLAST_PLAIN_CHECKED symbols"
 fi
 
+# --- the test a row points at -------------------------------------------------
+#
+# The dependency evidence says which test catches the removal of a safeguard,
+# and it points at the test with a pointer of its own: "test:193-207".  That
+# pointer is not a file:line, so every gate that follows a citation skipped
+# it, and the name of the test is written in double quotes, which no gate
+# reads either.  Nothing watched the claim: the tree could rename the test,
+# move it, or end it two lines earlier, and the row would go on saying it.
+#
+# The rule: the tree has to have a test with that name, the row has to point
+# at the line that test starts on, and the range has to end on the line the
+# test's block ends on.  A test body is indented and the brace that closes
+# the test is not, so a block ends at the first closing brace in column zero.
+#
+# The bash twin says the same thing.  The two are twins: they print the same
+# lines and they go red together.
+
+TEST_PTR_BAD=0
+TEST_PTR_CHECKED=0
+
+# A name in double quotes: the way this document writes a test's name.
+DQUOTE_RE='\"([^\"]+)\"'
+
+# The pointer of its own: test:193-207.
+TEST_PTR_RE='(^|[^A-Za-z0-9_])test:([0-9]+)(-[0-9]+)?'
+
+# The tests the tree has: the file, the line the test starts on, its name,
+# and the line its block ends on.
+TEST_DECLS=""
+test_declarations() {
+  local -a files=()
+  local file
+  TEST_DECLS=""
+  while IFS= read -r file; do
+    [ -n "$file" ] || continue
+    case "$file" in
+      *.mbt) ;;
+      *) continue ;;
+    esac
+    [ -f "$file" ] || continue
+    files+=("$file")
+  done < <(git ls-files '*.mbt' 2>/dev/null || true)
+  [ "${#files[@]}" -gt 0 ] || return
+  TEST_DECLS=$(awk '
+    FNR == 1 { start = 0; name = "" }
+    {
+      if (start == 0) {
+        if (match($0, /^[ \t]*(async[ \t]+)?test[ \t]+"[^"]*"/)) {
+          head = substr($0, RSTART, RLENGTH)
+          sub(/^[ \t]*(async[ \t]+)?test[ \t]+"/, "", head)
+          sub(/"$/, "", head)
+          name = head
+          start = FNR
+        }
+        next
+      }
+      if ($0 ~ /^\}[[:blank:]]*$/) {
+        printf "%s\t%d\t%s\t%d\n", FILENAME, start, name, FNR
+        start = 0
+        name = ""
+      }
+    }
+  ' "${files[@]}")
+}
+
+# One row, checked against the test it points at.
+test_pointer_check() {
+  local doc="$1" line="$2" claim="$3"
+  local rest="$3" tok name first last file decl_line decl_end
+  local found=0 matched=0
+  [[ "$claim" =~ $TEST_PTR_RE ]] || return
+  first="${BASH_REMATCH[2]}"
+  last="${BASH_REMATCH[3]}"
+  last="${last#-}"
+  [ -n "$last" ] || last="$first"
+  rest="$claim"
+  while [[ "$rest" =~ $DQUOTE_RE ]]; do
+    tok="${BASH_REMATCH[1]}"
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+    name="$tok"
+    TEST_PTR_CHECKED=$((TEST_PTR_CHECKED + 1))
+    found=0
+    matched=0
+    file=""
+    decl_line=""
+    decl_end=""
+    while IFS=$'\t' read -r dfile dline dname dend; do
+      [ "$dname" = "$name" ] || continue
+      if [ "$found" -eq 0 ]; then
+        found=1
+        file="$dfile"
+        decl_line="$dline"
+        decl_end="$dend"
+      fi
+      if [ "$dline" = "$first" ] && [ "$dend" = "$last" ]; then
+        matched=1
+        break
+      fi
+    done <<< "$TEST_DECLS"
+    if [ "$found" -eq 0 ]; then
+      fail "$(printf '%-22s %s line %s names the test [%s], and the tree has no test with that name' \
+        'test pointer' "$doc" "$line" "$name")"
+      TEST_PTR_BAD=1
+    elif [ "$matched" -eq 0 ]; then
+      fail "$(printf '%-22s %s line %s says the test [%s] is at test:%s-%s, and the tree has it at %s:%s-%s' \
+        'test pointer' "$doc" "$line" "$name" "$first" "$last" "$file" "$decl_line" "$decl_end")"
+      TEST_PTR_BAD=1
+    fi
+  done
+}
+
+# Every claim the documents make, checked against the tests they point at.
+check_test_pointers() {
+  local doc line claim
+  test_declarations
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      test_pointer_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+check_test_pointers
+
+if [ "$TEST_PTR_CHECKED" -eq 0 ]; then
+  fail "$(printf '%-22s no document points at a test of the tree' 'test pointer')"
+  TEST_PTR_BAD=1
+fi
+
+if [ "$TEST_PTR_BAD" -eq 0 ]; then
+  ok "test pointer" "$TEST_PTR_CHECKED tests"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

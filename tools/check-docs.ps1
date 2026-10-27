@@ -9924,6 +9924,113 @@ if ($script:blastPlainChecked -eq 0) {
 
 if (-not $script:blastPlainBad) { Write-Ok 'blast plain symbol' ("{0} symbols" -f $script:blastPlainChecked) }
 
+# --- the test a row points at -------------------------------------------------
+#
+# The dependency evidence says which test catches the removal of a safeguard,
+# and it points at the test with a pointer of its own: "test:193-207".  That
+# pointer is not a file:line, so every gate that follows a citation skipped
+# it, and the name of the test is written in double quotes, which no gate
+# reads either.  Nothing watched the claim: the tree could rename the test,
+# move it, or end it two lines earlier, and the row would go on saying it.
+#
+# The rule: the tree has to have a test with that name, the row has to point
+# at the line that test starts on, and the range has to end on the line the
+# test's block ends on.  A test body is indented and the brace that closes
+# the test is not, so a block ends at the first closing brace in column zero.
+#
+# The bash twin says the same thing.  The two are twins: they print the same
+# lines and they go red together.
+
+$script:testPtrBad = $false
+$script:testPtrChecked = 0
+
+# A name in double quotes: the way this document writes a test's name.
+$dquoteRe = '"([^"]+)"'
+
+# The pointer of its own: test:193-207.
+$testPtrRe = '(^|[^A-Za-z0-9_])test:([0-9]+)(-[0-9]+)?'
+
+# The tests the tree has: the file, the line the test starts on, its name,
+# and the line its block ends on.
+$script:testDecls = @()
+
+function Get-TestDeclarations {
+  $out = @()
+  foreach ($rel in @(& git ls-files '*.mbt' 2>$null)) {
+    if ($rel -eq '') { continue }
+    if ($rel -cnotmatch '\.mbt$') { continue }
+    $full = Join-Path $PWD $rel
+    if (-not (Test-Path $full)) { continue }
+    $lines = [System.IO.File]::ReadAllLines($full, $enc)
+    $start = 0
+    $name = ''
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+      if ($start -eq 0) {
+        $m = [regex]::Match($lines[$i], '^[ \t]*(async[ \t]+)?test[ \t]+"[^"]*"')
+        if ($m.Success) {
+          $name = $m.Value -replace '^[ \t]*(async[ \t]+)?test[ \t]+"', ''
+          $name = $name -replace '"$', ''
+          $start = "$($i + 1)"
+        }
+        continue
+      }
+      if ($lines[$i] -cmatch '^\}[ \t]*$') {
+        $out += ,@($rel, $start, $name, "$($i + 1)")
+        $start = 0
+        $name = ''
+      }
+    }
+  }
+  $out
+}
+
+# One row, checked against the test it points at.
+function Test-TestPointer($doc, $line, $claim) {
+  $m = [regex]::Match($claim, $testPtrRe)
+  if (-not $m.Success) { return }
+  $first = $m.Groups[2].Value
+  $last = $m.Groups[3].Value
+  if ($last.StartsWith('-')) { $last = $last.Substring(1) }
+  if ($last -eq '') { $last = $first }
+  foreach ($q in [regex]::Matches($claim, $dquoteRe)) {
+    $name = $q.Groups[1].Value
+    $script:testPtrChecked++
+    $found = $false
+    $matched = $false
+    $file = ''
+    $dl = ''
+    $de = ''
+    foreach ($d in $script:testDecls) {
+      if ($d[2] -cne $name) { continue }
+      if (-not $found) { $found = $true; $file = $d[0]; $dl = $d[1]; $de = $d[3] }
+      if (($d[1] -ceq $first) -and ($d[3] -ceq $last)) { $matched = $true; break }
+    }
+    if (-not $found) {
+      Write-Fail ("{0,-22} {1} line {2} names the test [{3}], and the tree has no test with that name" -f 'test pointer', $doc, $line, $name)
+      $script:testPtrBad = $true
+    } elseif (-not $matched) {
+      Write-Fail ("{0,-22} {1} line {2} says the test [{3}] is at test:{4}-{5}, and the tree has it at {6}:{7}-{8}" -f 'test pointer', $doc, $line, $name, $first, $last, $file, $dl, $de)
+      $script:testPtrBad = $true
+    }
+  }
+}
+
+$script:testDecls = @(Get-TestDeclarations)
+
+foreach ($doc in $archDocs) {
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-TestPointer $doc $claim.line $claim.text
+  }
+}
+
+if ($script:testPtrChecked -eq 0) {
+  Write-Fail ("{0,-22} no document points at a test of the tree" -f 'test pointer')
+  $script:testPtrBad = $true
+}
+
+if (-not $script:testPtrBad) { Write-Ok 'test pointer' ("{0} tests" -f $script:testPtrChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)
