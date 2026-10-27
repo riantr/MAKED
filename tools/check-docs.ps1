@@ -10416,6 +10416,117 @@ if ($script:apiRouteChecked -eq 0) {
 
 if (-not $script:apiRouteBad) { Write-Ok 'api route' ("{0} paths" -f $script:apiRouteChecked) }
 
+# --- the values the documents state for the environment variables ---------------
+#
+# The tree pins a default for the environment variables the server reads:
+# MAKED_PORT=8080, MAKED_HOST=127.0.0.1, MAKED_DB=maked.db and
+# MAKED_DIST=frontend/dist.  The documents state those values in three shapes:
+# the deployment table gives each name a value cell, the run notes say
+# "MAKED_PORT (default 8080)", and the deployment graph writes them out as
+# MAKED_PORT=8080.
+#
+# Two of the three shapes were held to the tree: the "deployment settings" gate
+# reads the table, and the "env default" gate reads the prose.  The graph was
+# read by neither.  The measurement says so plainly: the graph's
+# MAKED_DB=maked.db was changed to MAKED_DB=other.db and not one gate went red.
+#
+# The rule: a value a document states for a name the tree pins is the value the
+# tree pins.  The names and the values come out of the tree, so a tree that
+# changed its default changes the gate with it.
+#
+# A table cell that holds a description is not a value, and the backticks are
+# what say which one it is: a cell written as `8080` states a value, a cell
+# that reads "the HTTP port" states a description and is left alone.
+#
+# The bash twin says the same thing.  The two are twins: they print the same
+# lines and they go red together.
+
+$script:envValueBad = $false
+$script:envValueChecked = 0
+
+# The value a claim states after a name, when the claim writes it as NAME=value.
+# The value runs to the first separator: a space, a quote, a backtick, a pipe,
+# or the backslash that starts the newline escape the graph writes.
+$envValueRe = '[^\s"`|\\]*'
+
+# The values a claim states for one name, as NAME=value.
+$script:envValues = @()
+
+function Get-EnvAssignmentValues($claim, $name) {
+  $script:envValues = @()
+  $rest = $claim
+  $key = $name + '='
+  while ($rest.Contains($key)) {
+    $i = $rest.IndexOf($key)
+    $rest = $rest.Substring($i + $key.Length)
+    $m = [regex]::Match($rest, $envValueRe)
+    if ($m.Success -and $m.Value -ne '') { $script:envValues += $m.Value }
+  }
+}
+
+# The value a table row gives a name: the cell after the name's cell, when that
+# cell is a quoted value.
+$script:envTableValue = ''
+
+function Get-EnvTableValue($claim, $name) {
+  $script:envTableValue = ''
+  $cells = $claim -split '\|'
+  for ($i = 0; $i -lt $cells.Count - 1; $i++) {
+    $cell = $cells[$i].Trim(" `t")
+    if ($cell -cne $name -and $cell -cne ('`' + $name + '`')) { continue }
+    $next = $cells[$i + 1].Trim(" `t")
+    if ($next.Length -ge 2 -and $next.StartsWith('`') -and $next.EndsWith('`')) {
+      $script:envTableValue = $next.Substring(1, $next.Length - 2).Trim(" `t")
+      return
+    }
+  }
+}
+
+# One claim, checked against the defaults the tree pins.
+function Test-EnvValue($doc, $line, $claim) {
+  foreach ($pair in $script:envDefaults) {
+    $cut = $pair.IndexOf('=')
+    $name = $pair.Substring(0, $cut)
+    $tree = $pair.Substring($cut + 1)
+    # the claim writes the value as NAME=value
+    Get-EnvAssignmentValues $claim $name
+    foreach ($value in $script:envValues) {
+      $script:envValueChecked++
+      if ($value -cne $tree) {
+        Write-Fail ("{0,-22} {1} line {2} states {3}=[{4}], the tree pins [{5}]" -f 'env value', $doc, $line, $name, $value, $tree)
+        $script:envValueBad = $true
+      }
+    }
+    # the claim writes the value in a table cell
+    Get-EnvTableValue $claim $name
+    $value = $script:envTableValue
+    if ($value -ne '') {
+      $script:envValueChecked++
+      if ($value -cne $tree) {
+        Write-Fail ("{0,-22} {1} line {2} states {3}=[{4}], the tree pins [{5}]" -f 'env value', $doc, $line, $name, $value, $tree)
+        $script:envValueBad = $true
+      }
+    }
+  }
+}
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past.  Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-EnvValue $doc $claim.line $claim.text
+  }
+}
+
+if ($script:envValueChecked -eq 0) {
+  Write-Fail ("{0,-22} no document states a value for an environment variable" -f 'env value')
+  $script:envValueBad = $true
+}
+
+if (-not $script:envValueBad) { Write-Ok 'env value' ("{0} values" -f $script:envValueChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

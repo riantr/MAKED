@@ -12096,6 +12096,172 @@ if [ "$API_ROUTE_BAD" -eq 0 ]; then
   ok "api route" "$API_ROUTE_CHECKED paths"
 fi
 
+# --- the values the documents state for the environment variables ---------------
+#
+# The tree pins a default for the environment variables the server reads:
+# MAKED_PORT=8080, MAKED_HOST=127.0.0.1, MAKED_DB=maked.db and
+# MAKED_DIST=frontend/dist.  The documents state those values in three shapes:
+# the deployment table gives each name a value cell, the run notes say
+# "MAKED_PORT (default 8080)", and the deployment graph writes them out as
+# MAKED_PORT=8080.
+#
+# Two of the three shapes were held to the tree: the "deployment settings" gate
+# reads the table, and the "env default" gate reads the prose.  The graph was
+# read by neither.  The measurement says so plainly: the graph's
+# MAKED_DB=maked.db was changed to MAKED_DB=other.db and not one gate went red.
+#
+# The rule: a value a document states for a name the tree pins is the value the
+# tree pins.  The names and the values come out of the tree, so a tree that
+# changed its default changes the gate with it.
+#
+# A table cell that holds a description is not a value, and the backticks are
+# what say which one it is: a cell written as `8080` states a value, a cell
+# that reads "the HTTP port" states a description and is left alone.
+#
+# The bash twin says the same thing.  The two are twins: they print the same
+# lines and they go red together.
+
+ENV_VALUE_BAD=0
+ENV_VALUE_CHECKED=0
+
+# The backtick a table writes its values in.  It is held in a name of its own
+# because a backtick inside double quotes is a command.
+BT='`'
+
+# The value a claim states after a name, when the claim writes it as NAME=value.
+# The value runs to the first separator: a space, a quote, a backtick, a pipe,
+# or the backslash that starts the newline escape the graph writes.
+ENV_VALUE_RE='[^[:space:]"`|\\]*'
+
+# The values a claim states for one name, as NAME=value.
+ENV_VALUES=""
+
+env_value_assignment_values() {
+  local claim="$1" name="$2" key="$2=" rest value
+  ENV_VALUES=""
+  rest="$claim"
+  while :; do
+    case "$rest" in
+      *"$key"*) ;;
+      *) break ;;
+    esac
+    rest="${rest#*"$key"}"
+    if [[ "$rest" =~ $ENV_VALUE_RE ]]; then
+      value="${BASH_REMATCH[0]}"
+      if [ -n "$value" ]; then
+        ENV_VALUES="$ENV_VALUES $value"
+      fi
+    fi
+  done
+}
+
+# A cell of a table row, without the spaces and the tabs around it.
+ENV_CELL=""
+env_value_cell() {
+  local text="$1"
+  while :; do
+    case "$text" in
+      " "*|$'\t'*) text="${text#?}" ;;
+      *) break ;;
+    esac
+  done
+  while :; do
+    case "$text" in
+      *" "*|*$'\t'*) text="${text%?}" ;;
+      *) break ;;
+    esac
+  done
+  ENV_CELL="$text"
+}
+
+# The value a table row gives a name: the cell after the name's cell, when that
+# cell is a quoted value.
+ENV_TABLE_VALUE=""
+
+env_value_table_value() {
+  local claim="$1" name="$2" cell next
+  ENV_TABLE_VALUE=""
+  local -a cells
+  IFS='|' read -r -a cells <<< "$claim"
+  local i
+  for ((i = 0; i < ${#cells[@]} - 1; i++)); do
+    env_value_cell "${cells[$i]}"
+    cell="$ENV_CELL"
+    case "$cell" in
+      "$name"|"$BT$name$BT") ;;
+      *) continue ;;
+    esac
+    env_value_cell "${cells[$((i + 1))]}"
+    next="$ENV_CELL"
+    case "$next" in
+      "$BT"*"$BT") ;;
+      *) continue ;;
+    esac
+    next="${next#?}"
+    next="${next%?}"
+    env_value_cell "$next"
+    ENV_TABLE_VALUE="$ENV_CELL"
+    return
+  done
+}
+
+# One claim, checked against the defaults the tree pins.
+env_value_check() {
+  local doc="$1" line="$2" claim="$3"
+  local pair name tree value
+  for pair in $ENV_DEFAULTS; do
+    name="${pair%%=*}"
+    tree="${pair#*=}"
+    # the claim writes the value as NAME=value
+    env_value_assignment_values "$claim" "$name"
+    for value in $ENV_VALUES; do
+      [ -n "$value" ] || continue
+      ENV_VALUE_CHECKED=$((ENV_VALUE_CHECKED + 1))
+      if [ "$value" != "$tree" ]; then
+        fail "$(printf '%-22s %s line %s states %s=[%s], the tree pins [%s]' \
+          'env value' "$doc" "$line" "$name" "$value" "$tree")"
+        ENV_VALUE_BAD=1
+      fi
+    done
+    # the claim writes the value in a table cell
+    env_value_table_value "$claim" "$name"
+    value="$ENV_TABLE_VALUE"
+    if [ -n "$value" ]; then
+      ENV_VALUE_CHECKED=$((ENV_VALUE_CHECKED + 1))
+      if [ "$value" != "$tree" ]; then
+        fail "$(printf '%-22s %s line %s states %s=[%s], the tree pins [%s]' \
+          'env value' "$doc" "$line" "$name" "$value" "$tree")"
+        ENV_VALUE_BAD=1
+      fi
+    fi
+  done
+}
+
+# Every claim the documents make, checked against the defaults the tree pins.
+check_env_values() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      env_value_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+check_env_values
+
+if [ "$ENV_VALUE_CHECKED" -eq 0 ]; then
+  fail "$(printf '%-22s no document states a value for an environment variable' 'env value')"
+  ENV_VALUE_BAD=1
+fi
+
+if [ "$ENV_VALUE_BAD" -eq 0 ]; then
+  ok "env value" "$ENV_VALUE_CHECKED values"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."
