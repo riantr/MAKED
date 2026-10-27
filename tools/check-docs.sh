@@ -2976,7 +2976,7 @@ SYSTEM_MODEL_DSL="architecture/system-model.dsl"
 # The API families the tree serves: the first two segments of every route.
 tree_api_families() {
   tr '\n' ' ' < backend/api.mbt \
-    | grep -oE 'app\.(get|post|put|delete|patch)\("/api/[^"]+"' \
+    | grep -oE 'app\.(get|post|put|delete|patch)\([[:space:]]*"/api/[^"]+"' \
     | grep -oE '"/api/[^"]+"' | tr -d '"' \
     | sed -E 's|^(/api/[^"/]+).*|\1|' | LC_ALL=C sort -u
 }
@@ -3010,7 +3010,7 @@ check_sets "topology variables" "$(code_variable_names)" "$(graph_variables)"
 # Every route the server registers.
 tree_routes() {
   tr '\n' ' ' < backend/api.mbt \
-    | grep -oE 'app\.(get|post|put|delete|patch)\("/api/[^"]+"' \
+    | grep -oE 'app\.(get|post|put|delete|patch)\([[:space:]]*"/api/[^"]+"' \
     | grep -oE '"/api/[^"]+"' | tr -d '"' | LC_ALL=C sort -u
 }
 
@@ -11995,6 +11995,105 @@ fi
 
 if [ "$DEP_LIST_BAD" -eq 0 ]; then
   ok "dep list" "$DEP_LIST_CHECKED dependencies"
+fi
+
+# --- the API paths the documents name -----------------------------------------
+#
+# The server registers its routes in backend/api.mbt.  The documents name
+# paths -- in prose, in table rows and in the graphs -- and a path a document
+# names has to be a path the server serves.
+#
+# Nothing asked that of the documents.  The gates that read paths read the
+# Dockerfile's health check, AGENT.md's endpoint table, the graphs' API
+# families and the model's routes; the markdown was not read at all.  Rename a
+# route in the tree and the paths the markdown names go on naming a path that
+# no longer answers.
+#
+# The rule: a path a document names is served by the tree.  A path is served
+# when the tree registers it, or when the tree registers a route that takes
+# the path's last segments as its parameters: /api/pages/model is the route
+# /api/pages/:slug with slug="model", and the flow document says exactly
+# that.
+#
+# A path that ends in a slash is a family and not a request: the graphs list
+# the API surface as families, and the api families gate already holds those
+# to the tree.
+#
+# The bash twin says the same thing.  The two are twins: they print the same
+# lines and they go red together.
+
+API_ROUTE_BAD=0
+API_ROUTE_CHECKED=0
+
+# A path a document names.
+API_PATH_RE='/api/[A-Za-z0-9_:/-]+'
+
+# Whether the tree serves a path: the tree registers it, or the tree
+# registers a route whose parameters take the path's segments.
+api_path_served() {
+  local path="$1" route
+  local -a p r
+  IFS='/' read -r -a p <<< "${path#/}"
+  for route in $TREE_ROUTES; do
+    IFS='/' read -r -a r <<< "${route#/}"
+    [ "${#p[@]}" = "${#r[@]}" ] || continue
+    local i ok=1
+    for ((i = 0; i < ${#p[@]}; i++)); do
+      case "${r[$i]}" in
+        :*|\**) continue ;;
+      esac
+      if [ "${p[$i]}" != "${r[$i]}" ]; then ok=0; break; fi
+    done
+    [ "$ok" -eq 1 ] && return 0
+  done
+  return 1
+}
+
+# One claim, checked against the routes the tree registers.
+api_route_check() {
+  local doc="$1" line="$2" claim="$3"
+  local rest="$3" path
+  while [[ "$rest" =~ $API_PATH_RE ]]; do
+    path="${BASH_REMATCH[0]}"
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+    # a path that ends in a slash is a family, and the api families gate
+    # holds those to the tree
+    case "$path" in
+      */) continue ;;
+    esac
+    API_ROUTE_CHECKED=$((API_ROUTE_CHECKED + 1))
+    if ! api_path_served "$path"; then
+      fail "$(printf '%-22s %s line %s names [%s], and the tree does not serve it' \
+        'api route' "$doc" "$line" "$path")"
+      API_ROUTE_BAD=1
+    fi
+  done
+}
+
+# Every claim the documents make, checked against the routes of the tree.
+check_api_routes() {
+  local doc line claim
+  TREE_ROUTES=$(tree_routes)
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      api_route_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+check_api_routes
+
+if [ "$API_ROUTE_CHECKED" -eq 0 ]; then
+  fail "$(printf '%-22s no document names a path of the API' 'api route')"
+  API_ROUTE_BAD=1
+fi
+
+if [ "$API_ROUTE_BAD" -eq 0 ]; then
+  ok "api route" "$API_ROUTE_CHECKED paths"
 fi
 
 echo ""

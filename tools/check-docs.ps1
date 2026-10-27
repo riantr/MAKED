@@ -2991,7 +2991,7 @@ function Get-TreeApiFamilies {
   $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/api.mbt'), $enc)
   $flat = $text -replace "`r?`n", ' '
   $out = @()
-  foreach ($m in [regex]::Matches($flat, 'app\.(get|post|put|delete|patch)\("(/api/[^"]+)"')) {
+  foreach ($m in [regex]::Matches($flat, 'app\.(get|post|put|delete|patch)\(\s*"(/api/[^"]+)"')) {
     $segments = $m.Groups[2].Value.Split('/')
     $out += ('/api/' + $segments[2])
   }
@@ -3038,7 +3038,7 @@ function Get-TreeRoutes {
   $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/api.mbt'), $enc)
   $flat = $text -replace "`r?`n", ' '
   $out = @()
-  foreach ($m in [regex]::Matches($flat, 'app\.(get|post|put|delete|patch)\("(/api/[^"]+)"')) {
+  foreach ($m in [regex]::Matches($flat, 'app\.(get|post|put|delete|patch)\(\s*"(/api/[^"]+)"')) {
     $out += $m.Groups[2].Value
   }
   Sort-Set $out
@@ -10338,6 +10338,83 @@ if ($script:depListChecked -eq 0) {
 }
 
 if (-not $script:depListBad) { Write-Ok 'dep list' ("{0} dependencies" -f $script:depListChecked) }
+
+# --- the API paths the documents name -----------------------------------------
+#
+# The server registers its routes in backend/api.mbt.  The documents name
+# paths -- in prose, in table rows and in the graphs -- and a path a document
+# names has to be a path the server serves.
+#
+# Nothing asked that of the documents.  The gates that read paths read the
+# Dockerfile's health check, AGENT.md's endpoint table, the graphs' API
+# families and the model's routes; the markdown was not read at all.  Rename a
+# route in the tree and the paths the markdown names go on naming a path that
+# no longer answers.
+#
+# The rule: a path a document names is served by the tree.  A path is served
+# when the tree registers it, or when the tree registers a route that takes
+# the path's last segments as its parameters: /api/pages/model is the route
+# /api/pages/:slug with slug="model", and the flow document says exactly
+# that.
+#
+# A path that ends in a slash is a family and not a request: the graphs list
+# the API surface as families, and the api families gate already holds those
+# to the tree.
+#
+# The bash twin says the same thing.  The two are twins: they print the same
+# lines and they go red together.
+
+$script:apiRouteBad = $false
+$script:apiRouteChecked = 0
+
+# A path a document names.
+$apiPathRe = '/api/[A-Za-z0-9_:/-]+'
+
+# Whether the tree serves a path: the tree registers it, or the tree
+# registers a route whose parameters take the path's segments.
+function Test-ApiPathServed($path) {
+  $p = @($path.Trim('/') -split '/' | Where-Object { $_ -ne '' })
+  foreach ($route in (Get-TreeRoutes)) {
+    $r = @($route.Trim('/') -split '/' | Where-Object { $_ -ne '' })
+    if ($p.Count -ne $r.Count) { continue }
+    $ok = $true
+    for ($i = 0; $i -lt $p.Count; $i++) {
+      if ($r[$i].StartsWith(':') -or $r[$i].StartsWith('*')) { continue }
+      if ($p[$i] -cne $r[$i]) { $ok = $false; break }
+    }
+    if ($ok) { return $true }
+  }
+  $false
+}
+
+# One claim, checked against the routes the tree registers.
+function Test-ApiRoute($doc, $line, $claim) {
+  foreach ($m in [regex]::Matches($claim, $apiPathRe)) {
+    $path = $m.Value
+    # a path that ends in a slash is a family, and the api families gate
+    # holds those to the tree
+    if ($path.EndsWith('/')) { continue }
+    $script:apiRouteChecked++
+    if (-not (Test-ApiPathServed $path)) {
+      Write-Fail ("{0,-22} {1} line {2} names [{3}], and the tree does not serve it" -f 'api route', $doc, $line, $path)
+      $script:apiRouteBad = $true
+    }
+  }
+}
+
+foreach ($doc in $archDocs) {
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-ApiRoute $doc $claim.line $claim.text
+  }
+}
+
+if ($script:apiRouteChecked -eq 0) {
+  Write-Fail ("{0,-22} no document names a path of the API" -f 'api route')
+  $script:apiRouteBad = $true
+}
+
+if (-not $script:apiRouteBad) { Write-Ok 'api route' ("{0} paths" -f $script:apiRouteChecked) }
 
 Write-Output ""
 if ($failures -gt 0) {
