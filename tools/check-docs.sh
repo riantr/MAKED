@@ -12262,6 +12262,112 @@ if [ "$ENV_VALUE_BAD" -eq 0 ]; then
   ok "env value" "$ENV_VALUE_CHECKED values"
 fi
 
+# --- the pins the graphs state -------------------------------------------------
+#
+# The component graph and the dependency graph both write the version of the
+# packages the project leans on: sqlite3@0.2.3, moonback@0.8.9 and the rest.
+# The dependency graph was held to the tree: the "graph pins" gate asks that the
+# set of pins it states is the set the manifests pin, both ways.  The component
+# graph was held to nothing.  It states nine pins, and no gate read them.
+#
+# The measurement says so plainly: the component graph's sqlite3@0.2.3 was
+# changed to sqlite3@0.2.4 and not one gate went red.
+#
+# The rule: a pin a graph states is a pin the tree declares, with that version.
+# The comparison is one way.  A component graph may show fewer packages than the
+# tree has -- the component graph does not draw "x", the utility library, and
+# it does not have to -- but every pin it does draw has to be the tree's.
+#
+# The pins are read off the FIRST line of every label, because that is where a
+# package writes its version.  The lines under it say what the package is for,
+# and a line that happens to mention a version is a sentence, not a claim.
+#
+# The bash twin says the same thing.  The two are twins: they print the same
+# lines and they go red together.
+
+GRAPH_PIN_BAD=0
+GRAPH_PIN_CHECKED=0
+
+# The escape a graph writes a newline with: a backslash and an n.
+DOT_NL='\n'
+
+# A pin is a package name and a version.
+GRAPH_PIN_RE='([A-Za-z0-9_-]+)@([0-9]+\.[0-9]+\.[0-9]+)'
+
+# The version the tree pins for a name, if it pins one.
+GRAPH_PIN_TREE=""
+graph_pin_tree_version() {
+  local name="$1" pair
+  GRAPH_PIN_TREE=""
+  for pair in $TREE_PINS; do
+    if [ "${pair%%@*}" != "$name" ]; then continue; fi
+    GRAPH_PIN_TREE="${pair#*@}"
+    return
+  done
+}
+
+# The pins a graph states, checked against the tree.
+graph_pin_check() {
+  local doc="$1" line="$2" claim="$3"
+  local rest="$3" label head pin name version
+  while [[ "$rest" =~ label=\"([^\"]*)\" ]]; do
+    label="${BASH_REMATCH[1]}"
+    pin="${BASH_REMATCH[0]}"
+    rest="${rest#*"$pin"}"
+    # the first line of the label is where a package writes its version
+    head="${label%%"$DOT_NL"*}"
+    while [[ "$head" =~ $GRAPH_PIN_RE ]]; do
+      name="${BASH_REMATCH[1]}"
+      version="${BASH_REMATCH[2]}"
+      pin="${BASH_REMATCH[0]}"
+      head="${head#*"$pin"}"
+      GRAPH_PIN_CHECKED=$((GRAPH_PIN_CHECKED + 1))
+      graph_pin_tree_version "$name"
+      if [ -z "$GRAPH_PIN_TREE" ]; then
+        fail "$(printf '%-22s %s line %s states %s@%s, and the tree pins no such package' \
+          'graph pin' "$doc" "$line" "$name" "$version")"
+        GRAPH_PIN_BAD=1
+      elif [ "$GRAPH_PIN_TREE" != "$version" ]; then
+        fail "$(printf '%-22s %s line %s states %s@%s, the tree pins %s@%s' \
+          'graph pin' "$doc" "$line" "$name" "$version" "$name" "$GRAPH_PIN_TREE")"
+        GRAPH_PIN_BAD=1
+      fi
+    done
+  done
+}
+
+# Every graph, checked against the pins the tree declares.
+check_graph_pins() {
+  local doc line claim
+  local -a graphs
+  TREE_PINS=$(tree_pins)
+  for doc in "${ARCH_DOCS[@]}"; do
+    case "$doc" in
+      *.dot) graphs+=("$doc") ;;
+    esac
+  done
+  for doc in "${graphs[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      graph_pin_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+check_graph_pins
+
+if [ "$GRAPH_PIN_CHECKED" -eq 0 ]; then
+  fail "$(printf '%-22s no graph states a version of a package' 'graph pin')"
+  GRAPH_PIN_BAD=1
+fi
+
+if [ "$GRAPH_PIN_BAD" -eq 0 ]; then
+  ok "graph pin" "$GRAPH_PIN_CHECKED pins"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

@@ -7579,7 +7579,14 @@ foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $PWD 'moon.mod'), $e
 
 # The import blocks of a manifest: the kind of the block, the path, the alias.
 # A block is the main one, unless the manifest marks it `for "test"`.
-function Get-ManifestBlocks {
+#
+# This one is named for what it takes.  There is another Get-ManifestBlocks
+# earlier in this script, and it takes no argument: it returns the blocks of
+# every manifest.  Two functions with one name means the later one wins, and a
+# gate at the end of the script that asked for the blocks of every manifest
+# would have got this one instead, and this one with no file is the path to the
+# root of the tree.
+function Get-ManifestFileBlocks {
   param([string]$File)
   $out = @()
   $path = Join-Path $PWD $File
@@ -7642,7 +7649,7 @@ function Get-UniqueNames {
 function Get-ManifestNames {
   param([string]$File, [string]$Kind)
   $out = @()
-  foreach ($b in (Get-ManifestBlocks $File)) {
+  foreach ($b in (Get-ManifestFileBlocks $File)) {
     if ($b[0] -cne $Kind) { continue }
     $name = Get-ShortImport $b[1]
     if ($b[2]) { $out += ($name + '(' + $b[2] + ')') } else { $out += $name }
@@ -10526,6 +10533,95 @@ if ($script:envValueChecked -eq 0) {
 }
 
 if (-not $script:envValueBad) { Write-Ok 'env value' ("{0} values" -f $script:envValueChecked) }
+
+# --- the pins the graphs state -------------------------------------------------
+#
+# The component graph and the dependency graph both write the version of the
+# packages the project leans on: sqlite3@0.2.3, moonback@0.8.9 and the rest.
+# The dependency graph was held to the tree: the "graph pins" gate asks that the
+# set of pins it states is the set the manifests pin, both ways.  The component
+# graph was held to nothing.  It states nine pins, and no gate read them.
+#
+# The measurement says so plainly: the component graph's sqlite3@0.2.3 was
+# changed to sqlite3@0.2.4 and not one gate went red.
+#
+# The rule: a pin a graph states is a pin the tree declares, with that version.
+# The comparison is one way.  A component graph may show fewer packages than the
+# tree has -- the component graph does not draw "x", the utility library, and
+# it does not have to -- but every pin it does draw has to be the tree's.
+#
+# The pins are read off the FIRST line of every label, because that is where a
+# package writes its version.  The lines under it say what the package is for,
+# and a line that happens to mention a version is a sentence, not a claim.
+#
+# The bash twin says the same thing.  The two are twins: they print the same
+# lines and they go red together.
+
+$script:graphPinBad = $false
+$script:graphPinChecked = 0
+
+# A pin is a package name and a version.
+$graphPinRe = '([A-Za-z0-9_-]+)@([0-9]+\.[0-9]+\.[0-9]+)'
+
+# The pins a graph states, with the line each one is on.
+function Get-GraphPinClaims($doc) {
+  $out = @()
+  $n = 0
+  foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $PWD $doc), $enc)) {
+    $n++
+    foreach ($lm in [regex]::Matches($line, 'label="([^"]*)"')) {
+      # the first line of the label is where a package writes its version
+      $head = $lm.Groups[1].Value
+      $cut = $head.IndexOf('\n')
+      if ($cut -ge 0) { $head = $head.Substring(0, $cut) }
+      foreach ($pm in [regex]::Matches($head, $graphPinRe)) {
+        $out += [pscustomobject]@{
+          line = $n
+          name = $pm.Groups[1].Value
+          version = $pm.Groups[2].Value
+        }
+      }
+    }
+  }
+  $out
+}
+
+# The version the tree pins for a name, if it pins one.
+function Get-GraphPinTreeVersion($name, $pins) {
+  foreach ($pin in $pins) {
+    $cut = $pin.IndexOf('@')
+    if ($pin.Substring(0, $cut) -ceq $name) { return $pin.Substring($cut + 1) }
+  }
+  ''
+}
+
+# Every graph, checked against the pins the tree declares.
+$treePins = @(Get-TreePins)
+
+foreach ($doc in $archDocs) {
+  if (-not $doc.EndsWith('.dot')) { continue }
+  # A document that describes the past is a record of the past.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($pin in (Get-GraphPinClaims $doc)) {
+    $script:graphPinChecked++
+    $tree = Get-GraphPinTreeVersion $pin.name $treePins
+    if ($tree -eq '') {
+      Write-Fail ("{0,-22} {1} line {2} states {3}@{4}, and the tree pins no such package" -f 'graph pin', $doc, $pin.line, $pin.name, $pin.version)
+      $script:graphPinBad = $true
+    }
+    elseif ($tree -cne $pin.version) {
+      Write-Fail ("{0,-22} {1} line {2} states {3}@{4}, the tree pins {3}@{5}" -f 'graph pin', $doc, $pin.line, $pin.name, $pin.version, $tree)
+      $script:graphPinBad = $true
+    }
+  }
+}
+
+if ($script:graphPinChecked -eq 0) {
+  Write-Fail ("{0,-22} no graph states a version of a package" -f 'graph pin')
+  $script:graphPinBad = $true
+}
+
+if (-not $script:graphPinBad) { Write-Ok 'graph pin' ("{0} pins" -f $script:graphPinChecked) }
 
 Write-Output ""
 if ($failures -gt 0) {
