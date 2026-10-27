@@ -11836,6 +11836,167 @@ if [ "$CALL_PTR_BAD" -eq 0 ]; then
   ok "code pointer call" "$CALL_PTR_CHECKED calls"
 fi
 
+# --- the dependency lists against the manifest --------------------------------
+#
+# moon.mod's import block declares the dependencies of this project, each with
+# the version it is pinned to.  Three documents list them: a code fence in
+# dependencies.md, and a table in each of the two evidence files.
+#
+# The "dep <module>" gate asks the question one dependency at a time, from the
+# manifest to the documents: does this document state this version?  It never
+# asks the other way round, and it never asks whether the manifest line a row
+# cites is the line that declares that dependency.
+#
+# The measurement that found the gap: the manifest declares ten dependencies
+# and the three documents list ten each, so the sets agree today.  Take a
+# dependency out of the manifest and every document goes on listing it, because
+# nothing asks.  And move one line of the import block and the twenty rows
+# that cite moon.mod:48 and the lines after it go on pointing at the lines
+# that used to hold the dependency.
+#
+# The rule, two questions, both asked of the tree:
+#   (a) the dependencies a document lists are the dependencies the manifest
+#       declares, versions included -- both ways;
+#   (b) the manifest line a row cites declares the dependency that row names.
+#
+# The bash twin says the same thing.  The two are twins: they print the same
+# lines and they go red together.
+
+DEP_LIST_BAD=0
+DEP_LIST_CHECKED=0
+
+# The dependencies the manifest declares, and the line each one is declared
+# on: the module and the version, and the line, separated by a bar.
+DEP_TREE=""
+DEP_TREE_LINES=""
+
+tree_dependencies() {
+  local out mod line
+  DEP_TREE=""
+  DEP_TREE_LINES=""
+  out=$(awk '
+    /^ *"[^"]+@[^"]+"/ {
+      dep = $0
+      sub(/^ *"/, "", dep)
+      sub(/".*$/, "", dep)
+      printf "%s|%d\n", dep, NR
+    }
+  ' moon.mod 2>/dev/null || true)
+  while IFS='|' read -r mod line; do
+    [ -n "$mod" ] || continue
+    if [ -z "$DEP_TREE" ]; then DEP_TREE="$mod"; else DEP_TREE="$DEP_TREE $mod"; fi
+    if [ -z "$DEP_TREE_LINES" ]; then
+      DEP_TREE_LINES="$mod|$line"
+    else
+      DEP_TREE_LINES="$DEP_TREE_LINES $mod|$line"
+    fi
+  done <<< "$out"
+}
+
+# The dependencies a document lists: the module and the version, the line of
+# the document, and the manifest line the row cites (0 when it cites none).
+DOC_DEPS=""
+DOC_CITES=""
+DOC_COUNT=0
+
+doc_dependencies() {
+  local file="$1" line mod ver cite
+  DOC_DEPS=""
+  DOC_CITES=""
+  DOC_COUNT=0
+  local n=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    mod=""
+    ver=""
+    # a table row: the module in the first cell, the version in the second
+    if [[ "$line" =~ ^\|[[:space:]]*([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)[[:space:]]*\|[[:space:]]*([0-9][0-9A-Za-z.+-]*) ]]; then
+      mod="${BASH_REMATCH[1]}"
+      ver="${BASH_REMATCH[2]}"
+    # a line that carries the module and the version together
+    elif [[ "$line" =~ ([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)@([0-9][0-9A-Za-z.+-]*) ]]; then
+      mod="${BASH_REMATCH[1]}"
+      ver="${BASH_REMATCH[2]}"
+    else
+      continue
+    fi
+    # the module's own name is not one of its dependencies
+    [ "$mod" = "$MODULE_NAME" ] && continue
+    DOC_COUNT=$((DOC_COUNT + 1))
+    if [ -z "$DOC_DEPS" ]; then
+      DOC_DEPS="$mod@$ver"
+    else
+      DOC_DEPS="$DOC_DEPS $mod@$ver"
+    fi
+    cite=0
+    if [[ "$line" =~ \`moon\.mod:([0-9]+)\` ]]; then
+      cite="${BASH_REMATCH[1]}"
+    fi
+    if [ -z "$DOC_CITES" ]; then
+      DOC_CITES="$n|$mod@$ver|$cite"
+    else
+      DOC_CITES="$DOC_CITES $n|$mod@$ver|$cite"
+    fi
+  done < "$file"
+}
+
+# One document, checked against the manifest.
+dep_list_check() {
+  local doc="$1" line entry rest mod cite want pair m l
+  local tree_set doc_set missing extra tree_text doc_text
+  tree_dependencies
+  doc_dependencies "$doc"
+  DEP_LIST_CHECKED=$((DEP_LIST_CHECKED + DOC_COUNT))
+  # (a) the sets are the same, both ways
+  tree_set="$(printf '%s\n' $DEP_TREE | LC_ALL=C sort -u)"
+  doc_set="$(printf '%s\n' $DOC_DEPS | LC_ALL=C sort -u)"
+  not_in "$tree_set" "$doc_set"; missing=$NOT_IN
+  not_in "$doc_set" "$tree_set"; extra=$NOT_IN
+  if [ -n "$missing" ] || [ -n "$extra" ]; then
+    join_lines "$tree_set"; tree_text="$JOIN_LINES"
+    join_lines "$doc_set"; doc_text="$JOIN_LINES"
+    fail "$(printf '%-22s %s lists [%s], and the manifest declares [%s]' \
+      'dep list' "$doc" "$doc_text" "$tree_text")"
+    DEP_LIST_BAD=1
+  fi
+  # (b) the manifest line a row cites declares the dependency that row names
+  for entry in $DOC_CITES; do
+    line="${entry%%|*}"
+    rest="${entry#*|}"
+    mod="${rest%%|*}"
+    cite="${rest#*|}"
+    [ "$cite" != "0" ] || continue
+    want=""
+    for pair in $DEP_TREE_LINES; do
+      m="${pair%%|*}"
+      l="${pair#*|}"
+      if [ "$l" = "$cite" ]; then
+        want="$m"
+        break
+      fi
+    done
+    if [ "$want" != "$mod" ]; then
+      if [ -z "$want" ]; then want="nothing"; fi
+      fail "$(printf '%-22s %s line %s cites moon.mod:%s, and that line declares [%s], not [%s]' \
+        'dep list' "$doc" "$line" "$cite" "$want" "$mod")"
+      DEP_LIST_BAD=1
+    fi
+  done
+}
+
+dep_list_check "$DEPS_MD"
+dep_list_check "$DEPS"
+dep_list_check "$EVIDENCE"
+
+if [ "$DEP_LIST_CHECKED" -eq 0 ]; then
+  fail "$(printf '%-22s no document lists a dependency of the manifest' 'dep list')"
+  DEP_LIST_BAD=1
+fi
+
+if [ "$DEP_LIST_BAD" -eq 0 ]; then
+  ok "dep list" "$DEP_LIST_CHECKED dependencies"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

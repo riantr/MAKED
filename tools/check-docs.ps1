@@ -10212,6 +10212,133 @@ if ($script:callPtrChecked -eq 0) {
 
 if (-not $script:callPtrBad) { Write-Ok 'code pointer call' ("{0} calls" -f $script:callPtrChecked) }
 
+# --- the dependency lists against the manifest --------------------------------
+#
+# moon.mod's import block declares the dependencies of this project, each with
+# the version it is pinned to.  Three documents list them: a code fence in
+# dependencies.md, and a table in each of the two evidence files.
+#
+# The "dep <module>" gate asks the question one dependency at a time, from the
+# manifest to the documents: does this document state this version?  It never
+# asks the other way round, and it never asks whether the manifest line a row
+# cites is the line that declares that dependency.
+#
+# The measurement that found the gap: the manifest declares ten dependencies
+# and the three documents list ten each, so the sets agree today.  Take a
+# dependency out of the manifest and every document goes on listing it, because
+# nothing asks.  And move one line of the import block and the twenty rows
+# that cite moon.mod:48 and the lines after it go on pointing at the lines
+# that used to hold the dependency.
+#
+# The rule, two questions, both asked of the tree:
+#   (a) the dependencies a document lists are the dependencies the manifest
+#       declares, versions included -- both ways;
+#   (b) the manifest line a row cites declares the dependency that row names.
+#
+# The bash twin says the same thing.  The two are twins: they print the same
+# lines and they go red together.
+
+$script:depListBad = $false
+$script:depListChecked = 0
+
+# The dependencies the manifest declares, and the line each one is declared on.
+$script:depTree = @()
+$script:depTreeLines = @()
+
+function Get-TreeDependencies {
+  $script:depTree = @()
+  $script:depTreeLines = @()
+  $path = Join-Path $PWD 'moon.mod'
+  if (-not (Test-Path $path)) { return }
+  $lines = [System.IO.File]::ReadAllLines($path, $enc)
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    $m = [regex]::Match($lines[$i], '^ *"([^"]+@[^"]+)"')
+    if (-not $m.Success) { continue }
+    $dep = $m.Groups[1].Value
+    $script:depTree += $dep
+    $script:depTreeLines += ,@($dep, [string]($i + 1))
+  }
+}
+
+# The dependencies a document lists: the module and the version, the line of
+# the document, and the manifest line the row cites (0 when it cites none).
+$script:docDeps = @()
+$script:docCites = @()
+
+function Get-DocDependencies($file) {
+  $script:docDeps = @()
+  $script:docCites = @()
+  $path = Join-Path $PWD $file
+  if (-not (Test-Path $path)) { return }
+  $lines = [System.IO.File]::ReadAllLines($path, $enc)
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    $line = $lines[$i]
+    $mod = ''
+    $ver = ''
+    # a table row: the module in the first cell, the version in the second
+    $m = [regex]::Match($line, '^\|\s*([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\s*\|\s*([0-9][0-9A-Za-z.+-]*)')
+    if ($m.Success) {
+      $mod = $m.Groups[1].Value
+      $ver = $m.Groups[2].Value
+    }
+    # a line that carries the module and the version together
+    else {
+      $m = [regex]::Match($line, '([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)@([0-9][0-9A-Za-z.+-]*)')
+      if (-not $m.Success) { continue }
+      $mod = $m.Groups[1].Value
+      $ver = $m.Groups[2].Value
+    }
+    # the module's own name is not one of its dependencies
+    if ($mod -ceq $script:moduleName) { continue }
+    $script:docDeps += "$mod@$ver"
+    $cite = 0
+    $c = [regex]::Match($line, '`moon\.mod:([0-9]+)`')
+    if ($c.Success) { $cite = [int]$c.Groups[1].Value }
+    $script:docCites += ,@([string]($i + 1), "$mod@$ver", $cite)
+  }
+}
+
+# One document, checked against the manifest.
+function Test-DepList($doc) {
+  Get-TreeDependencies
+  Get-DocDependencies $doc
+  $script:depListChecked += $script:docDeps.Count
+  # (a) the sets are the same, both ways
+  $tree = @($script:depTree | Sort-Object -Unique)
+  $stated = @($script:docDeps | Sort-Object -Unique)
+  $missing = @($tree | Where-Object { $stated -cnotcontains $_ })
+  $extra = @($stated | Where-Object { $tree -cnotcontains $_ })
+  if ($missing.Count -gt 0 -or $extra.Count -gt 0) {
+    Write-Fail ("{0,-22} {1} lists [{2}], and the manifest declares [{3}]" -f 'dep list', $doc, ($stated -join ' '), ($tree -join ' '))
+    $script:depListBad = $true
+  }
+  # (b) the manifest line a row cites declares the dependency that row names
+  foreach ($c in $script:docCites) {
+    $cite = [int]$c[2]
+    if ($cite -eq 0) { continue }
+    $want = ''
+    foreach ($p in $script:depTreeLines) {
+      if ([int]$p[1] -eq $cite) { $want = $p[0]; break }
+    }
+    if ($want -cne $c[1]) {
+      if ($want -eq '') { $want = 'nothing' }
+      Write-Fail ("{0,-22} {1} line {2} cites moon.mod:{3}, and that line declares [{4}], not [{5}]" -f 'dep list', $doc, $c[0], $cite, $want, $c[1])
+      $script:depListBad = $true
+    }
+  }
+}
+
+Test-DepList $depsMd
+Test-DepList $deps
+Test-DepList $evidence
+
+if ($script:depListChecked -eq 0) {
+  Write-Fail ("{0,-22} no document lists a dependency of the manifest" -f 'dep list')
+  $script:depListBad = $true
+}
+
+if (-not $script:depListBad) { Write-Ok 'dep list' ("{0} dependencies" -f $script:depListChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)
