@@ -9591,6 +9591,100 @@ foreach ($doc in $archDocs) {
 
 if (-not $script:stmtBad) { Write-Ok 'stmt lifecycle' ("{0} claims" -f $script:stmtChecked) }
 
+# --- the names a claim quotes and the files it points at ------------------------
+#
+# A claim that points at a file and quotes a name is telling the reader that
+# the name is in that file: "the body is inserted with `Attrs::inner_html`"
+# points into the code, and a reader who follows the pointer has to find it
+# there. A claim that quotes a name the file has never heard of is a pointer
+# into the wrong place.
+#
+# The names are the tree's own. A name the tree does not have is not a name
+# of the tree at all -- it is a word of prose, a route, a column -- and the
+# claim that quotes it is left alone: the code names gate above is the one
+# that says a quoted name has to be a name of the tree. The files that are
+# pointed at have to know the name: a name of the tree, in files that say
+# nothing about it, is a pointer into the wrong place.
+#
+# The names are read out of the claim cell and the files out of the pointers
+# of the row, so that a file the row names is not mistaken for a name the
+# row quotes.
+#
+# The measurement that found the gap: the row that lists the views of the
+# frontend was pointed at a file that has no views in it, and every gate in
+# the repository was green. The names were in plain words then, so no gate
+# could read them; with the names quoted, this is the rule that notices.
+
+$script:citedNameBad = $false
+$script:citedNameChecked = 0
+
+# A pointer of any kind: a file and the lines of it.
+$citeAnyRe = '`([A-Za-z0-9_./@-]+):([0-9]+([,-][0-9]+)*)`'
+
+# The files a claim points at.
+function Get-CitedFiles($claim) {
+  $out = @()
+  foreach ($m in [regex]::Matches($claim, $citeAnyRe)) {
+    $out += ,($m.Groups[1].Value -split ':')[0]
+  }
+  $out
+}
+
+# The claim cell of a row: the text between the first two bars.
+function Get-ClaimCell($row) {
+  $cells = $row.Split('|')
+  if ($cells.Count -lt 3) { return '' }
+  $cells[1].Trim()
+}
+
+# Whether a file says a name at all. The name is a plain word in the tree, so
+# it is looked for as a word and not as a piece of a longer one: "param" is not
+# inside "Request::param".
+function Test-FileSaysName($file, $name) {
+  $path = Join-Path $PWD $file
+  if (-not (Test-Path $path)) { return $false }
+  try { $text = [System.IO.File]::ReadAllText($path, $enc) } catch { return $false }
+  $pattern = '(?m)(^|[^A-Za-z0-9_])' + [regex]::Escape($name) + '([^A-Za-z0-9_]|$)'
+  [regex]::IsMatch($text, $pattern)
+}
+
+# One claim, checked against the names the files it points at know.
+function Test-CitedNameClaim($doc, $line, $row) {
+  $claim = Get-ClaimCell $row
+  if ($claim -eq '') { return }
+  $files = @(Get-CitedFiles $row)
+  if ($files.Count -eq 0) { return }
+  $fileList = ($files -join ' ')
+  foreach ($m in [regex]::Matches($claim, $litRe)) {
+    $tok = $m.Groups[1].Value
+    $name = ($tok -replace '^@', '')
+    $name = ($name -split '\(')[0]
+    # a name the tree does not have is not a name of the tree
+    if (-not $script:treeNames.Contains($name)) { continue }
+    $script:citedNameChecked++
+    $known = $false
+    foreach ($f in $files) {
+      if (Test-FileSaysName $f $name) { $known = $true; break }
+    }
+    if (-not $known) {
+      Write-Fail ("{0,-22} {1} line {2} names [{3}] and points at [{4}], and none of them says it" -f 'cited name', $doc, $line, $name, $fileList)
+      $script:citedNameBad = $true
+    }
+  }
+}
+
+foreach ($doc in $archDocs) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-CitedNameClaim $doc $claim.line $claim.text
+  }
+}
+
+if (-not $script:citedNameBad) { Write-Ok 'cited name' ("{0} names" -f $script:citedNameChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

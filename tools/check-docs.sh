@@ -10977,6 +10977,121 @@ if [ "$STMT_BAD" -eq 0 ]; then
   ok "stmt lifecycle" "$STMT_CHECKED claims"
 fi
 
+# --- the names a claim quotes and the files it points at ------------------------
+#
+# A claim that points at a file and quotes a name is telling the reader that
+# the name is in that file: "the body is inserted with `Attrs::inner_html`"
+# points into the code, and a reader who follows the pointer has to find it
+# there. A claim that quotes a name the file has never heard of is a pointer
+# into the wrong place.
+#
+# The names are the tree's own. A name the tree does not have is not a name
+# of the tree at all -- it is a word of prose, a route, a column -- and the
+# claim that quotes it is left alone: the code names gate above is the one
+# that says a quoted name has to be a name of the tree. The files that are
+# pointed at have to know the name: a name of the tree, in files that say
+# nothing about it, is a pointer into the wrong place.
+#
+# The names are read out of the claim cell and the files out of the pointers
+# of the row, so that a file the row names is not mistaken for a name the
+# row quotes.
+#
+# The measurement that found the gap: the row that lists the views of the
+# frontend was pointed at a file that has no views in it, and every gate in
+# the repository was green. The names were in plain words then, so no gate
+# could read them; with the names quoted, this is the rule that notices.
+
+CITED_NAME_BAD=0
+CITED_NAME_CHECKED=0
+
+# A pointer of any kind: a file and the lines of it.
+CITE_ANY_RE='`([A-Za-z0-9_./@-]+):([0-9]+([,-][0-9]+)*)`'
+
+# The files a claim points at.
+CITED_FILES=""
+cited_files() {
+  local claim="$1" rest="$1" tok
+  CITED_FILES=""
+  while [[ "$rest" =~ $CITE_ANY_RE ]]; do
+    tok="${BASH_REMATCH[1]}"
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+    CITED_FILES="$CITED_FILES ${tok%%:*}"
+  done
+}
+
+# The claim cell of a row: the text between the first two bars.
+CLAIM_CELL=""
+claim_cell() {
+  local row="$1" text
+  text="${row#*|}"
+  text="${text%%|*}"
+  trim "$text"
+  CLAIM_CELL="$TRIMMED"
+}
+
+# Whether a file says a name at all. The name is a plain word in the tree, so
+# it is looked for as a word and not as a piece of a longer one: "param" is not
+# inside "Request::param".
+file_says_name() {
+  local file="$1" name="$2"
+  [ -f "$file" ] || return 1
+  grep -qE "(^|[^A-Za-z0-9_])${name}([^A-Za-z0-9_]|\$)" "$file" 2>/dev/null
+}
+
+# One claim, checked against the names the files it points at know.
+cited_name_claim_check() {
+  local doc="$1" line="$2" row="$3" rest tok name files known file
+  claim_cell "$row"
+  cited_files "$row"
+  [ -n "$CITED_FILES" ] || return
+  files="$CITED_FILES"
+  trim "$files"; files="$TRIMMED"
+  rest="$CLAIM_CELL"
+  while [[ "$rest" =~ $LIT_RE ]]; do
+    tok="${BASH_REMATCH[1]}"
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+    name="${tok#@}"
+    name="${name%%(*}"
+    # a name the tree does not have is not a name of the tree
+    if [ -z "${TREE_NAME["$name"]+yes}" ]; then
+      continue
+    fi
+    CITED_NAME_CHECKED=$((CITED_NAME_CHECKED + 1))
+    known=0
+    for file in $files; do
+      if file_says_name "$file" "$name"; then
+        known=1
+        break
+      fi
+    done
+    if [ "$known" -eq 0 ]; then
+      fail "$(printf '%-22s %s line %s names [%s] and points at [%s], and none of them says it' \
+        'cited name' "$doc" "$line" "$name" "$files")"
+      CITED_NAME_BAD=1
+    fi
+  done
+}
+
+# Every claim the design documents make, checked against the names they quote.
+check_cited_name_claims() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      cited_name_claim_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+check_cited_name_claims
+
+if [ "$CITED_NAME_BAD" -eq 0 ]; then
+  ok "cited name" "$CITED_NAME_CHECKED names"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

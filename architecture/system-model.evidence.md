@@ -52,7 +52,7 @@ literal is. Confidence is **high** unless noted otherwise.
 | `slug_of` maps URL path to page slug | `frontend/app.mbt:256` | high |
 | All pages held in memory after first load | `frontend/app.mbt:369` | high |
 | Page struct mirrors backend, decodes JSON totally | `frontend/page.mbt:16-131` | high |
-| Views: header, domain cards, page view, not found, loading, error | `frontend/views.mbt:28-200` | high |
+| Views: `header`, `domain_cards`, `page_view`, `not_found_view`, `loading_view`, `error_view` | `frontend/views.mbt:28-200` | high |
 | Logo: SVG ring + taijitu, HTML letter overlay | `frontend/logo.mbt:1-201` | high |
 | Ring geometry: 5 nodes clockwise from top, radius 68, viewBox 200x200 | `frontend/logo.mbt:32-70` | high |
 | Node colors: M indigo, D green, E red, A yellow, K grey | `frontend/logo.mbt:12-15, 32-40` | high |
