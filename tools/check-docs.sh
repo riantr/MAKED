@@ -11656,6 +11656,186 @@ if [ "$QUOTED_BAD" -eq 0 ]; then
   ok "quoted literal" "$QUOTED_CHECKED quotes"
 fi
 
+# --- the pointer reaches the function a row names by its short name -----------
+#
+# The code pointer gate asks whether a citation reaches the function a claim
+# names.  It finds that function by the name the tree gives it:
+#
+#   fn Database::exec(...)   -> the definition is named "Database::exec"
+#
+# A row that says `exec()` names the same function, and the documents write
+# it that way.  The gate did not see those rows, because "exec" is not
+# "Database::exec": a claim that names a function of the file has to name it
+# the way the tree spells it, and the tree spells a method with its type.
+#
+# The measurement that found the gap: the row that says `exec()` always steps
+# cites backend/database.mbt:73-98.  exec() is on lines 41-72.  A reader
+# following the citation lands in the middle of Database::migrate and never
+# finds the function the row is about, and every gate in the repository was
+# green.
+#
+# The rule: a row that names a function of the cited file by its SHORT name,
+# written the way a call is written -- exec() -- has to point inside that
+# function.  The short name is a name only when it is written as a call: a
+# word that happens to be the name of a function is a word, and the row that
+# says "App with route table" is about the App, not about App::route.
+#
+# The bash twin says the same thing.  The two are twins: they print the same
+# lines and they go red together.
+
+CALL_PTR_BAD=0
+CALL_PTR_CHECKED=0
+
+# The functions of a file: the line each one starts on, and its name.
+#
+# The gate script has two functions called code_definitions: the one that
+# finds the functions of a file, and the one that finds the types of the
+# tree.  The second is defined later in the script, and a function defined
+# later shadows the first, so a gate at the end of the script cannot use the
+# name.  This one is the first of the two, under a name of its own.
+FN_LINES=()
+FN_NAMES=()
+FN_FILE=""
+FN_COUNT=0
+
+fn_definitions() {
+  local file="$1" out line name
+  if [ "$FN_FILE" = "$file" ]; then return; fi
+  FN_FILE="$file"
+  FN_LINES=()
+  FN_NAMES=()
+  FN_COUNT=0
+  out=$(awk '
+    /^[ \t]*(pub(\([a-z]+\))?[ \t]+)?(async[ \t]+)?fn[ \t]+[A-Za-z_]/ {
+      tmp = $0
+      sub(/^[ \t]*(pub(\([a-z]+\))?[ \t]+)?(async[ \t]+)?fn[ \t]+/, "", tmp)
+      split(tmp, parts, /[ \t(]/)
+      printf "%d\t%s\n", NR, parts[1]
+    }
+    END { printf "#\t%d\n", NR }
+  ' "$file" || true)
+  while IFS=$'\t' read -r line name; do
+    [ -n "$name" ] || continue
+    if [ "$line" = "#" ]; then
+      FN_COUNT="$name"
+      continue
+    fi
+    FN_LINES+=("$line")
+    FN_NAMES+=("$name")
+  done <<< "$out"
+}
+
+# The block a function occupies: from the line that defines it to the line
+# before the next definition.
+FN_START=0
+FN_END=0
+fn_range() {
+  local name="$1" i
+  FN_START=0
+  FN_END=0
+  for i in "${!FN_NAMES[@]}"; do
+    if [ "${FN_NAMES[$i]}" = "$name" ]; then
+      FN_START="${FN_LINES[$i]}"
+      if [ $((i + 1)) -lt "${#FN_NAMES[@]}" ]; then
+        FN_END=$(( ${FN_LINES[$((i + 1))]} - 1 ))
+      else
+        FN_END="$FN_COUNT"
+      fi
+      return
+    fi
+  done
+}
+
+# A name written as a call: exec()
+CALL_RE='([A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)?)\(\)'
+
+# The names a claim writes as calls.
+CLAIM_CALLS=""
+claim_calls() {
+  local text="$1" rest="$1"
+  CLAIM_CALLS=""
+  while [[ "$rest" =~ $CALL_RE ]]; do
+    if [ -z "$CLAIM_CALLS" ]; then
+      CLAIM_CALLS="${BASH_REMATCH[1]}"
+    else
+      CLAIM_CALLS="$CLAIM_CALLS ${BASH_REMATCH[1]}"
+    fi
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+  done
+}
+
+# One row, checked against the function it names by its short name.
+call_pointer_check() {
+  local doc="$1" line="$2" claim="$3"
+  local fn short count=0 named="" part a b covered
+  cite_source "$claim"
+  [ -n "$CITE_FILE" ] || return
+  [ -f "$CITE_FILE" ] || return
+  claim_calls "$CITE_TEXT"
+  [ -n "$CLAIM_CALLS" ] || return
+  fn_definitions "$CITE_FILE"
+  # the functions of that file the claim names by their short name
+  for fn in "${FN_NAMES[@]}"; do
+    short="${fn##*::}"
+    # a name with no type in front of it is the whole name, and the code
+    # pointer gate reads that one
+    [ "$short" != "$fn" ] || continue
+    case " $CLAIM_CALLS " in
+      *" $short "*)
+        count=$((count + 1))
+        named="$fn"
+        ;;
+    esac
+  done
+  # a row that names one function of the file has to point inside it
+  [ "$count" -eq 1 ] || return
+  fn_range "$named"
+  [ "$FN_START" -gt 0 ] || return
+  covered=0
+  for part in ${CITE_SPEC//,/ }; do
+    case "$part" in
+      *-*) a="${part%-*}"; b="${part#*-}" ;;
+      *) a="$part"; b="$part" ;;
+    esac
+    if [ "$a" -le "$FN_END" ] && [ "$FN_START" -le "$b" ]; then
+      covered=1
+      break
+    fi
+  done
+  CALL_PTR_CHECKED=$((CALL_PTR_CHECKED + 1))
+  if [ "$covered" -eq 0 ]; then
+    fail "$(printf '%-22s %s line %s cites [%s:%s], but %s is on lines %s-%s' \
+      'code pointer call' "$doc" "$line" "$CITE_FILE" "$CITE_SPEC" "$named" "$FN_START" "$FN_END")"
+    CALL_PTR_BAD=1
+  fi
+}
+
+# Every claim the documents make, checked against the functions they name by
+# their short name.
+check_call_pointers() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      call_pointer_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+check_call_pointers
+
+if [ "$CALL_PTR_CHECKED" -eq 0 ]; then
+  fail "$(printf '%-22s no document names a function by its short name' 'code pointer call')"
+  CALL_PTR_BAD=1
+fi
+
+if [ "$CALL_PTR_BAD" -eq 0 ]; then
+  ok "code pointer call" "$CALL_PTR_CHECKED calls"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."

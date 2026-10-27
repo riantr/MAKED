@@ -10121,6 +10121,97 @@ if ($script:quotedChecked -eq 0) {
 
 if (-not $script:quotedBad) { Write-Ok 'quoted literal' ("{0} quotes" -f $script:quotedChecked) }
 
+# --- the pointer reaches the function a row names by its short name -----------
+#
+# The code pointer gate asks whether a citation reaches the function a claim
+# names.  It finds that function by the name the tree gives it:
+#
+#   fn Database::exec(...)   -> the definition is named "Database::exec"
+#
+# A row that says `exec()` names the same function, and the documents write
+# it that way.  The gate did not see those rows, because "exec" is not
+# "Database::exec": a claim that names a function of the file has to name it
+# the way the tree spells it, and the tree spells a method with its type.
+#
+# The measurement that found the gap: the row that says `exec()` always steps
+# cites backend/database.mbt:73-98.  exec() is on lines 41-72.  A reader
+# following the citation lands in the middle of Database::migrate and never
+# finds the function the row is about, and every gate in the repository was
+# green.
+#
+# The rule: a row that names a function of the cited file by its SHORT name,
+# written the way a call is written -- exec() -- has to point inside that
+# function.  The short name is a name only when it is written as a call: a
+# word that happens to be the name of a function is a word, and the row that
+# says "App with route table" is about the App, not about App::route.
+#
+# The bash twin says the same thing.  The two are twins: they print the same
+# lines and they go red together.
+
+$script:callPtrBad = $false
+$script:callPtrChecked = 0
+
+# A name written as a call: exec()
+$callRe = '([A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)?)\(\)'
+
+# The names a claim writes as calls.
+function Get-ClaimCalls($text) {
+  $out = @()
+  foreach ($m in [regex]::Matches($text, $callRe)) { $out += $m.Groups[1].Value }
+  $out
+}
+
+# One row, checked against the function it names by its short name.
+function Test-CallPointer($doc, $line, $claim) {
+  Get-CitedSource $claim
+  if ($script:citeFile -eq '') { return }
+  if (-not (Test-Path (Join-Path $PWD $script:citeFile))) { return }
+  $calls = @(Get-ClaimCalls $script:citeText)
+  if ($calls.Count -eq 0) { return }
+  Get-FileDefinitions $script:citeFile
+  # the functions of that file the claim names by their short name
+  $count = 0
+  $named = ''
+  foreach ($fn in $script:defNames) {
+    $i = $fn.LastIndexOf('::')
+    # a name with no type in front of it is the whole name, and the code
+    # pointer gate reads that one
+    if ($i -lt 0) { continue }
+    $short = $fn.Substring($i + 2)
+    if ($calls -ccontains $short) { $count++; $named = $fn }
+  }
+  # a row that names one function of the file has to point inside it
+  if ($count -ne 1) { return }
+  Get-FunctionRange $named
+  if ($script:defStart -le 0) { return }
+  $covered = $false
+  foreach ($part in ($script:citeSpec -split ',')) {
+    $p = $part.Trim()
+    if ($p -match '^([0-9]+)-([0-9]+)$') { $a = [int]$Matches[1]; $b = [int]$Matches[2] }
+    else { $a = [int]$p; $b = $a }
+    if ($a -le $script:defEnd -and $script:defStart -le $b) { $covered = $true; break }
+  }
+  $script:callPtrChecked++
+  if (-not $covered) {
+    Write-Fail ("{0,-22} {1} line {2} cites [{3}:{4}], but {5} is on lines {6}-{7}" -f 'code pointer call', $doc, $line, $script:citeFile, $script:citeSpec, $named, $script:defStart, $script:defEnd)
+    $script:callPtrBad = $true
+  }
+}
+
+foreach ($doc in $archDocs) {
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-CallPointer $doc $claim.line $claim.text
+  }
+}
+
+if ($script:callPtrChecked -eq 0) {
+  Write-Fail ("{0,-22} no document names a function by its short name" -f 'code pointer call')
+  $script:callPtrBad = $true
+}
+
+if (-not $script:callPtrBad) { Write-Ok 'code pointer call' ("{0} calls" -f $script:callPtrChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)
