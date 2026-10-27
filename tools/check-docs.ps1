@@ -10031,6 +10031,96 @@ if ($script:testPtrChecked -eq 0) {
 
 if (-not $script:testPtrBad) { Write-Ok 'test pointer' ("{0} tests" -f $script:testPtrChecked) }
 
+# --- the string a row quotes in double quotes ---------------------------------
+#
+# The evidence documents quote JSON keys and config values in double quotes
+# and point at the line that holds them:
+#
+#   | `Page::to_json()` | "slug" | `get_string(json, "slug", "")` |
+#     `backend/pages.mbt:70`, `frontend/page.mbt:118` |
+#
+# The literal pointer gate reads BACKTICKED literals, so a string in double
+# quotes is not read by it.  The key the backend produces at line 70 was not
+# checked by anything: the backticked name of the function is not unique in
+# the file, so the literal pointer gate passed it by.
+#
+# The rule: every line the row cites holds the string the row quotes, as a
+# literal.  The row says the key is produced here and read there, and both
+# lines hold it in double quotes.  The letters alone are not enough: the tree
+# can hold the same letters as an identifier, and "slugX" holds the letters
+# of "slug" without being the string "slug".
+# A quoted sentence is a test's name and not a literal -- the test pointer
+# gate reads that one -- so a string with a space in it is left alone.
+#
+# The bash twin says the same thing.  The two are twins: they print the same
+# lines and they go red together.
+
+$script:quotedBad = $false
+$script:quotedChecked = 0
+
+# The lines a row cites: the file, and the lines of it.
+function Get-QuotedCites($claim) {
+  $out = @()
+  foreach ($m in [regex]::Matches($claim, $citeAnyRe)) {
+    $out += ,@($m.Groups[1].Value, $m.Groups[2].Value)
+  }
+  $out
+}
+
+# Whether the cited range holds the string: some line of the file holds it AS
+# A LITERAL, and the citation covers that line.
+#
+# The string has to be there in double quotes.  The letters alone are not the
+# string: the tree can hold the same letters as an identifier, and
+# "slugX" holds the letters of "slug" without being the string "slug".
+function Test-QuotedLineHolds($file, $spec, $s) {
+  $path = Join-Path $PWD $file
+  if (-not (Test-Path $path)) { return $false }
+  try { $lines = [System.IO.File]::ReadAllLines($path, $enc) } catch { return $false }
+  $needle = '"' + $s + '"'
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    $code = Get-CodeText $lines[$i]
+    if (-not $code.Contains($needle)) { continue }
+    if (Test-CitationCovers $spec ($i + 1)) { return $true }
+  }
+  $false
+}
+
+# One row, checked against the lines it cites.
+function Test-QuotedLiteral($doc, $line, $claim) {
+  $cites = @(Get-QuotedCites $claim)
+  if ($cites.Count -eq 0) { return }
+  $seen = @()
+  foreach ($q in [regex]::Matches($claim, $dquoteRe)) {
+    $s = $q.Groups[1].Value
+    if ($s.Contains(' ')) { continue }
+    # The same string twice in one row is one promise, not two.
+    if ($seen -ccontains $s) { continue }
+    $seen += $s
+    foreach ($c in $cites) {
+      $script:quotedChecked++
+      if (-not (Test-QuotedLineHolds $c[0] $c[1] $s)) {
+        Write-Fail ("{0,-22} {1} line {2} quotes [{3}], and {4}:{5} does not hold it as a literal" -f 'quoted literal', $doc, $line, $s, $c[0], $c[1])
+        $script:quotedBad = $true
+      }
+    }
+  }
+}
+
+foreach ($doc in $archDocs) {
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    Test-QuotedLiteral $doc $claim.line $claim.text
+  }
+}
+
+if ($script:quotedChecked -eq 0) {
+  Write-Fail ("{0,-22} no document quotes a string in double quotes" -f 'quoted literal')
+  $script:quotedBad = $true
+}
+
+if (-not $script:quotedBad) { Write-Ok 'quoted literal' ("{0} quotes" -f $script:quotedChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

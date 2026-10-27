@@ -11537,6 +11537,125 @@ if [ "$TEST_PTR_BAD" -eq 0 ]; then
   ok "test pointer" "$TEST_PTR_CHECKED tests"
 fi
 
+# --- the string a row quotes in double quotes ---------------------------------
+#
+# The evidence documents quote JSON keys and config values in double quotes
+# and point at the line that holds them:
+#
+#   | `Page::to_json()` | "slug" | `get_string(json, "slug", "")` |
+#     `backend/pages.mbt:70`, `frontend/page.mbt:118` |
+#
+# The literal pointer gate reads BACKTICKED literals, so a string in double
+# quotes is not read by it.  The key the backend produces at line 70 was not
+# checked by anything: the backticked name of the function is not unique in
+# the file, so the literal pointer gate passed it by.
+#
+# The rule: every line the row cites holds the string the row quotes, as a
+# literal.  The row says the key is produced here and read there, and both
+# lines hold it in double quotes.  The letters alone are not enough: the tree
+# can hold the same letters as an identifier, and "slugX" holds the letters
+# of "slug" without being the string "slug".
+# A quoted sentence is a test's name and not a literal -- the test pointer
+# gate reads that one -- so a string with a space in it is left alone.
+#
+# The bash twin says the same thing.  The two are twins: they print the same
+# lines and they go red together.
+
+QUOTED_BAD=0
+QUOTED_CHECKED=0
+
+# The lines a row cites: the file, a bar, the lines of it.
+QUOTED_CITES=""
+quoted_cites() {
+  local claim="$1" rest="$1" tok spec
+  QUOTED_CITES=""
+  while [[ "$rest" =~ $CITE_ANY_RE ]]; do
+    tok="${BASH_REMATCH[1]}"
+    spec="${BASH_REMATCH[2]}"
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+    QUOTED_CITES="$QUOTED_CITES ${tok}|${spec}"
+  done
+}
+
+# Whether the cited range holds the string: some line of the file holds it AS
+# A LITERAL, and the citation covers that line.
+#
+# The string has to be there in double quotes.  The letters alone are not the
+# string: the tree can hold the same letters as an identifier, and
+# "slugX" holds the letters of "slug" without being the string "slug".
+quoted_line_holds() {
+  local file="$1" spec="$2" s="$3" i needle
+  needle="\"$s\""
+  code_lines_of "$file"
+  [ "${#CODE_LINES[@]}" -gt 0 ] || return 1
+  for ((i = 0; i < ${#CODE_LINES[@]}; i++)); do
+    case "${CODE_LINES[i]}" in
+      *"$needle"*) ;;
+      *) continue ;;
+    esac
+    citation_covers "$spec" "$((i + 1))"
+    [ "$CITATION_COVERS" -eq 1 ] && return 0
+  done
+  return 1
+}
+
+# One row, checked against the lines it cites.
+quoted_literal_check() {
+  local doc="$1" line="$2" claim="$3"
+  local rest="$3" tok s cite file spec seen=""
+  quoted_cites "$claim"
+  [ -n "$QUOTED_CITES" ] || return
+  rest="$claim"
+  while [[ "$rest" =~ $DQUOTE_RE ]]; do
+    tok="${BASH_REMATCH[1]}"
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+    s="$tok"
+    case "$s" in
+      *" "*) continue ;;
+    esac
+    # The same string twice in one row is one promise, not two.
+    case " $seen " in
+      *" $s "*) continue ;;
+    esac
+    seen="$seen $s"
+    for cite in $QUOTED_CITES; do
+      file="${cite%%|*}"
+      spec="${cite#*|}"
+      QUOTED_CHECKED=$((QUOTED_CHECKED + 1))
+      if ! quoted_line_holds "$file" "$spec" "$s"; then
+        fail "$(printf '%-22s %s line %s quotes [%s], and %s:%s does not hold it as a literal' \
+          'quoted literal' "$doc" "$line" "$s" "$file" "$spec")"
+        QUOTED_BAD=1
+      fi
+    done
+  done
+}
+
+# Every claim the documents make, checked against the strings they quote.
+check_quoted_literals() {
+  local doc line claim
+  for doc in "${ARCH_DOCS[@]}"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      quoted_literal_check "$doc" "$line" "$claim"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+check_quoted_literals
+
+if [ "$QUOTED_CHECKED" -eq 0 ]; then
+  fail "$(printf '%-22s no document quotes a string in double quotes' 'quoted literal')"
+  QUOTED_BAD=1
+fi
+
+if [ "$QUOTED_BAD" -eq 0 ]; then
+  ok "quoted literal" "$QUOTED_CHECKED quotes"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."
