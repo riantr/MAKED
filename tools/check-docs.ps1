@@ -9685,6 +9685,180 @@ foreach ($doc in $archDocs) {
 
 if (-not $script:citedNameBad) { Write-Ok 'cited name' ("{0} names" -f $script:citedNameChecked) }
 
+# --- the symbols a blast radius says break -------------------------------------
+#
+# The dependency document says, for each file, which files a change to it
+# reaches, and what breaks in them.  The impact caller gate above reads the
+# same cell: it says the affected file has to USE the symbol the cell names.
+#
+# That gate is a substring test, and a substring test has two holes.  A file
+# can hold the TEXT of a symbol that is no longer a symbol: the tree renames
+# logo_mark to logo_mark_v2, the call site still says logo_mark, and the
+# table is not corrected -- the text is still there.  And a row that names a
+# file the tree does not have is skipped altogether, because the gate can
+# only check the files it knows.
+#
+# This gate closes both.  A symbol the cell backticks has to be a symbol the
+# tree DEFINES; it has to be one of the symbols of the row's own two files
+# -- the file the section is about, or the file the row lists as affected;
+# and the row's two files have to be files of the tree.
+#
+# The names are the tree's own: the functions, the types and the tables the
+# tree defines.  A qualified name answers to its last segment, so `db.seed()`
+# is the `seed` of `Database::seed`.  A token that is not a name -- the
+# `?lang=` of a query string -- is not a claim about a symbol and is left
+# alone.
+#
+# The bash twin says the same thing.  The two are twins: they print the same
+# lines and they go red together.
+
+$script:blastSymBad = $false
+$script:blastSymChecked = 0
+
+# A name the tree can have: a plain name or a qualified one.
+$blastSymRe = '^[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)?$'
+
+# The name a token claims: no trailing (), no package or receiver prefix in
+# front of the last dot.
+function Get-BlastSymbolName($token) {
+  $name = $token.Trim()
+  if ($name.EndsWith('()')) { $name = $name.Substring(0, $name.Length - 2) }
+  $i = $name.LastIndexOf('.')
+  if ($i -ge 0) { $name = $name.Substring($i + 1) }
+  $name
+}
+
+# The symbols the tree defines: the name, and the files that define it.
+$script:blastSymbols = @{}
+
+function Add-BlastSymbol($name, $file) {
+  if ($name -eq '') { return }
+  if (-not $script:blastSymbols.ContainsKey($name)) { $script:blastSymbols[$name] = @() }
+  if ($script:blastSymbols[$name] -cnotcontains $file) { $script:blastSymbols[$name] += $file }
+  if ($name.Contains('::')) {
+    $tail = $name.Substring($name.LastIndexOf('::') + 2)
+    if (-not $script:blastSymbols.ContainsKey($tail)) { $script:blastSymbols[$tail] = @() }
+    if ($script:blastSymbols[$tail] -cnotcontains $file) { $script:blastSymbols[$tail] += $file }
+  }
+}
+
+# The definitions a file holds: the names of its functions and of its types.
+function Get-BlastSymbolDefs($file) {
+  $out = @()
+  $path = Join-Path $PWD $file
+  if (-not (Test-Path $path)) { return $out }
+  try { $lines = [System.IO.File]::ReadAllLines($path, $enc) } catch { return $out }
+  foreach ($raw in $lines) {
+    $line = $raw.TrimStart()
+    if ([regex]::IsMatch($line, '^(pub(\([a-z]+\))?\s+)?(async\s+)?fn\s+[A-Za-z_]')) {
+      $rest = $line -replace '^[ \t]*(pub(\([a-z]+\))?[ \t]+)?(async[ \t]+)?fn[ \t]+', ''
+      $out += ,(($rest -split '[ \t(]')[0])
+      continue
+    }
+    $m = [regex]::Match($line, '^(pub(\(all\))?\s+)?(type|struct|enum)\s+[A-Za-z_][A-Za-z0-9_]*')
+    if ($m.Success) {
+      $head = $line.Substring(0, $m.Length)
+      $m2 = [regex]::Match($head, '(type|struct|enum)\s+[A-Za-z_][A-Za-z0-9_]*')
+      if ($m2.Success) { $out += ,($m2.Value -replace '^(type|struct|enum)\s+', '') }
+    }
+  }
+  $out
+}
+
+# The symbols the tree has, and the files that define them.
+foreach ($rel in @(& git ls-files 2>$null)) {
+  if ($rel -eq '') { continue }
+  if ($rel -cnotmatch '^(backend|frontend|cmd)/.*\.mbt$') { continue }
+  $full = Join-Path $PWD $rel
+  if (-not (Test-Path $full)) { continue }
+  foreach ($name in @(Get-BlastSymbolDefs $rel)) {
+    Add-BlastSymbol $name $rel
+  }
+}
+foreach ($table in @(Get-SchemaTables)) {
+  Add-BlastSymbol $table 'backend/database.mbt'
+}
+
+# The rows of the blast tables: the section file, the affected file and the
+# cell that says what breaks.  A section's blast table is the first table
+# that follows its **Blast radius** line; the coupling table at the end of
+# the document is not one.
+function Get-BlastSymbolRows {
+  $out = @()
+  $lines = [System.IO.File]::ReadAllLines((Join-Path $PWD $depsMd), $enc)
+  $file = ''
+  $radius = $false
+  $table = 0
+  $seen = $false
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    $l = $lines[$i]
+    if ($l.StartsWith('### If you change ')) {
+      $file = $l.Substring('### If you change '.Length)
+      $file = $file -replace '^`', ''
+      $file = $file -replace '`.*$', ''
+      $radius = $false
+      $table = 0
+      $seen = $false
+      continue
+    }
+    if ($l -cmatch '^\*\*Blast radius\*\*') { $radius = $true; continue }
+    if ($l.StartsWith('|')) {
+      if ($file -eq '' -or -not $radius -or $table -eq 2) { continue }
+      if (-not $seen) { $seen = $true; $table = 1; continue }
+      $cells = $l -split '\|'
+      if ($cells.Count -lt 4) { $table = 2; continue }
+      $aff = ($cells[1] -replace '[ `]', '')
+      $what = $cells[2]
+      if ($aff -eq '' -or $aff -match '^-+$') { continue }
+      $out += ,@(($i + 1), $file, $aff, $what)
+      continue
+    }
+    if ($l.Trim() -eq '') { continue }
+    $table = 2
+    $seen = $false
+  }
+  $out
+}
+
+# One row of a blast table, checked against the tree.
+function Test-BlastSymbolRow($doc, $line, $section, $aff, $what) {
+  if (-not (Test-Path -PathType Leaf (Join-Path $PWD $section))) {
+    Write-Fail ("{0,-22} {1} line {2} is about {3}, and the tree has no such file" -f 'blast symbol', $doc, $line, $section)
+    $script:blastSymBad = $true
+  }
+  if (-not (Test-Path -PathType Leaf (Join-Path $PWD $aff))) {
+    Write-Fail ("{0,-22} {1} line {2} says {3} breaks, and the tree has no such file" -f 'blast symbol', $doc, $line, $aff)
+    $script:blastSymBad = $true
+  }
+  foreach ($m in [regex]::Matches($what, $litRe)) {
+    $name = Get-BlastSymbolName $m.Groups[1].Value
+    if ($name -eq '') { continue }
+    if ($name -cnotmatch $blastSymRe) { continue }
+    $script:blastSymChecked++
+    if (-not $script:blastSymbols.ContainsKey($name)) {
+      Write-Fail ("{0,-22} {1} line {2} says [{3}] breaks, and the tree defines no such symbol" -f 'blast symbol', $doc, $line, $name)
+      $script:blastSymBad = $true
+      continue
+    }
+    $files = @($script:blastSymbols[$name])
+    if (($files -cnotcontains $section) -and ($files -cnotcontains $aff)) {
+      Write-Fail ("{0,-22} {1} line {2} says [{3}] breaks, and the tree defines it in {4}" -f 'blast symbol', $doc, $line, $name, ($files -join ', '))
+      $script:blastSymBad = $true
+    }
+  }
+}
+
+foreach ($row in @(Get-BlastSymbolRows)) {
+  Test-BlastSymbolRow $depsMd $row[0] $row[1] $row[2] $row[3]
+}
+
+if ($script:blastSymChecked -eq 0) {
+  Write-Fail ("{0,-22} no blast table names a symbol at all" -f 'blast symbol')
+  $script:blastSymBad = $true
+}
+
+if (-not $script:blastSymBad) { Write-Ok 'blast symbol' ("{0} symbols" -f $script:blastSymChecked) }
+
 Write-Output ""
 if ($failures -gt 0) {
   Write-Output ("{0} claim(s) in the documents do not match the tree." -f $failures)

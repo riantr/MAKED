@@ -11092,6 +11092,231 @@ if [ "$CITED_NAME_BAD" -eq 0 ]; then
   ok "cited name" "$CITED_NAME_CHECKED names"
 fi
 
+# --- the symbols a blast radius says break -------------------------------------
+#
+# The dependency document says, for each file, which files a change to it
+# reaches, and what breaks in them.  The impact caller gate above reads the
+# same cell: it says the affected file has to USE the symbol the cell names.
+#
+# That gate is a substring test, and a substring test has two holes.  A file
+# can hold the TEXT of a symbol that is no longer a symbol: the tree renames
+# logo_mark to logo_mark_v2, the call site still says logo_mark, and the
+# table is not corrected -- the text is still there.  And a row that names a
+# file the tree does not have is skipped altogether, because the gate can
+# only check the files it knows.
+#
+# This gate closes both.  A symbol the cell backticks has to be a symbol the
+# tree DEFINES; it has to be one of the symbols of the row's own two files
+# -- the file the section is about, or the file the row lists as affected;
+# and the row's two files have to be files of the tree.
+#
+# The names are the tree's own: the functions, the types and the tables the
+# tree defines.  A qualified name answers to its last segment, so `db.seed()`
+# is the `seed` of `Database::seed`.  A token that is not a name -- the
+# `?lang=` of a query string -- is not a claim about a symbol and is left
+# alone.
+#
+# The bash twin says the same thing.  The two are twins: they print the same
+# lines and they go red together.
+
+BLAST_SYM_BAD=0
+BLAST_SYM_CHECKED=0
+
+# A name the tree can have: a plain name or a qualified one.
+BLAST_SYM_RE='^[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)?$'
+
+# The name a token claims: no trailing (), no package or receiver prefix in
+# front of the last dot.
+BLAST_SYMBOL_NAME=""
+blast_symbol_name() {
+  local name="$1"
+  trim "$name"; name="$TRIMMED"
+  case "$name" in
+    *\(\)) name="${name%\(\)}" ;;
+  esac
+  case "$name" in
+    *.*) name="${name##*.}" ;;
+  esac
+  BLAST_SYMBOL_NAME="$name"
+}
+
+# The symbols the tree defines: the name, and the files that define it.
+declare -A BLAST_SYMBOL=()
+
+blast_symbol_add() {
+  local name="$1" file="$2" tail list
+  [ -n "$name" ] || return
+  list="${BLAST_SYMBOL["$name"]:-}"
+  case " $list " in
+    *" $file "*) ;;
+    *) BLAST_SYMBOL["$name"]="$list $file" ;;
+  esac
+  case "$name" in
+    *::*)
+      tail="${name##*::}"
+      list="${BLAST_SYMBOL["$tail"]:-}"
+      case " $list " in
+        *" $file "*) ;;
+        *) BLAST_SYMBOL["$tail"]="$list $file" ;;
+      esac
+      ;;
+  esac
+}
+
+# The definitions a file holds: the names of its functions and of its types.
+blast_symbol_defs() {
+  awk '
+    {
+      line = $0
+      sub(/^[[:blank:]]+/, "", line)
+      if (match(line, /^(pub(\([a-z]+\))?[[:blank:]]+)?(async[[:blank:]]+)?fn[[:blank:]]+[A-Za-z_]/)) {
+        tmp = line
+        sub(/^[ \t]*(pub(\([a-z]+\))?[ \t]+)?(async[ \t]+)?fn[ \t]+/, "", tmp)
+        split(tmp, parts, /[ \t(]/)
+        print parts[1]
+        next
+      }
+      if (match(line, /^(pub(\(all\))?[[:blank:]]+)?(type|struct|enum)[[:blank:]]+[A-Za-z_][A-Za-z0-9_]*/)) {
+        head = substr(line, 1, RLENGTH)
+        if (match(head, /(type|struct|enum)[[:blank:]]+[A-Za-z_][A-Za-z0-9_]*/)) {
+          name = substr(head, RSTART, RLENGTH)
+          sub(/^(type|struct|enum)[[:blank:]]+/, "", name)
+          print name
+        }
+      }
+    }
+  ' "$1"
+}
+
+# The symbols the tree has, and the files that define them.
+blast_symbols_load() {
+  local file name
+  while IFS= read -r file; do
+    [ -n "$file" ] || continue
+    case "$file" in
+      backend/*.mbt|frontend/*.mbt|cmd/*.mbt) ;;
+      *) continue ;;
+    esac
+    [ -f "$file" ] || continue
+    while IFS= read -r name; do
+      [ -n "$name" ] || continue
+      blast_symbol_add "$name" "$file"
+    done < <(blast_symbol_defs "$file")
+  done < <(git ls-files 2>/dev/null || true)
+  code_schema_tables
+  for name in $SCHEMA_TABLES; do
+    blast_symbol_add "$name" "backend/database.mbt"
+  done
+}
+
+# The files a symbol is defined in, written the way a reader writes them.
+blast_symbol_files_text() {
+  local list="$1" out="" f
+  for f in $list; do
+    if [ -z "$out" ]; then out="$f"; else out="$out, $f"; fi
+  done
+  printf '%s' "$out"
+}
+
+# The rows of the blast tables: the section file, the affected file and the
+# cell that says what breaks.  A section's blast table is the first table
+# that follows its **Blast radius** line; the coupling table at the end of
+# the document is not one.
+blast_symbol_rows() {
+  awk '
+    /^### If you change / {
+      file = $0
+      sub(/^### If you change `/, "", file)
+      sub(/`.*$/, "", file)
+      radius = 0
+      table = 0
+      seen = 0
+      next
+    }
+    /^\*\*Blast radius\*\*/ { radius = 1; next }
+    /^\|/ {
+      if (file == "" || radius == 0 || table == 2) next
+      if (seen == 0) { seen = 1; table = 1; next }
+      aff = $0
+      sub(/^\|/, "", aff)
+      sub(/\|.*$/, "", aff)
+      gsub(/[ `]/, "", aff)
+      if (aff == "") next
+      if (aff ~ /^-+$/) next
+      what = $0
+      sub(/^\|[^|]*\|/, "", what)
+      sub(/\|.*$/, "", what)
+      printf "%d\t%s\t%s\t%s\n", NR, file, aff, what
+      next
+    }
+    /^[[:space:]]*$/ { next }
+    { table = 2; seen = 0 }
+  ' "$DEPS_MD"
+}
+
+# One row of a blast table, checked against the tree.
+blast_symbol_row_check() {
+  local doc="$1" line="$2" section="$3" aff="$4" what="$5"
+  local rest="$5" tok name files known
+  if [ ! -f "$section" ]; then
+    fail "$(printf '%-22s %s line %s is about %s, and the tree has no such file' \
+      'blast symbol' "$doc" "$line" "$section")"
+    BLAST_SYM_BAD=1
+  fi
+  if [ ! -f "$aff" ]; then
+    fail "$(printf '%-22s %s line %s says %s breaks, and the tree has no such file' \
+      'blast symbol' "$doc" "$line" "$aff")"
+    BLAST_SYM_BAD=1
+  fi
+  rest="$what"
+  while [[ "$rest" =~ $LIT_RE ]]; do
+    tok="${BASH_REMATCH[1]}"
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+    blast_symbol_name "$tok"
+    name="$BLAST_SYMBOL_NAME"
+    [ -n "$name" ] || continue
+    [[ "$name" =~ $BLAST_SYM_RE ]] || continue
+    BLAST_SYM_CHECKED=$((BLAST_SYM_CHECKED + 1))
+    files="${BLAST_SYMBOL["$name"]:-}"
+    if [ -z "$files" ]; then
+      fail "$(printf '%-22s %s line %s says [%s] breaks, and the tree defines no such symbol' \
+        'blast symbol' "$doc" "$line" "$name")"
+      BLAST_SYM_BAD=1
+      continue
+    fi
+    known=0
+    case " $files " in
+      *" $section "*|*" $aff "*) known=1 ;;
+    esac
+    if [ "$known" -eq 0 ]; then
+      fail "$(printf '%-22s %s line %s says [%s] breaks, and the tree defines it in %s' \
+        'blast symbol' "$doc" "$line" "$name" "$(blast_symbol_files_text "$files")")"
+      BLAST_SYM_BAD=1
+    fi
+  done
+}
+
+# Every row of every blast table, checked against the tree.
+check_blast_symbols() {
+  local line section aff what
+  blast_symbols_load
+  while IFS=$'\t' read -r line section aff what; do
+    [ -n "$line" ] || continue
+    blast_symbol_row_check "$DEPS_MD" "$line" "$section" "$aff" "$what"
+  done <<< "$(blast_symbol_rows)"
+}
+
+check_blast_symbols
+
+if [ "$BLAST_SYM_CHECKED" -eq 0 ]; then
+  fail "$(printf '%-22s no blast table names a symbol at all' 'blast symbol')"
+  BLAST_SYM_BAD=1
+fi
+
+if [ "$BLAST_SYM_BAD" -eq 0 ]; then
+  ok "blast symbol" "$BLAST_SYM_CHECKED symbols"
+fi
+
 echo ""
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES claim(s) in the documents do not match the tree."
