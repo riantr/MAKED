@@ -663,6 +663,142 @@ if ([string]::IsNullOrEmpty($defaultPort)) {
   Write-Ok 'container port' $defaultPort
 }
 
+# --- the deployment and the image it builds ----------------------------------
+#
+# There are two ways to run MAKED in a container: the published image, and
+# "docker compose up" on this repository. They have to be the same
+# deployment: the same database, the same place for the browser files, and
+# the same directory the records live in.
+#
+# The image is the Dockerfile: the environment it sets and the directory it
+# declares as a volume. The deployment is the compose file: the environment
+# it sets and the volume it mounts.
+#
+# A compose file that points the database somewhere the image does not write
+# it is a deployment whose records are lost when the container is replaced,
+# and that is the one thing the compose file's own header says must not
+# happen.
+
+# The environment the image sets, as "NAME=value".
+function Get-ImageEnv {
+  $out = @()
+  $file = Join-Path $PWD 'Dockerfile'
+  if (-not (Test-Path $file)) { return $out }
+  $text = [System.IO.File]::ReadAllText($file, $enc)
+  foreach ($m in [regex]::Matches($text, '(?m)(^|\s)(MAKED_[A-Z_]+)=([^\s]+)')) {
+    $out += ($m.Groups[2].Value + '=' + $m.Groups[3].Value)
+  }
+  Sort-Set $out
+}
+
+# The environment the deployment sets, as "NAME=value".
+#
+# The values are written both ways round: the port is quoted and the paths
+# are not, so the quotes are optional.
+function Get-DeployEnv {
+  $out = @()
+  $file = Join-Path $PWD 'docker-compose.yml'
+  if (-not (Test-Path $file)) { return $out }
+  $text = [System.IO.File]::ReadAllText($file, $enc)
+  foreach ($m in [regex]::Matches($text, '(MAKED_[A-Z_]+):\s*"?([^"\s]+)"?')) {
+    $out += ($m.Groups[1].Value + '=' + $m.Groups[2].Value)
+  }
+  Sort-Set $out
+}
+
+# The directories the image declares as volumes.
+function Get-ImageVolumes {
+  $out = @()
+  $file = Join-Path $PWD 'Dockerfile'
+  if (-not (Test-Path $file)) { return $out }
+  $text = [System.IO.File]::ReadAllText($file, $enc)
+  foreach ($m in [regex]::Matches($text, 'VOLUME\s*\[[^\]]*\]')) {
+    foreach ($v in [regex]::Matches($m.Value, '"([^"]+)"')) { $out += $v.Groups[1].Value }
+  }
+  Sort-Set $out
+}
+
+# The volume mappings the deployment mounts, as "name:path".
+function Get-DeployVolumes {
+  $out = @()
+  $file = Join-Path $PWD 'docker-compose.yml'
+  if (-not (Test-Path $file)) { return $out }
+  $lines = [System.IO.File]::ReadAllLines($file, $enc)
+  $inList = $false
+  foreach ($line in $lines) {
+    if ($line -match '^[\s]*volumes:[\s]*$') { $inList = $true; continue }
+    if (-not $inList) { continue }
+    if ($line -match '^[\s]*-[\s]*([A-Za-z0-9_.-]+:[A-Za-z0-9_./-]+)[\s]*$') {
+      $out += $Matches[1]
+      continue
+    }
+    if ($line -match '^\S') { $inList = $false }
+  }
+  Sort-Set $out
+}
+
+# The value of one setting, out of a set of "NAME=value".
+function Get-EnvValue($set, $want) {
+  foreach ($item in $set) {
+    if ($item.StartsWith($want + '=')) { return $item.Substring($want.Length + 1) }
+  }
+  ''
+}
+
+$imageEnvSet = @(Get-ImageEnv)
+$deployEnvSet = @(Get-DeployEnv)
+$imageVolumeSet = @(Get-ImageVolumes)
+$deployVolumeSet = @(Get-DeployVolumes)
+
+$script:deployClaimCount = 0
+$script:deployBad = $false
+
+# The variables here are named for what they hold and not for what they are
+# about: the script has a $deploy of its own -- the deployment document --
+# and a gate that quietly changes it changes a gate that runs later.
+foreach ($settingName in @('MAKED_DB', 'MAKED_DIST')) {
+  $imageSetting = Get-EnvValue $imageEnvSet $settingName
+  $deploySetting = Get-EnvValue $deployEnvSet $settingName
+  if ($imageSetting -eq '' -or $deploySetting -eq '') { continue }
+  $script:deployClaimCount++
+  if ($imageSetting -cne $deploySetting) {
+    Write-Fail ("{0,-22} the deployment sets {1}={2} and the image sets {1}={3}" -f 'deployment image', $settingName, $deploySetting, $imageSetting)
+    $script:deployBad = $true
+  }
+}
+
+# Every directory the deployment mounts has to be one the image declares.
+foreach ($volumeMapping in $deployVolumeSet) {
+  $volumeMount = $volumeMapping.Substring($volumeMapping.IndexOf(':') + 1)
+  $script:deployClaimCount++
+  if ($imageVolumeSet -cnotcontains $volumeMount) {
+    Write-Fail ("{0,-22} the deployment mounts {1} and the image declares [{2}]" -f 'deployment image', $volumeMount, ($imageVolumeSet -join ' '))
+    $script:deployBad = $true
+  }
+}
+
+# The database has to be inside one of the volumes: that is what makes the
+# records survive the container being replaced.
+$databasePath = Get-EnvValue $deployEnvSet 'MAKED_DB'
+if ($databasePath -ne '') {
+  $databaseHeld = $false
+  foreach ($volumeMapping in $deployVolumeSet) {
+    $volumeMount = $volumeMapping.Substring($volumeMapping.IndexOf(':') + 1)
+    if ($databasePath -eq $volumeMount -or $databasePath.StartsWith($volumeMount + '/')) { $databaseHeld = $true }
+  }
+  $script:deployClaimCount++
+  if (-not $databaseHeld) {
+    Write-Fail ("{0,-22} the database is at {1} and no volume holds it" -f 'deployment image', $databasePath)
+    $script:deployBad = $true
+  }
+}
+
+if ($script:deployClaimCount -eq 0) {
+  Write-Fail ("{0,-22} the deployment and the image say nothing to compare" -f 'deployment image')
+} elseif (-not $script:deployBad) {
+  Write-Ok 'deployment image' ("{0} claims" -f $script:deployClaimCount)
+}
+
 # --- what the Dockerfile says about itself -------------------------------------
 #
 # The Dockerfile's header is a document like any other: it tells the reader

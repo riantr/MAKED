@@ -773,6 +773,140 @@ else
   ok "container port" "$DEFAULT_PORT"
 fi
 
+# --- the deployment and the image it builds ----------------------------------
+#
+# There are two ways to run MAKED in a container: the published image, and
+# "docker compose up" on this repository. They have to be the same
+# deployment: the same database, the same place for the browser files, and
+# the same directory the records live in.
+#
+# The image is the Dockerfile: the environment it sets and the directory it
+# declares as a volume. The deployment is the compose file: the environment
+# it sets and the volume it mounts.
+#
+# A compose file that points the database somewhere the image does not write
+# it is a deployment whose records are lost when the container is replaced,
+# and that is the one thing the compose file's own header says must not
+# happen.
+
+# The environment the image sets, as "NAME=value".
+code_image_env() {
+  grep -oE '(^|[[:space:]])MAKED_[A-Z_]+=[^[:space:]]+' Dockerfile \
+    | sed -E 's/.*(MAKED_[A-Z_]+)=([^[:space:]]+)/\1=\2/' | LC_ALL=C sort -u
+}
+
+# The environment the deployment sets, as "NAME=value".
+#
+# The values are written both ways round: the port is quoted and the paths
+# are not, so the quotes are optional.
+code_deploy_env() {
+  grep -oE 'MAKED_[A-Z_]+:[[:space:]]*"?[^"[:space:]]+"?' docker-compose.yml \
+    | sed -E 's/^(MAKED_[A-Z_]+):[[:space:]]*"?([^"[:space:]]+)"?/\1=\2/' | LC_ALL=C sort -u
+}
+
+# The directories the image declares as volumes.
+code_image_volumes() {
+  grep -oE 'VOLUME[[:space:]]*\[[^]]*\]' Dockerfile \
+    | grep -oE '"[^"]+"' | sed -E 's/^"//; s/"$//' | LC_ALL=C sort -u
+}
+
+# The volume mappings the deployment mounts, as "name:path".
+code_deploy_volumes() {
+  awk '
+    /^[[:space:]]*volumes:[[:space:]]*$/ { inlist = 1; next }
+    inlist && /^[[:space:]]*-[[:space:]]*[A-Za-z0-9_.-]+:[A-Za-z0-9_./-]+[[:space:]]*$/ {
+      line = $0
+      sub(/^[[:space:]]*-[[:space:]]*/, "", line)
+      sub(/[[:space:]]*$/, "", line)
+      print line
+      next
+    }
+    inlist && /^[^[:space:]]/ { inlist = 0 }
+  ' docker-compose.yml | LC_ALL=C sort -u
+}
+
+# The value of one setting, out of a set of "NAME=value".
+env_value() {
+  local want="$1" set="$2" item
+  for item in $set; do
+    case "$item" in
+      "$want="*) printf '%s' "${item#*=}"; return ;;
+    esac
+  done
+}
+
+IMAGE_ENV=$(code_image_env)
+DEPLOY_ENV=$(code_deploy_env)
+IMAGE_VOLUMES=$(code_image_volumes)
+DEPLOY_VOLUMES=$(code_deploy_volumes)
+
+DEPLOY_CLAIM_COUNT=0
+DEPLOY_CLAIM_BAD=0
+
+# The deployment and the image have to be the same deployment.
+#
+# The variables are local to this function on purpose: the script has
+# variables of its own with these names, and a gate that quietly changes
+# one of them changes a gate that runs later.
+check_deployment_image() {
+  local name image deploy mapping mount db inside
+
+  # The two paths the two ways of running have to agree on.
+  for name in MAKED_DB MAKED_DIST; do
+    image=$(env_value "$name" "$IMAGE_ENV")
+    deploy=$(env_value "$name" "$DEPLOY_ENV")
+    [ -n "$image" ] || continue
+    [ -n "$deploy" ] || continue
+    DEPLOY_CLAIM_COUNT=$((DEPLOY_CLAIM_COUNT + 1))
+    if [ "$image" != "$deploy" ]; then
+      fail "$(printf '%-22s the deployment sets %s=%s and the image sets %s=%s' \
+        'deployment image' "$name" "$deploy" "$name" "$image")"
+      DEPLOY_CLAIM_BAD=1
+    fi
+  done
+
+  # Every directory the deployment mounts has to be one the image declares.
+  while IFS= read -r mapping; do
+    [ -n "$mapping" ] || continue
+    mount="${mapping#*:}"
+    DEPLOY_CLAIM_COUNT=$((DEPLOY_CLAIM_COUNT + 1))
+    if ! printf '%s\n' "$IMAGE_VOLUMES" | grep -qxF "$mount"; then
+      fail "$(printf '%-22s the deployment mounts %s and the image declares [%s]' \
+        'deployment image' "$mount" \
+        "$(printf '%s\n' "$IMAGE_VOLUMES" | tr '\n' ' ' | sed -e 's/ *$//')")"
+      DEPLOY_CLAIM_BAD=1
+    fi
+  done <<< "$DEPLOY_VOLUMES"
+
+  # The database has to be inside one of the volumes: that is what makes the
+  # records survive the container being replaced.
+  db=$(env_value MAKED_DB "$DEPLOY_ENV")
+  if [ -n "$db" ]; then
+    inside=0
+    while IFS= read -r mapping; do
+      [ -n "$mapping" ] || continue
+      mount="${mapping#*:}"
+      case "$db" in
+        "$mount"|"$mount"/*) inside=1 ;;
+      esac
+    done <<< "$DEPLOY_VOLUMES"
+    DEPLOY_CLAIM_COUNT=$((DEPLOY_CLAIM_COUNT + 1))
+    if [ "$inside" -ne 1 ]; then
+      fail "$(printf '%-22s the database is at %s and no volume holds it' \
+        'deployment image' "$db")"
+      DEPLOY_CLAIM_BAD=1
+    fi
+  fi
+}
+
+check_deployment_image
+
+if [ "$DEPLOY_CLAIM_COUNT" -eq 0 ]; then
+  fail "$(printf '%-22s the deployment and the image say nothing to compare' 'deployment image')"
+elif [ "$DEPLOY_CLAIM_BAD" -eq 0 ]; then
+  ok "deployment image" "$DEPLOY_CLAIM_COUNT claims"
+fi
+
 # --- what the Dockerfile says about itself -------------------------------------
 #
 # The Dockerfile's header is a document like any other: it tells the reader
