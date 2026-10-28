@@ -5698,6 +5698,93 @@ if (-not $script:targetBad) { Write-Ok 'supported target' ("{0} claims" -f $scri
 if (-not $script:targetSiteBad) { Write-Ok 'target site' ("{0} citations" -f $script:targetSiteChecked) }
 if (-not $script:moduleBad) { Write-Ok 'module targets' ("{0} claims" -f $script:moduleChecked) }
 
+# --- the compile targets the documents state ---------------------------------
+#
+# A document that says a package is built for a target has to name a target
+# that package declares.  A reader who copies the command and the package
+# does not build for that target gets an error from the toolchain, and not a
+# word from the document that sent them there.
+#
+# The claim is read by its own shape.  A command states the target as the
+# argument of "--target"; a table states it as a word of its own.  Either way
+# the package is the path that follows, and a path that names a file is the
+# package that holds the file.
+#
+# The packages are the tree's own: a directory that carries a manifest.  The
+# targets are the five the toolchain knows.
+#
+# The claim is not read for a target word that is only a word: "a native
+# backend" in a sentence is prose, and prose that names a package is not a
+# claim about how the package is built.
+
+# The package a path names: the path itself when it carries a manifest, and
+# the directory that carries it when the path names a file.
+function Get-PathPackage($path) {
+  if ($path -eq '') { return '' }
+  $dir = $path
+  while ($dir -ne '' -and $dir -ne '/') {
+    if (Test-Path (Join-Path $PWD ($dir + '/moon.pkg'))) { return $dir }
+    $slash = $dir.LastIndexOf('/')
+    if ($slash -lt 0) { break }
+    $dir = $dir.Substring(0, $slash)
+  }
+  ''
+}
+
+# The targets a claim states, and the package each one is stated for.
+#
+# The two shapes are read one at a time.  Each finds the target and the path
+# that follows it, and the claim is read again for the next match, so a
+# claim that states two targets is read twice.
+function Get-ClaimTargets($claim) {
+  $out = @()
+  $re1 = '--target[ ]+(wasm-gc|wasm|native|js|all)[^A-Za-z0-9_-]*[\s|,.`]*([A-Za-z0-9_./-]+)'
+  $re2 = '`(wasm-gc|wasm|native|js|all)`[\s|,.`]*([A-Za-z0-9_./-]+)'
+  foreach ($re in @($re1, $re2)) {
+    $scan = $claim
+    while ($true) {
+      $m = [regex]::Match($scan, $re)
+      if (-not $m.Success) { break }
+      $out += ($m.Groups[1].Value + ' ' + $m.Groups[2].Value)
+      $scan = $scan.Substring($m.Index + $m.Length)
+    }
+  }
+  $out
+}
+
+# Every claim that states a target for a package has to state one the
+# package declares.
+$script:targetClaimCount = 0
+$script:targetClaimBad = $false
+foreach ($doc in (@($archDocs) + @($agentDoc, $agentsDoc))) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    # A graph writes a line break as two characters, and a break is a space
+    # to a reader.
+    $text = $claim.text -replace '\\n', ' '
+    foreach ($pair in (Get-ClaimTargets $text)) {
+      $space = $pair.IndexOf(' ')
+      if ($space -lt 1) { continue }
+      $target = $pair.Substring(0, $space)
+      $path = $pair.Substring($space + 1)
+      $pkg = Get-PathPackage $path
+      if ($pkg -eq '') { continue }
+      $declared = Get-PkgTarget $pkg
+      if ($declared -eq '') { continue }
+      $script:targetClaimCount++
+      if (-not (Test-PkgHasTarget $pkg $target)) {
+        Write-Fail ("{0,-22} {1} line {2} says {3} is built for {4}, but the tree says {5}" -f 'compile target', $doc, $claim.line, $pkg, $target, $declared)
+        $script:targetClaimBad = $true
+      }
+    }
+  }
+}
+
+if (-not $script:targetClaimBad) { Write-Ok 'compile target' ("{0} claims" -f $script:targetClaimCount) }
+
 # --- the calls that leave the machine -----------------------------------------
 #
 # A claim that says the tree makes no external network call is making a

@@ -6197,6 +6197,106 @@ if [ "$MODULE_BAD" -eq 0 ]; then
   ok "module targets" "$MODULE_CHECKED claims"
 fi
 
+# --- the compile targets the documents state ---------------------------------
+#
+# A document that says a package is built for a target has to name a target
+# that package declares.  A reader who copies the command and the package
+# does not build for that target gets an error from the toolchain, and not a
+# word from the document that sent them there.
+#
+# The claim is read by its own shape.  A command states the target as the
+# argument of "--target"; a table states it as a word of its own.  Either way
+# the package is the path that follows, and a path that names a file is the
+# package that holds the file.
+#
+# The packages are the tree's own: a directory that carries a manifest.  The
+# targets are the five the toolchain knows.
+#
+# The claim is not read for a target word that is only a word: "a native
+# backend" in a sentence is prose, and prose that names a package is not a
+# claim about how the package is built.
+
+# The package a path names: the path itself when it carries a manifest, and
+# the directory that carries it when the path names a file.
+PATH_PACKAGE=""
+path_package() {
+  local path="$1" dir
+  PATH_PACKAGE=""
+  [ -n "$path" ] || return
+  dir="$path"
+  while [ -n "$dir" ] && [ "$dir" != "/" ]; do
+    if [ -f "$dir/moon.pkg" ]; then
+      PATH_PACKAGE="$dir"
+      return
+    fi
+    case "$dir" in
+      */*) dir="${dir%/*}" ;;
+      *) dir="" ;;
+    esac
+  done
+}
+
+# The targets a claim states, and the package each one is stated for.
+#
+# The two shapes are read one at a time.  Each finds the target and the path
+# that follows it, and the claim is read again for the next match, so a
+# claim that states two targets is read twice.
+CLAIM_TARGETS=""
+claim_targets() {
+  local claim="$1" scan re
+  local re1='--target[ ]+(wasm-gc|wasm|native|js|all)[^A-Za-z0-9_-]*[[:space:]|,.`]*([A-Za-z0-9_./-]+)'
+  local re2='`(wasm-gc|wasm|native|js|all)`[[:space:]|,.`]*([A-Za-z0-9_./-]+)'
+  CLAIM_TARGETS=""
+  for re in "$re1" "$re2"; do
+    scan="$claim"
+    while [[ "$scan" =~ $re ]]; do
+      CLAIM_TARGETS="$CLAIM_TARGETS${BASH_REMATCH[1]} ${BASH_REMATCH[2]}
+"
+      scan="${scan#*"${BASH_REMATCH[0]}"}"
+    done
+  done
+}
+
+# Every claim that states a target for a package has to state one the
+# package declares.
+TARGET_CLAIM_COUNT=0
+TARGET_CLAIM_BAD=0
+check_compile_targets() {
+  local doc line claim text target path
+  for doc in "${ARCH_DOCS[@]}" "$AGENT_DOC" "$AGENTS_DOC"; do
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      # A graph writes a line break as two characters, and a break is a
+      # space to a reader.
+      text="${claim//\\n/ }"
+      claim_targets "$text"
+      while read -r target path; do
+        [ -n "$target" ] || continue
+        path_package "$path"
+        [ -n "$PATH_PACKAGE" ] || continue
+        pkg_target "$PATH_PACKAGE"
+        [ -n "$PKG_TARGET" ] || continue
+        TARGET_CLAIM_COUNT=$((TARGET_CLAIM_COUNT + 1))
+        pkg_has_target "$target"
+        if [ "$PKG_HAS_TARGET" -ne 1 ]; then
+          fail "$(printf '%-22s %s line %s says %s is built for %s, but the tree says %s' \
+            'compile target' "$doc" "$line" "$PATH_PACKAGE" "$target" "$PKG_TARGET")"
+          TARGET_CLAIM_BAD=1
+        fi
+      done <<< "$CLAIM_TARGETS"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+check_compile_targets
+
+if [ "$TARGET_CLAIM_BAD" -eq 0 ]; then
+  ok "compile target" "$TARGET_CLAIM_COUNT claims"
+fi
+
 # --- the calls that leave the machine -----------------------------------------
 #
 # A claim that says the tree makes no external network call is making a
