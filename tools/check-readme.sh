@@ -1804,6 +1804,56 @@ doc_corpus_kinds() {
     | LC_ALL=C sort -u
 }
 
+# The extensions the local corpus reader accepts.  The function that decides
+# it is the one place the code says what a local corpus may hold, so the set
+# is read from that function and not from the file around it.
+code_corpus_extensions() {
+  awk '
+    match($0, /^fn is_readable_extension/) { inside = 1; next }
+    inside && match($0, /^}/) { inside = 0 }
+    inside {
+      line = $0
+      while (match(line, /"\.[a-z]+"/)) {
+        print substr(line, RSTART + 1, RLENGTH - 2)
+        line = substr(line, RSTART + RLENGTH)
+      }
+    }
+  ' backend/corpus_sources.mbt | LC_ALL=C sort -u
+}
+
+# The sets of file types the document attaches to the corpus.  A claim is a
+# list item or a paragraph, and every claim that mentions the corpus and names
+# file types has to name the tree's whole set: a claim that names three of
+# the five types is a claim that tells a reader something the tree does not.
+doc_corpus_extension_sets() {
+  awk '
+    function flush(   line, ext, out, seen) {
+      if (block == "") return
+      out = ""
+      seen = " "
+      if (tolower(block) ~ /corpus/) {
+        line = block
+        while (match(line, /`\.[a-z]+`/)) {
+          ext = substr(line, RSTART + 1, RLENGTH - 2)
+          if (index(seen, " " ext " ") == 0) {
+            out = out ext " "
+            seen = seen ext " "
+          }
+          line = substr(line, RSTART + RLENGTH)
+        }
+      }
+      block = ""
+      sub(/ +$/, "", out)
+      if (out != "") print out
+    }
+    /^[[:space:]]*$/ { flush(); next }
+    { line = $0 }
+    line ~ /^[[:space:]]*- / || line ~ /^#/ { flush() }
+    { block = block line "\n" }
+    END { flush() }
+  ' "$README"
+}
+
 CODE_FORMATS=$(code_formats)
 DOC_FORMATS=$(doc_formats)
 if [ -z "$CODE_FORMATS" ]; then
@@ -1880,6 +1930,54 @@ else
     'Corpus kinds' \
     "$(printf '%s\n' "$CODE_CORPUS_KINDS" | tr '\n' ' ' | sed -e 's/ *$//')" \
     "$(printf '%s\n' "$DOC_CORPUS_KINDS" | tr '\n' ' ' | sed -e 's/ *$//')")"
+fi
+
+# --- the file types a local corpus may hold -----------------------------------
+#
+# A local corpus is a folder of the reader's own files, and the reader reads
+# the ones whose extension it knows.  The document says which files those are,
+# and the code says the same thing in the function that decides it.  A reader
+# who puts a Zotero export in the folder and is not told it is read has no way
+# of knowing; a reader who is told a type is read and it is not has a folder
+# that comes back empty.
+#
+# Nothing watched it.  The measurement: the document named fewer types than
+# the reader takes, and the reader was given a type the document did not name,
+# and all four gate suites went on saying that every claim in the documents
+# matches the tree.
+#
+# The claim is read by its own shape.  The document's claim is every list
+# item and every paragraph that mentions the corpus and names file types, and
+# it quotes the extensions the way the tree writes them.  The tree's claim is
+# the function that decides which files the reader reads.
+#
+# The comparison is the same one the corpus kinds are held to: the two sets
+# are the same set.
+
+CODE_CORPUS_EXTENSIONS=$(code_corpus_extensions)
+DOC_CORPUS_SETS=$(doc_corpus_extension_sets)
+CORPUS_FILES_BAD=0
+if [ -z "$CODE_CORPUS_EXTENSIONS" ]; then
+  fail "$(printf '%-20s no file type could be derived from the local reader' 'Corpus files')"
+  CORPUS_FILES_BAD=1
+elif [ -z "$DOC_CORPUS_SETS" ]; then
+  fail "$(printf '%-20s the document names no file type for a local corpus' 'Corpus files')"
+  CORPUS_FILES_BAD=1
+else
+  while IFS= read -r claim; do
+    [ -n "$claim" ] || continue
+    if ! same_members "$CODE_CORPUS_EXTENSIONS" "$(printf '%s\n' "$claim" | tr ' ' '\n')"; then
+      fail "$(printf '%-20s the tree says [%s], the document says [%s]' \
+        'Corpus files' \
+        "$(printf '%s\n' "$CODE_CORPUS_EXTENSIONS" | tr '\n' ' ' | sed -e 's/ *$//')" \
+        "$claim")"
+      CORPUS_FILES_BAD=1
+      break
+    fi
+  done <<< "$DOC_CORPUS_SETS"
+fi
+if [ "$CORPUS_FILES_BAD" -eq 0 ]; then
+  printf '  ok      %-20s %s\n' 'Corpus files' "$(printf '%s\n' "$CODE_CORPUS_EXTENSIONS" | grep -c .)"
 fi
 
 # --- the tools the agent's server offers -------------------------------------

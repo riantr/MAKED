@@ -44,8 +44,8 @@ Protocol over stdio or HTTP.
   slots and rules; `MAKED_MODEL` names it
 - ✅ **The mapping table is a file** — the rules that say what a document means, read top
   down, first match wins; `MAKED_RESEARCH` names it
-- ✅ **The corpus is yours** — arxiv, an RSS feed, or your own folder of notes, PDFs and
-  Markdown; `MAKED_CORPUS` names it
+- ✅ **The corpus is yours** — arxiv, an RSS feed, or your own folder of `.txt`, `.md`,
+  `.markdown`, `.pdf` and `.json` files; `MAKED_CORPUS` names it
 - ✅ **The collective** — the Society layer, with its 13 positions, 28 transitions and 8
   phases; the English words are a file, so `MAKED_SOCIETY` can change them
 - ✅ **The collective's words are checked** — a vocabulary that names a position the machine
@@ -483,8 +483,10 @@ source:
   max_results: 20
 ```
 
-`kind` is `arxiv`, `rss` or `local`. A local corpus is a folder of Markdown, text and PDF
-files; MAKED reads them, and the documents it read are the ones it drives.
+`kind` is `arxiv`, `rss` or `local`. A local corpus is a folder of the reader's own
+files: `.txt`, `.md`, `.markdown`, `.pdf` and `.json`. A `.json` file is read as a
+Zotero export, and a `.pdf` is read as the text of its pages. MAKED reads them, and
+the documents it read are the ones it drives.
 
 ### A vocabulary of your own
 

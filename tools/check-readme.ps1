@@ -1865,6 +1865,67 @@ function Get-DocCorpusKinds {
   Sort-Set $out
 }
 
+# The extensions the local corpus reader accepts.  The function that decides
+# it is the one place the code says what a local corpus may hold, so the set
+# is read from that function and not from the file around it.
+function Get-CodeCorpusExtensions {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/corpus_sources.mbt'), $enc)
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^fn is_readable_extension') { $inside = $true; continue }
+    if ($inside -and $line -match '^\}') { $inside = $false }
+    if ($inside) {
+      foreach ($m in [regex]::Matches($line, '"(\.[a-z]+)"')) {
+        $out += $m.Groups[1].Value
+      }
+    }
+  }
+  Sort-Set $out
+}
+
+# The sets of file types the document attaches to the corpus.  A claim is a
+# list item or a paragraph, and every claim that mentions the corpus and names
+# file types has to name the tree's whole set: a claim that names three of
+# the five types is a claim that tells a reader something the tree does not.
+function Get-CorpusExtensionSet($text) {
+  if ([string]::IsNullOrEmpty($text)) { return $null }
+  if ($text -notmatch '(?i)corpus') { return $null }
+  $exts = @()
+  $seen = @{}
+  foreach ($m in [regex]::Matches($text, '`(\.[a-z]+)`')) {
+    $e = $m.Groups[1].Value
+    if (-not $seen.ContainsKey($e)) {
+      $seen[$e] = $true
+      $exts += $e
+    }
+  }
+  if ($exts.Count -eq 0) { return $null }
+  ($exts -join ' ')
+}
+
+function Get-DocCorpusExtensionSets {
+  $out = @()
+  $block = @()
+  foreach ($line in ($readme -split "`r?`n")) {
+    if ($line.Trim() -eq '') {
+      $set = Get-CorpusExtensionSet ($block -join "`n")
+      $block = @()
+      if ($set) { $out += $set }
+      continue
+    }
+    if ($line -match '^[[:space:]]*- ' -or $line -match '^#') {
+      $set = Get-CorpusExtensionSet ($block -join "`n")
+      $block = @()
+      if ($set) { $out += $set }
+    }
+    $block += $line
+  }
+  $set = Get-CorpusExtensionSet ($block -join "`n")
+  if ($set) { $out += $set }
+  $out
+}
+
 $codeFormats = @(Get-CodeFormats)
 $docFormats = @(Get-DocFormats)
 if ($codeFormats.Count -eq 0) {
@@ -1948,6 +2009,57 @@ if ($codeCorpusKinds.Count -eq 0) {
   Write-Output ("  {0,-20} the tree says [{1}], the document says [{2}]" -f 'Corpus kinds', ($codeCorpusKinds -join ' '), ($docCorpusKinds -join ' '))
   Write-Output "*** FAIL ***"
   $failures++
+}
+
+# --- the file types a local corpus may hold -----------------------------------
+#
+# A local corpus is a folder of the reader's own files, and the reader reads
+# the ones whose extension it knows.  The document says which files those are,
+# and the code says the same thing in the function that decides it.  A reader
+# who puts a Zotero export in the folder and is not told it is read has no way
+# of knowing; a reader who is told a type is read and it is not has a folder
+# that comes back empty.
+#
+# Nothing watched it.  The measurement: the document named fewer types than
+# the reader takes, and the reader was given a type the document did not name,
+# and all four gate suites went on saying that every claim in the documents
+# matches the tree.
+#
+# The claim is read by its own shape.  The document's claim is every list
+# item and every paragraph that mentions the corpus and names file types, and
+# it quotes the extensions the way the tree writes them.  The tree's claim is
+# the function that decides which files the reader reads.
+#
+# The comparison is the same one the corpus kinds are held to: the two sets
+# are the same set.
+
+$codeCorpusExtensions = @(Get-CodeCorpusExtensions)
+$docCorpusSets = @(Get-DocCorpusExtensionSets)
+$corpusFilesBad = $false
+if ($codeCorpusExtensions.Count -eq 0) {
+  Write-Output ("  {0,-20} no file type could be derived from the local reader" -f 'Corpus files')
+  Write-Output "*** FAIL ***"
+  $failures++
+  $corpusFilesBad = $true
+} elseif ($docCorpusSets.Count -eq 0) {
+  Write-Output ("  {0,-20} the document names no file type for a local corpus" -f 'Corpus files')
+  Write-Output "*** FAIL ***"
+  $failures++
+  $corpusFilesBad = $true
+} else {
+  foreach ($claim in $docCorpusSets) {
+    $list = @($claim -split ' ')
+    if (-not (Test-SameMembers $codeCorpusExtensions $list)) {
+      Write-Output ("  {0,-20} the tree says [{1}], the document says [{2}]" -f 'Corpus files', ($codeCorpusExtensions -join ' '), $claim)
+      Write-Output "*** FAIL ***"
+      $failures++
+      $corpusFilesBad = $true
+      break
+    }
+  }
+}
+if (-not $corpusFilesBad) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Corpus files', $codeCorpusExtensions.Count)
 }
 
 # --- the tools the agent's server offers -------------------------------------
