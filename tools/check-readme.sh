@@ -1736,6 +1736,45 @@ else
     "$(printf '%s\n' "$DOC_FILE_FORMATS" | tr '\n' ' ' | sed -e 's/ *$//')")"
 fi
 
+# The names the discovery document gives the files, each with the variable
+# that names it, as "name variable".
+#
+# The document is what the server ANSWERS with, so the name it gives a file is
+# the name the server gives it.  A document that calls the society vocabulary
+# something else calls it something the server does not.
+code_file_names() {
+  tr '\n' ' ' < backend/agent.mbt \
+    | grep -oE '"what": "[^"]+", *"variable": "MAKED_[A-Z_]+"' \
+    | sed -E 's/"what": "([^"]+)", *"variable": "(MAKED_[A-Z_]+)"/\1|\2/' \
+    | awk -F'|' '{ gsub(/^[ \t]+|[ \t]+$/, "", $1); print tolower($1), $2 }' \
+    | LC_ALL=C sort -u || true
+}
+
+# The same names, as README.md's table gives them.
+#
+# The row is read as a pair: the first column names the file, and the
+# variable in the third column is the one that points at it.  The table has a
+# format column between them, and the format is checked on its own above.
+doc_file_names() {
+  grep -oE '^\| [^|]+ \| [^|]+ \| `MAKED_[A-Z_]+` \|' "$README" \
+    | sed -E 's/^\| ([^|]+) \| [^|]+ \| `(MAKED_[A-Z_]+)` \|/\1|\2/' \
+    | awk -F'|' '{ gsub(/^[ \t]+|[ \t]+$/, "", $1); print tolower($1), $2 }' \
+    | LC_ALL=C sort -u || true
+}
+
+CODE_FILE_NAMES=$(code_file_names)
+DOC_FILE_NAMES=$(doc_file_names)
+if [ -z "$CODE_FILE_NAMES" ]; then
+  fail "$(printf '%-20s no file name could be derived from the discovery document' 'File names')"
+elif same_members "$CODE_FILE_NAMES" "$DOC_FILE_NAMES"; then
+  printf '  ok      %-20s %s\n' 'File names' "$(printf '%s\n' "$CODE_FILE_NAMES" | grep -c .)"
+else
+  fail "$(printf '%-20s the tree says [%s], the table says [%s]' \
+    'File names' \
+    "$(printf '%s\n' "$CODE_FILE_NAMES" | tr '\n' ' ' | sed -e 's/ *$//')" \
+    "$(printf '%s\n' "$DOC_FILE_NAMES" | tr '\n' ' ' | sed -e 's/ *$//')")"
+fi
+
 CODE_CORPUS_KINDS=$(code_corpus_kinds)
 DOC_CORPUS_KINDS=$(doc_corpus_kinds)
 if [ -z "$CODE_CORPUS_KINDS" ]; then

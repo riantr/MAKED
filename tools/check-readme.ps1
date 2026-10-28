@@ -1803,6 +1803,49 @@ if ($codeFileFormats.Count -eq 0) {
   $failures++
 }
 
+# The names the discovery document gives the files, each with the variable
+# that names it, as "name variable".
+#
+# The document is what the server ANSWERS with, so the name it gives a file is
+# the name the server gives it.  A document that calls the society vocabulary
+# something else calls it something the server does not.
+function Get-CodeFileNames {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/agent.mbt'), $enc)
+  $flat = $text -replace "`r?`n", ' '
+  foreach ($m in [regex]::Matches($flat, '"what": "([^"]+)", *"variable": "(MAKED_[A-Z_]+)"')) {
+    $out += (($m.Groups[1].Value).ToLower() + ' ' + $m.Groups[2].Value)
+  }
+  Sort-Set $out
+}
+
+# The same names, as README.md's table gives them.
+#
+# The row is read as a pair: the first column names the file, and the
+# variable in the third column is the one that points at it.  The table has a
+# format column between them, and the format is checked on its own above.
+function Get-DocFileNames {
+  $out = @()
+  foreach ($m in [regex]::Matches($readme, '(?m)^\| ([^|]+) \| [^|]+ \| `(MAKED_[A-Z_]+)` \|')) {
+    $out += (($m.Groups[1].Value.Trim()).ToLower() + ' ' + $m.Groups[2].Value)
+  }
+  Sort-Set $out
+}
+
+$codeFileNames = @(Get-CodeFileNames)
+$docFileNames = @(Get-DocFileNames)
+if ($codeFileNames.Count -eq 0) {
+  Write-Output ("  {0,-20} no file name could be derived from the discovery document" -f 'File names')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $codeFileNames $docFileNames) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'File names', $codeFileNames.Count)
+} else {
+  Write-Output ("  {0,-20} the tree says [{1}], the table says [{2}]" -f 'File names', ($codeFileNames -join ' '), ($docFileNames -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+}
+
 $codeCorpusKinds = @(Get-CodeCorpusKinds)
 $docCorpusKinds = @(Get-DocCorpusKinds)
 if ($codeCorpusKinds.Count -eq 0) {

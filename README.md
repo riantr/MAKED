@@ -379,7 +379,7 @@ rather than the server. The integration suite checks that it names the same seve
 |---|---|---|---|
 | The machine | `maked.model.v1` (JSON or YAML) | `MAKED_MODEL` | the domains, positions, slots and rules the loop runs on |
 | The mapping table | `maked.research.v1` (JSON or YAML) | `MAKED_RESEARCH` | what a document means — which words make a rule fire, and which slot it drives |
-| The vocabulary | `maked.society.v1` (YAML) | `MAKED_SOCIETY` | the English words for the collective's positions and moves |
+| The society vocabulary | `maked.society.v1` (YAML) | `MAKED_SOCIETY` | the English words for the collective's positions and moves |
 | The corpus | `maked.corpus.v1` (YAML) | `MAKED_CORPUS` | where the documents come from: arxiv, an RSS feed, or your own folder |
 
 A `.yaml` or `.yml` file is read as YAML; every other file is read as JSON. The extension
