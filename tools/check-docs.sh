@@ -2407,6 +2407,7 @@ CHAIN_RULE_MOONBACK="0.8.9"
 CHAIN_ORDER=""
 CHAIN_MOONBACK_PIN=""
 CHAIN_FLOWS="architecture/flows.md"
+CHAIN_GRAPH="architecture/flows.dot"
 
 # The parts of the chain, in the order the tree runs them.
 #
@@ -2470,6 +2471,63 @@ doc_chain_order() {
   } | sort -n | cut -d' ' -f2- | tr '\n' ' ' | sed -e 's/ *$//'
 }
 
+# The chain the flow graph draws.
+#
+# The graph states the order in the steps it numbers.  Each cluster is read on
+# its own: a step is a node whose label opens with a number, and the steps of
+# a cluster are put back in the order the numbers give.  The parts of the
+# chain a cluster names, in that order, are the order the graph draws the
+# chain in.
+#
+# A cluster that names every part of the chain states the order the chain
+# runs in, so it has to state the tree's.  A cluster that names only some of
+# them is about something else -- the API flow names the router and nothing
+# else -- and is left alone.
+#
+# The parts are named the way the tree names them, because a part is not a
+# word: "static" is not the middleware, "static_files" is.
+DOC_GRAPH_CHAIN=""
+doc_graph_chain() {
+  local file="$1" line label num text order name
+  local in_cluster=0 steps="" all
+  local open_re='^[[:space:]]*subgraph[[:space:]]'
+  local close_re='^[[:space:]]*\}[[:space:]]*$'
+  local step_re='^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\[label="([^"]*)"'
+  local num_re='^([0-9]+)\.'
+  DOC_GRAPH_CHAIN=""
+  while IFS= read -r line; do
+    if [[ "$line" =~ $open_re ]]; then
+      in_cluster=1
+      steps=""
+      continue
+    fi
+    [ "$in_cluster" -eq 1 ] || continue
+    if [[ "$line" =~ $close_re ]]; then
+      # The cluster ends: its steps are read in the order their numbers give.
+      text="$(printf '%s' "$steps" | sort -n | cut -d' ' -f2- | tr '\n' ' ')"
+      order="$(doc_chain_order "$text")"
+      all=1
+      for name in $CHAIN_ORDER; do
+        case " $order " in *" $name "*) ;; *) all=0 ;; esac
+      done
+      if [ "$all" -eq 1 ]; then
+        DOC_GRAPH_CHAIN="$order"
+        return
+      fi
+      in_cluster=0
+      continue
+    fi
+    if [[ "$line" =~ $step_re ]]; then
+      label="${BASH_REMATCH[1]}"
+      if [[ "$label" =~ $num_re ]]; then
+        num="${BASH_REMATCH[1]}"
+        steps="$steps$num $label
+"
+      fi
+    fi
+  done < "$file"
+}
+
 # The chain the flow document traces: the numbered list under the line that
 # says the chain runs outermost first.
 #
@@ -2508,7 +2566,8 @@ doc_flow_chain() {
 #
 # A table cell that names every part of the chain states the order they run
 # in, so it has to state the tree's. The flow document says it in a list
-# rather than a table, so that list is read as well.
+# rather than a table, so that list is read as well. The flow graph draws it
+# as numbered steps, so the cluster that names every part is read as well.
 check_chain_order() {
   local label="middleware order"
   local bad=0
@@ -2537,6 +2596,19 @@ check_chain_order() {
     fail "$(printf '%-22s %s states [%s], the tree runs [%s]' \
       "$label" "$(basename "$CHAIN_FLOWS")" "$order" "$CHAIN_ORDER")"
     bad=1
+  fi
+  doc_graph_chain "$CHAIN_GRAPH"
+  if [ -z "$DOC_GRAPH_CHAIN" ]; then
+    fail "$(printf '%-22s %s does not name every part of the chain' \
+      "$label" "$(basename "$CHAIN_GRAPH")")"
+    bad=1
+  else
+    order="$DOC_GRAPH_CHAIN"
+    if [ "$order" != "$CHAIN_ORDER" ]; then
+      fail "$(printf '%-22s %s draws [%s], the tree runs [%s]' \
+        "$label" "$(basename "$CHAIN_GRAPH")" "$order" "$CHAIN_ORDER")"
+      bad=1
+    fi
   fi
   if [ "$bad" -eq 0 ]; then
     ok "$label" "$CHAIN_ORDER"

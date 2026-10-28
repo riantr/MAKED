@@ -60,10 +60,10 @@ digraph maked_flows {
     color="#4a7c9e"
 
     c1 [label="1. GET /about", fillcolor="#d4e6f1"]
-    c2 [label="2. routes: no match\n   (not /api/*)", fillcolor="#d4e6f1"]
-    c3 [label="3. static: no file\n   dist/about", fillcolor="#d4e6f1"]
-    c4 [label="4. spa_fallback:\n   GET + not /api/* + no dot\n   → wants_spa_shell = true", fillcolor="#d4e6f1"]
-    c5 [label="5. read dist/index.html\n   → 200 text/html", fillcolor="#d4e6f1"]
+    c2 [label="2. static_files: no file\n   dist/about", fillcolor="#d4e6f1"]
+    c3 [label="3. spa_fallback:\n   GET + not /api/* + no dot\n   → wants_spa_shell = true", fillcolor="#d4e6f1"]
+    c4 [label="4. read dist/index.html\n   → 200 text/html", fillcolor="#d4e6f1"]
+    c5 [label="5. routes:\n   the shell above already answered", fillcolor="#d4e6f1"]
     c6 [label="6. <script> loads main.js\n   rabbita.mount('app')", fillcolor="#d9ead3"]
     c7 [label="7. start(): GET /api/bootstrap\n   → fetch the pages and the working state", fillcolor="#d9ead3"]
     c8 [label="8. on_url_changed(/about)\n   → slug_of = 'about'\n   → render page_view", fillcolor="#d9ead3"]
@@ -72,12 +72,12 @@ digraph maked_flows {
   browser -> c1
   c1 -> moonback
   moonback -> c2
+  c2 -> static_mw
   c2 -> c3
-  c3 -> static_mw
+  c3 -> spa_fb
   c3 -> c4
-  c4 -> spa_fb
+  c4 -> fs
   c4 -> c5
-  c5 -> fs
   c5 -> browser
   browser -> c6
   c6 -> rabbita

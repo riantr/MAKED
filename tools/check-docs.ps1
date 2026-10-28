@@ -2408,6 +2408,7 @@ Test-Sets 'page decoder keys' $treePageDecoderKeys (Get-DocPageDecoderKeys)
 
 $chainRuleMoonback = '0.8.9'
 $chainFlows = 'architecture/flows.md'
+$chainGraph = 'architecture/flows.dot'
 
 # The parts of the chain, in the order the tree runs them.
 #
@@ -2458,6 +2459,58 @@ function Get-DocChainOrder($text, $parts) {
   $names -join ' '
 }
 
+# The chain the flow graph draws.
+#
+# The graph states the order in the steps it numbers.  Each cluster is read on
+# its own: a step is a node whose label opens with a number, and the steps of
+# a cluster are put back in the order the numbers give.  The parts of the
+# chain a cluster names, in that order, are the order the graph draws the
+# chain in.
+#
+# A cluster that names every part of the chain states the order the chain
+# runs in, so it has to state the tree's.  A cluster that names only some of
+# them is about something else -- the API flow names the router and nothing
+# else -- and is left alone.
+#
+# The parts are named the way the tree names them, because a part is not a
+# word: "static" is not the middleware, "static_files" is.
+function Get-DocGraphChain($file, $parts) {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $file), $enc)
+  $inCluster = $false
+  $steps = @()
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^\s*subgraph\s') {
+      $inCluster = $true
+      $steps = @()
+      continue
+    }
+    if (-not $inCluster) { continue }
+    if ($line -match '^\s*\}\s*$') {
+      # The cluster ends: its steps are read in the order their numbers give.
+      $joined = ''
+      foreach ($step in ($steps | Sort-Object -Property Num)) {
+        $joined = $joined + $step.Label + ' '
+      }
+      $order = Get-DocChainOrder $joined $parts
+      $all = $true
+      foreach ($name in ($parts -split ' ')) {
+        if ($name -eq '') { continue }
+        if (-not (' ' + $order + ' ').Contains(' ' + $name + ' ')) { $all = $false }
+      }
+      if ($all) { return $order }
+      $inCluster = $false
+      continue
+    }
+    $m = [regex]::Match($line, '^\s*[A-Za-z_][A-Za-z0-9_]*\s*\[label="([^"]*)"')
+    if (-not $m.Success) { continue }
+    $label = $m.Groups[1].Value
+    $n = [regex]::Match($label, '^([0-9]+)\.')
+    if (-not $n.Success) { continue }
+    $steps += [PSCustomObject]@{ Num = [int]$n.Groups[1].Value; Label = $label }
+  }
+  ''
+}
+
 # The chain the flow document traces: the numbered list under the line that
 # says the chain runs outermost first.
 #
@@ -2493,7 +2546,8 @@ function Get-DocFlowChain {
 #
 # A table cell that names every part of the chain states the order they run
 # in, so it has to state the tree's. The flow document says it in a list
-# rather than a table, so that list is read as well.
+# rather than a table, so that list is read as well. The flow graph draws it
+# as numbered steps, so the cluster that names every part is read as well.
 function Test-ChainOrder($label, $expected, $docs) {
   $bad = $false
   foreach ($doc in $docs) {
@@ -2519,6 +2573,14 @@ function Test-ChainOrder($label, $expected, $docs) {
   $order = Get-DocChainOrder (Get-DocFlowChain) $expected
   if ($order -cne $expected) {
     Write-Fail ("{0,-22} {1} states [{2}], the tree runs [{3}]" -f $label, (Split-Path -Leaf $chainFlows), $order, $expected)
+    $bad = $true
+  }
+  $order = Get-DocGraphChain $chainGraph $expected
+  if ($order -eq '') {
+    Write-Fail ("{0,-22} {1} does not name every part of the chain" -f $label, (Split-Path -Leaf $chainGraph))
+    $bad = $true
+  } elseif ($order -cne $expected) {
+    Write-Fail ("{0,-22} {1} draws [{2}], the tree runs [{3}]" -f $label, (Split-Path -Leaf $chainGraph), $order, $expected)
     $bad = $true
   }
   if (-not $bad) { Write-Ok $label $expected }
