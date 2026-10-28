@@ -54,7 +54,7 @@
 | Step | Source | Confidence |
 |------|--------|------------|
 | seed_pages produces hardcoded HTML bodies | `backend/pages.mbt:272` | high |
-| Page::to_json serializes all 12 fields, choosing the language once | `backend/pages.mbt:68-80` | high |
+| Page::to_json writes 8 fields, the language choosing the wording | `backend/pages.mbt:68-80` | high |
 | Frontend Page struct mirrors backend shape | `frontend/page.mbt:16-30` | high |
 | decode_pages is total: missing fields get fallbacks | `frontend/page.mbt:133` | high |
 | page_view uses inner_html (safe: backend is sole writer of that column) | `frontend/views.mbt:152-153` | high |

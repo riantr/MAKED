@@ -230,6 +230,28 @@ count_page_fields() {
   ' backend/pages.mbt
 }
 
+# The fields of the struct that have a Chinese twin beside them.  The twin is
+# the same word in the other language: title beside title_zh, role beside
+# role_zh.
+count_page_zh_fields() {
+  awk '
+    /^pub\(all\) struct Page \{/ { inside = 1; next }
+    inside && /^\}/ { exit }
+    inside && /^[ \t]+[a-z_]+_zh[ \t]*:/ { n++ }
+    END { print n + 0 }
+  ' backend/pages.mbt
+}
+
+# The fields of the struct that do not: the English wording of every word.
+count_page_plain_fields() {
+  awk '
+    /^pub\(all\) struct Page \{/ { inside = 1; next }
+    inside && /^\}/ { exit }
+    inside && /^[ \t]+[a-z_]+[ \t]*:/ && !/_zh[ \t]*:/ { n++ }
+    END { print n + 0 }
+  ' backend/pages.mbt
+}
+
 # The pages the server serves. Three places produce one:
 #
 #   - the ring domains, one tuple each
@@ -447,6 +469,19 @@ check_count "pages columns" \
 doc_number 'Page struct with [0-9]+ fields' "$EVIDENCE"
 check_count "Page fields" \
   "$(count_page_fields)" \
+  "$DOC_NUMBER"
+
+# The split of the same row: the fields that are the English wording of a
+# word, and the fields that are the Chinese one beside them.  The row states
+# both numbers, and both are the tree's.
+doc_number '\([0-9]+ English' "$EVIDENCE"
+check_count "Page english fields" \
+  "$(count_page_plain_fields)" \
+  "$DOC_NUMBER"
+
+doc_number '\+ [0-9]+ Chinese\)' "$EVIDENCE"
+check_count "Page chinese fields" \
+  "$(count_page_zh_fields)" \
   "$DOC_NUMBER"
 
 doc_number '[|] [0-9]+ seed pages' "$EVIDENCE"
@@ -2297,6 +2332,14 @@ code_page_json_keys() {
     inside && /^  \}/ { exit }
     inside { print }
   ' backend/pages.mbt | grep -oE '"[a-z_]+":' | tr -d '":' | LC_ALL=C sort -u
+}
+
+# The fields Page::to_json writes.  The struct has one field for each word in
+# each language; the JSON has one field per word, and the language decides
+# which wording of the words that have two it carries.
+count_page_json_fields() {
+  count_lines "$(code_page_json_keys)"
+  echo "$COUNT_LINES"
 }
 
 code_page_decoder_keys() {
@@ -10387,11 +10430,19 @@ fi
 #
 # The evidence table gives every step of the flow a source, and four of its
 # numbers are claims about the tree: how many pages seed_pages() returns, how
-# many domains the ring holds, how many fields the Page struct has, and the
+# many domains the ring holds, how many fields Page::to_json writes, and the
 # number a function falls back to when its input cannot be read. None of them
 # was checked. The other documents state the same counts and are checked
 # there -- this table was the one place a reader could be handed a number the
 # tree does not have.
+#
+# The fields are the ones the JSON has, not the ones the struct has.  The
+# struct holds a field for each word in each language, twelve of them; the
+# JSON holds one field per word, eight of them, and the language decides
+# which wording of the four words that have two it carries.  A row that says
+# twelve is a row that counts the wrong thing, and the gate used to ask the
+# struct for the number and so held the row to a number the tree does not have
+# in that shape.
 #
 # The fallback is not a count, so it is checked where it lives: the row cites
 # the lines of the function, and those lines have to hold the catch that falls
@@ -10406,8 +10457,8 @@ check_claim_number "flow evidence pages" '([0-9]+) seeded pages' \
 check_claim_number "flow evidence ring" '([0-9]+) ring' \
   "$(count_ring_domains)" "$FLOWS_EVIDENCE"
 
-check_claim_number "flow evidence fields" 'all ([0-9]+) fields' \
-  "$(count_page_fields)" "$FLOWS_EVIDENCE"
+check_claim_number "flow evidence fields" 'writes ([0-9]+) fields' \
+  "$(count_page_json_fields)" "$FLOWS_EVIDENCE"
 
 FALLBACK_VALUE_BAD=0
 FALLBACK_VALUE_CHECKED=0

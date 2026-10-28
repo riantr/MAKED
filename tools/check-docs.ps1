@@ -190,6 +190,42 @@ function Count-PageFields {
   $count
 }
 
+# The fields of the struct that have a Chinese twin beside them.  The twin is
+# the same word in the other language: title beside title_zh, role beside
+# role_zh.
+function Count-PageZhFields {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/pages.mbt'), $enc)
+  $lines = $text -split "`n"
+  $inside = $false
+  $count = 0
+  foreach ($line in $lines) {
+    if (-not $inside) {
+      if ($line -match '^pub\(all\) struct Page \{') { $inside = $true }
+      continue
+    }
+    if ($line -match '^\}') { break }
+    if ($line -match '^[ \t]+[a-z_]+_zh[ \t]*:') { $count++ }
+  }
+  $count
+}
+
+# The fields of the struct that do not: the English wording of every word.
+function Count-PagePlainFields {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/pages.mbt'), $enc)
+  $lines = $text -split "`n"
+  $inside = $false
+  $count = 0
+  foreach ($line in $lines) {
+    if (-not $inside) {
+      if ($line -match '^pub\(all\) struct Page \{') { $inside = $true }
+      continue
+    }
+    if ($line -match '^\}') { break }
+    if ($line -match '^[ \t]+[a-z_]+[ \t]*:' -and $line -notmatch '_zh[ \t]*:') { $count++ }
+  }
+  $count
+}
+
 # The pages the server serves. Three places produce one:
 #
 #   - the ring domains, one tuple each
@@ -350,6 +386,17 @@ Test-Count 'pages columns' `
 Test-Count 'Page fields' `
   (Count-PageFields) `
   (Get-DocNumber 'Page struct with [0-9]+ fields' $evidence)
+
+# The split of the same row: the fields that are the English wording of a
+# word, and the fields that are the Chinese one beside them.  The row states
+# both numbers, and both are the tree's.
+Test-Count 'Page english fields' `
+  (Count-PagePlainFields) `
+  (Get-DocNumber '\([0-9]+ English' $evidence)
+
+Test-Count 'Page chinese fields' `
+  (Count-PageZhFields) `
+  (Get-DocNumber '\+ [0-9]+ Chinese\)' $evidence)
 
 Test-Count 'seed pages' `
   (Count-SeedPages) `
@@ -2277,6 +2324,13 @@ function Get-TreePageJsonKeys {
     }
   }
   Sort-Set $out
+}
+
+# The fields Page::to_json writes.  The struct has one field for each word in
+# each language; the JSON has one field per word, and the language decides
+# which wording of the words that have two it carries.
+function Count-PageJsonFields {
+  @(Get-TreePageJsonKeys).Count
 }
 
 # The keys the frontend reads: the ones page_from_json asks the JSON for.
@@ -9120,11 +9174,19 @@ if (-not $script:buildPtrBad) { Write-Ok 'build pointer' ("{0} pointers" -f $scr
 #
 # The evidence table gives every step of the flow a source, and four of its
 # numbers are claims about the tree: how many pages seed_pages() returns, how
-# many domains the ring holds, how many fields the Page struct has, and the
+# many domains the ring holds, how many fields Page::to_json writes, and the
 # number a function falls back to when its input cannot be read. None of them
 # was checked. The other documents state the same counts and are checked
 # there -- this table was the one place a reader could be handed a number the
 # tree does not have.
+#
+# The fields are the ones the JSON has, not the ones the struct has.  The
+# struct holds a field for each word in each language, twelve of them; the
+# JSON holds one field per word, eight of them, and the language decides
+# which wording of the four words that have two it carries.  A row that says
+# twelve is a row that counts the wrong thing, and the gate used to ask the
+# struct for the number and so held the row to a number the tree does not have
+# in that shape.
 #
 # The fallback is not a count, so it is checked where it lives: the row cites
 # the lines of the function, and those lines have to hold the catch that falls
@@ -9139,8 +9201,8 @@ Test-ClaimNumber 'flow evidence pages' '([0-9]+) seeded pages' `
 Test-ClaimNumber 'flow evidence ring' '([0-9]+) ring' `
   (Get-RingDomainCount) $flowsEvidence
 
-Test-ClaimNumber 'flow evidence fields' 'all ([0-9]+) fields' `
-  (Count-PageFields) $flowsEvidence
+Test-ClaimNumber 'flow evidence fields' 'writes ([0-9]+) fields' `
+  (Count-PageJsonFields) $flowsEvidence
 
 $script:fallbackValueBad = $false
 $script:fallbackValueChecked = 0
