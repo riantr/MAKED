@@ -3122,6 +3122,93 @@ graph_variables() {
 
 check_sets "topology variables" "$(code_variable_names)" "$(graph_variables)"
 
+# The methods the deployment graph gives each handler.
+#
+# A label that states a method and a path states the methods the tree serves
+# that path with.  The path may be a family: a path that ends in a star is
+# the path itself and everything under it.
+graph_handler_methods() {
+  local file="$1"
+  grep -oE 'label="[A-Z]+(\|[A-Z]+)* /api/[^"]+"' "$file" \
+    | sed -E 's/^label="//; s/"$//'
+}
+
+# The methods the tree serves a path with.
+#
+# An exact path is one path.  A path that ends in a star is a family: the
+# path without the star, and everything under it.  The family "/api/society/*"
+# is the path "/api/society" and the paths below it, so the collection that
+# answers the society is one the graph states as GET|POST.
+tree_path_methods() {
+  local want="$1" base="" endpoint emethod epath methods=""
+  case "$want" in
+    *'*') base="${want%\*}"; base="${base%/}" ;;
+  esac
+  for endpoint in $(printf '%s\n' "$TREE_ENDPOINTS" | sed 's/ /|/'); do
+    emethod="${endpoint%%|*}"
+    epath="${endpoint#*|}"
+    if [ -n "$base" ]; then
+      case "$epath" in
+        "$base") ;;
+        "$base"/*) ;;
+        *) continue ;;
+      esac
+    else
+      [ "$epath" = "$want" ] || continue
+    fi
+    case " $methods " in *" $emethod "*) ;; *) methods="$methods $emethod" ;; esac
+  done
+  printf '%s\n' $methods | LC_ALL=C sort | tr '\n' '|' | sed -e 's/|$//'
+}
+
+# The same set of methods, whatever order they are written in.
+#
+# The claim is a set: a graph that writes "POST|GET" says the same two
+# methods as one that writes "GET|POST", and a gate that failed it would be
+# failing a document for the order of a list, which the document does not
+# claim.
+same_method_set() {
+  local got="$1" want="$2" g w n_got=0 n_want=0
+  for g in $got; do
+    n_got=$((n_got + 1))
+    case " $want " in *" $g "*) ;; *) return 1 ;; esac
+  done
+  for w in $want; do
+    n_want=$((n_want + 1))
+    case " $got " in *" $w "*) ;; *) return 1 ;; esac
+  done
+  [ "$n_got" -eq "$n_want" ]
+}
+
+# Every handler the graph draws states the methods the tree serves it with.
+check_graph_methods() {
+  local label="graph method"
+  local file="$1" claim methods path want got_list want_list n=0 bad=0
+  while IFS= read -r claim; do
+    [ -n "$claim" ] || continue
+    n=$((n + 1))
+    methods="${claim%% *}"
+    path="${claim#* }"
+    want="$(tree_path_methods "$path")"
+    got_list="$(printf '%s' "$methods" | tr '|' ' ' | tr -s ' ' | sed -e 's/ *$//')"
+    want_list="$(printf '%s' "$want" | tr '|' ' ' | tr -s ' ' | sed -e 's/ *$//')"
+    if ! same_method_set "$got_list" "$want_list"; then
+      fail "$(printf '%-22s %s states [%s], the tree serves [%s]' \
+        "$label" "$(basename "$file")" "$methods" "$want")"
+      bad=1
+    fi
+  done < <(graph_handler_methods "$file")
+  if [ "$n" -eq 0 ]; then
+    fail "$(printf '%-22s the graph states no method for any handler' "$label")"
+    return
+  fi
+  if [ "$bad" -eq 0 ]; then
+    ok "$label" "$n"
+  fi
+}
+
+check_graph_methods "$DEPLOY_DOT"
+
 # Every route the server registers.
 tree_routes() {
   tr '\n' ' ' < backend/api.mbt \

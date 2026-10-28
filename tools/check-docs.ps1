@@ -3149,6 +3149,87 @@ function Get-GraphVariables {
 
 Test-Sets 'topology variables' (Get-CodeVariableNames) (Get-GraphVariables)
 
+# The methods the deployment graph gives each handler.
+#
+# A label that states a method and a path states the methods the tree serves
+# that path with.  The path may be a family: a path that ends in a star is
+# the path itself and everything under it.
+function Get-GraphHandlerMethods($file) {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $file), $enc)
+  $out = @()
+  foreach ($m in [regex]::Matches($text, 'label="([A-Z]+(?:\|[A-Z]+)*) (/api/[^"]+)"')) {
+    $out += ($m.Groups[1].Value + ' ' + $m.Groups[2].Value)
+  }
+  $out
+}
+
+# The methods the tree serves a path with.
+#
+# An exact path is one path.  A path that ends in a star is a family: the
+# path without the star, and everything under it.  The family "/api/society/*"
+# is the path "/api/society" and the paths below it, so the collection that
+# answers the society is one the graph states as GET|POST.
+function Get-TreePathMethods($want) {
+  $base = ''
+  if ($want.EndsWith('*')) { $base = $want.Substring(0, $want.Length - 1).TrimEnd('/') }
+  $methods = @()
+  foreach ($endpoint in (Get-TreeEndpoints)) {
+    $space = $endpoint.IndexOf(' ')
+    $emethod = $endpoint.Substring(0, $space)
+    $epath = $endpoint.Substring($space + 1)
+    if ($base -ne '') {
+      if ($epath -cne $base -and -not $epath.StartsWith($base + '/')) { continue }
+    } elseif ($epath -cne $want) { continue }
+    if ($methods -cnotcontains $emethod) { $methods += $emethod }
+  }
+  (Sort-Set $methods) -join '|'
+}
+
+# The same set of methods, whatever order they are written in.
+#
+# The claim is a set: a graph that writes "POST|GET" says the same two
+# methods as one that writes "GET|POST", and a gate that failed it would be
+# failing a document for the order of a list, which the document does not
+# claim.
+function Test-SameMethodSet($got, $want) {
+  $gotList = @($got -split ' ' | Where-Object { $_ -ne '' })
+  $wantList = @($want -split ' ' | Where-Object { $_ -ne '' })
+  if ($gotList.Count -ne $wantList.Count) { return $false }
+  foreach ($g in $gotList) {
+    if ($wantList -cnotcontains $g) { return $false }
+  }
+  foreach ($w in $wantList) {
+    if ($gotList -cnotcontains $w) { return $false }
+  }
+  $true
+}
+
+# Every handler the graph draws states the methods the tree serves it with.
+function Test-GraphMethods($label, $file) {
+  $bad = $false
+  $n = 0
+  foreach ($claim in (Get-GraphHandlerMethods $file)) {
+    $n = $n + 1
+    $space = $claim.IndexOf(' ')
+    $methods = $claim.Substring(0, $space)
+    $path = $claim.Substring($space + 1)
+    $want = Get-TreePathMethods $path
+    $gotList = ($methods -replace '\|', ' ').Trim()
+    $wantList = ($want -replace '\|', ' ').Trim()
+    if (-not (Test-SameMethodSet $gotList $wantList)) {
+      Write-Fail ("{0,-22} {1} states [{2}], the tree serves [{3}]" -f $label, (Split-Path -Leaf $file), $methods, $want)
+      $bad = $true
+    }
+  }
+  if ($n -eq 0) {
+    Write-Fail ("{0,-22} the graph states no method for any handler" -f $label)
+    return
+  }
+  if (-not $bad) { Write-Ok $label $n }
+}
+
+Test-GraphMethods 'graph method' $deployDot
+
 # Every route the server registers.
 function Get-TreeRoutes {
   $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/api.mbt'), $enc)

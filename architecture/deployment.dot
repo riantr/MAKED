@@ -54,7 +54,7 @@ digraph maked_deployment {
         h_entries [label="GET|POST /api/entries", fillcolor="#fce5cd"]
         h_sessions [label="GET|POST /api/sessions", fillcolor="#fce5cd"]
         h_loop [label="GET|POST /api/loop/*", fillcolor="#fce5cd"]
-        h_research [label="GET|POST /api/research/*", fillcolor="#fce5cd"]
+        h_research [label="GET|POST|PUT /api/research/*", fillcolor="#fce5cd"]
         h_society [label="GET|POST /api/society/*", fillcolor="#fce5cd"]
         h_agent [label="GET /api/agent", fillcolor="#fce5cd"]
       }
