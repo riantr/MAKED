@@ -703,6 +703,121 @@ elif [ "$TARGET_BAD" -eq 0 ]; then
   printf '  ok      %-20s %s claims\n' 'Compile target' "$TARGET_CLAIMS"
 fi
 
+# --- the platforms the document labels a package with ------------------------
+#
+# The README labels the packages with the platform they are built for: the
+# backend package is native, the frontend package is js. A label the package
+# does not carry sends a reader to the wrong platform.
+#
+# The claim is read by its own shape: a path that names a package, and a
+# platform in parentheses on the same line. The path comes before the label,
+# and it is a path -- it carries a slash.
+#
+# The platform qualifies one of two paths, and the two are read one at a
+# time. A path that comes right before the parentheses qualifies them, as in
+# "`riantr/MAKED/backend` (native". And a path in a line that has a comment
+# qualifies a platform in that comment, as in "backend/   # the loop (native)".
+#
+# The paths are the tree's own, and a path may carry the module's name in
+# front of it: "riantr/MAKED/backend" is the package "backend".
+
+# The module's name, so that a path may carry it in front.
+MODULE_NAME=""
+module_name() {
+  MODULE_NAME=$(grep -oE '^name[[:space:]]*=[[:space:]]*"[^"]*"' moon.mod 2>/dev/null \
+    | head -1 | sed -E 's/.*"([^"]*)".*/\1/')
+}
+
+# The package a labelled path names: the module's name is taken off the front
+# and a trailing slash off the end, and the rest is a path of the tree.
+LABEL_PACKAGE=""
+label_package() {
+  local path="$1"
+  LABEL_PACKAGE=""
+  [ -n "$path" ] || return
+  case "$path" in
+    "$MODULE_NAME"/*) path="${path#"$MODULE_NAME"/}" ;;
+  esac
+  path="${path%/}"
+  path_package "$path"
+  LABEL_PACKAGE="$PATH_PACKAGE"
+}
+
+# The path a label names, in the text before it: the last word of that text,
+# when it is a path.
+LABEL_PATH=""
+label_path() {
+  local text="$1" word
+  LABEL_PATH=""
+  if [[ "$text" =~ ^(.*[^[:space:]])?[[:space:]]*$ ]]; then
+    text="${BASH_REMATCH[1]}"
+  fi
+  [ -n "$text" ] || return
+  if [[ "$text" =~ ([^[:space:]]+)$ ]]; then
+    word="${BASH_REMATCH[1]}"
+  else
+    return
+  fi
+  word="${word//\`/}"
+  case "$word" in
+    *[!A-Za-z0-9_./-]*) return ;;
+  esac
+  case "$word" in
+    */*) LABEL_PATH="$word" ;;
+  esac
+}
+
+# The claims the document makes about a platform: "line package platform".
+doc_platform_claims() {
+  local lineno=0 line scan match platform prefix path
+  local re='\((wasm-gc|wasm|native|js|all)([^A-Za-z0-9_-]|$)'
+  while IFS= read -r line || [ -n "$line" ]; do
+    lineno=$((lineno + 1))
+    scan="$line"
+    while [[ "$scan" =~ $re ]]; do
+      match="${BASH_REMATCH[0]}"
+      platform="${BASH_REMATCH[1]}"
+      prefix="${scan%%"$match"*}"
+      if [[ "$prefix" == *"#"* ]]; then
+        # The label is in a comment, and the path is the one before it.
+        label_path "${prefix%%#*}"
+      else
+        label_path "$prefix"
+      fi
+      path="$LABEL_PATH"
+      if [ -n "$path" ]; then
+        label_package "$path"
+        if [ -n "$LABEL_PACKAGE" ]; then
+          printf '%s\t%s\t%s\n' "$lineno" "$LABEL_PACKAGE" "$platform"
+        fi
+      fi
+      scan="${scan#*"$match"}"
+    done
+  done < "$README"
+}
+
+module_name
+
+PLATFORM_CLAIMS=0
+PLATFORM_BAD=0
+while IFS=$'\t' read -r line pkg platform; do
+  [ -n "$platform" ] || continue
+  pkg_target "$pkg"
+  [ -n "$PKG_TARGET" ] || continue
+  PLATFORM_CLAIMS=$((PLATFORM_CLAIMS + 1))
+  if ! pkg_has_target "$PKG_TARGET" "$platform"; then
+    fail "$(printf '%-20s %s line %s labels %s as %s, but the tree says %s' \
+      'Package platform' "$README" "$line" "$pkg" "$platform" "$PKG_TARGET")"
+    PLATFORM_BAD=1
+  fi
+done <<< "$(doc_platform_claims)"
+
+if [ "$PLATFORM_CLAIMS" -eq 0 ]; then
+  fail "$(printf '%-20s the document labels no package with a platform' 'Package platform')"
+elif [ "$PLATFORM_BAD" -eq 0 ]; then
+  printf '  ok      %-20s %s claims\n' 'Package platform' "$PLATFORM_CLAIMS"
+fi
+
 # --- the API map ------------------------------------------------------------
 #
 # The README carries a table of every route the server registers, and that

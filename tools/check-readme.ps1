@@ -721,6 +721,124 @@ if ($script:pkgTargets.Count -eq 0) {
   Write-Output ("  ok      {0,-20} {1} claims" -f 'Compile target', $script:targetClaimCount)
 }
 
+# --- the platforms the document labels a package with ------------------------
+#
+# The README labels the packages with the platform they are built for: the
+# backend package is native, the frontend package is js. A label the package
+# does not carry sends a reader to the wrong platform.
+#
+# The claim is read by its own shape: a path that names a package, and a
+# platform in parentheses on the same line. The path comes before the label,
+# and it is a path -- it carries a slash.
+#
+# The platform qualifies one of two paths, and the two are read one at a
+# time. A path that comes right before the parentheses qualifies them, as in
+# "`riantr/MAKED/backend` (native". And a path in a line that has a comment
+# qualifies a platform in that comment, as in "backend/   # the loop (native)".
+#
+# The paths are the tree's own, and a path may carry the module's name in
+# front of it: "riantr/MAKED/backend" is the package "backend".
+
+# The module's name, so that a path may carry it in front.
+function Get-ModuleName {
+  $file = Join-Path $PWD 'moon.mod'
+  if (-not (Test-Path $file)) { return '' }
+  $text = [System.IO.File]::ReadAllText($file, $enc)
+  $m = [regex]::Match($text, '(?m)^name\s*=\s*"([^"]*)"')
+  if (-not $m.Success) { return '' }
+  $m.Groups[1].Value
+}
+
+# The package a labelled path names: the module's name is taken off the front
+# and a trailing slash off the end, and the rest is a path of the tree.
+function Get-LabelPackage($path) {
+  if ($path -eq '') { return '' }
+  $p = $path
+  if ($script:moduleName -ne '' -and $p.StartsWith($script:moduleName + '/')) {
+    $p = $p.Substring($script:moduleName.Length + 1)
+  }
+  if ($p.EndsWith('/')) { $p = $p.Substring(0, $p.Length - 1) }
+  Get-PathPackage $p
+}
+
+# The path a label names, in the text before it: the last word of that text,
+# when it is a path.
+function Get-LabelPath($text) {
+  if ($text -eq '') { return '' }
+  $t = $text.TrimEnd()
+  if ($t -eq '') { return '' }
+  $m = [regex]::Match($t, '(\S+)$')
+  if (-not $m.Success) { return '' }
+  $word = $m.Groups[1].Value
+  $word = ($word -replace '^[^A-Za-z0-9_./-]+', '') -replace '[^A-Za-z0-9_./-]+$', ''
+  if ($word -notmatch '/') { return '' }
+  $word
+}
+
+# The claims the document makes about a platform: the line, the package, and
+# the platform the label gives it.
+function Get-DocPlatformClaims {
+  $out = @()
+  $lines = [System.IO.File]::ReadAllLines($readmePath, $enc)
+  $re = [regex]'\((wasm-gc|wasm|native|js|all)([^A-Za-z0-9_-]|$)'
+  for ($i = 0; $i -lt $lines.Length; $i++) {
+    $scan = $lines[$i]
+    while ($true) {
+      $m = $re.Match($scan)
+      if (-not $m.Success) { break }
+      $platform = $m.Groups[1].Value
+      $prefix = $scan.Substring(0, $m.Index)
+      $hash = $prefix.IndexOf('#')
+      if ($hash -ge 0) {
+        # The label is in a comment, and the path is the one before it.
+        $path = Get-LabelPath $prefix.Substring(0, $hash)
+      } else {
+        $path = Get-LabelPath $prefix
+      }
+      if ($path -ne '') {
+        $pkg = Get-LabelPackage $path
+        if ($pkg -ne '') {
+          $out += [pscustomobject]@{ line = ($i + 1); pkg = $pkg; platform = $platform }
+        }
+      }
+      $scan = $scan.Substring($m.Index + $m.Length)
+    }
+  }
+  $out
+}
+
+$script:moduleName = Get-ModuleName
+
+$script:platformClaimCount = 0
+$script:platformBad = $false
+foreach ($claim in @(Get-DocPlatformClaims)) {
+  if (-not $script:pkgTargets.ContainsKey($claim.pkg)) { continue }
+  $declared = $script:pkgTargets[$claim.pkg]
+  $script:platformClaimCount++
+  $has = $false
+  if ($claim.platform -ceq 'all') {
+    if ($declared -ne '') { $has = $true }
+  } else {
+    foreach ($part in (@($declared -split '\+'))) {
+      if ($part -ceq $claim.platform) { $has = $true; break }
+    }
+  }
+  if (-not $has) {
+    Write-Output ("  {0,-20} {1} line {2} labels {3} as {4}, but the tree says {5}" -f 'Package platform', 'README.md', $claim.line, $claim.pkg, $claim.platform, $declared)
+    Write-Output "*** FAIL ***"
+    $failures++
+    $script:platformBad = $true
+  }
+}
+
+if ($script:platformClaimCount -eq 0) {
+  Write-Output ("  {0,-20} the document labels no package with a platform" -f 'Package platform')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (-not $script:platformBad) {
+  Write-Output ("  ok      {0,-20} {1} claims" -f 'Package platform', $script:platformClaimCount)
+}
+
 # --- the API map ------------------------------------------------------------
 #
 # The README carries a table of every route the server registers, and that
