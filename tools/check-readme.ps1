@@ -669,6 +669,96 @@ if ($missingPaths.Count -gt 0) {
   Write-Output ("  ok      {0,-20} {1}" -f 'Example paths', $examplePaths.Count)
 }
 
+# --- the slots the examples agree on -----------------------------------------
+#
+# The README shows a machine and a mapping table, and a reader copies both.
+# The server refuses a table that drives a slot the machine does not have --
+# "a rule that names a slot the running machine does not have is refused at
+# start-up" -- so the two examples have to fit each other, or the reader is
+# refused by the very rule the document quotes.
+#
+# Nothing watched it.  The measurement: the example table's fallback was
+# pointed at a slot that nothing in the document defines, and all four gate
+# suites went on saying that every claim in the documents matches the tree.
+#
+# The claim is read by its own shape.  The machine is the fenced block that
+# carries the model's format, and the slots it defines are the ids in its
+# "slots" array.  The table is the fenced block that carries the mapping
+# table's format, and the slots it drives are the ones its rules name -- the
+# fallback's slot among them.
+#
+# The comparison is the one the docs pair already holds the shipped pair to:
+# the example machine's slots and the example table's slots are the same set.
+# The server refuses a table that drives a slot the machine does not have,
+# and a slot the table never reaches is an example that does not fit itself
+# -- so both halves have to name the same slots.
+
+# The blocks of the document: a line that starts with a fence opens one and
+# the next fence closes it.  The bash twin reads the blocks the same way.
+function Get-DocBlocks {
+  $blocks = @()
+  $inside = $false
+  $buf = @()
+  foreach ($line in ($readme -split "`r?`n")) {
+    if ($line -match '^```') {
+      if ($inside) { $blocks += ,($buf -join "`n") } else { $blocks += ,'' }
+      $inside = -not $inside
+      $buf = @()
+      continue
+    }
+    if ($inside) { $buf += $line }
+  }
+  $blocks
+}
+
+# The slots the example machine defines.
+function Get-DocExampleSlots {
+  $out = @()
+  foreach ($block in (Get-DocBlocks)) {
+    if ($block -notmatch 'maked\.model\.v1') { continue }
+    $inSlots = $false
+    foreach ($line in ($block -split "`n")) {
+      if ($line -match '"slots"') { $inSlots = $true; continue }
+      if ($inSlots -and $line -match '^\s*\]') { $inSlots = $false; continue }
+      if ($inSlots -and $line -match '"id":\s*"([^"]+)"') { $out += $Matches[1] }
+    }
+  }
+  Sort-Set $out
+}
+
+# The slots the example table drives.
+function Get-DocExampleTableSlots {
+  $out = @()
+  foreach ($block in (Get-DocBlocks)) {
+    if ($block -notmatch 'maked\.research\.v1') { continue }
+    foreach ($line in ($block -split "`n")) {
+      if ($line -match 'slot:\s*([A-Za-z0-9_]+)') { $out += $Matches[1] }
+    }
+  }
+  Sort-Set $out
+}
+
+$exampleSlots = @(Get-DocExampleSlots)
+$exampleTableSlots = @(Get-DocExampleTableSlots)
+$exampleSlotBad = $false
+$exampleSlotChecked = 0
+if ($exampleTableSlots.Count -eq 0) {
+  Write-Output ("  {0,-20} the example table drives no slot at all" -f 'Example slots')
+  Write-Output "*** FAIL ***"
+  $failures++
+  $exampleSlotBad = $true
+} elseif (-not (Test-SameMembers $exampleSlots $exampleTableSlots)) {
+  Write-Output ("  {0,-20} the example machine says [{1}], the example table says [{2}]" -f 'Example slots', ($exampleSlots -join ' '), ($exampleTableSlots -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+  $exampleSlotBad = $true
+} else {
+  $exampleSlotChecked = $exampleSlots.Count
+}
+if (-not $exampleSlotBad) {
+  Write-Output ("  ok      {0,-20} {1} slots, the machine and the table agree" -f 'Example slots', $exampleSlotChecked)
+}
+
 # --- the links the document carries -------------------------------------------
 #
 # A link that points at a file that is not there sends the reader to nothing,

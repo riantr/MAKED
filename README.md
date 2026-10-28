@@ -467,7 +467,7 @@ mapping:
     notes: The document opens a question rather than answering one.
 fallback:
   label: Anything else
-  slot: scope
+  slot: ask
 ```
 
 The order is the priority: the table is read from the top and the first rule that matches

@@ -649,6 +649,100 @@ else
   printf '  ok      %-20s %s\n' 'Example paths' "$(printf '%s\n' "$EXAMPLE_PATHS" | grep -c . || true)"
 fi
 
+# --- the slots the examples agree on -----------------------------------------
+#
+# The README shows a machine and a mapping table, and a reader copies both.
+# The server refuses a table that drives a slot the machine does not have --
+# "a rule that names a slot the running machine does not have is refused at
+# start-up" -- so the two examples have to fit each other, or the reader is
+# refused by the very rule the document quotes.
+#
+# Nothing watched it.  The measurement: the example table's fallback was
+# pointed at a slot that nothing in the document defines, and all four gate
+# suites went on saying that every claim in the documents matches the tree.
+#
+# The claim is read by its own shape.  The machine is the fenced block that
+# carries the model's format, and the slots it defines are the ids in its
+# "slots" array.  The table is the fenced block that carries the mapping
+# table's format, and the slots it drives are the ones its rules name -- the
+# fallback's slot among them.
+#
+# The comparison is the one the docs pair already holds the shipped pair to:
+# the example machine's slots and the example table's slots are the same set.
+# The server refuses a table that drives a slot the machine does not have,
+# and a slot the table never reaches is an example that does not fit itself
+# -- so both halves have to name the same slots.
+
+# The slots the example machine defines.
+doc_example_slots() {
+  awk '
+    /^```/ {
+      if (inblock) {
+        inblock = 0; kind = ""; inslots = 0
+        next
+      }
+      inblock = 1; kind = ""; inslots = 0
+      next
+    }
+    inblock {
+      if ($0 ~ /maked\.model\.v1/) kind = "model"
+      if (kind != "model") next
+      if ($0 ~ /"slots"/) { inslots = 1; next }
+      if (inslots && $0 ~ /^\s*\]/) { inslots = 0; next }
+      if (inslots && match($0, /"id": "[^"]+"/)) {
+        s = substr($0, RSTART, RLENGTH)
+        sub(/^"id": "/, "", s)
+        sub(/"$/, "", s)
+        print s
+      }
+    }
+  ' "$README" | LC_ALL=C sort -u
+}
+
+# The slots the example table drives.
+doc_example_table_slots() {
+  awk '
+    /^```/ {
+      if (inblock) {
+        inblock = 0; kind = ""
+        next
+      }
+      inblock = 1; kind = ""
+      next
+    }
+    inblock {
+      if ($0 ~ /maked\.research\.v1/) kind = "research"
+      if (kind != "research") next
+      if (match($0, /slot: [A-Za-z0-9_]+/)) {
+        s = substr($0, RSTART, RLENGTH)
+        sub(/^slot: /, "", s)
+        print s
+      }
+    }
+  ' "$README" | LC_ALL=C sort -u
+}
+
+EXAMPLE_SLOTS=$(doc_example_slots)
+EXAMPLE_TABLE_SLOTS=$(doc_example_table_slots)
+EXAMPLE_SLOT_BAD=0
+EXAMPLE_SLOT_CHECKED=0
+if [ -z "$EXAMPLE_TABLE_SLOTS" ]; then
+  fail "$(printf '%-20s the example table drives no slot at all' 'Example slots')"
+  EXAMPLE_SLOT_BAD=1
+elif ! same_members "$EXAMPLE_SLOTS" "$EXAMPLE_TABLE_SLOTS"; then
+  fail "$(printf '%-20s the example machine says [%s], the example table says [%s]' \
+    'Example slots' \
+    "$(printf '%s\n' "$EXAMPLE_SLOTS" | tr '\n' ' ' | sed -e 's/ *$//')" \
+    "$(printf '%s\n' "$EXAMPLE_TABLE_SLOTS" | tr '\n' ' ' | sed -e 's/ *$//')")"
+  EXAMPLE_SLOT_BAD=1
+else
+  EXAMPLE_SLOT_CHECKED=$(printf '%s\n' "$EXAMPLE_SLOTS" | grep -c . || true)
+fi
+if [ "$EXAMPLE_SLOT_BAD" -eq 0 ]; then
+  printf '  ok      %-20s %s slots, the machine and the table agree\n' \
+    'Example slots' "$EXAMPLE_SLOT_CHECKED"
+fi
+
 # --- the links the document carries -------------------------------------------
 #
 # A link that points at a file that is not there sends the reader to nothing,
