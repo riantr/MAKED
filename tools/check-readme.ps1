@@ -2285,6 +2285,22 @@ function Get-LanguageCount {
   $count
 }
 
+# The measures a session's report carries: the metric constructors the report
+# builds for itself.
+function Get-MeasureCount {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/metrics.mbt'), $enc)
+  $out = @()
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match 'let metrics : Array\[Metric\] = \[') { $inside = $true; continue }
+    if ($inside -and $line -match '^\s*\]') { $inside = $false }
+    if ($inside) {
+      foreach ($m in [regex]::Matches($line, '_metric\(')) { $out += 1 }
+    }
+  }
+  $out.Count
+}
+
 # The example machine that ships with the repository, section by section.
 function Get-ExampleShape {
   $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'models/product-iteration.json'), $enc)
@@ -2319,6 +2335,7 @@ $packageCount = Get-PackageCount
 $platformCount = Get-PlatformCount
 $suiteCount = Get-SuiteCount
 $languageCount = Get-LanguageCount
+$measureCount = Get-MeasureCount
 $exampleShape = Get-ExampleShape
 
 # The claims, the counts the tree has, and the patterns that find the counts
@@ -2337,6 +2354,7 @@ $claims = @(
   [pscustomobject]@{ label = 'Platforms';         expected = $platformCount;      patterns = @('build for | platforms', 'build for | platform') }
   [pscustomobject]@{ label = 'Suites';            expected = $suiteCount;         patterns = @('across the | suites', 'across the | suite') }
   [pscustomobject]@{ label = 'Languages';         expected = $languageCount;      patterns = @('| languages', '| language') }
+  [pscustomobject]@{ label = 'Measures';          expected = $measureCount;       patterns = @('session carries | measures') }
   [pscustomobject]@{ label = 'Example domains';   expected = $exampleShape[0];    patterns = @('| domains,') }
   [pscustomobject]@{ label = 'Example positions'; expected = $exampleShape[1];    patterns = @('| positions,') }
   [pscustomobject]@{ label = 'Example slots';     expected = $exampleShape[2];    patterns = @('| slots', '| slot') }

@@ -2225,6 +2225,21 @@ LANGUAGE_COUNT=$(awk '
   END { print n + 0 }
 ' backend/i18n.mbt)
 
+# The measures a session's report carries: the metric constructors the report
+# builds for itself.
+MEASURE_COUNT=$(awk '
+  /let metrics : Array\[Metric\] = \[/ { inside = 1; next }
+  inside && /^\s*\]/ { inside = 0 }
+  inside {
+    line = $0
+    while (match(line, /_metric\(/)) {
+      n++
+      line = substr(line, RSTART + RLENGTH)
+    }
+  }
+  END { print n + 0 }
+' backend/metrics.mbt)
+
 # The example machine that ships with the repository, section by section.
 EXAMPLE_SHAPE=$(awk '
   /^  "[a-z]+": \[/ { section = $1; gsub(/[" :]/, "", section); next }
@@ -2253,6 +2268,7 @@ CLAIM_SPECS=$(
   printf 'Platforms\t%s\tbuild for | platforms\tbuild for | platform\n' "$PLATFORM_COUNT"
   printf 'Suites\t%s\tacross the | suites\tacross the | suite\n' "$SUITE_COUNT"
   printf 'Languages\t%s\t| languages\t| language\n' "$LANGUAGE_COUNT"
+  printf 'Measures\t%s\tsession carries | measures\n' "$MEASURE_COUNT"
   printf 'Example domains\t%s\t| domains,\n' "$EXAMPLE_DOMAINS"
   printf 'Example positions\t%s\t| positions,\n' "$EXAMPLE_POSITIONS"
   printf 'Example slots\t%s\t| slots\t| slot\n' "$EXAMPLE_SLOTS"
