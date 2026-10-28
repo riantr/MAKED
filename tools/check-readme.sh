@@ -743,6 +743,181 @@ if [ "$EXAMPLE_SLOT_BAD" -eq 0 ]; then
     'Example slots' "$EXAMPLE_SLOT_CHECKED"
 fi
 
+# --- the record the document shows ---------------------------------------------
+#
+# The workspace is the one part of the server a reader is meant to change, and the
+# README shows a record going in. The server reads three fields and writes two
+# of its own, and a record whose field names are wrong is the quietest failure
+# in the project: the server does not refuse it, it stores an empty body and
+# answers 201, and the reader is left with a record that lost what they wrote.
+#
+# Nothing watched it. The measurement: the document was given a record with a
+# field the server does not read, and the server was given a field the
+# document does not send, and all four gate suites went on saying that every
+# claim in the documents matches the tree.
+#
+# The claim is read by its own shape. The tree's claim is the function that
+# reads a submitted record, and the constants that say how long a title and a
+# body may be. The document's claim is the block that posts a record, and the
+# sentence that says what the server refuses.
+#
+# The comparison is by MEMBERSHIP: the order the fields are written in says
+# nothing, and a message that differs between the twins is a message nobody
+# can trust.
+
+# The fields the server reads out of a submitted record.
+code_entry_fields() {
+  awk '
+    /^pub fn Entry::from_json/ { inside = 1; next }
+    inside && /^}/ { inside = 0 }
+    inside {
+      line = $0
+      while (match(line, /json_string\(json, "[^"]+"\)/)) {
+        s = substr(line, RSTART, RLENGTH)
+        sub(/^json_string\(json, "/, "", s)
+        sub(/"\).*$/, "", s)
+        print s
+        line = substr(line, RSTART + RLENGTH)
+      }
+    }
+  ' backend/entries.mbt | LC_ALL=C sort -u
+}
+
+# The domain letters a record may carry.
+code_entry_domains() {
+  awk '
+    /^pub fn entry_domains\(\)/ { inside = 1; next }
+    inside && /^}/ { inside = 0 }
+    inside {
+      line = $0
+      while (match(line, /"[A-Z]"/)) {
+        print substr(line, RSTART + 1, RLENGTH - 2)
+        line = substr(line, RSTART + RLENGTH)
+      }
+    }
+  ' backend/entries.mbt | LC_ALL=C sort -u
+}
+
+# The limits a title and a body are held to.
+code_entry_limits() {
+  awk '
+    /^pub const MAX_ENTRY_[A-Z]+ : Int32 = / {
+      name = $0
+      sub(/^pub const MAX_ENTRY_/, "", name)
+      sub(/ .*$/, "", name)
+      n = $0
+      sub(/.*= /, "", n)
+      print tolower(name) " " n
+    }
+  ' backend/entries.mbt
+}
+
+# The block that posts a record: the fenced block that names the route.
+doc_entry_block() {
+  awk '
+    /^```/ {
+      if (inblock) {
+        if (block ~ /\/api\/entries/) print block
+        inblock = 0
+        block = ""
+      } else {
+        inblock = 1
+        block = ""
+      }
+      next
+    }
+    inblock { block = block $0 "\n" }
+  ' "$README"
+}
+
+# The fields the document's record sends.
+doc_entry_fields() {
+  doc_entry_block \
+    | grep -oE '"[a-z_]+":' \
+    | sed -E 's/^"//; s/":$//' \
+    | LC_ALL=C sort -u
+}
+
+# The domain the document's record carries.
+doc_entry_domain() {
+  doc_entry_block \
+    | grep -oE '"domain": "[^"]*"' \
+    | sed -E 's/^"domain": "//; s/"$//' \
+    | head -1
+}
+
+# The limits the document says a record is refused over.
+doc_entry_limits() {
+  local title body
+  title=$(grep -oE 'the title is longer than [0-9,]+' "$README" | head -1 | grep -oE '[0-9,]+$')
+  body=$(grep -oE 'the body is longer than [0-9,]+' "$README" | head -1 | grep -oE '[0-9,]+$')
+  printf 'title %s\n' "$(printf '%s' "$title" | tr -d ,)"
+  printf 'body %s\n' "$(printf '%s' "$body" | tr -d ,)"
+}
+
+CODE_ENTRY_FIELDS=$(code_entry_fields)
+CODE_ENTRY_DOMAINS=$(code_entry_domains)
+CODE_ENTRY_LIMITS=$(code_entry_limits)
+DOC_ENTRY_FIELDS=$(doc_entry_fields)
+DOC_ENTRY_DOMAIN=$(doc_entry_domain)
+DOC_ENTRY_LIMITS=$(doc_entry_limits)
+ENTRY_RECORD_BAD=0
+ENTRY_RECORD_CLAIMS=0
+if [ -z "$CODE_ENTRY_FIELDS" ]; then
+  fail "$(printf '%-20s no field could be derived from the server' 'Entry record')"
+  ENTRY_RECORD_BAD=1
+elif [ -z "$DOC_ENTRY_FIELDS" ]; then
+  fail "$(printf '%-20s the document sends no record at all' 'Entry record')"
+  ENTRY_RECORD_BAD=1
+elif ! same_members "$CODE_ENTRY_FIELDS" "$DOC_ENTRY_FIELDS"; then
+  fail "$(printf '%-20s the server reads [%s], the document sends [%s]' \
+    'Entry record' \
+    "$(printf '%s\n' "$CODE_ENTRY_FIELDS" | tr '\n' ' ' | sed -e 's/ *$//')" \
+    "$(printf '%s\n' "$DOC_ENTRY_FIELDS" | tr '\n' ' ' | sed -e 's/ *$//')")"
+  ENTRY_RECORD_BAD=1
+else
+  ENTRY_RECORD_CLAIMS=$((ENTRY_RECORD_CLAIMS + 1))
+fi
+if [ "$ENTRY_RECORD_BAD" -eq 0 ]; then
+  if [ -z "$DOC_ENTRY_DOMAIN" ]; then
+    fail "$(printf '%-20s the document sends no domain at all' 'Entry record')"
+    ENTRY_RECORD_BAD=1
+  elif ! printf '%s\n' "$CODE_ENTRY_DOMAINS" | grep -qxF "$DOC_ENTRY_DOMAIN"; then
+    fail "$(printf '%-20s the document sends the domain %s, which is not one of [%s]' \
+      'Entry record' "$DOC_ENTRY_DOMAIN" \
+      "$(printf '%s\n' "$CODE_ENTRY_DOMAINS" | tr '\n' ' ' | sed -e 's/ *$//')")"
+    ENTRY_RECORD_BAD=1
+  else
+    ENTRY_RECORD_CLAIMS=$((ENTRY_RECORD_CLAIMS + 1))
+  fi
+fi
+if [ "$ENTRY_RECORD_BAD" -eq 0 ]; then
+  ENTRY_LIMIT_BAD=0
+  while IFS=' ' read -r what limit; do
+    [ -n "$what" ] || continue
+    tree_limit=$(printf '%s\n' "$CODE_ENTRY_LIMITS" | grep "^$what " | head -1 | cut -d' ' -f2)
+    doc_limit=$(printf '%s\n' "$DOC_ENTRY_LIMITS" | grep "^$what " | head -1 | cut -d' ' -f2)
+    if [ -z "$tree_limit" ] || [ -z "$doc_limit" ]; then
+      fail "$(printf '%-20s the %s limit is not stated on both sides' 'Entry record' "$what")"
+      ENTRY_LIMIT_BAD=1
+      break
+    fi
+    if [ "$tree_limit" != "$doc_limit" ]; then
+      fail "$(printf '%-20s the %s limit is %s, the document says %s' \
+        'Entry record' "$what" "$tree_limit" "$doc_limit")"
+      ENTRY_LIMIT_BAD=1
+      break
+    fi
+    ENTRY_RECORD_CLAIMS=$((ENTRY_RECORD_CLAIMS + 1))
+  done <<< "$CODE_ENTRY_LIMITS"
+  if [ "$ENTRY_LIMIT_BAD" -eq 1 ]; then
+    ENTRY_RECORD_BAD=1
+  fi
+fi
+if [ "$ENTRY_RECORD_BAD" -eq 0 ]; then
+  printf '  ok      %-20s %s claims\n' 'Entry record' "$ENTRY_RECORD_CLAIMS"
+fi
+
 # --- the links the document carries -------------------------------------------
 #
 # A link that points at a file that is not there sends the reader to nothing,

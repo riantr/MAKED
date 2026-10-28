@@ -495,6 +495,22 @@ English. The ids are pyroduct's own names — an id the file names that pyroduct
 define is refused, and a position pyroduct defines that the file does not name is a gap the
 panel says out loud.
 
+### A record of your own
+
+The pages are the server's and the records are yours: the workspace is the one part of the
+server a reader is meant to change. A record is a domain letter, a title and a body:
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/entries \
+  -H 'Content-Type: application/json' \
+  -d '{"domain": "M", "title": "The failure I want to keep", "body": "The loop reached a position it could not leave."}'
+```
+
+The domain is one of `M`, `D`, `E`, `A`, `K` — the ring's own letters — and the server
+assigns the number and the time. A record is refused, with the reason, when the domain is
+not one of the five, when the title is empty, when the title is longer than 200 characters,
+or when the body is longer than 20,000.
+
 ### Driving it from another agent
 
 ```bash

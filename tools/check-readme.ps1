@@ -759,6 +759,195 @@ if (-not $exampleSlotBad) {
   Write-Output ("  ok      {0,-20} {1} slots, the machine and the table agree" -f 'Example slots', $exampleSlotChecked)
 }
 
+# --- the record the document shows ---------------------------------------------
+#
+# The workspace is the one part of the server a reader is meant to change, and the
+# README shows a record going in. The server reads three fields and writes two
+# of its own, and a record whose field names are wrong is the quietest failure
+# in the project: the server does not refuse it, it stores an empty body and
+# answers 201, and the reader is left with a record that lost what they wrote.
+#
+# Nothing watched it. The measurement: the document was given a record with a
+# field the server does not read, and the server was given a field the
+# document does not send, and all four gate suites went on saying that every
+# claim in the documents matches the tree.
+#
+# The claim is read by its own shape. The tree's claim is the function that
+# reads a submitted record, and the constants that say how long a title and a
+# body may be. The document's claim is the block that posts a record, and the
+# sentence that says what the server refuses.
+#
+# The comparison is by MEMBERSHIP: the order the fields are written in says
+# nothing, and a message that differs between the twins is a message nobody
+# can trust.
+
+# The fields the server reads out of a submitted record.
+function Get-CodeEntryFields {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/entries.mbt'), $enc)
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^pub fn Entry::from_json') { $inside = $true; continue }
+    if ($inside -and $line -match '^\}') { $inside = $false }
+    if ($inside) {
+      foreach ($m in [regex]::Matches($line, 'json_string\(json, "(?<f>[^"]+)"\)')) {
+        $out += $m.Groups['f'].Value
+      }
+    }
+  }
+  Sort-Set $out
+}
+
+# The domain letters a record may carry.
+function Get-CodeEntryDomains {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/entries.mbt'), $enc)
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^pub fn entry_domains\(\)') { $inside = $true; continue }
+    if ($inside -and $line -match '^\}') { $inside = $false }
+    if ($inside) {
+      foreach ($m in [regex]::Matches($line, '"(?<d>[A-Z])"')) {
+        $out += $m.Groups['d'].Value
+      }
+    }
+  }
+  Sort-Set $out
+}
+
+# The limits a title and a body are held to.
+function Get-CodeEntryLimits {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/entries.mbt'), $enc)
+  foreach ($m in [regex]::Matches($text, 'pub const MAX_ENTRY_(?<w>[A-Z]+) : Int32 = (?<n>[0-9]+)')) {
+    $out += ($m.Groups['w'].Value.ToLowerInvariant() + ' ' + $m.Groups['n'].Value)
+  }
+  $out
+}
+
+# The block that posts a record: the fenced block that names the route.
+function Get-DocEntryBlock {
+  $out = ''
+  $inside = $false
+  $block = @()
+  foreach ($line in ($readme -split "`r?`n")) {
+    if ($line -match '^```') {
+      if ($inside) {
+        $text = $block -join "`n"
+        if ($text -match '/api/entries') { $out = $text }
+        $block = @()
+      } else {
+        $block = @()
+      }
+      $inside = -not $inside
+      continue
+    }
+    if ($inside) { $block += $line }
+  }
+  $out
+}
+
+# The fields the document's record sends.
+function Get-DocEntryFields {
+  $out = @()
+  foreach ($m in [regex]::Matches((Get-DocEntryBlock), '"(?<f>[a-z_]+)":')) {
+    $out += $m.Groups['f'].Value
+  }
+  Sort-Set $out
+}
+
+# The domain the document's record carries.
+function Get-DocEntryDomain {
+  $m = [regex]::Match((Get-DocEntryBlock), '"domain": "(?<d>[^"]*)"')
+  if (-not $m.Success) { return '' }
+  $m.Groups['d'].Value
+}
+
+# The limits the document says a record is refused over.
+function Get-DocEntryLimits {
+  $out = @()
+  $text = $readme -replace "`r`n", "`n"
+  $title = [regex]::Match($text, 'the title is longer than (?<n>[0-9,]+)')
+  if ($title.Success) { $out += ('title ' + ($title.Groups['n'].Value -replace ',', '')) }
+  $body = [regex]::Match($text, 'the body is longer than (?<n>[0-9,]+)')
+  if ($body.Success) { $out += ('body ' + ($body.Groups['n'].Value -replace ',', '')) }
+  $out
+}
+
+$codeEntryFields = @(Get-CodeEntryFields)
+$codeEntryDomains = @(Get-CodeEntryDomains)
+$codeEntryLimits = @(Get-CodeEntryLimits)
+$docEntryFields = @(Get-DocEntryFields)
+$docEntryDomain = Get-DocEntryDomain
+$docEntryLimits = @(Get-DocEntryLimits)
+$entryRecordBad = $false
+$entryRecordClaims = 0
+if ($codeEntryFields.Count -eq 0) {
+  Write-Output ("  {0,-20} no field could be derived from the server" -f 'Entry record')
+  Write-Output "*** FAIL ***"
+  $failures++
+  $entryRecordBad = $true
+} elseif ($docEntryFields.Count -eq 0) {
+  Write-Output ("  {0,-20} the document sends no record at all" -f 'Entry record')
+  Write-Output "*** FAIL ***"
+  $failures++
+  $entryRecordBad = $true
+} elseif (-not (Test-SameMembers $codeEntryFields $docEntryFields)) {
+  Write-Output ("  {0,-20} the server reads [{1}], the document sends [{2}]" -f 'Entry record', ($codeEntryFields -join ' '), ($docEntryFields -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+  $entryRecordBad = $true
+} else {
+  $entryRecordClaims++
+}
+if (-not $entryRecordBad) {
+  if (-not $docEntryDomain) {
+    Write-Output ("  {0,-20} the document sends no domain at all" -f 'Entry record')
+    Write-Output "*** FAIL ***"
+    $failures++
+    $entryRecordBad = $true
+  } elseif ($codeEntryDomains -cnotcontains $docEntryDomain) {
+    Write-Output ("  {0,-20} the document sends the domain {1}, which is not one of [{2}]" -f 'Entry record', $docEntryDomain, ($codeEntryDomains -join ' '))
+    Write-Output "*** FAIL ***"
+    $failures++
+    $entryRecordBad = $true
+  } else {
+    $entryRecordClaims++
+  }
+}
+if (-not $entryRecordBad) {
+  $entryLimitBad = $false
+  foreach ($pair in $codeEntryLimits) {
+    $parts = $pair -split ' '
+    $what = $parts[0]
+    $treeLimit = $parts[1]
+    $docLimit = ''
+    foreach ($d in $docEntryLimits) {
+      $dparts = $d -split ' '
+      if ($dparts[0] -eq $what) { $docLimit = $dparts[1] }
+    }
+    if (-not $treeLimit -or -not $docLimit) {
+      Write-Output ("  {0,-20} the {1} limit is not stated on both sides" -f 'Entry record', $what)
+      Write-Output "*** FAIL ***"
+      $failures++
+      $entryLimitBad = $true
+      break
+    }
+    if ($treeLimit -ne $docLimit) {
+      Write-Output ("  {0,-20} the {1} limit is {2}, the document says {3}" -f 'Entry record', $what, $treeLimit, $docLimit)
+      Write-Output "*** FAIL ***"
+      $failures++
+      $entryLimitBad = $true
+      break
+    }
+    $entryRecordClaims++
+  }
+  if ($entryLimitBad) { $entryRecordBad = $true }
+}
+if (-not $entryRecordBad) {
+  Write-Output ("  ok      {0,-20} {1} claims" -f 'Entry record', $entryRecordClaims)
+}
+
 # --- the links the document carries -------------------------------------------
 #
 # A link that points at a file that is not there sends the reader to nothing,
