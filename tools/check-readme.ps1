@@ -3035,6 +3035,113 @@ if ($codeLangPairs.Count -eq 0) {
   $langCodes = @($codeLangPairs | ForEach-Object { ($_ -split ' ')[1] }) -join ' '
   Write-Output ("  ok      {0,-20} {1}" -f 'Language switch', $langCodes)
 }
+
+# --- the routes that answer in a language --------------------------------------
+#
+# The README shows a reader how to ask for the Chinese, with a block of
+# requests that carry ?lang=. Every one of them is a claim about the server:
+# it says the route answers in the language asked for. A route that does not
+# take the parameter answers in English whatever the reader sends, so the
+# example is wrong in the way that costs a reader the most -- it looks like it
+# worked.
+#
+# Nothing watched it. The measurement: the document asked for a language on a
+# route that does not take one, and the server stopped answering in a language
+# on a route the document asked it in, and all four gate suites went on saying
+# that every claim in the documents matches the tree.
+#
+# The claim is read by its own shape. The tree's claim is the route whose
+# handler asks for the language the request named. The document's claim is the
+# lines that show a method, a path and the parameter.
+#
+# The comparison is ONE-WAY: the document's block is an example, and an example
+# is free to be shorter than the truth. What it may not do is name a route
+# that does not take the parameter.
+
+# The routes whose handler asks for the language the request named.
+function Get-CodeLanguageRoutes {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/api.mbt'), $enc)
+  $method = ''
+  $path = ''
+  $body = ''
+  $expect = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^fn ') {
+      if ($method -and $path -and $body -match 'lang_of\(req\)') { $out += ($method + ' ' + $path) }
+      $method = ''; $path = ''; $body = ''; $expect = $false
+      continue
+    }
+    if ($line -match 'app\.(get|post|put|delete|patch)\(') {
+      if ($method -and $path -and $body -match 'lang_of\(req\)') { $out += ($method + ' ' + $path) }
+      $method = ''; $path = ''; $body = ''; $expect = $false
+      $m = [regex]::Match($line, 'app\.(get|post|put|delete|patch)\(')
+      $method = $m.Groups[1].Value.ToUpperInvariant()
+      $body = $line
+      $p = [regex]::Match($line, '"/api/[^"]*"')
+      if ($p.Success) {
+        $path = $p.Value.Trim('"')
+      } else {
+        $expect = $true
+      }
+      continue
+    }
+    if ($expect) {
+      $p = [regex]::Match($line, '"/api/[^"]*"')
+      if ($p.Success) { $path = $p.Value.Trim('"') }
+      $expect = $false
+    }
+    if ($method) { $body = $body + "`n" + $line }
+  }
+  if ($method -and $path -and $body -match 'lang_of\(req\)') { $out += ($method + ' ' + $path) }
+  Sort-Set $out
+}
+
+# The requests the document shows asking for a language. The parameter need
+# not be the first in the query -- the export shows ?format=md&lang=zh -- so
+# the whole request is kept and the route is split off when it is matched.
+function Get-DocLanguageRoutes {
+  $out = @()
+  foreach ($m in [regex]::Matches($readme, '(?m)^(GET|POST|PUT|DELETE|PATCH)[ \t]+(/api/[^?\s]+)\?([^\s]*lang=)')) {
+    $out += ($m.Groups[1].Value + ' ' + $m.Groups[2].Value + '?' + $m.Groups[3].Value)
+  }
+  Sort-Set $out
+}
+
+$codeLanguageRoutes = @(Get-CodeLanguageRoutes)
+$docLanguageRoutes = @(Get-DocLanguageRoutes)
+$languagePatterns = @()
+foreach ($route in $codeLanguageRoutes) {
+  $parts = $route -split ' '
+  $pathPattern = [regex]::Replace($parts[1], ':[A-Za-z_]+', '[^/]+')
+  $languagePatterns += ('^' + $parts[0] + ' ' + $pathPattern + '$')
+}
+
+$languageUnasked = @()
+foreach ($asked in $docLanguageRoutes) {
+  $askedRoute = ($asked -split '\?')[0]
+  $matched = $false
+  foreach ($pattern in $languagePatterns) {
+    if ($askedRoute -cmatch $pattern) { $matched = $true; break }
+  }
+  if (-not $matched) { $languageUnasked += $asked }
+}
+
+if ($codeLanguageRoutes.Count -eq 0) {
+  Write-Output ("  {0,-20} no route could be derived that answers in a language" -f 'Language routes')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($docLanguageRoutes.Count -eq 0) {
+  Write-Output ("  {0,-20} the document asks for no language at all" -f 'Language routes')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($languageUnasked.Count -gt 0) {
+  Write-Output ("  {0,-20} the document asks for a language on routes that do not take one: {1}" -f 'Language routes', ($languageUnasked -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Language routes', $docLanguageRoutes.Count)
+}
 # --- the ring's letters --------------------------------------------------------
 #
 # The ring has a letter for each domain -- M for Model, D for Data -- and the

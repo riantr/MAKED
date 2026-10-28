@@ -2982,6 +2982,115 @@ else
   printf '  ok      %-20s %s\n' 'Language switch' \
     "$(printf '%s\n' "$CODE_LANG_PAIRS" | awk '{ print $2 }' | tr '\n' ' ' | sed -e 's/ *$//')"
 fi
+
+# --- the routes that answer in a language --------------------------------------
+#
+# The README shows a reader how to ask for the Chinese, with a block of
+# requests that carry ?lang=. Every one of them is a claim about the server:
+# it says the route answers in the language asked for. A route that does not
+# take the parameter answers in English whatever the reader sends, so the
+# example is wrong in the way that costs a reader the most -- it looks like it
+# worked.
+#
+# Nothing watched it. The measurement: the document asked for a language on a
+# route that does not take one, and the server stopped answering in a language
+# on a route the document asked it in, and all four gate suites went on saying
+# that every claim in the documents matches the tree.
+#
+# The claim is read by its own shape. The tree's claim is the route whose
+# handler asks for the language the request named. The document's claim is the
+# lines that show a method, a path and the parameter.
+#
+# The comparison is ONE-WAY: the document's block is an example, and an example
+# is free to be shorter than the truth. What it may not do is name a route
+# that does not take the parameter.
+
+# The routes whose handler asks for the language the request named.
+code_language_routes() {
+  awk '
+    function flush() {
+      if (method != "" && path != "") {
+        if (body ~ /lang_of\(req\)/) print method " " path
+      }
+      method = ""; path = ""; body = ""; expect = 0
+    }
+    {
+      line = $0
+      if (line ~ /^fn /) { flush(); next }
+      if (line ~ /app\.(get|post|put|delete|patch)\(/) {
+        flush()
+        m = line
+        if (match(m, /app\.(get|post|put|delete|patch)\(/)) {
+          method = toupper(substr(m, RSTART + 4, RLENGTH - 5))
+        }
+        body = line
+        path = ""
+        if (match(line, /"\/api\/[^"]*"/)) {
+          path = substr(line, RSTART + 1, RLENGTH - 2)
+        } else {
+          expect = 1
+        }
+        next
+      }
+      if (expect == 1) {
+        if (match(line, /"\/api\/[^"]*"/)) {
+          path = substr(line, RSTART + 1, RLENGTH - 2)
+        }
+        expect = 0
+      }
+      if (method != "") { body = body "\n" line }
+    }
+    END { flush() }
+  ' backend/api.mbt | LC_ALL=C sort -u
+}
+
+# The requests the document shows asking for a language. The parameter need
+# not be the first in the query -- the export shows ?format=md&lang=zh -- so
+# the whole request is kept and the route is split off when it is matched.
+doc_language_routes() {
+  grep -oE '^(GET|POST|PUT|DELETE|PATCH)[[:space:]]+/api/[^?[:space:]]+\?[^[:space:]]*lang=' "$README" \
+    | sed -E 's/[[:space:]]+/ /' \
+    | LC_ALL=C sort -u
+}
+
+CODE_LANGUAGE_ROUTES=$(code_language_routes)
+DOC_LANGUAGE_ROUTES=$(doc_language_routes)
+LANGUAGE_PATTERNS=""
+while IFS= read -r lang_route; do
+  [ -n "$lang_route" ] || continue
+  lang_method="${lang_route%% *}"
+  lang_pattern="$(build_route_pattern "$lang_route")"
+  LANGUAGE_PATTERNS="$LANGUAGE_PATTERNS$(printf '^%s %s$' "$lang_method" "$lang_pattern")"$'\n'
+done <<< "$CODE_LANGUAGE_ROUTES"
+
+LANGUAGE_UNASKED=""
+while IFS= read -r asked; do
+  [ -n "$asked" ] || continue
+  lang_asked_route="${asked%%\?*}"
+  matched=0
+  while IFS= read -r pattern; do
+    [ -n "$pattern" ] || continue
+    if [[ "$lang_asked_route" =~ $pattern ]]; then
+      matched=1
+      break
+    fi
+  done <<< "$LANGUAGE_PATTERNS"
+  if [ "$matched" -eq 0 ]; then
+    LANGUAGE_UNASKED="$LANGUAGE_UNASKED $asked"
+  fi
+done <<< "$DOC_LANGUAGE_ROUTES"
+
+if [ -z "$CODE_LANGUAGE_ROUTES" ]; then
+  fail "$(printf '%-20s no route could be derived that answers in a language' 'Language routes')"
+elif [ -z "$DOC_LANGUAGE_ROUTES" ]; then
+  fail "$(printf '%-20s the document asks for no language at all' 'Language routes')"
+elif [ -n "$LANGUAGE_UNASKED" ]; then
+  fail "$(printf '%-20s the document asks for a language on routes that do not take one:%s' \
+    'Language routes' "$LANGUAGE_UNASKED")"
+else
+  printf '  ok      %-20s %s\n' 'Language routes' \
+    "$(printf '%s\n' "$DOC_LANGUAGE_ROUTES" | grep -c . || true)"
+fi
 # --- the ring's letters --------------------------------------------------------
 #
 # The ring has a letter for each domain -- M for Model, D for Data -- and the
