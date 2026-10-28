@@ -163,6 +163,95 @@ function Get-StructureListing {
   if ($m.Success) { $m.Groups[1].Value } else { '' }
 }
 
+# The entries of the map that name test files.
+#
+# The scope is the name of the directory the map puts the entry in, and the
+# count is the number of tests the entry claims.  An entry that claims no
+# count has an empty count, and the gate says so.
+#
+# A glob is a name too: "*_test.mbt" names every file of that shape in the
+# directory the entry sits in.
+function Get-DocTestEntries($listing) {
+  $entries = @()
+  if ([string]::IsNullOrEmpty($listing)) { return $entries }
+  $scope = ''
+  foreach ($line in ($listing -split "`n")) {
+    # the name is the first word after the drawing
+    $rest = $line -replace '^[^A-Za-z0-9_*]+', ''
+    if ($rest -eq '') { continue }
+    # the comment is what follows the hash
+    $comment = ''
+    $hash = $rest.IndexOf('#')
+    if ($hash -ge 0) {
+      $comment = $rest.Substring($hash + 1)
+      $rest = $rest.Substring(0, $hash)
+    }
+    $rest = $rest -replace '[ \t]+$', ''
+    $name = ($rest -split '[ \t]+')[0]
+    if ($name -eq '') { continue }
+    # a directory is the scope of the entries that follow it
+    if ($name.EndsWith('/')) {
+      $scope = $name.Substring(0, $name.Length - 1)
+      continue
+    }
+    # only the entries that name test files are read
+    if (-not $name.EndsWith('test.mbt')) { continue }
+    $stated = ''
+    $m = [regex]::Match($comment, '[0-9]+[ \t]+tests')
+    if ($m.Success) {
+      $stated = ($m.Value -replace '[ \t].*$', '')
+    }
+    $entries += [pscustomobject]@{ scope = $scope; name = $name; count = $stated }
+  }
+  $entries
+}
+
+# The tree's files of tests.
+#
+# A file of tests is a file whose name ends in "_test.mbt" or "_wbtest.mbt".
+# The scope is the name of the directory the file is in -- the name, and not
+# the path, because the map names its directories by their own name too.
+function Get-CodeTestFiles {
+  $files = @()
+  $pattern = '(?m)^[ \t]*(async[ \t]+)?test[ \t]+"[^"\r\n]*"[ \t]*\{'
+  foreach ($tracked in @(& git ls-files 2>$null)) {
+    $path = "$tracked"
+    if ($path -notmatch '(_test|_wbtest)\.mbt$') { continue }
+    $text = [System.IO.File]::ReadAllText((Join-Path $PWD $path), $enc)
+    $held = ([regex]::Matches($text, $pattern)).Count
+    $name = $path -replace '^.*/', ''
+    $scope = ''
+    if ($path -match '/') {
+      $scope = $path -replace '/[^/]*$', ''
+      $scope = $scope -replace '^.*/', ''
+    }
+    $files += [pscustomobject]@{ scope = $scope; name = $name; count = $held }
+  }
+  $files
+}
+
+# The total the map states for one directory.
+#
+# The map may name a directory's tests in more than one group -- the blackbox
+# files and the whitebox ones -- and the total is the sum of the groups.
+function Get-ListingScopeTotal($entries, $want) {
+  $total = 0
+  $found = $false
+  foreach ($entry in $entries) {
+    if ($entry.scope -ne $want) { continue }
+    if ("$($entry.count)" -eq '') { continue }
+    $total += [int]$entry.count
+    $found = $true
+  }
+  if (-not $found) { return $null }
+  $total
+}
+
+$structureListing = Get-StructureListing
+$docTestEntries = @(Get-DocTestEntries $structureListing)
+$codeTestFiles = @(Get-CodeTestFiles)
+$backendListingTests = Get-ListingScopeTotal $docTestEntries 'backend'
+
 # --- what the document says ------------------------------------------------
 #
 # Each check names two places in the document: the row of the count table
@@ -184,6 +273,18 @@ function New-Check($label, $tablePattern, $treePattern, $actual) {
   }
 }
 
+# A check whose second place in the document is a VALUE and not a pattern:
+# the map may name a directory's tests in more than one group, and the total
+# is the sum of the groups.
+function New-CheckValue($label, $tablePattern, $treeValue, $actual) {
+  [pscustomobject]@{
+    label  = $label
+    table  = Get-DocumentNumber $tablePattern
+    tree   = $treeValue
+    actual = $actual
+  }
+}
+
 $backendTests = Count-TestBlocks 'backend'
 $frontendTests = Count-TestBlocks 'frontend'
 $backendMutations = Count-Mutations 'tools/mutate-backend.ps1'
@@ -195,9 +296,9 @@ $allAnchors = (Count-Anchors 'tools/mutate-backend.ps1') +
 $ciGates = Count-CiGates
 
 $checks = @(
-  (New-Check 'Backend tests' `
+  (New-CheckValue 'Backend tests' `
     '(?m)^\|\s*Backend tests\s*\|\s*(\d+)\s*\|' `
-    '\*_test\.mbt\s+#\s*(\d+)\s+tests' `
+    $backendListingTests `
     $backendTests)
   (New-Check 'Frontend tests' `
     '(?m)^\|\s*Frontend tests\s*\|\s*(\d+)\s*\|' `
@@ -322,7 +423,7 @@ if ($null -eq $integrationTable -or $null -eq $integrationTree) {
 # says every test file in that directory is there. So the source files are
 # the ones checked one by one.
 
-$listing = Get-StructureListing
+$listing = $structureListing
 if ([string]::IsNullOrEmpty($listing)) {
   Write-Output ("  {0,-20} the document has no project-structure listing" -f 'Structure listing')
   Write-Output "*** FAIL ***"
@@ -367,6 +468,84 @@ if ([string]::IsNullOrEmpty($listing)) {
   } else {
     Write-Output ("  ok      {0,-20} {1} files, all named" -f 'Structure listing', $names.Count)
   }
+}
+
+# --- the test files the map names --------------------------------------------
+#
+# The map is a map of the tree, and the files of tests are part of the tree.
+# The map states how many tests each group of test files holds, and the group
+# is the name it writes -- a glob for the blackbox files, a glob for the
+# whitebox ones.
+#
+# Nothing watched that.  The measurement: the backend's group was given a
+# second entry of its own that held no tests at all, the total the map states
+# for the backend stayed the same, and not one gate went red.  The map can
+# say anything at all about a group, and a file of tests can be missing from
+# the map entirely -- and the two whitebox test files were.
+#
+# The claim is read by its own shape.  An entry of the map that names test
+# files -- a name that ends in "test.mbt", a glob or not -- states how many
+# tests those files hold, and the number is the tree's.  The files an entry
+# covers are the tree's files of tests in the directory the map puts the entry
+# in, whose name the entry's own name matches.
+#
+# The count table's row is checked against the map's total as well, so the two
+# places the document states the backend's total keep agreeing.
+
+$testFilesBad = $false
+$testFilesChecked = 0
+
+# Does a name of the map cover the name of a file?  A glob covers every name
+# it matches.
+function Test-EntryCovers($name, $base) {
+  if ($name -eq $base) { return $true }
+  if (-not $name.Contains('*')) { return $false }
+  $pattern = [regex]::Escape($name).Replace('\*', '.*')
+  return [regex]::IsMatch($base, ('^' + $pattern + '$'))
+}
+
+if ($docTestEntries.Count -eq 0) {
+  Write-Output ("  {0,-20} the map names no file of tests" -f 'Test files')
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  foreach ($testEntry in $docTestEntries) {
+    $testTotal = 0
+    foreach ($testFile in $codeTestFiles) {
+      if ($testFile.scope -ne $testEntry.scope) { continue }
+      if (-not (Test-EntryCovers $testEntry.name $testFile.name)) { continue }
+      $testTotal += $testFile.count
+    }
+    $testFilesChecked++
+    if ("$($testEntry.count)" -eq '') {
+      Write-Output ("  {0,-20} the map says nothing about how many tests {1} holds" -f 'Test files', $testEntry.name)
+      Write-Output "*** FAIL ***"
+      $failures++
+      $testFilesBad = $true
+    } elseif ([int]$testEntry.count -ne $testTotal) {
+      Write-Output ("  {0,-20} the map says {1} holds {2} tests, the tree has {3}" -f 'Test files', $testEntry.name, $testEntry.count, $testTotal)
+      Write-Output "*** FAIL ***"
+      $failures++
+      $testFilesBad = $true
+    }
+  }
+  foreach ($testFile in $codeTestFiles) {
+    $testCovered = $false
+    foreach ($testEntry in $docTestEntries) {
+      if ($testEntry.scope -ne $testFile.scope) { continue }
+      if (Test-EntryCovers $testEntry.name $testFile.name) { $testCovered = $true }
+    }
+    if (-not $testCovered) {
+      Write-Output ("  {0,-20} the map does not name {1}/{2}" -f 'Test files', $testFile.scope, $testFile.name)
+      Write-Output "*** FAIL ***"
+      $failures++
+      $testFilesBad = $true
+    }
+  }
+}
+
+if (-not $testFilesBad) {
+  Write-Output ("  ok      {0,-20} {1} groups, all accounted for" -f 'Test files', $testFilesChecked)
 }
 
 # --- the variable table -----------------------------------------------------

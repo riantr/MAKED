@@ -63,6 +63,118 @@ fail() {
   FAILURES=$((FAILURES + 1))
 }
 
+# --- the project structure map -----------------------------------------------
+#
+# The map is a drawing of the tree, and it is read here once: the listing
+# itself, and the entries of it that name test files.
+#
+# The drawing's own characters are not ASCII, so the map is read by the shape
+# of its TEXT: the name of an entry is what follows the drawing, and the
+# comment on it is what follows the hash.
+LISTING=$(awk '
+  /^## Project Structure/ { inside = 1; next }
+  inside && /^```/ {
+    if (inblock) { exit }
+    inblock = 1
+    next
+  }
+  inblock { print }
+' "$README")
+
+# The entries of the map that name test files: "scope<TAB>name<TAB>count".
+#
+# The scope is the name of the directory the map puts the entry in, and the
+# count is the number of tests the entry claims.  An entry that claims no
+# count has an empty count, and the gate says so.
+#
+# A glob is a name too: "*_test.mbt" names every file of that shape in the
+# directory the entry sits in.
+doc_test_entries() {
+  awk '
+    {
+      line = $0
+      # the name is the first word after the drawing
+      sub(/^[^A-Za-z0-9_*]+/, "", line)
+      if (line == "") next
+      # the comment is what follows the hash
+      hash = index(line, "#")
+      if (hash > 0) {
+        comment = substr(line, hash + 1)
+        line = substr(line, 1, hash - 1)
+      } else {
+        comment = ""
+      }
+      sub(/[ \t]+$/, "", line)
+      split(line, parts, /[ \t]+/)
+      name = parts[1]
+      if (name == "") next
+      # a directory is the scope of the entries that follow it
+      if (name ~ /\/$/) {
+        sub(/\/$/, "", name)
+        scope = name
+        next
+      }
+      # only the entries that name test files are read
+      if (name !~ /test\.mbt$/) next
+      count = ""
+      if (match(comment, /[0-9]+[ \t]+tests/)) {
+        count = substr(comment, RSTART, RLENGTH)
+        sub(/[ \t].*$/, "", count)
+      }
+      print scope "\t" name "\t" count
+    }
+  ' <<< "$LISTING"
+}
+
+# The tree's files of tests: "scope<TAB>name<TAB>count".
+#
+# A file of tests is a file whose name ends in "_test.mbt" or "_wbtest.mbt".
+# The scope is the name of the directory the file is in -- the name, and not
+# the path, because the map names its directories by their own name too.
+code_test_files() {
+  local files
+  files=$(git ls-files 2>/dev/null | grep -E '(_test|_wbtest)\.mbt$')
+  [ -n "$files" ] || return
+  # The files are read by awk, so that awk can say which file a test block is
+  # in.  The paths carry no spaces, so they are passed as they are.
+  awk '
+    FNR == 1 {
+      if (NR > 1) print scope "\t" name "\t" n
+      path = FILENAME
+      name = path
+      sub(/^.*\//, "", name)
+      scope = ""
+      if (path ~ /\//) {
+        scope = path
+        sub(/\/[^\/]*$/, "", scope)
+        sub(/^.*\//, "", scope)
+      }
+      n = 0
+    }
+    /^[ \t]*(async[ \t]+)?test[ \t]+"[^"]*"[ \t]*\{/ { n++ }
+    END { if (NR > 0) print scope "\t" name "\t" n }
+  ' $files
+}
+
+# The total the map states for one directory.
+#
+# The map may name a directory's tests in more than one group -- the blackbox
+# files and the whitebox ones -- and the total is the sum of the groups.
+listing_scope_total() {
+  local want="$1" testScope testName testStated total=0 found=0
+  while IFS=$'\t' read -r testScope testName testStated; do
+    [ "$testScope" = "$want" ] || continue
+    [ -n "$testStated" ] || continue
+    total=$((total + testStated))
+    found=1
+  done <<< "$DOC_TEST_ENTRIES"
+  [ "$found" -eq 1 ] || return
+  printf '%s' "$total"
+}
+
+DOC_TEST_ENTRIES=$(doc_test_entries)
+CODE_TEST_FILES=$(code_test_files)
+
 # --- how the tree is counted ------------------------------------------------
 
 # A MoonBit test is a `test "name" {` block or an `async test "name" {`
@@ -153,7 +265,7 @@ check() {
 
 check "Backend tests" "$BACKEND_TESTS" \
   "$(doc_number '\|[[:space:]]*Backend tests[[:space:]]*\|[[:space:]]*([0-9]+)[[:space:]]*\|')" \
-  "$(doc_number '\*_test\.mbt[[:space:]]+#[[:space:]]*([0-9]+)[[:space:]]*tests')"
+  "$(listing_scope_total backend)"
 
 check "Frontend tests" "$FRONTEND_TESTS" \
   "$(doc_number '\|[[:space:]]*Frontend tests[[:space:]]*\|[[:space:]]*([0-9]+)[[:space:]]*\|')" \
@@ -252,16 +364,9 @@ fi
 # The test files are the exception: they are listed by their GLOB
 # (`*_test.mbt`), which is a complete statement about them. So the source
 # files are the ones checked one by one.
-LISTING=$(awk '
-  /^## Project Structure/ { inside = 1; next }
-  inside && /^```/ {
-    if (inblock) { exit }
-    inblock = 1
-    next
-  }
-  inblock { print }
-' "$README")
-
+# The listing itself was read above, with the rest of the map: the count
+# table's "Backend tests" row is checked against it, and the map's own groups
+# of test files are checked below.
 if [ -z "$LISTING" ]; then
   fail "$(printf '%-20s the document has no project-structure listing' 'Structure listing')"
 else
@@ -338,6 +443,101 @@ else
   else
     printf '  ok      %-20s %s files, all named\n' 'Structure listing' "$COUNT"
   fi
+fi
+
+# --- the test files the map names --------------------------------------------
+#
+# The map is a map of the tree, and the files of tests are part of the tree.
+# The map states how many tests each group of test files holds, and the group
+# is the name it writes -- a glob for the blackbox files, a glob for the
+# whitebox ones.
+#
+# Nothing watched that.  The measurement: the backend's group was given a
+# second entry of its own that held no tests at all, the total the map states
+# for the backend stayed the same, and not one gate went red.  The map can
+# say anything at all about a group, and a file of tests can be missing from
+# the map entirely -- and the two whitebox test files were.
+#
+# The claim is read by its own shape.  An entry of the map that names test
+# files -- a name that ends in "test.mbt", a glob or not -- states how many
+# tests those files hold, and the number is the tree's.  The files an entry
+# covers are the tree's files of tests in the directory the map puts the entry
+# in, whose name the entry's own name matches.
+#
+# The count table's row is checked against the map's total as well, so the two
+# places the document states the backend's total keep agreeing.
+
+TEST_FILES_BAD=0
+TEST_FILES_CHECKED=0
+
+# Does a name of the map cover the name of a file?  A glob covers every name
+# it matches.
+entry_covers() {
+  local name="$1" base="$2" pattern
+  if [ "$name" = "$base" ]; then
+    return 0
+  fi
+  case "$name" in
+    *\**) ;;
+    *) return 1 ;;
+  esac
+  pattern=$(printf '%s' "$name" | sed -e 's/[^A-Za-z0-9_*]/\\&/g' -e 's/\*/.*/g')
+  [[ "$base" =~ ^$pattern$ ]]
+}
+
+# One group of the map, checked against the files it covers.
+check_test_group() {
+  local testScope="$1" testName="$2" testStated="$3"
+  local testDir testBase testHeld total=0
+  while IFS=$'\t' read -r testDir testBase testHeld; do
+    [ "$testDir" = "$testScope" ] || continue
+    entry_covers "$testName" "$testBase" || continue
+    total=$((total + testHeld))
+  done <<< "$CODE_TEST_FILES"
+  TEST_FILES_CHECKED=$((TEST_FILES_CHECKED + 1))
+  if [ -z "$testStated" ]; then
+    fail "$(printf '%-20s the map says nothing about how many tests %s holds' \
+      'Test files' "$testName")"
+    TEST_FILES_BAD=1
+  elif [ "$testStated" != "$total" ]; then
+    fail "$(printf '%-20s the map says %s holds %s tests, the tree has %s' \
+      'Test files' "$testName" "$testStated" "$total")"
+    TEST_FILES_BAD=1
+  fi
+}
+
+# Every file of tests the map does not name.
+check_test_file_named() {
+  local testDir="$1" testBase="$2" testScope testName testStated covered=0
+  while IFS=$'\t' read -r testScope testName testStated; do
+    [ "$testScope" = "$testDir" ] || continue
+    if entry_covers "$testName" "$testBase"; then
+      covered=1
+    fi
+  done <<< "$DOC_TEST_ENTRIES"
+  if [ "$covered" -eq 0 ]; then
+    fail "$(printf '%-20s the map does not name %s/%s' \
+      'Test files' "$testDir" "$testBase")"
+    TEST_FILES_BAD=1
+  fi
+}
+
+if [ -z "$DOC_TEST_ENTRIES" ]; then
+  fail "$(printf '%-20s the map names no file of tests' 'Test files')"
+  TEST_FILES_BAD=1
+else
+  while IFS=$'\t' read -r testScope testName testStated; do
+    [ -n "$testName" ] || continue
+    check_test_group "$testScope" "$testName" "$testStated"
+  done <<< "$DOC_TEST_ENTRIES"
+  while IFS=$'\t' read -r testDir testBase testHeld; do
+    [ -n "$testBase" ] || continue
+    check_test_file_named "$testDir" "$testBase"
+  done <<< "$CODE_TEST_FILES"
+fi
+
+if [ "$TEST_FILES_BAD" -eq 0 ]; then
+  printf '  ok      %-20s %s groups, all accounted for\n' 'Test files' "$TEST_FILES_CHECKED"
 fi
 
 # --- the variable table -----------------------------------------------------

@@ -535,7 +535,8 @@ MAKED_moonbit/
 │   ├── metrics.mbt                   # the measures, in both languages
 │   ├── session.mbt                   # explorations, timelines, exports
 │   ├── database.mbt                  # SQLite
-│   └── *_test.mbt                    # 433 tests
+│   ├── *_test.mbt                    # 417 tests
+│   └── *_wbtest.mbt                  # 16 tests
 ├── frontend/                         # the single-page app (js)
 │   ├── app.mbt                       # the TEA loop and the messages
 │   ├── i18n.mbt                      # the words the client owns
