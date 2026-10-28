@@ -5944,10 +5944,17 @@ pkg_target() {
 }
 
 # Is a target one of the ones a package declares?
+#
+# "all" is the toolchain's own word for every target a package supports, so a
+# package that declares one target declares "all" as well.
 PKG_HAS_TARGET=0
 pkg_has_target() {
   local want="$1" part
   PKG_HAS_TARGET=0
+  if [ "$want" = "all" ] && [ -n "$PKG_TARGET" ]; then
+    PKG_HAS_TARGET=1
+    return
+  fi
   for part in ${PKG_TARGET//+/ }; do
     if [ "$part" = "$want" ]; then
       PKG_HAS_TARGET=1
@@ -6295,6 +6302,158 @@ check_compile_targets
 
 if [ "$TARGET_CLAIM_BAD" -eq 0 ]; then
   ok "compile target" "$TARGET_CLAIM_COUNT claims"
+fi
+
+# --- the platforms the documents label a package with ------------------------
+#
+# A document that labels a package with the platform it is built for is making
+# a promise about the tree, and the package's own manifest is what holds it.
+# The system model labels the backend package "native" and the frontend
+# package "js"; the deployment document draws the server as a native binary.
+#
+# Nothing watched it. The measurement: those labels were changed to platforms
+# the packages do not declare, and both gate suites said the same thing they
+# always say.
+#
+# The claim is read by its own shape. A path that names a package, and a
+# platform in parentheses on the same line. The path comes before the label,
+# and it is a path -- it carries a slash.
+#
+# The platform qualifies one of two paths, and the two are read one at a time.
+# A path that comes right before the parentheses qualifies them, as in
+# "backend/ (native)". And a path in a line that has a comment qualifies a
+# platform in that comment.
+#
+# The paths are the tree's own, and a path may carry the module's name in
+# front of it: "riantr/MAKED/backend" is the package "backend".
+
+# The package a labelled path names: the module's name is taken off the front
+# and a trailing slash off the end, and the rest is a path of the tree.
+#
+# The module's name is read here, and not taken from the variable further down
+# the file, so that this gate does not depend on the order the file happens
+# to be written in.
+LABEL_MODULE=""
+label_module() {
+  LABEL_MODULE=$(sed -nE 's/^name[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' moon.mod 2>/dev/null | head -1)
+}
+
+LABEL_PACKAGE=""
+label_package() {
+  local path="$1"
+  LABEL_PACKAGE=""
+  [ -n "$path" ] || return
+  case "$path" in
+    "$LABEL_MODULE"/*) path="${path#"$LABEL_MODULE"/}" ;;
+  esac
+  path="${path%/}"
+  path_package "$path"
+  LABEL_PACKAGE="$PATH_PACKAGE"
+}
+
+# The path a label names, in the text before it: the last word of that text,
+# and the path at the end of that word.
+#
+# The path is the trailing run of path characters, because a graph writes it
+# inside a quoted label: label="backend/ (native)".
+LABEL_PATH=""
+label_path() {
+  local text="$1" word path
+  LABEL_PATH=""
+  if [[ "$text" =~ ^(.*[^[:space:]])?[[:space:]]*$ ]]; then
+    text="${BASH_REMATCH[1]}"
+  fi
+  [ -n "$text" ] || return
+  if [[ "$text" =~ ([^[:space:]]+)$ ]]; then
+    word="${BASH_REMATCH[1]}"
+  else
+    return
+  fi
+  # The backticks are the tree's own quoting, and they are not part of the
+  # path.
+  word="${word//\`/}"
+  if [[ "$word" =~ ([A-Za-z0-9_./-]+)$ ]]; then
+    path="${BASH_REMATCH[1]}"
+  else
+    return
+  fi
+  case "$path" in
+    */*) LABEL_PATH="$path" ;;
+  esac
+}
+
+# The platforms a claim labels a package with: "package platform", one for
+# every platform in parentheses that a path on the line qualifies.
+CLAIM_LABELS=""
+claim_labels() {
+  local claim="$1" scan match platform prefix path
+  local re='\((wasm-gc|wasm|native|js|all)([^A-Za-z0-9_-]|$)'
+  CLAIM_LABELS=""
+  scan="$claim"
+  while [[ "$scan" =~ $re ]]; do
+    match="${BASH_REMATCH[0]}"
+    platform="${BASH_REMATCH[1]}"
+    prefix="${scan%%"$match"*}"
+    if [[ "$prefix" == *"#"* ]]; then
+      # The label is in a comment, and the path is the one before it.
+      label_path "${prefix%%#*}"
+    else
+      label_path "$prefix"
+    fi
+    path="$LABEL_PATH"
+    if [ -n "$path" ]; then
+      label_package "$path"
+      if [ -n "$LABEL_PACKAGE" ]; then
+        CLAIM_LABELS="$CLAIM_LABELS$LABEL_PACKAGE"$'\t'"$platform"$'\n'
+      fi
+    fi
+    scan="${scan#*"$match"}"
+  done
+}
+
+PLATFORM_CLAIM_COUNT=0
+PLATFORM_CLAIM_BAD=0
+
+# Every document that labels a package with a platform has to name one the
+# package declares.
+check_package_platforms() {
+  local doc line claim text pkg platform
+  label_module
+  for doc in "${ARCH_DOCS[@]}" "$AGENT_DOC" "$AGENTS_DOC"; do
+    # A document that describes the past is a record of the past. Its claims
+    # are about the tree as it was, so they are not checked against the tree
+    # as it is.
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
+    doc_claims "$doc"
+    while IFS=$'\t' read -r line claim; do
+      [ -n "$claim" ] || continue
+      # A graph writes a line break as two characters, and a break is a space
+      # to a reader.
+      text="${claim//\\n/ }"
+      claim_labels "$text"
+      while IFS=$'\t' read -r pkg platform; do
+        [ -n "$platform" ] || continue
+        pkg_target "$pkg"
+        [ -n "$PKG_TARGET" ] || continue
+        PLATFORM_CLAIM_COUNT=$((PLATFORM_CLAIM_COUNT + 1))
+        pkg_has_target "$platform"
+        if [ "$PKG_HAS_TARGET" -ne 1 ]; then
+          fail "$(printf '%-22s %s line %s labels %s as %s, but the tree says %s' \
+            'package platform' "$doc" "$line" "$pkg" "$platform" "$PKG_TARGET")"
+          PLATFORM_CLAIM_BAD=1
+        fi
+      done <<< "$CLAIM_LABELS"
+    done <<< "$DOC_CLAIMS"
+  done
+}
+
+check_package_platforms
+
+if [ "$PLATFORM_CLAIM_COUNT" -eq 0 ]; then
+  fail "$(printf '%-22s no document labels a package with a platform' 'package platform')"
+elif [ "$PLATFORM_CLAIM_BAD" -eq 0 ]; then
+  ok "package platform" "$PLATFORM_CLAIM_COUNT claims"
 fi
 
 # --- the calls that leave the machine -----------------------------------------

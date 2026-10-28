@@ -744,10 +744,13 @@ label_package() {
 }
 
 # The path a label names, in the text before it: the last word of that text,
-# when it is a path.
+# and the path at the end of that word.
+#
+# The path is the trailing run of path characters, because a graph writes it
+# inside a quoted label: label="backend/ (native)".
 LABEL_PATH=""
 label_path() {
-  local text="$1" word
+  local text="$1" word path
   LABEL_PATH=""
   if [[ "$text" =~ ^(.*[^[:space:]])?[[:space:]]*$ ]]; then
     text="${BASH_REMATCH[1]}"
@@ -758,12 +761,16 @@ label_path() {
   else
     return
   fi
+  # The backticks are the tree's own quoting, and they are not part of the
+  # path.
   word="${word//\`/}"
-  case "$word" in
-    *[!A-Za-z0-9_./-]*) return ;;
-  esac
-  case "$word" in
-    */*) LABEL_PATH="$word" ;;
+  if [[ "$word" =~ ([A-Za-z0-9_./-]+)$ ]]; then
+    path="${BASH_REMATCH[1]}"
+  else
+    return
+  fi
+  case "$path" in
+    */*) LABEL_PATH="$path" ;;
   esac
 }
 

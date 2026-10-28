@@ -762,7 +762,10 @@ function Get-LabelPackage($path) {
 }
 
 # The path a label names, in the text before it: the last word of that text,
-# when it is a path.
+# and the path at the end of that word.
+#
+# The path is the trailing run of path characters, because a graph writes it
+# inside a quoted label: label="backend/ (native)".
 function Get-LabelPath($text) {
   if ($text -eq '') { return '' }
   $t = $text.TrimEnd()
@@ -770,9 +773,14 @@ function Get-LabelPath($text) {
   $m = [regex]::Match($t, '(\S+)$')
   if (-not $m.Success) { return '' }
   $word = $m.Groups[1].Value
-  $word = ($word -replace '^[^A-Za-z0-9_./-]+', '') -replace '[^A-Za-z0-9_./-]+$', ''
-  if ($word -notmatch '/') { return '' }
-  $word
+  # The backticks are the tree's own quoting, and they are not part of the
+  # path.
+  $word = $word -replace '`', ''
+  $pm = [regex]::Match($word, '([A-Za-z0-9_./-]+)$')
+  if (-not $pm.Success) { return '' }
+  $path = $pm.Groups[1].Value
+  if ($path -notmatch '/') { return '' }
+  $path
 }
 
 # The claims the document makes about a platform: the line, the package, and

@@ -5526,7 +5526,11 @@ function Get-PkgTarget($pkg) {
 }
 
 # Is a target one of the ones a package declares?
+#
+# "all" is the toolchain's own word for every target a package supports, so a
+# package that declares one target declares "all" as well.
 function Test-PkgHasTarget($pkg, $want) {
+  if ($want -ceq 'all' -and (Get-PkgTarget $pkg) -ne '') { return $true }
   foreach ($part in (@((Get-PkgTarget $pkg) -split '\+'))) {
     if ($part -ceq $want) { return $true }
   }
@@ -5784,6 +5788,135 @@ foreach ($doc in (@($archDocs) + @($agentDoc, $agentsDoc))) {
 }
 
 if (-not $script:targetClaimBad) { Write-Ok 'compile target' ("{0} claims" -f $script:targetClaimCount) }
+
+# --- the platforms the documents label a package with ------------------------
+#
+# A document that labels a package with the platform it is built for is making
+# a promise about the tree, and the package's own manifest is what holds it.
+# The system model labels the backend package "native" and the frontend
+# package "js"; the deployment document draws the server as a native binary.
+#
+# Nothing watched it. The measurement: those labels were changed to platforms
+# the packages do not declare, and both gate suites said the same thing they
+# always say.
+#
+# The claim is read by its own shape. A path that names a package, and a
+# platform in parentheses on the same line. The path comes before the label,
+# and it is a path -- it carries a slash.
+#
+# The platform qualifies one of two paths, and the two are read one at a time.
+# A path that comes right before the parentheses qualifies them, as in
+# "backend/ (native)". And a path in a line that has a comment qualifies a
+# platform in that comment.
+#
+# The paths are the tree's own, and a path may carry the module's name in
+# front of it: "riantr/MAKED/backend" is the package "backend".
+
+# The module's name, so that a path may carry it in front.
+#
+# It is read here, and not taken from the variable further down the file, so
+# that this gate does not depend on the order the file happens to be written
+# in.
+function Get-LabelModule {
+  $file = Join-Path $PWD 'moon.mod'
+  if (-not (Test-Path $file)) { return '' }
+  $text = [System.IO.File]::ReadAllText($file, $enc)
+  $m = [regex]::Match($text, '(?m)^name\s*=\s*"([^"]+)"')
+  if (-not $m.Success) { return '' }
+  $m.Groups[1].Value
+}
+
+# The package a labelled path names: the module's name is taken off the front
+# and a trailing slash off the end, and the rest is a path of the tree.
+function Get-LabelPackage($path) {
+  if ($path -eq '') { return '' }
+  $p = $path
+  if ($script:labelModule -ne '' -and $p.StartsWith($script:labelModule + '/')) {
+    $p = $p.Substring($script:labelModule.Length + 1)
+  }
+  if ($p.EndsWith('/')) { $p = $p.Substring(0, $p.Length - 1) }
+  Get-PathPackage $p
+}
+
+# The path a label names, in the text before it: the last word of that text,
+# and the path at the end of that word.
+#
+# The path is the trailing run of path characters, because a graph writes it
+# inside a quoted label: label="backend/ (native)".
+function Get-LabelPath($text) {
+  if ($text -eq '') { return '' }
+  $t = $text.TrimEnd()
+  if ($t -eq '') { return '' }
+  $m = [regex]::Match($t, '(\S+)$')
+  if (-not $m.Success) { return '' }
+  $word = $m.Groups[1].Value
+  # The backticks are the tree's own quoting, and they are not part of the
+  # path.
+  $word = $word -replace '`', ''
+  $pm = [regex]::Match($word, '([A-Za-z0-9_./-]+)$')
+  if (-not $pm.Success) { return '' }
+  $path = $pm.Groups[1].Value
+  if ($path -notmatch '/') { return '' }
+  $path
+}
+
+# The platforms a claim labels a package with: the package and the platform.
+function Get-ClaimLabels($claim) {
+  $out = @()
+  $re = [regex]'\((wasm-gc|wasm|native|js|all)([^A-Za-z0-9_-]|$)'
+  $scan = $claim
+  while ($true) {
+    $m = $re.Match($scan)
+    if (-not $m.Success) { break }
+    $platform = $m.Groups[1].Value
+    $prefix = $scan.Substring(0, $m.Index)
+    $hash = $prefix.IndexOf('#')
+    if ($hash -ge 0) {
+      # The label is in a comment, and the path is the one before it.
+      $path = Get-LabelPath $prefix.Substring(0, $hash)
+    } else {
+      $path = Get-LabelPath $prefix
+    }
+    if ($path -ne '') {
+      $pkg = Get-LabelPackage $path
+      if ($pkg -ne '') {
+        $out += [pscustomobject]@{ pkg = $pkg; platform = $platform }
+      }
+    }
+    $scan = $scan.Substring($m.Index + $m.Length)
+  }
+  $out
+}
+
+$script:labelModule = Get-LabelModule
+$script:platformClaimCount = 0
+$script:platformBad = $false
+foreach ($doc in (@($archDocs) + @($agentDoc, $agentsDoc))) {
+  # A document that describes the past is a record of the past. Its claims
+  # are about the tree as it was, so they are not checked against the tree
+  # as it is.
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($claim in (Get-DocClaims $doc)) {
+    # A graph writes a line break as two characters, and a break is a space
+    # to a reader.
+    $text = $claim.text -replace '\\n', ' '
+    foreach ($pair in (Get-ClaimLabels $text)) {
+      $declared = Get-PkgTarget $pair.pkg
+      if ($declared -eq '') { continue }
+      $script:platformClaimCount++
+      if (-not (Test-PkgHasTarget $pair.pkg $pair.platform)) {
+        Write-Fail ("{0,-22} {1} line {2} labels {3} as {4}, but the tree says {5}" -f 'package platform', $doc, $claim.line, $pair.pkg, $pair.platform, $declared)
+        $script:platformBad = $true
+      }
+    }
+  }
+}
+
+if ($script:platformClaimCount -eq 0) {
+  Write-Fail ("{0,-22} no document labels a package with a platform" -f 'package platform')
+} elseif (-not $script:platformBad) {
+  Write-Ok 'package platform' ("{0} claims" -f $script:platformClaimCount)
+}
 
 # --- the calls that leave the machine -----------------------------------------
 #
