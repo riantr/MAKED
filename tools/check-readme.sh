@@ -1175,6 +1175,65 @@ else
     "$(printf '%s\n' "$DOC_IMAGES" | tr '\n' ' ' | sed -e 's/ *$//')")"
 fi
 
+# --- the volume the container command names -----------------------------------
+#
+# The README's `docker run` mounts a volume, and that volume is where the
+# reader's records live: the database is written into it, and it is what
+# survives the container being replaced. A volume the tree does not have is a
+# container that starts with an empty directory -- and a reader who finds out
+# on the next restart.
+#
+# The tree's volumes are the ones docker-compose.yml declares: the mapping
+# "name:path" under the service. The document's volume is the "-v name:path"
+# of its container command.
+#
+# The comparison is ONE-WAY: the compose file may mount more than the
+# document names, and every volume the document names has to be one the
+# compose file mounts.
+
+# The volume mappings the compose file declares, as "name:path".
+code_volumes() {
+  awk '
+    /^[[:space:]]*volumes:[[:space:]]*$/ { inlist = 1; next }
+    inlist && /^[[:space:]]*-[[:space:]]*[A-Za-z0-9_.-]+:[A-Za-z0-9_./-]+[[:space:]]*$/ {
+      line = $0
+      sub(/^[[:space:]]*-[[:space:]]*/, "", line)
+      sub(/[[:space:]]*$/, "", line)
+      print line
+      next
+    }
+    inlist && /^[^[:space:]]/ { inlist = 0 }
+  ' docker-compose.yml | LC_ALL=C sort -u
+}
+
+# The volume mappings the document's container command names.
+doc_volumes() {
+  grep -oE '\-v [A-Za-z0-9_.-]+:[A-Za-z0-9_./-]+' "$README" \
+    | sed -E 's/^-v //' | LC_ALL=C sort -u || true
+}
+
+CODE_VOLUMES=$(code_volumes)
+DOC_VOLUMES=$(doc_volumes)
+if [ -z "$CODE_VOLUMES" ]; then
+  fail "$(printf '%-20s no volume could be derived from the compose file' 'Container volume')"
+elif [ -z "$DOC_VOLUMES" ]; then
+  fail "$(printf '%-20s the document names no volume' 'Container volume')"
+else
+  MISSING_VOL=""
+  while IFS= read -r vol; do
+    [ -n "$vol" ] || continue
+    if ! printf '%s\n' "$CODE_VOLUMES" | grep -qxF "$vol"; then
+      MISSING_VOL="$MISSING_VOL $vol"
+    fi
+  done <<< "$DOC_VOLUMES"
+  if [ -n "$MISSING_VOL" ]; then
+    fail "$(printf '%-20s these volumes the document names the tree does not mount:%s' \
+      'Container volume' "$MISSING_VOL")"
+  else
+    printf '  ok      %-20s %s\n' 'Container volume' "$(printf '%s\n' "$DOC_VOLUMES" | grep -c .)"
+  fi
+fi
+
 # --- the license the document names -------------------------------------------
 #
 # The README says which license the project is under, and the manifest says

@@ -1210,6 +1210,74 @@ if ($codeImages.Count -eq 0) {
   $failures++
 }
 
+# --- the volume the container command names -----------------------------------
+#
+# The README's `docker run` mounts a volume, and that volume is where the
+# reader's records live: the database is written into it, and it is what
+# survives the container being replaced. A volume the tree does not have is a
+# container that starts with an empty directory -- and a reader who finds out
+# on the next restart.
+#
+# The tree's volumes are the ones docker-compose.yml declares: the mapping
+# "name:path" under the service. The document's volume is the "-v name:path"
+# of its container command.
+#
+# The comparison is ONE-WAY: the compose file may mount more than the
+# document names, and every volume the document names has to be one the
+# compose file mounts.
+
+# The volume mappings the compose file declares, as "name:path".
+function Get-CodeVolumes {
+  $out = @()
+  $file = Join-Path $PWD 'docker-compose.yml'
+  if (-not (Test-Path $file)) { return $out }
+  $lines = [System.IO.File]::ReadAllLines($file, $enc)
+  $inList = $false
+  foreach ($line in $lines) {
+    if ($line -match '^[\s]*volumes:[\s]*$') { $inList = $true; continue }
+    if (-not $inList) { continue }
+    if ($line -match '^[\s]*-[\s]*([A-Za-z0-9_.-]+:[A-Za-z0-9_./-]+)[\s]*$') {
+      $out += $Matches[1]
+      continue
+    }
+    if ($line -match '^\S') { $inList = $false }
+  }
+  Sort-Set $out
+}
+
+# The volume mappings the document's container command names.
+function Get-DocVolumes {
+  $out = @()
+  foreach ($m in [regex]::Matches($readme, '-v ([A-Za-z0-9_.-]+:[A-Za-z0-9_./-]+)')) {
+    $out += $m.Groups[1].Value
+  }
+  Sort-Set $out
+}
+
+$codeVolumes = @(Get-CodeVolumes)
+$docVolumes = @(Get-DocVolumes)
+if ($codeVolumes.Count -eq 0) {
+  Write-Output ("  {0,-20} no volume could be derived from the compose file" -f 'Container volume')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($docVolumes.Count -eq 0) {
+  Write-Output ("  {0,-20} the document names no volume" -f 'Container volume')
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  $missingVol = @()
+  foreach ($vol in $docVolumes) {
+    if ($codeVolumes -cnotcontains $vol) { $missingVol += $vol }
+  }
+  if ($missingVol.Count -gt 0) {
+    Write-Output ("  {0,-20} these volumes the document names the tree does not mount: {1}" -f 'Container volume', ($missingVol -join ' '))
+    Write-Output "*** FAIL ***"
+    $failures++
+  } else {
+    Write-Output ("  ok      {0,-20} {1}" -f 'Container volume', $docVolumes.Count)
+  }
+}
+
 # --- the license the document names -------------------------------------------
 #
 # The README says which license the project is under, and the manifest says
