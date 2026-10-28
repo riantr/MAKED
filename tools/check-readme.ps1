@@ -587,6 +587,140 @@ if ($codeCmds.Count -eq 0) {
   }
 }
 
+# --- the compile targets the document states ---------------------------------
+#
+# The first commands in the README are the ones a reader runs before anything
+# else: `moon run --release --target native cmd/server`, and the same for the
+# agent's server. A target the package does not declare fails on the first
+# try, with an error from the toolchain -- and not a word from the document
+# that sent them there.
+#
+# The claim is read by its own shape. The target is the argument of
+# "--target", and the package is the path that follows it. A path that names a
+# file is the package that holds the file. A command with no package after the
+# target speaks for the module, and the module declares its own targets.
+#
+# The packages are the tree's own: a directory that carries a manifest. The
+# targets are the five the toolchain knows.
+
+# The targets each package of the tree declares.
+function Get-CodePkgTargets {
+  $out = @{}
+  foreach ($rel in @(& git ls-files 2>$null)) {
+    if ($rel -notmatch '(^|/)moon\.pkg$') { continue }
+    if ($rel -ceq 'moon.pkg') { continue }
+    $pkg = ($rel -replace '/moon\.pkg$', '')
+    $file = Join-Path $PWD $rel
+    if (-not (Test-Path $file)) { continue }
+    $text = [System.IO.File]::ReadAllText($file, $enc)
+    $m = [regex]::Match($text, 'supported_targets\s*=\s*"([^"]*)"')
+    if (-not $m.Success) { continue }
+    $out[$pkg] = $m.Groups[1].Value
+  }
+  $out
+}
+
+# The targets the module declares.
+function Get-ModuleTargets {
+  $file = Join-Path $PWD 'moon.mod'
+  if (-not (Test-Path $file)) { return '' }
+  $text = [System.IO.File]::ReadAllText($file, $enc)
+  $m = [regex]::Match($text, 'supported_targets\s*=\s*"([^"]*)"')
+  if (-not $m.Success) { return '' }
+  $m.Groups[1].Value
+}
+
+# The package a path names: the path itself when it carries a manifest, and
+# the directory that carries it when the path names a file.
+function Get-PathPackage($path) {
+  if ($path -eq '') { return '' }
+  $dir = $path
+  while ($dir -ne '' -and $dir -ne '/') {
+    if (Test-Path (Join-Path $PWD ($dir + '/moon.pkg'))) { return $dir }
+    $slash = $dir.LastIndexOf('/')
+    if ($slash -lt 0) { break }
+    $dir = $dir.Substring(0, $slash)
+  }
+  ''
+}
+
+# The claims the document makes about a target: the line, the target, and the
+# path that follows it. The path is empty when the command names no package.
+#
+# A comment is not part of the command.
+function Get-DocTargetClaims {
+  $out = @()
+  $lines = [System.IO.File]::ReadAllLines($readmePath, $enc)
+  for ($i = 0; $i -lt $lines.Length; $i++) {
+    $text = $lines[$i]
+    $hash = $text.IndexOf('#')
+    if ($hash -ge 0) { $text = $text.Substring(0, $hash) }
+    $rest = $text
+    while ($rest.Contains('--target ')) {
+      $rest = $rest.Substring($rest.IndexOf('--target ') + 9)
+      $m = [regex]::Match($rest, '^(\S+)(.*)$')
+      if (-not $m.Success) { break }
+      $target = $m.Groups[1].Value
+      $rest = $m.Groups[2].Value
+      if ($target -cnotin @('wasm-gc', 'wasm', 'native', 'js', 'all')) { continue }
+      $pm = [regex]::Match($rest, '^\s*([A-Za-z0-9_./-]+)')
+      $path = ''
+      if ($pm.Success) { $path = $pm.Groups[1].Value }
+      $out += [pscustomobject]@{ line = ($i + 1); target = $target; path = $path }
+    }
+  }
+  $out
+}
+
+$script:pkgTargets = Get-CodePkgTargets
+$script:moduleTargets = Get-ModuleTargets
+
+$script:targetClaimCount = 0
+$script:targetBad = $false
+foreach ($claim in @(Get-DocTargetClaims)) {
+  $target = $claim.target
+  $path = $claim.path
+  if ($path -ne '') {
+    $pkg = Get-PathPackage $path
+    if ($pkg -eq '') { continue }
+    if (-not $script:pkgTargets.ContainsKey($pkg)) { continue }
+    $declared = $script:pkgTargets[$pkg]
+    $scope = $pkg
+  } else {
+    if ($script:moduleTargets -eq '') { continue }
+    $declared = $script:moduleTargets
+    $scope = 'the module'
+  }
+  $script:targetClaimCount++
+  $has = $false
+  if ($target -ceq 'all') {
+    # "all" is the toolchain's own word for every target a scope supports.
+    if ($declared -ne '') { $has = $true }
+  } else {
+    foreach ($part in (@($declared -split '\+'))) {
+      if ($part -ceq $target) { $has = $true; break }
+    }
+  }
+  if (-not $has) {
+    Write-Output ("  {0,-20} {1} line {2} says {3} is built for {4}, but the tree says {5}" -f 'Compile target', 'README.md', $claim.line, $scope, $target, $declared)
+    Write-Output "*** FAIL ***"
+    $failures++
+    $script:targetBad = $true
+  }
+}
+
+if ($script:pkgTargets.Count -eq 0) {
+  Write-Output ("  {0,-20} no package target could be derived from the tree" -f 'Compile target')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($script:targetClaimCount -eq 0) {
+  Write-Output ("  {0,-20} the document states no compile target at all" -f 'Compile target')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (-not $script:targetBad) {
+  Write-Output ("  ok      {0,-20} {1} claims" -f 'Compile target', $script:targetClaimCount)
+}
+
 # --- the API map ------------------------------------------------------------
 #
 # The README carries a table of every route the server registers, and that

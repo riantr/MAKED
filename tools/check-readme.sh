@@ -540,6 +540,169 @@ else
   fi
 fi
 
+# --- the compile targets the document states ---------------------------------
+#
+# The first commands in the README are the ones a reader runs before anything
+# else: `moon run --release --target native cmd/server`, and the same for the
+# agent's server. A target the package does not declare fails on the first
+# try, with an error from the toolchain -- and not a word from the document
+# that sent them there.
+#
+# The claim is read by its own shape. The target is the argument of
+# "--target", and the package is the path that follows it. A path that names a
+# file is the package that holds the file. A command with no package after the
+# target speaks for the module, and the module declares its own targets.
+#
+# The packages are the tree's own: a directory that carries a manifest. The
+# targets are the five the toolchain knows.
+
+# The targets each package of the tree declares: "pkg=targets".
+PKG_TARGETS=""
+code_pkg_targets() {
+  local file pkg value
+  PKG_TARGETS=""
+  for file in $(git ls-files 2>/dev/null | grep -E '(^|/)moon\.pkg$'); do
+    case "$file" in
+      */*) pkg="${file%/moon.pkg}" ;;
+      *) continue ;;
+    esac
+    value=$(grep -oE 'supported_targets[[:space:]]*=[[:space:]]*"[^"]*"' "$file" 2>/dev/null \
+      | head -1 | sed -E 's/.*"([^"]*)".*/\1/')
+    [ -n "$value" ] || continue
+    PKG_TARGETS="$PKG_TARGETS $pkg=$value"
+  done
+}
+
+# The targets the module declares.
+MODULE_TARGETS=""
+module_targets() {
+  MODULE_TARGETS=$(grep -oE 'supported_targets[[:space:]]*=[[:space:]]*"[^"]*"' moon.mod 2>/dev/null \
+    | head -1 | sed -E 's/.*"([^"]*)".*/\1/')
+}
+
+# The targets one package declares.
+PKG_TARGET=""
+pkg_target() {
+  local want="$1" item name value
+  PKG_TARGET=""
+  for item in $PKG_TARGETS; do
+    name="${item%%=*}"
+    value="${item#*=}"
+    if [ "$name" = "$want" ]; then
+      PKG_TARGET="$value"
+      return
+    fi
+  done
+}
+
+# Is a target one of the ones a set declares? The sets are written with a
+# plus: "js+native" is two targets.
+#
+# "all" is the toolchain's own word for every target a scope supports, so a
+# scope that declares one target declares "all" as well.
+pkg_has_target() {
+  local declared="$1" want="$2" part
+  if [ "$want" = "all" ]; then
+    [ -n "$declared" ] && return 0
+    return 1
+  fi
+  for part in ${declared//+/ }; do
+    if [ "$part" = "$want" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# The package a path names: the path itself when it carries a manifest, and
+# the directory that carries it when the path names a file.
+PATH_PACKAGE=""
+path_package() {
+  local path="$1" dir
+  PATH_PACKAGE=""
+  [ -n "$path" ] || return
+  dir="$path"
+  while [ -n "$dir" ] && [ "$dir" != "/" ]; do
+    if [ -f "$dir/moon.pkg" ]; then
+      PATH_PACKAGE="$dir"
+      return
+    fi
+    case "$dir" in
+      */*) dir="${dir%/*}" ;;
+      *) dir="" ;;
+    esac
+  done
+}
+
+# The claims the document makes about a target: "line target path", one for
+# every "--target <target>" the document states. The path is the token that
+# follows the target, and it is empty when the command names no package.
+#
+# A comment is not part of the command: "moon check --target native  #
+# type-check the backend" states a target for the module, and the words after
+# the "#" are a note about it.
+doc_target_claims() {
+  local lineno=0 line text rest target path
+  while IFS= read -r line || [ -n "$line" ]; do
+    lineno=$((lineno + 1))
+    text="${line%%#*}"
+    rest="$text"
+    while [[ "$rest" == *"--target "* ]]; do
+      rest="${rest#*--target }"
+      target="${rest%%[[:space:]]*}"
+      rest="${rest#"$target"}"
+      case "$target" in
+        wasm-gc|wasm|native|js|all) ;;
+        *) continue ;;
+      esac
+      # The package is the next word, and only the path characters of it.
+      rest="${rest#"${rest%%[![:space:]]*}"}"
+      path="${rest%%[[:space:]]*}"
+      if [[ "$path" =~ ^([A-Za-z0-9_./-]+) ]]; then
+        path="${BASH_REMATCH[1]}"
+      else
+        path=""
+      fi
+      printf '%s\t%s\t%s\n' "$lineno" "$target" "$path"
+    done
+  done < "$README"
+}
+
+code_pkg_targets
+module_targets
+
+TARGET_CLAIMS=0
+TARGET_BAD=0
+while IFS=$'\t' read -r line target path; do
+  [ -n "$target" ] || continue
+  if [ -n "$path" ]; then
+    path_package "$path"
+    [ -n "$PATH_PACKAGE" ] || continue
+    pkg_target "$PATH_PACKAGE"
+    [ -n "$PKG_TARGET" ] || continue
+    declared="$PKG_TARGET"
+    scope="$PATH_PACKAGE"
+  else
+    [ -n "$MODULE_TARGETS" ] || continue
+    declared="$MODULE_TARGETS"
+    scope="the module"
+  fi
+  TARGET_CLAIMS=$((TARGET_CLAIMS + 1))
+  if ! pkg_has_target "$declared" "$target"; then
+    fail "$(printf '%-20s %s line %s says %s is built for %s, but the tree says %s' \
+      'Compile target' "$README" "$line" "$scope" "$target" "$declared")"
+    TARGET_BAD=1
+  fi
+done <<< "$(doc_target_claims)"
+
+if [ -z "$PKG_TARGETS" ]; then
+  fail "$(printf '%-20s no package target could be derived from the tree' 'Compile target')"
+elif [ "$TARGET_CLAIMS" -eq 0 ]; then
+  fail "$(printf '%-20s the document states no compile target at all' 'Compile target')"
+elif [ "$TARGET_BAD" -eq 0 ]; then
+  printf '  ok      %-20s %s claims\n' 'Compile target' "$TARGET_CLAIMS"
+fi
+
 # --- the API map ------------------------------------------------------------
 #
 # The README carries a table of every route the server registers, and that
