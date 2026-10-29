@@ -2017,7 +2017,7 @@ code_corpus_extensions() {
     inside && match($0, /^}/) { inside = 0 }
     inside {
       line = $0
-      while (match(line, /"\.[a-z]+"/)) {
+      while (match(line, /"\.[a-zA-Z0-9]+"/)) {
         print substr(line, RSTART + 1, RLENGTH - 2)
         line = substr(line, RSTART + RLENGTH)
       }
@@ -2037,7 +2037,7 @@ doc_corpus_extension_sets() {
       seen = " "
       if (tolower(block) ~ /corpus/) {
         line = block
-        while (match(line, /`\.[a-z]+`/)) {
+        while (match(line, /`\.[a-zA-Z0-9]+`/)) {
           ext = substr(line, RSTART + 1, RLENGTH - 2)
           if (index(seen, " " ext " ") == 0) {
             out = out ext " "
@@ -2121,6 +2121,78 @@ else
     'File names' \
     "$(printf '%s\n' "$CODE_FILE_NAMES" | tr '\n' ' ' | sed -e 's/ *$//')" \
     "$(printf '%s\n' "$DOC_FILE_NAMES" | tr '\n' ' ' | sed -e 's/ *$//')")"
+fi
+
+# --- the extensions that are read as YAML --------------------------------------
+#
+# A data file is read as YAML when its name ends in one of two extensions, and
+# as JSON otherwise. One function decides it -- is_yaml_path -- and both the
+# reader and the writer ask that function, so the tree has one rule. The README
+# states the rule in one sentence: a `.yaml` or `.yml` file is read as YAML, and
+# every other file is read as JSON.
+#
+# Nothing compared them. The measurement: the tree was made to stop accepting
+# the .yml extension, and the README was made to stop naming it, and all four
+# gate suites went on saying that every claim in the documents matches the
+# tree. A reader who was told a .yml file is read as JSON would write one, and
+# the server would read it as YAML -- or, the other way round, would read it as
+# JSON and refuse it, with a message about syntax.
+#
+# The document's extensions are read from the clause that states the rule and
+# not from the whole document: the document names other extensions elsewhere
+# -- the corpus takes .txt and .pdf -- and those are other claims.
+#
+# The two sets are compared in lower case: the tree matches a name without
+# regard to its case, so a document that writes `.YAML` is saying the same
+# thing as one that writes `.yaml`, and the comparison must not fail a
+# document for the case of a letter.
+
+# The extensions the tree reads as YAML.
+code_yaml_extensions() {
+  awk '
+    /^pub fn is_yaml_path\(/ { inside = 1; next }
+    inside && /^}/ { inside = 0 }
+    inside {
+      line = $0
+      while (match(line, /"\.[a-zA-Z0-9]+"/)) {
+        print substr(line, RSTART + 1, RLENGTH - 2)
+        line = substr(line, RSTART + RLENGTH)
+      }
+    }
+  ' backend/datafile.mbt | tr 'A-Z' 'a-z' | LC_ALL=C sort -u
+}
+
+# The extensions the document says are read as YAML: the ones named in the
+# clause that states the rule. The clause is the paragraph that holds it, up
+# to the words "read as YAML" -- the sentence is wrapped, and the extensions
+# are named before the phrase that says what happens to them.
+doc_yaml_extensions() {
+  awk '
+    /^[[:space:]]*$/ { block = ""; next }
+    { block = block $0 " " }
+    index($0, "read as YAML") > 0 && !found { head = block; found = 1 }
+    END {
+      if (!found) exit
+      n = index(head, "read as YAML")
+      if (n > 0) print substr(head, 1, n - 1)
+    }
+  ' "$README" | grep -oE '`\.[a-zA-Z0-9]+`' | tr -d '`' | tr 'A-Z' 'a-z' | LC_ALL=C sort -u
+}
+
+CODE_YAML_EXTENSIONS=$(code_yaml_extensions)
+DOC_YAML_EXTENSIONS=$(doc_yaml_extensions)
+if [ -z "$CODE_YAML_EXTENSIONS" ]; then
+  fail "$(printf '%-20s no extension could be derived from the tree' 'YAML extensions')"
+elif [ -z "$DOC_YAML_EXTENSIONS" ]; then
+  fail "$(printf '%-20s the document does not state the rule' 'YAML extensions')"
+elif same_members "$CODE_YAML_EXTENSIONS" "$DOC_YAML_EXTENSIONS"; then
+  printf '  ok      %-20s %s\n' 'YAML extensions' \
+    "$(printf '%s\n' "$CODE_YAML_EXTENSIONS" | tr '\n' ' ' | sed -e 's/ *$//')"
+else
+  fail "$(printf '%-20s the tree says [%s], the document says [%s]' \
+    'YAML extensions' \
+    "$(printf '%s\n' "$CODE_YAML_EXTENSIONS" | tr '\n' ' ' | sed -e 's/ *$//')" \
+    "$(printf '%s\n' "$DOC_YAML_EXTENSIONS" | tr '\n' ' ' | sed -e 's/ *$//')")"
 fi
 
 CODE_CORPUS_KINDS=$(code_corpus_kinds)

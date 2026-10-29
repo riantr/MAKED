@@ -2097,7 +2097,7 @@ function Get-CodeCorpusExtensions {
     if ($line -match '^fn is_readable_extension') { $inside = $true; continue }
     if ($inside -and $line -match '^\}') { $inside = $false }
     if ($inside) {
-      foreach ($m in [regex]::Matches($line, '"(\.[a-z]+)"')) {
+      foreach ($m in [regex]::Matches($line, '"(\.[a-zA-Z0-9]+)"')) {
         $out += $m.Groups[1].Value
       }
     }
@@ -2114,7 +2114,7 @@ function Get-CorpusExtensionSet($text) {
   if ($text -notmatch '(?i)corpus') { return $null }
   $exts = @()
   $seen = @{}
-  foreach ($m in [regex]::Matches($text, '`(\.[a-z]+)`')) {
+  foreach ($m in [regex]::Matches($text, '`(\.[a-zA-Z0-9]+)`')) {
     $e = $m.Groups[1].Value
     if (-not $seen.ContainsKey($e)) {
       $seen[$e] = $true
@@ -2214,6 +2214,89 @@ if ($codeFileNames.Count -eq 0) {
   Write-Output ("  ok      {0,-20} {1}" -f 'File names', $codeFileNames.Count)
 } else {
   Write-Output ("  {0,-20} the tree says [{1}], the table says [{2}]" -f 'File names', ($codeFileNames -join ' '), ($docFileNames -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+}
+
+# --- the extensions that are read as YAML --------------------------------------
+#
+# A data file is read as YAML when its name ends in one of two extensions, and
+# as JSON otherwise. One function decides it -- is_yaml_path -- and both the
+# reader and the writer ask that function, so the tree has one rule. The README
+# states the rule in one sentence: a `.yaml` or `.yml` file is read as YAML, and
+# every other file is read as JSON.
+#
+# Nothing compared them. The measurement: the tree was made to stop accepting
+# the .yml extension, and the README was made to stop naming it, and all four
+# gate suites went on saying that every claim in the documents matches the
+# tree. A reader who was told a .yml file is read as JSON would write one, and
+# the server would read it as YAML -- or, the other way round, would read it as
+# JSON and refuse it, with a message about syntax.
+#
+# The document's extensions are read from the clause that states the rule and
+# not from the whole document: the document names other extensions elsewhere
+# -- the corpus takes .txt and .pdf -- and those are other claims.
+#
+# The two sets are compared in lower case: the tree matches a name without
+# regard to its case, so a document that writes `.YAML` is saying the same
+# thing as one that writes `.yaml`, and the comparison must not fail a
+# document for the case of a letter.
+
+# The extensions the tree reads as YAML.
+function Get-CodeYamlExtensions {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/datafile.mbt'), $enc)
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^pub fn is_yaml_path\(') { $inside = $true; continue }
+    if ($inside -and $line -match '^\}') { $inside = $false }
+    if ($inside) {
+      foreach ($m in [regex]::Matches($line, '"(?<e>\.[a-zA-Z0-9]+)"')) {
+        $out += $m.Groups['e'].Value
+      }
+    }
+  }
+  Sort-Set @($out | ForEach-Object { $_.ToLowerInvariant() })
+}
+
+# The extensions the document says are read as YAML: the ones named in the
+# clause that states the rule. The clause is the paragraph that holds it, up
+# to the words "read as YAML" -- the sentence is wrapped, and the extensions
+# are named before the phrase that says what happens to them.
+function Get-DocYamlExtensions {
+  $out = @()
+  $block = @()
+  $head = ''
+  foreach ($line in ($readme -split "`r?`n")) {
+    if ($line.Trim() -eq '') { $block = @(); continue }
+    $block += $line
+    if ($head -eq '' -and $line.Contains('read as YAML')) {
+      $text = ($block -join ' ')
+      $at = $text.IndexOf('read as YAML')
+      if ($at -ge 0) { $head = $text.Substring(0, $at) }
+      break
+    }
+  }
+  foreach ($m in [regex]::Matches($head, '`(?<e>\.[a-zA-Z0-9]+)`')) {
+    $out += $m.Groups['e'].Value
+  }
+  Sort-Set @($out | ForEach-Object { $_.ToLowerInvariant() })
+}
+
+$codeYamlExtensions = @(Get-CodeYamlExtensions)
+$docYamlExtensions = @(Get-DocYamlExtensions)
+if ($codeYamlExtensions.Count -eq 0) {
+  Write-Output ("  {0,-20} no extension could be derived from the tree" -f 'YAML extensions')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($docYamlExtensions.Count -eq 0) {
+  Write-Output ("  {0,-20} the document does not state the rule" -f 'YAML extensions')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $codeYamlExtensions $docYamlExtensions) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'YAML extensions', ($codeYamlExtensions -join ' '))
+} else {
+  Write-Output ("  {0,-20} the tree says [{1}], the document says [{2}]" -f 'YAML extensions', ($codeYamlExtensions -join ' '), ($docYamlExtensions -join ' '))
   Write-Output "*** FAIL ***"
   $failures++
 }
