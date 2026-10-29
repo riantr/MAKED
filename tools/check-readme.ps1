@@ -3769,6 +3769,114 @@ if ($codeRingLetters -eq '') {
 } else {
   Write-Output ("  ok      {0,-20} {1}" -f 'Ring letters', $codeRingLetters)
 }
+# --- the letters a record may carry --------------------------------------------
+#
+# The ring has five letters, and the tree says which of them a record may carry
+# in three places besides the ring itself: the list the server advertises, the
+# set the server accepts, and the list the client falls back to. The README
+# calls them "the ring's own letters", so each of them has to be the ring's.
+#
+# The gate "Ring letters" holds the ring to the logo and to the document. It
+# does not hold the copies that decide what a record may carry: the "Entry
+# record" gate asks only whether the document's example domain is a member of
+# the server's list. A server that took a letter the ring does not have -- or
+# refused one the ring has -- would have kept every gate green.
+#
+# The measurement that found the gap: one letter of the server's list, of the
+# server's accepted set and of the client's fallback was each changed to a
+# letter that is not the ring's, and all four gate suites went on saying that
+# every claim in the documents matches the tree.
+#
+# The comparison is by MEMBERSHIP and not by order: the ring's order is the
+# order the logo draws, and which letter a record may carry does not depend on
+# where the letter sits in the ring.
+
+# The letters the server accepts: the value of each arm of normalise_domain.
+function Get-AcceptedDomains {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/entries.mbt'), $enc)
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^fn normalise_domain\(') { $inside = $true; continue }
+    if ($inside -and $line -match '^\}') { $inside = $false }
+    if ($inside) {
+      foreach ($m in [regex]::Matches($line, '=>[ ]*"(?<d>[A-Z])"')) {
+        $out += $m.Groups['d'].Value
+      }
+    }
+  }
+  Sort-Set $out
+}
+
+# The letters the client falls back to when the server sends no list.
+function Get-ClientDomains {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'frontend/entries.mbt'), $enc)
+  $inside = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^pub fn default_entry_domains\(\)') { $inside = $true; continue }
+    if ($inside -and $line -match '^\}') { $inside = $false }
+    if ($inside) {
+      foreach ($m in [regex]::Matches($line, '"(?<d>[A-Z])"')) {
+        $out += $m.Groups['d'].Value
+      }
+    }
+  }
+  Sort-Set $out
+}
+
+# The ring's letters as a set: the ring is an order, and what a record may
+# carry is a membership.
+function Get-RingLetterSet($letters) {
+  $out = @()
+  foreach ($one in ($letters -split ' ')) {
+    if ($one -cmatch '^[A-Z]$') { $out += $one }
+  }
+  Sort-Set $out
+}
+
+$ringLetterSet = @(Get-RingLetterSet $codeRingLetters)
+$codeAcceptedDomains = @(Get-AcceptedDomains)
+$codeClientDomains = @(Get-ClientDomains)
+
+$domainLettersWhere = @(
+  'backend/entries.mbt entry_domains',
+  'backend/entries.mbt normalise_domain',
+  'frontend/entries.mbt default_entry_domains'
+)
+# The comma is the operator that keeps a set a set: without it, the letters
+# would be added to the list one letter at a time.
+$domainLettersSets = @()
+$domainLettersSets += ,$codeEntryDomains
+$domainLettersSets += ,$codeAcceptedDomains
+$domainLettersSets += ,$codeClientDomains
+
+$domainLettersBad = $false
+if ($ringLetterSet.Count -eq 0) {
+  Write-Output ("  {0,-20} no letter could be derived from the ring" -f 'Domain letters')
+  Write-Output "*** FAIL ***"
+  $failures++
+  $domainLettersBad = $true
+} else {
+  for ($i = 0; $i -lt $domainLettersWhere.Count; $i++) {
+    $whereOne = $domainLettersWhere[$i]
+    $setOne = @($domainLettersSets[$i])
+    if ($setOne.Count -eq 0) {
+      Write-Output ("  {0,-20} no letter could be derived from {1}" -f 'Domain letters', $whereOne)
+      Write-Output "*** FAIL ***"
+      $failures++
+      $domainLettersBad = $true
+    } elseif (-not (Test-SameMembers $ringLetterSet $setOne)) {
+      Write-Output ("  {0,-20} {1} says [{2}], the ring says [{3}]" -f 'Domain letters', $whereOne, ($setOne -join ' '), ($ringLetterSet -join ' '))
+      Write-Output "*** FAIL ***"
+      $failures++
+      $domainLettersBad = $true
+    }
+  }
+}
+if (-not $domainLettersBad) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Domain letters', $codeRingLetters)
+}
 # --- the collective's numbers ------------------------------------------------
 #
 # The collective is pyroduct's, but the words for it are a file in this

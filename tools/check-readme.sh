@@ -3749,6 +3749,109 @@ elif [ "$CODE_RING_LETTERS" != "$DOC_RING_FIRST" ]; then
 else
   printf '  ok      %-20s %s\n' 'Ring letters' "$CODE_RING_LETTERS"
 fi
+# --- the letters a record may carry --------------------------------------------
+#
+# The ring has five letters, and the tree says which of them a record may carry
+# in three places besides the ring itself: the list the server advertises, the
+# set the server accepts, and the list the client falls back to. The README
+# calls them "the ring's own letters", so each of them has to be the ring's.
+#
+# The gate "Ring letters" holds the ring to the logo and to the document. It
+# does not hold the copies that decide what a record may carry: the "Entry
+# record" gate asks only whether the document's example domain is a member of
+# the server's list. A server that took a letter the ring does not have -- or
+# refused one the ring has -- would have kept every gate green.
+#
+# The measurement that found the gap: one letter of the server's list, of the
+# server's accepted set and of the client's fallback was each changed to a
+# letter that is not the ring's, and all four gate suites went on saying that
+# every claim in the documents matches the tree.
+#
+# The comparison is by MEMBERSHIP and not by order: the ring's order is the
+# order the logo draws, and which letter a record may carry does not depend on
+# where the letter sits in the ring.
+
+# The letters the server accepts: the value of each arm of normalise_domain.
+code_accepted_domains() {
+  awk '
+    /^fn normalise_domain\(/ { inside = 1; next }
+    inside && /^}/ { inside = 0 }
+    inside {
+      line = $0
+      while (match(line, /=>[ ]*"[A-Z]"/)) {
+        s = substr(line, RSTART, RLENGTH)
+        sub(/.*=>[ ]*"/, "", s)
+        sub(/".*/, "", s)
+        print s
+        line = substr(line, RSTART + RLENGTH)
+      }
+    }
+  ' backend/entries.mbt | LC_ALL=C sort -u
+}
+
+# The letters the client falls back to when the server sends no list.
+code_client_domains() {
+  awk '
+    /^pub fn default_entry_domains\(\)/ { inside = 1; next }
+    inside && /^}/ { inside = 0 }
+    inside {
+      line = $0
+      while (match(line, /"[A-Z]"/)) {
+        print substr(line, RSTART + 1, RLENGTH - 2)
+        line = substr(line, RSTART + RLENGTH)
+      }
+    }
+  ' frontend/entries.mbt | LC_ALL=C sort -u
+}
+
+# The ring's letters as a set: the ring is an order, and what a record may
+# carry is a membership.
+ring_letter_set() {
+  printf '%s\n' "$1" | tr ' ' '\n' | grep -E '^[A-Z]$' | LC_ALL=C sort -u || true
+}
+
+RING_LETTER_SET=$(ring_letter_set "$CODE_RING_LETTERS")
+CODE_ACCEPTED_DOMAINS=$(code_accepted_domains)
+CODE_CLIENT_DOMAINS=$(code_client_domains)
+
+DOMAIN_LETTERS_WHERE=(
+  "backend/entries.mbt entry_domains"
+  "backend/entries.mbt normalise_domain"
+  "frontend/entries.mbt default_entry_domains"
+)
+DOMAIN_LETTERS_SETS=(
+  "$CODE_ENTRY_DOMAINS"
+  "$CODE_ACCEPTED_DOMAINS"
+  "$CODE_CLIENT_DOMAINS"
+)
+
+DOMAIN_LETTERS_BAD=0
+if [ -z "$RING_LETTER_SET" ]; then
+  fail "$(printf '%-20s no letter could be derived from the ring' 'Domain letters')"
+  DOMAIN_LETTERS_BAD=1
+else
+  DOMAIN_LETTERS_INDEX=0
+  while [ "$DOMAIN_LETTERS_INDEX" -lt 3 ]; do
+    DOMAIN_LETTERS_WHERE_ONE="${DOMAIN_LETTERS_WHERE[$DOMAIN_LETTERS_INDEX]}"
+    DOMAIN_LETTERS_SET_ONE="${DOMAIN_LETTERS_SETS[$DOMAIN_LETTERS_INDEX]}"
+    if [ -z "$DOMAIN_LETTERS_SET_ONE" ]; then
+      fail "$(printf '%-20s no letter could be derived from %s' \
+        'Domain letters' "$DOMAIN_LETTERS_WHERE_ONE")"
+      DOMAIN_LETTERS_BAD=1
+    elif ! same_members "$RING_LETTER_SET" "$DOMAIN_LETTERS_SET_ONE"; then
+      fail "$(printf '%-20s %s says [%s], the ring says [%s]' \
+        'Domain letters' "$DOMAIN_LETTERS_WHERE_ONE" \
+        "$(printf '%s\n' "$DOMAIN_LETTERS_SET_ONE" | tr '\n' ' ' | sed -e 's/ *$//')" \
+        "$(printf '%s\n' "$RING_LETTER_SET" | tr '\n' ' ' | sed -e 's/ *$//')")"
+      DOMAIN_LETTERS_BAD=1
+    fi
+    DOMAIN_LETTERS_INDEX=$((DOMAIN_LETTERS_INDEX + 1))
+  done
+fi
+
+if [ "$DOMAIN_LETTERS_BAD" -eq 0 ]; then
+  printf '  ok      %-20s %s\n' 'Domain letters' "$CODE_RING_LETTERS"
+fi
 # --- the collective's numbers ------------------------------------------------
 #
 # The collective is pyroduct's, but the words for it are a file in this
