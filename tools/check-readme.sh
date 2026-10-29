@@ -2382,6 +2382,120 @@ else
     "$(printf '%s\n' "$DOC_MAPPING_KEYS" | tr '\n' ' ' | sed -e 's/ *$//')")"
 fi
 
+# --- the keys a machine file has -----------------------------------------------
+#
+# The README shows a machine of the reader's own, and the loader reads certain
+# keys out of it.  The SLOTS the machine drives are watched; the KEYS the
+# machine is written with are not.  A key the loader no longer reads is a
+# machine file the reader wrote from the README whose domain starts nowhere,
+# and nothing says so.
+#
+# This is the machine file's claim, and not the mapping table's or the corpus
+# file's: those are held by the gates before it, and this one is a different
+# file with a different loader.
+#
+# Nothing watched it.  The measurement: the tree was made to call the machine
+# file's anchor key something else -- everywhere the tree writes or reads it,
+# so the tree stayed coherent -- and the README's own machine was made to call
+# it something the loader does not read, and all four gate suites went on
+# saying that every claim in the documents matches the tree.
+#
+# The tree's keys are the ones the loader reads out of a machine file, and the
+# ones it writes back out again: the two are the same file, and a key the
+# reader may write is a key the loader knows.  The document's keys are the
+# ones its own example is written with, and the example is found by the format
+# string it carries, so that the block read is the machine file's block and
+# not some other example's.
+#
+# The comparison is ONE-WAY: the example is a SMALL machine, so it need not
+# name the keys the loader reads for the parts a small machine does not have
+# -- the Chinese names, the continuations, the outcome words, the edge names.
+
+code_machine_keys() {
+  awk '
+    {
+      line = $0
+      while (match(line, /json_(strings|string|field|array)\([^,]*,[[:space:]]*"[a-z_]+"\)/)) {
+        k = substr(line, RSTART, RLENGTH)
+        sub(/.*, "/, "", k)
+        sub(/".*/, "", k)
+        print k
+        line = substr(line, RSTART + RLENGTH)
+      }
+      line = $0
+      while (match(line, /model_int\([^,]*,[[:space:]]*"[a-z_]+"\)/)) {
+        k = substr(line, RSTART, RLENGTH)
+        sub(/.*, "/, "", k)
+        sub(/".*/, "", k)
+        print k
+        line = substr(line, RSTART + RLENGTH)
+      }
+    }
+  ' backend/model.mbt | LC_ALL=C sort -u
+}
+
+doc_machine_keys() {
+  awk '
+    /^```/ {
+      if (inside) {
+        if (hit) { print block }
+        inside = 0
+        hit = 0
+        block = ""
+      } else {
+        inside = 1
+        block = ""
+      }
+      next
+    }
+    inside {
+      block = block $0 "\n"
+      if ($0 ~ /maked\.model\.v1/) { hit = 1 }
+    }
+  ' "$README" \
+    | grep -oE '"[a-z_]+":' \
+    | tr -d '":' \
+    | LC_ALL=C sort -u || true
+}
+
+CODE_MACHINE_KEYS=$(code_machine_keys)
+DOC_MACHINE_KEYS=$(doc_machine_keys)
+if [ -z "$CODE_MACHINE_KEYS" ]; then
+  fail "$(printf '%-20s no machine key could be derived from the loader' 'Machine keys')"
+elif [ -z "$DOC_MACHINE_KEYS" ]; then
+  fail "$(printf '%-20s the document names no key for a machine file' 'Machine keys')"
+else
+  # The comparison is ONE-WAY, so it is made here: every key the document
+  # names has to be one the loader reads, and the loader is free to read more
+  # than the document shows.
+  MACHINE_KEYS_UNREAD=""
+  while IFS= read -r machine_key; do
+    [ -n "$machine_key" ] || continue
+    machine_key_found=0
+    while IFS= read -r machine_candidate; do
+      [ -n "$machine_candidate" ] || continue
+      if [ "$machine_candidate" = "$machine_key" ]; then
+        machine_key_found=1
+        break
+      fi
+    done <<< "$CODE_MACHINE_KEYS"
+    if [ "$machine_key_found" -eq 0 ]; then
+      if [ -z "$MACHINE_KEYS_UNREAD" ]; then
+        MACHINE_KEYS_UNREAD="$machine_key"
+      else
+        MACHINE_KEYS_UNREAD="$MACHINE_KEYS_UNREAD $machine_key"
+      fi
+    fi
+  done <<< "$DOC_MACHINE_KEYS"
+  if [ -n "$MACHINE_KEYS_UNREAD" ]; then
+    fail "$(printf '%-20s the example names keys the loader does not read [%s]' \
+      'Machine keys' "$MACHINE_KEYS_UNREAD")"
+  else
+    printf '  ok      %-20s %s\n' 'Machine keys' \
+      "$(printf '%s\n' "$DOC_MACHINE_KEYS" | tr '\n' ' ' | sed -e 's/ *$//')"
+  fi
+fi
+
 # --- the tools the agent's server offers -------------------------------------
 #
 # The README has a table of the seven tools, and the arguments each one takes.

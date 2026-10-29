@@ -2464,6 +2464,101 @@ if ($codeMappingKeys.Count -eq 0 -or $docMappingKeys.Count -eq 0) {
   $failures++
 }
 
+# --- the keys a machine file has -----------------------------------------------
+#
+# The README shows a machine of the reader's own, and the loader reads certain
+# keys out of it.  The SLOTS the machine drives are watched; the KEYS the
+# machine is written with are not.  A key the loader no longer reads is a
+# machine file the reader wrote from the README whose domain starts nowhere,
+# and nothing says so.
+#
+# This is the machine file's claim, and not the mapping table's or the corpus
+# file's: those are held by the gates before it, and this one is a different
+# file with a different loader.
+#
+# Nothing watched it.  The measurement: the tree was made to call the machine
+# file's anchor key something else -- everywhere the tree writes or reads it,
+# so the tree stayed coherent -- and the README's own machine was made to call
+# it something the loader does not read, and all four gate suites went on
+# saying that every claim in the documents matches the tree.
+#
+# The tree's keys are the ones the loader reads out of a machine file, and the
+# ones it writes back out again: the two are the same file, and a key the
+# reader may write is a key the loader knows.  The document's keys are the
+# ones its own example is written with, and the example is found by the format
+# string it carries, so that the block read is the machine file's block and
+# not some other example's.
+#
+# The comparison is ONE-WAY: the example is a SMALL machine, so it need not
+# name the keys the loader reads for the parts a small machine does not have
+# -- the Chinese names, the continuations, the outcome words, the edge names.
+function Get-CodeMachineKeys {
+  $out = @()
+  $lines = [System.IO.File]::ReadAllLines((Join-Path $PWD 'backend/model.mbt'), $enc)
+  foreach ($line in $lines) {
+    foreach ($m in [regex]::Matches($line, 'json_(strings|string|field|array)\([^,]*,\s*"([a-z_]+)"\)')) { $out += $m.Groups[2].Value }
+    foreach ($m in [regex]::Matches($line, 'model_int\([^,]*,\s*"([a-z_]+)"\)')) { $out += $m.Groups[1].Value }
+  }
+  Sort-Set $out
+}
+
+function Get-DocMachineKeys {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText($readmePath, $enc)
+  $lines = $text -split "`r?`n"
+  $inside = $false
+  $hit = $false
+  $block = @()
+  foreach ($line in $lines) {
+    if ($line -cmatch '^```') {
+      if ($inside) {
+        if ($hit) {
+          foreach ($row in $block) {
+            foreach ($m in [regex]::Matches($row, '"([a-z_]+)":')) { $out += $m.Groups[1].Value }
+          }
+        }
+        $inside = $false
+        $hit = $false
+        $block = @()
+      } else {
+        $inside = $true
+        $block = @()
+      }
+      continue
+    }
+    if ($inside) {
+      $block += $line
+      if ($line -cmatch 'maked\.model\.v1') { $hit = $true }
+    }
+  }
+  Sort-Set $out
+}
+
+$codeMachineKeys = @(Get-CodeMachineKeys)
+$docMachineKeys = @(Get-DocMachineKeys)
+
+if ($codeMachineKeys.Count -eq 0) {
+  Write-Output ("  {0,-20} no machine key could be derived from the loader" -f 'Machine keys')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($docMachineKeys.Count -eq 0) {
+  Write-Output ("  {0,-20} the document names no key for a machine file" -f 'Machine keys')
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  # The comparison is ONE-WAY, so it is made here: every key the document
+  # names has to be one the loader reads, and the loader is free to read more
+  # than the document shows.
+  $machineKeysUnread = @($docMachineKeys | Where-Object { $codeMachineKeys -cnotcontains $_ })
+  if ($machineKeysUnread.Count -gt 0) {
+    Write-Output ("  {0,-20} the example names keys the loader does not read [{1}]" -f 'Machine keys', ($machineKeysUnread -join ' '))
+    Write-Output "*** FAIL ***"
+    $failures++
+  } else {
+    Write-Output ("  ok      {0,-20} {1}" -f 'Machine keys', ($docMachineKeys -join ' '))
+  }
+}
+
 # --- the tools the agent's server offers -------------------------------------
 #
 # The README has a table of the seven tools, and the arguments each one takes.
