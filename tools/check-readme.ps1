@@ -2283,6 +2283,96 @@ if (-not $corpusFilesBad) {
   Write-Output ("  ok      {0,-20} {1}" -f 'Corpus files', $codeCorpusExtensions.Count)
 }
 
+# --- the keys a corpus file has ------------------------------------------------
+#
+# The README shows a corpus file of the reader's own, and the loader reads
+# certain keys out of it.  The KINDS the file may name are watched; the KEYS
+# the file is written with are not.  A key the loader no longer reads is a
+# corpus file the reader wrote from the README that comes back empty, and
+# nothing says so.
+#
+# Nothing watched it.  The measurement: the tree was made to call the corpus
+# file's folder key something else -- everywhere the tree writes or reads it,
+# so the tree stayed coherent -- and the README's own example was made to call
+# it something the loader does not read, and all four gate suites went on
+# saying that every claim in the documents matches the tree.
+#
+# The tree's keys are the ones the loader reads out of a corpus file.  The
+# document's keys are the ones its own example is written with, and the
+# example is found by the format string it carries, so that the block read is
+# the corpus file's block and not some other example's.
+#
+# The comparison is ONE-WAY: the example is a LOCAL corpus, so it need not name
+# the keys the other kinds use -- a document is free to show fewer keys than
+# the loader reads.
+function Get-CodeCorpusKeys {
+  $out = @()
+  $lines = [System.IO.File]::ReadAllLines((Join-Path $PWD 'backend/corpus.mbt'), $enc)
+  $inside = $false
+  foreach ($line in $lines) {
+    if ($line -cmatch 'pub fn CorpusConfig::from_json') { $inside = $true; continue }
+    if ($inside -and $line -ceq '}') { $inside = $false; continue }
+    if (-not $inside) { continue }
+    if ($line -cmatch 'json_(string|field|array)\([^,]*,\s*"([a-z_]+)"\)') { $out += $Matches[2]; continue }
+    if ($line -cmatch '\.get\("([a-z_]+)"\)') { $out += $Matches[1] }
+  }
+  Sort-Set $out
+}
+
+function Get-DocCorpusKeys {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText($readmePath, $enc)
+  $lines = $text -split "`r?`n"
+  $inside = $false
+  $hit = $false
+  $block = @()
+  foreach ($line in $lines) {
+    if ($line -cmatch '^```') {
+      if ($inside) {
+        if ($hit) {
+          foreach ($row in $block) {
+            if ($row -cmatch '^\s*([a-z_]+):') { $out += $Matches[1] }
+          }
+        }
+        $inside = $false
+        $hit = $false
+        $block = @()
+      } else {
+        $inside = $true
+        $block = @()
+      }
+      continue
+    }
+    if ($inside) {
+      $block += $line
+      if ($line -cmatch 'maked\.corpus\.v1') { $hit = $true }
+    }
+  }
+  Sort-Set $out
+}
+
+$codeCorpusKeys = @(Get-CodeCorpusKeys)
+$docCorpusKeys = @(Get-DocCorpusKeys)
+
+if ($codeCorpusKeys.Count -eq 0) {
+  Write-Output ("  {0,-20} no corpus key could be derived from the loader" -f 'Corpus keys')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($docCorpusKeys.Count -eq 0) {
+  Write-Output ("  {0,-20} the document names no key for a corpus file" -f 'Corpus keys')
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  $corpusKeysUnread = @($docCorpusKeys | Where-Object { $codeCorpusKeys -cnotcontains $_ })
+  if ($corpusKeysUnread.Count -gt 0) {
+    Write-Output ("  {0,-20} the example names keys the loader does not read [{1}]" -f 'Corpus keys', ($corpusKeysUnread -join ' '))
+    Write-Output "*** FAIL ***"
+    $failures++
+  } else {
+    Write-Output ("  ok      {0,-20} {1}" -f 'Corpus keys', ($docCorpusKeys -join ' '))
+  }
+}
+
 # --- the tools the agent's server offers -------------------------------------
 #
 # The README has a table of the seven tools, and the arguments each one takes.

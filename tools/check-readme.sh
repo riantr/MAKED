@@ -2184,6 +2184,112 @@ if [ "$CORPUS_FILES_BAD" -eq 0 ]; then
   printf '  ok      %-20s %s\n' 'Corpus files' "$(printf '%s\n' "$CODE_CORPUS_EXTENSIONS" | grep -c .)"
 fi
 
+# --- the keys a corpus file has ------------------------------------------------
+#
+# The README shows a corpus file of the reader's own, and the loader reads
+# certain keys out of it.  The KINDS the file may name are watched; the KEYS
+# the file is written with are not.  A key the loader no longer reads is a
+# corpus file the reader wrote from the README that comes back empty, and
+# nothing says so.
+#
+# Nothing watched it.  The measurement: the tree was made to call the corpus
+# file's folder key something else -- everywhere the tree writes or reads it,
+# so the tree stayed coherent -- and the README's own example was made to call
+# it something the loader does not read, and all four gate suites went on
+# saying that every claim in the documents matches the tree.
+#
+# The tree's keys are the ones the loader reads out of a corpus file.  The
+# document's keys are the ones its own example is written with, and the
+# example is found by the format string it carries, so that the block read is
+# the corpus file's block and not some other example's.
+#
+# The comparison is ONE-WAY: the example is a LOCAL corpus, so it need not name
+# the keys the other kinds use -- a document is free to show fewer keys than
+# the loader reads.
+
+code_corpus_keys() {
+  awk '
+    /pub fn CorpusConfig::from_json/ { inside = 1; next }
+    inside && /^}/ { inside = 0; next }
+    inside {
+      if (match($0, /json_(string|field|array)\([^,]*,[[:space:]]*"[a-z_]+"\)/)) {
+        k = substr($0, RSTART, RLENGTH)
+        sub(/.*, "/, "", k)
+        sub(/".*/, "", k)
+        print k
+      }
+      if (match($0, /\.get\("[a-z_]+"\)/)) {
+        k = substr($0, RSTART, RLENGTH)
+        sub(/.*\("/, "", k)
+        sub(/"\).*/, "", k)
+        print k
+      }
+    }
+  ' backend/corpus.mbt | LC_ALL=C sort -u
+}
+
+doc_corpus_keys() {
+  awk '
+    /^```/ {
+      if (inside) {
+        if (hit) { print block }
+        inside = 0
+        hit = 0
+        block = ""
+      } else {
+        inside = 1
+        block = ""
+      }
+      next
+    }
+    inside {
+      block = block $0 "\n"
+      if ($0 ~ /maked\.corpus\.v1/) { hit = 1 }
+    }
+  ' "$README" \
+    | grep -oE '^[[:space:]]*[a-z_]+:' \
+    | sed -E 's/^[[:space:]]*([a-z_]+):$/\1/' \
+    | LC_ALL=C sort -u || true
+}
+
+CODE_CORPUS_KEYS=$(code_corpus_keys)
+DOC_CORPUS_KEYS=$(doc_corpus_keys)
+if [ -z "$CODE_CORPUS_KEYS" ]; then
+  fail "$(printf '%-20s no corpus key could be derived from the loader' 'Corpus keys')"
+elif [ -z "$DOC_CORPUS_KEYS" ]; then
+  fail "$(printf '%-20s the document names no key for a corpus file' 'Corpus keys')"
+else
+  # The comparison is ONE-WAY, so it is made here: every key the document
+  # names has to be one the loader reads, and the loader is free to read more
+  # than the document shows.
+  CORPUS_KEYS_UNREAD=""
+  while IFS= read -r corpus_key; do
+    [ -n "$corpus_key" ] || continue
+    corpus_key_found=0
+    while IFS= read -r corpus_candidate; do
+      [ -n "$corpus_candidate" ] || continue
+      if [ "$corpus_candidate" = "$corpus_key" ]; then
+        corpus_key_found=1
+        break
+      fi
+    done <<< "$CODE_CORPUS_KEYS"
+    if [ "$corpus_key_found" -eq 0 ]; then
+      if [ -z "$CORPUS_KEYS_UNREAD" ]; then
+        CORPUS_KEYS_UNREAD="$corpus_key"
+      else
+        CORPUS_KEYS_UNREAD="$CORPUS_KEYS_UNREAD $corpus_key"
+      fi
+    fi
+  done <<< "$DOC_CORPUS_KEYS"
+  if [ -n "$CORPUS_KEYS_UNREAD" ]; then
+    fail "$(printf '%-20s the example names keys the loader does not read [%s]' \
+      'Corpus keys' "$CORPUS_KEYS_UNREAD")"
+  else
+    printf '  ok      %-20s %s\n' 'Corpus keys' \
+      "$(printf '%s\n' "$DOC_CORPUS_KEYS" | tr '\n' ' ' | sed -e 's/ *$//')"
+  fi
+fi
+
 # --- the tools the agent's server offers -------------------------------------
 #
 # The README has a table of the seven tools, and the arguments each one takes.
