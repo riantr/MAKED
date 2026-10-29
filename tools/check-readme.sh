@@ -1599,6 +1599,35 @@ else
     "$(printf '%s\n' "$DOC_ASSETS" | tr '\n' ' ' | sed -e 's/ *$//')")"
 fi
 
+# --- what the release carries -------------------------------------------------
+#
+# The README says the agent's server is not in the published release
+# artifacts: the release carries the web server and the browser bundle, and
+# the agent's server is built from the repository.  The release workflow is
+# what decides whether that server is shipped, so the workflow and the
+# document have to say the same thing.
+#
+# The guide (AGENT.md) states the same claim and the docs pair watches that
+# copy.  A claim stated in two places is a claim in two places, and the copy
+# the other suite happens to read is not the copy this suite reads.
+#
+# The document's side is the negation, not the phrase.  A sentence that says
+# the server IS in the release carries the same words as one that says it is
+# not, and only the negation tells the two apart; a rule that looked for the
+# phrase alone would read a document that says the opposite as a document that
+# says nothing, and let the claim through.
+RELEASE_BUILDS_MCP=$(grep -cE 'cmd/mcp' .github/workflows/publish.yml || true)
+RELEASE_CLAIM_NOT=$(grep -oE 'not[^.]{0,8}in the published release artifacts' "$README" | grep -c . || true)
+if [ "$RELEASE_BUILDS_MCP" -gt 0 ] && [ "$RELEASE_CLAIM_NOT" -gt 0 ]; then
+  fail "$(printf '%-20s the document says the agent server is not released, and the release workflow builds it' \
+    'Release claim')"
+elif [ "$RELEASE_BUILDS_MCP" -eq 0 ] && [ "$RELEASE_CLAIM_NOT" -eq 0 ]; then
+  fail "$(printf '%-20s the release workflow does not build the agent server, and the document does not say so' \
+    'Release claim')"
+else
+  printf '  ok      %-20s %s\n' 'Release claim' 'not in the release'
+fi
+
 # --- the container image ------------------------------------------------------
 #
 # The README's `docker run` names the image the release publishes, and the

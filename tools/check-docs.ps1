@@ -1337,11 +1337,17 @@ Test-Sets 'endpoint mapping' $codeEndpointMappings $docEndpointMappings
 # so. One of the two is a lie the moment the other changes, so the two are
 # checked against each other: the release workflow is what decides whether
 # the server is shipped, and the document has to say the same thing.
+#
+# The document's side is the negation, not the phrase. A sentence that says
+# the server IS in the release carries the same words as one that says it is
+# not, and only the negation tells the two apart; a rule that looked for the
+# phrase alone would read a document that says the opposite as a document that
+# says nothing, and let the claim through.
 $publishText = [System.IO.File]::ReadAllText((Join-Path $PWD '.github/workflows/publish.yml'), $enc)
 $agentText = [System.IO.File]::ReadAllText((Join-Path $PWD $agentDoc), $enc)
 $runText = [System.IO.File]::ReadAllText((Join-Path $PWD $runNote), $enc)
 $publishMcp = ([regex]::Matches($publishText, 'cmd/mcp')).Count
-$docNotShipped = ([regex]::Matches($agentText, [regex]::Escape('in the published release artifacts'))).Count
+$docNotShipped = ([regex]::Matches($agentText, 'not[^.\r\n]{0,8}in the published release artifacts')).Count
 if ($publishMcp -gt 0 -and $docNotShipped -gt 0) {
   Write-Fail ("{0,-22} the document says the agent server is not released, and the release workflow builds it" -f 'release claim')
 } elseif ($publishMcp -eq 0 -and $docNotShipped -eq 0) {

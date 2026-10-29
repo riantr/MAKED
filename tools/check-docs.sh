@@ -1413,8 +1413,14 @@ check_sets "endpoint mapping" "$CODE_ENDPOINT_MAPPINGS" "$DOC_ENDPOINT_MAPPINGS"
 # so. One of the two is a lie the moment the other changes, so the two are
 # checked against each other: the release workflow is what decides whether
 # the server is shipped, and the document has to say the same thing.
+#
+# The document's side is the negation, not the phrase. A sentence that says
+# the server IS in the release carries the same words as one that says it is
+# not, and only the negation tells the two apart; a rule that looked for the
+# phrase alone would read a document that says the opposite as a document that
+# says nothing, and let the claim through.
 PUBLISH_MCP=$(grep -cE 'cmd/mcp' .github/workflows/publish.yml || true)
-DOC_NOT_SHIPPED=$(grep -cF 'in the published release artifacts' "$AGENT_DOC" || true)
+DOC_NOT_SHIPPED=$(grep -oE 'not[^.]{0,8}in the published release artifacts' "$AGENT_DOC" | grep -c . || true)
 if [ "$PUBLISH_MCP" -gt 0 ] && [ "$DOC_NOT_SHIPPED" -gt 0 ]; then
   fail "$(printf '%-22s the document says the agent server is not released, and the release workflow builds it' \
     'release claim')"
