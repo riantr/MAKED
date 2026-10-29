@@ -2362,6 +2362,79 @@ if ($codeToolArgs.Count -eq 0) {
   $failures++
 }
 
+# --- the tools the document names as taking a language -------------------------
+#
+# The README names the tools that accept a language in a sentence, after the
+# table that gives every tool its arguments.  Each name in that sentence is a
+# claim about the server: it says the tool takes the language and answers in
+# it.  A tool that takes no such argument refuses the call instead -- the
+# request comes back as an error, and the caller has learned nothing.
+#
+# The table beside it is held to the tree already, tool by tool.  The sentence
+# is a second place that says the same thing, and a place that says it is a
+# place that can be wrong on its own.
+#
+# Nothing watched it.  The measurement: the sentence named a tool that takes
+# no language, and the tool the sentence names stopped taking one -- with both
+# tables changed to match the tree, so that the sentence was the only place
+# left that said what the tool took -- and all four gate suites went on saying
+# that every claim in the documents matches the tree.
+#
+# The comparison is ONE-WAY: the sentence is free to name fewer tools than the
+# tree has, and the table is where the whole list is.
+
+# The tools the tree's schemas give a language argument.
+function Get-CodeLanguageTools {
+  $out = @()
+  foreach ($pair in $codeToolArgs) {
+    $parts = $pair -split ' '
+    if ($parts.Count -ge 2 -and $parts[1] -eq 'lang') { $out += $parts[0] }
+  }
+  Sort-Set $out
+}
+
+# The sentence that names them, flattened so that a sentence the editor
+# wrapped is still one sentence to a matcher.  The sentence is found by its
+# opening -- the one that says the language is an argument -- and not by its
+# closing words, so that a change of wording at the end of it does not take
+# the check with it.
+$docLanguageSentences = @([regex]::Matches(($readme -replace "`n", ' '),
+  'takes the same switch as an argument:[^.]*'))
+$docLanguageTools = @()
+foreach ($langSentence in $docLanguageSentences) {
+  foreach ($langTool in [regex]::Matches($langSentence.Value, 'maked_[a-z_]+')) {
+    $docLanguageTools += $langTool.Value
+  }
+}
+$docLanguageTools = @(Sort-Set $docLanguageTools)
+
+$codeLanguageTools = @(Get-CodeLanguageTools)
+
+$languageToolsUnnamed = @()
+foreach ($langTool in $docLanguageTools) {
+  if ($codeLanguageTools -cnotcontains $langTool) { $languageToolsUnnamed += $langTool }
+}
+
+if ($codeLanguageTools.Count -eq 0) {
+  Write-Output ("  {0,-20} no tool could be derived that takes a language" -f 'Agent language tools')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($docLanguageSentences.Count -eq 0) {
+  Write-Output ("  {0,-20} the document does not name the tools that take a language" -f 'Agent language tools')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($docLanguageSentences.Count -gt 1) {
+  Write-Output ("  {0,-20} the document names the tools that take a language more than once" -f 'Agent language tools')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($languageToolsUnnamed.Count -gt 0) {
+  Write-Output ("  {0,-20} the document names tools that do not take a language: {1}" -f 'Agent language tools', ($languageToolsUnnamed -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Agent language tools', $docLanguageTools.Count)
+}
+
 # --- the counts the document spells out -------------------------------------
 #
 # The README says some of its counts in words -- "seven tools", "ten pages",

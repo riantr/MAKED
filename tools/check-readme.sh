@@ -2268,6 +2268,82 @@ else
     "$(printf '%s\n' "$DOC_TOOL_ARGS" | tr '\n' ' ' | sed -e 's/ *$//')")"
 fi
 
+# --- the tools the document names as taking a language -------------------------
+#
+# The README names the tools that accept a language in a sentence, after the
+# table that gives every tool its arguments.  Each name in that sentence is a
+# claim about the server: it says the tool takes the language and answers in
+# it.  A tool that takes no such argument refuses the call instead -- the
+# request comes back as an error, and the caller has learned nothing.
+#
+# The table beside it is held to the tree already, tool by tool.  The sentence
+# is a second place that says the same thing, and a place that says it is a
+# place that can be wrong on its own.
+#
+# Nothing watched it.  The measurement: the sentence named a tool that takes
+# no language, and the tool the sentence names stopped taking one -- with both
+# tables changed to match the tree, so that the sentence was the only place
+# left that said what the tool took -- and all four gate suites went on saying
+# that every claim in the documents matches the tree.
+#
+# The comparison is ONE-WAY: the sentence is free to name fewer tools than the
+# tree has, and the table is where the whole list is.
+
+# The tools the tree's schemas give a language argument.
+code_language_tools() {
+  printf '%s\n' "$CODE_TOOL_ARGS" | awk '$2 == "lang" { print $1 }' | LC_ALL=C sort -u
+}
+
+# The sentence that names them, flattened so that a sentence the editor
+# wrapped is still one sentence to a matcher.  The sentence is found by its
+# opening -- the one that says the language is an argument -- and not by its
+# closing words, so that a change of wording at the end of it does not take
+# the check with it.
+doc_language_tools() {
+  tr '\n' ' ' < "$README" \
+    | grep -oE 'takes the same switch as an argument:[^.]*' \
+    | grep -oE 'maked_[a-z_]+' \
+    | LC_ALL=C sort -u || true
+}
+
+# How many times the document says it.  A sentence that is gone is a claim
+# that nothing checks any more, and a sentence that is said twice is two
+# sentences that can drift apart.
+doc_language_tool_sentences() {
+  tr '\n' ' ' < "$README" \
+    | grep -oE 'takes the same switch as an argument:[^.]*' \
+    | grep -c . || true
+}
+
+CODE_LANGUAGE_TOOLS=$(code_language_tools)
+DOC_LANGUAGE_TOOLS=$(doc_language_tools)
+LANGUAGE_TOOL_SENTENCES=$(doc_language_tool_sentences)
+
+LANGUAGE_TOOLS_UNNAMED=""
+while IFS= read -r tool; do
+  [ -n "$tool" ] || continue
+  if ! printf '%s\n' "$CODE_LANGUAGE_TOOLS" | grep -qxF "$tool"; then
+    LANGUAGE_TOOLS_UNNAMED="$LANGUAGE_TOOLS_UNNAMED $tool"
+  fi
+done <<< "$DOC_LANGUAGE_TOOLS"
+
+if [ -z "$CODE_LANGUAGE_TOOLS" ]; then
+  fail "$(printf '%-20s no tool could be derived that takes a language' \
+    'Agent language tools')"
+elif [ "$LANGUAGE_TOOL_SENTENCES" -eq 0 ]; then
+  fail "$(printf '%-20s the document does not name the tools that take a language' \
+    'Agent language tools')"
+elif [ "$LANGUAGE_TOOL_SENTENCES" -gt 1 ]; then
+  fail "$(printf '%-20s the document names the tools that take a language more than once' \
+    'Agent language tools')"
+elif [ -n "$LANGUAGE_TOOLS_UNNAMED" ]; then
+  fail "$(printf '%-20s the document names tools that do not take a language:%s' \
+    'Agent language tools' "$LANGUAGE_TOOLS_UNNAMED")"
+else
+  printf '  ok      %-20s %s\n' 'Agent language tools' \
+    "$(printf '%s\n' "$DOC_LANGUAGE_TOOLS" | grep -c . || true)"
+fi
+
 # --- the counts the document spells out -------------------------------------
 #
 # The README says some of its counts in words -- "seven tools", "ten pages",
