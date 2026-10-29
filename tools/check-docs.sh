@@ -1792,6 +1792,77 @@ else
   check_sets "agent protocol fields" "$CODE_PROTOCOL_FIELDS" "$DOC_PROTOCOL_FIELDS"
 fi
 
+# --- the protocol headers the guide states ---------------------------------------
+#
+# The guide tells an agent what a request over HTTP has to carry: the
+# protocol's own version header, and a header that names the method the body
+# carries. Each name is a contract -- a request that spells one of them
+# differently is a request the server does not recognise.
+#
+# Nothing compared them. The measurement: the tree's discovery note was made to
+# name a header the guide does not name, and the guide was made to name a
+# header the tree does not name, and all four gate suites went on saying that
+# every claim in the documents matches the tree.
+#
+# The discovery document is the source, because the discovery document is what
+# the server ANSWERS with. Its note is where the headers are written down, so
+# that is where they are read from -- the same place the protocol fields are
+# read from, and for the same reason.
+#
+# The headers are found by the word that comes after them: a name in backticks
+# that the word header follows, close by, is a header, and a name the word does
+# not follow is the name of something else. The window stops at the next
+# backtick, so one name can never be read as another.
+#
+# The name is written with its value, and only the name is compared: the
+# guide says `MCP-Protocol-Version: 2026-07-28`.
+#
+# The comparison is TWO-WAY: the guide's list enumerates the headers, so a
+# header it leaves out is a header an agent would not send, and a header it
+# names that the tree does not is a header the server does not want.
+
+code_protocol_headers() {
+  awk '
+    /"protocol": \{/ { inside = 1; next }
+    inside && /^[ \t]*\},/ { exit }
+    inside { print }
+  ' backend/agent.mbt \
+    | grep -oE '`([A-Za-z][A-Za-z0-9-]*)(:[^`]*)?`[^`]{0,20}header' \
+    | sed -E 's/^`([^:`]*).*/\1/' \
+    | LC_ALL=C sort -u
+}
+
+doc_protocol_headers() {
+  grep -oE '`([A-Za-z][A-Za-z0-9-]*)(:[^`]*)?`[^`]{0,20}header' "$AGENT_DOC" \
+    | sed -E 's/^`([^:`]*).*/\1/' \
+    | LC_ALL=C sort -u
+}
+
+CODE_PROTOCOL_HEADERS=$(code_protocol_headers)
+DOC_PROTOCOL_HEADERS=$(doc_protocol_headers)
+
+if [ -z "$CODE_PROTOCOL_HEADERS" ] || [ -z "$DOC_PROTOCOL_HEADERS" ]; then
+  fail "$(printf '%-22s the protocol headers could not be found on both sides' \
+    'agent protocol headers')"
+else
+  # The same comparison check_sets makes, with the names in the message: a
+  # count cannot be contradicted, and two twins that read different names of
+  # the same count would print the same count and agree.
+  count_lines "$CODE_PROTOCOL_HEADERS"; na=$COUNT_LINES
+  count_lines "$DOC_PROTOCOL_HEADERS"; nb=$COUNT_LINES
+  not_in "$CODE_PROTOCOL_HEADERS" "$DOC_PROTOCOL_HEADERS"; missing=$NOT_IN
+  not_in "$DOC_PROTOCOL_HEADERS" "$CODE_PROTOCOL_HEADERS"; extra=$NOT_IN
+  if [ "$na" = "$nb" ] && [ -z "$missing" ] && [ -z "$extra" ]; then
+    ok 'agent protocol headers' \
+      "$(printf '%s\n' "$DOC_PROTOCOL_HEADERS" | tr '\n' ' ' | sed -e 's/ *$//')"
+  else
+    fail "$(printf '%-22s the tree says [%s], the document says [%s]' \
+      'agent protocol headers' \
+      "$(printf '%s\n' "$CODE_PROTOCOL_HEADERS" | tr '\n' ' ' | sed -e 's/ *$//')" \
+      "$(printf '%s\n' "$DOC_PROTOCOL_HEADERS" | tr '\n' ' ' | sed -e 's/ *$//')")"
+  fi
+fi
+
 # --- the export formats the guide shows ----------------------------------------
 #
 # The guide shows the export URL an agent can call, and the format value in it

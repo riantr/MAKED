@@ -2753,6 +2753,63 @@ if ($codeProtocolFields.Count -eq 0 -or $docProtocolFields.Count -eq 0) {
   Write-Output "*** FAIL ***"
   $failures++
 }
+# --- the protocol headers --------------------------------------------------------
+#
+# The README tells a reader what a request over HTTP has to carry: the
+# protocol's own version header, and a header that names the method the body
+# carries. Each name is a contract -- a request that spells one of them
+# differently is a request the server does not recognise.
+#
+# Nothing compared them. The measurement: the tree's discovery note was made to
+# name a header the README does not name, and the README was made to name a
+# header the tree does not name, and so was the guide, and all four gate suites
+# went on saying that every claim in the documents matches the tree.
+#
+# The discovery document is the source, because the discovery document is what
+# the server ANSWERS with. Its note is where the headers are written down, so
+# that is where they are read from -- the same place the protocol fields are
+# read from, and for the same reason.
+#
+# The headers are found by the word that comes after them: a name in backticks
+# that the word header follows, close by, is a header, and a name the word does
+# not follow is the name of something else. The window stops at the next
+# backtick, so one name can never be read as another.
+#
+# The name is written with its value, and only the name is compared: the
+# document says `MCP-Protocol-Version: 2026-07-28`.
+#
+# The comparison is TWO-WAY: the document's list enumerates the headers, so a
+# header it leaves out is a header a reader would not send, and a header it
+# names that the tree does not is a header the server does not want.
+function Get-CodeProtocolHeaders {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/agent.mbt'), $enc)
+  $m = [regex]::Match($text, '(?s)"protocol": \{(.*?)\n[ \t]*\},')
+  if (-not $m.Success) { return @() }
+  $out = @()
+  foreach ($t in [regex]::Matches($m.Groups[1].Value, '`([A-Za-z][A-Za-z0-9-]*)(:[^`]*)?`[^`]{0,20}header')) { $out += $t.Groups[1].Value }
+  Sort-Set $out
+}
+
+function Get-DocProtocolHeaders {
+  $out = @()
+  foreach ($t in [regex]::Matches($readme, '`([A-Za-z][A-Za-z0-9-]*)(:[^`]*)?`[^`]{0,20}header')) { $out += $t.Groups[1].Value }
+  Sort-Set $out
+}
+
+$codeProtocolHeaders = @(Get-CodeProtocolHeaders)
+$docProtocolHeaders = @(Get-DocProtocolHeaders)
+
+if ($codeProtocolHeaders.Count -eq 0 -or $docProtocolHeaders.Count -eq 0) {
+  Write-Output ("  {0,-20} the protocol headers could not be found on both sides" -f 'Protocol headers')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $codeProtocolHeaders $docProtocolHeaders) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Protocol headers', ($docProtocolHeaders -join ' '))
+} else {
+  Write-Output ("  {0,-20} the tree names [{1}], the document names [{2}]" -f 'Protocol headers', ($codeProtocolHeaders -join ' '), ($docProtocolHeaders -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+}
 # --- the status a refusal comes back with -------------------------------------
 #
 # The README's error handling says what a refusal looks like, and the one
