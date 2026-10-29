@@ -3247,6 +3247,59 @@ if ($codeLanguageRoutes.Count -eq 0) {
 } else {
   Write-Output ("  ok      {0,-20} {1}" -f 'Language routes', $docLanguageRoutes.Count)
 }
+# --- the routes the document says do not take a language ------------------------
+#
+# The document says of one route that it needs no parameter -- the model
+# carries both vocabularies and a client can choose for itself.  Nothing held
+# that copy to the tree: the server could have started answering in one
+# language on that route, and the document would have gone on saying that it
+# takes none.
+#
+# The claim is a NEGATION, and it is read as one.  The document's claim is a
+# request in backticks and the words that deny a parameter right after it.
+# The tree's claim is the routes whose handler asks for the language the
+# request named, and those are the routes the gate above already derived.
+#
+# The whole document is flattened into one line first, because a document
+# may write "does not" at the end of one line and "need it" at the start of
+# the next.
+#
+# The comparison is ONE-WAY: the document may deny a language to fewer routes
+# than there are.  What it may not do is deny one to a route that takes it.
+function Get-DocNoLanguageRoutes {
+  $text = [regex]::Replace($readme, '[\r\n]+', ' ')
+  $out = @()
+  foreach ($m in [regex]::Matches($text, '`((GET|POST|PUT|DELETE|PATCH) /api/[^`?]+)`\s*(does not\s+(need|take|require|accept)|(needs|takes|requires)\s+no|without)')) {
+    $out += $m.Groups[1].Value
+  }
+  Sort-Set $out
+}
+
+$docNoLanguageRoutes = @(Get-DocNoLanguageRoutes)
+$noLangWrong = @()
+foreach ($noLangClaim in $docNoLanguageRoutes) {
+  $noLangMatched = $false
+  foreach ($noLangPattern in $languagePatterns) {
+    if ($noLangClaim -cmatch $noLangPattern) { $noLangMatched = $true; break }
+  }
+  if ($noLangMatched) { $noLangWrong += $noLangClaim }
+}
+
+if ($codeLanguageRoutes.Count -eq 0) {
+  Write-Output ("  {0,-20} no route could be derived that answers in a language" -f 'No language route')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($docNoLanguageRoutes.Count -eq 0) {
+  Write-Output ("  {0,-20} the document says no route takes no language" -f 'No language route')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($noLangWrong.Count -gt 0) {
+  Write-Output ("  {0,-20} the document says these routes take no language, and they do: {1}" -f 'No language route', ($noLangWrong -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  Write-Output ("  ok      {0,-20} {1}" -f 'No language route', ($docNoLanguageRoutes -join ' '))
+}
 # --- the ring's letters --------------------------------------------------------
 #
 # The ring has a letter for each domain -- M for Model, D for Data -- and the

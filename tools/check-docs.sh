@@ -1691,6 +1691,63 @@ elif [ -n "$LANGUAGE_UNASKED" ]; then
 else
   ok "agent language routes" "$(printf '%s\n' "$DOC_LANGUAGE_ROUTES" | grep -c . || true)"
 fi
+# --- the routes the guide says do not take a language ---------------------------
+#
+# The guide says of one route that it does not need the language -- the model
+# carries both vocabularies, so a client can choose for itself.  Nothing held
+# that copy to the tree: the server could have started answering in one
+# language on that route, and the guide would have gone on saying that it
+# takes none.
+#
+# The claim is a NEGATION, and it is read as one.  The guide's claim is a
+# request in backticks and the words that deny a parameter right after it.
+# The tree's claim is the routes whose handler asks for the language the
+# request named, and those are the routes the gate above already derived.
+#
+# The whole guide is flattened into one line first, because the guide writes
+# "does not" at the end of one line and "need it" at the start of the next.
+#
+# The comparison is ONE-WAY: the guide may deny a language to fewer routes
+# than there are.  What it may not do is deny one to a route that takes it.
+
+# The routes the guide says take no language.
+doc_no_language_routes() {
+  tr '\n\r' '  ' < "$AGENT_DOC" \
+    | grep -oE '`(GET|POST|PUT|DELETE|PATCH) /api/[^`?]+`[[:space:]]*(does not[[:space:]]+(need|take|require|accept)|(needs|takes|requires)[[:space:]]+no|without)' \
+    | sed -E 's/^`([^`]*)`.*/\1/' \
+    | LC_ALL=C sort -u || true
+}
+
+DOC_NO_LANGUAGE_ROUTES=$(doc_no_language_routes)
+
+NO_LANGUAGE_WRONG=""
+while IFS= read -r no_language_claim; do
+  [ -n "$no_language_claim" ] || continue
+  no_language_matched=0
+  while IFS= read -r no_language_pattern; do
+    [ -n "$no_language_pattern" ] || continue
+    if [[ "$no_language_claim" =~ $no_language_pattern ]]; then
+      no_language_matched=1
+      break
+    fi
+  done <<< "$LANGUAGE_PATTERNS"
+  if [ "$no_language_matched" -eq 1 ]; then
+    NO_LANGUAGE_WRONG="$NO_LANGUAGE_WRONG $no_language_claim"
+  fi
+done <<< "$DOC_NO_LANGUAGE_ROUTES"
+
+if [ -z "$CODE_LANGUAGE_ROUTES" ]; then
+  fail "$(printf '%-22s no route could be derived that answers in a language' \
+    'no language route')"
+elif [ -z "$DOC_NO_LANGUAGE_ROUTES" ]; then
+  fail "$(printf '%-22s the guide says no route takes no language' 'no language route')"
+elif [ -n "$NO_LANGUAGE_WRONG" ]; then
+  fail "$(printf '%-22s the guide says these routes take no language, and they do:%s' \
+    'no language route' "$NO_LANGUAGE_WRONG")"
+else
+  ok 'no language route' \
+    "$(printf '%s\n' "$DOC_NO_LANGUAGE_ROUTES" | tr '\n' ' ' | sed -e 's/ *$//')"
+fi
 # --- the protocol fields the guide states ---------------------------------------
 #
 # AGENT.md tells an agent how to wire itself up, and the fields every

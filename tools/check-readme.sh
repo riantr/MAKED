@@ -3196,6 +3196,63 @@ else
   printf '  ok      %-20s %s\n' 'Language routes' \
     "$(printf '%s\n' "$DOC_LANGUAGE_ROUTES" | grep -c . || true)"
 fi
+# --- the routes the document says do not take a language ------------------------
+#
+# The document says of one route that it needs no parameter -- the model
+# carries both vocabularies and a client can choose for itself.  Nothing held
+# that copy to the tree: the server could have started answering in one
+# language on that route, and the document would have gone on saying that it
+# takes none.
+#
+# The claim is a NEGATION, and it is read as one.  The document's claim is a
+# request in backticks and the words that deny a parameter right after it.
+# The tree's claim is the routes whose handler asks for the language the
+# request named, and those are the routes the gate above already derived.
+#
+# The whole document is flattened into one line first, because a document
+# may write "does not" at the end of one line and "need it" at the start of
+# the next.
+#
+# The comparison is ONE-WAY: the document may deny a language to fewer routes
+# than there are.  What it may not do is deny one to a route that takes it.
+
+# The routes the document says take no language.
+doc_no_language_routes() {
+  tr '\n\r' '  ' < "$README" \
+    | grep -oE '`(GET|POST|PUT|DELETE|PATCH) /api/[^`?]+`[[:space:]]*(does not[[:space:]]+(need|take|require|accept)|(needs|takes|requires)[[:space:]]+no|without)' \
+    | sed -E 's/^`([^`]*)`.*/\1/' \
+    | LC_ALL=C sort -u || true
+}
+
+DOC_NO_LANGUAGE_ROUTES=$(doc_no_language_routes)
+
+NO_LANGUAGE_WRONG=""
+while IFS= read -r no_language_claim; do
+  [ -n "$no_language_claim" ] || continue
+  no_language_matched=0
+  while IFS= read -r no_language_pattern; do
+    [ -n "$no_language_pattern" ] || continue
+    if [[ "$no_language_claim" =~ $no_language_pattern ]]; then
+      no_language_matched=1
+      break
+    fi
+  done <<< "$LANGUAGE_PATTERNS"
+  if [ "$no_language_matched" -eq 1 ]; then
+    NO_LANGUAGE_WRONG="$NO_LANGUAGE_WRONG $no_language_claim"
+  fi
+done <<< "$DOC_NO_LANGUAGE_ROUTES"
+
+if [ -z "$CODE_LANGUAGE_ROUTES" ]; then
+  fail "$(printf '%-20s no route could be derived that answers in a language' 'No language route')"
+elif [ -z "$DOC_NO_LANGUAGE_ROUTES" ]; then
+  fail "$(printf '%-20s the document says no route takes no language' 'No language route')"
+elif [ -n "$NO_LANGUAGE_WRONG" ]; then
+  fail "$(printf '%-20s the document says these routes take no language, and they do:%s' \
+    'No language route' "$NO_LANGUAGE_WRONG")"
+else
+  printf '  ok      %-20s %s\n' 'No language route' \
+    "$(printf '%s\n' "$DOC_NO_LANGUAGE_ROUTES" | tr '\n' ' ' | sed -e 's/ *$//')"
+fi
 # --- the ring's letters --------------------------------------------------------
 #
 # The ring has a letter for each domain -- M for Model, D for Data -- and the

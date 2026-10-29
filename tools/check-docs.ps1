@@ -1597,6 +1597,53 @@ if ($codeLanguageRoutes.Count -eq 0) {
 } else {
   Write-Ok 'agent language routes' $docLanguageRoutes.Count
 }
+# --- the routes the guide says do not take a language ---------------------------
+#
+# The guide says of one route that it does not need the language -- the model
+# carries both vocabularies, so a client can choose for itself.  Nothing held
+# that copy to the tree: the server could have started answering in one
+# language on that route, and the guide would have gone on saying that it
+# takes none.
+#
+# The claim is a NEGATION, and it is read as one.  The guide's claim is a
+# request in backticks and the words that deny a parameter right after it.
+# The tree's claim is the routes whose handler asks for the language the
+# request named, and those are the routes the gate above already derived.
+#
+# The whole guide is flattened into one line first, because the guide writes
+# "does not" at the end of one line and "need it" at the start of the next.
+#
+# The comparison is ONE-WAY: the guide may deny a language to fewer routes
+# than there are.  What it may not do is deny one to a route that takes it.
+function Get-DocNoLanguageRoutes {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $agentDoc), $enc)
+  $text = [regex]::Replace($text, '[\r\n]+', ' ')
+  $out = @()
+  foreach ($m in [regex]::Matches($text, '`((GET|POST|PUT|DELETE|PATCH) /api/[^`?]+)`\s*(does not\s+(need|take|require|accept)|(needs|takes|requires)\s+no|without)')) {
+    $out += $m.Groups[1].Value
+  }
+  Sort-Set $out
+}
+
+$docNoLanguageRoutes = @(Get-DocNoLanguageRoutes)
+$noLangWrong = @()
+foreach ($noLangClaim in $docNoLanguageRoutes) {
+  $noLangMatched = $false
+  foreach ($noLangPattern in $languagePatterns) {
+    if ($noLangClaim -cmatch $noLangPattern) { $noLangMatched = $true; break }
+  }
+  if ($noLangMatched) { $noLangWrong += $noLangClaim }
+}
+
+if ($codeLanguageRoutes.Count -eq 0) {
+  Write-Fail ("{0,-22} no route could be derived that answers in a language" -f 'no language route')
+} elseif ($docNoLanguageRoutes.Count -eq 0) {
+  Write-Fail ("{0,-22} the guide says no route takes no language" -f 'no language route')
+} elseif ($noLangWrong.Count -gt 0) {
+  Write-Fail ("{0,-22} the guide says these routes take no language, and they do: {1}" -f 'no language route', ($noLangWrong -join ' '))
+} else {
+  Write-Ok 'no language route' ($docNoLanguageRoutes -join ' ')
+}
 # --- the protocol fields the guide states ---------------------------------------
 #
 # AGENT.md tells an agent how to wire itself up, and the fields every
