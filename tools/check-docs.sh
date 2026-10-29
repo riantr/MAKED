@@ -1548,6 +1548,143 @@ elif [ "$DOC_LANG_DEFAULT_CODE" != "$CODE_LANG_DEFAULT_CODE" ]; then
 else
   ok "agent language switch" "$CODE_LANG_CODES_LIST"
 fi
+
+# --- the routes the guide asks for a language on -------------------------------
+#
+# AGENT.md tells an agent which endpoints take ?lang=.  Each one is a claim
+# about the server: it says the route answers in the language asked for.  A
+# route that does not take the parameter answers in English whatever the agent
+# sends, so the guide is wrong in the way that costs an agent the most -- it
+# looks like it worked.
+#
+# Nothing watched it.  The measurement: the guide asked for a language on a
+# route that does not take one, and the server stopped answering in a language
+# on a route the guide asked it in, and all four gate suites went on saying
+# that every claim in the documents matches the tree.  There was a gate for the
+# language codes -- en and zh -- and none for the routes that take them: the
+# switch was watched, the wiring was not.
+#
+# The tree's claim is the route whose handler asks for the language the request
+# named.  The document's claim is the requests it shows with a method, a path
+# and the parameter.
+#
+# The comparison is ONE-WAY: the guide's request is an example, and an example
+# is free to be shorter than the truth.  What it may not do is name a route
+# that does not take the parameter.
+
+# The routes whose handler asks for the language the request named.
+code_language_routes() {
+  awk '
+    function flush() {
+      if (method != "" && path != "") {
+        if (body ~ /lang_of\(req\)/) print method " " path
+      }
+      method = ""; path = ""; body = ""; expect = 0
+    }
+    {
+      line = $0
+      if (line ~ /^fn /) { flush(); next }
+      if (line ~ /app\.(get|post|put|delete|patch)\(/) {
+        flush()
+        if (match(line, /app\.(get|post|put|delete|patch)\(/)) {
+          method = toupper(substr(line, RSTART + 4, RLENGTH - 5))
+        }
+        body = line
+        path = ""
+        if (match(line, /"\/api\/[^"]*"/)) {
+          path = substr(line, RSTART + 1, RLENGTH - 2)
+        } else {
+          expect = 1
+        }
+        next
+      }
+      if (expect == 1) {
+        if (match(line, /"\/api\/[^"]*"/)) {
+          path = substr(line, RSTART + 1, RLENGTH - 2)
+        }
+        expect = 0
+      }
+      if (method != "") { body = body "\n" line }
+    }
+    END { flush() }
+  ' backend/api.mbt | LC_ALL=C sort -u
+}
+
+# The requests the guide shows asking for a language.  They are in backticks,
+# and the method and the path are in the same backticks -- which is how the
+# guide writes them, and how its endpoint table does not.
+#
+# The backticked token is taken first and the request is recognized in it
+# afterwards: a class that holds both a backtick and a question mark cannot be
+# written the way one expects, and a guide that writes the token differently
+# should be caught by the rule rather than by the search for it.
+doc_language_routes() {
+  grep -oE '`[^`]+`' "$AGENT_DOC" \
+    | sed -E 's/^`|`$//g' \
+    | grep -E '^(GET|POST|PUT|DELETE|PATCH) /api/[^?]+\?.*lang=' \
+    | LC_ALL=C sort -u || true
+}
+
+# The routes as patterns, so that a concrete value in a path can match the
+# parameter of a route.  A parameter becomes "any segment but the slash".
+#
+# The pattern is built segment by segment, because a replacement cannot contain
+# the character that separates the parts of a substitution -- and "any segment
+# but the slash" is full of slashes.
+build_route_pattern() {
+  local route="$1" segment pattern="" path
+  local -a segments
+  path="${route#* }"
+  IFS='/' read -r -a segments <<< "$path"
+  for segment in "${segments[@]}"; do
+    case "$segment" in
+      "") ;;
+      :*) pattern="$pattern/[^/]+" ;;
+      *) pattern="$pattern/$segment" ;;
+    esac
+  done
+  printf '%s' "$pattern"
+}
+
+CODE_LANGUAGE_ROUTES=$(code_language_routes)
+DOC_LANGUAGE_ROUTES=$(doc_language_routes)
+
+LANGUAGE_PATTERNS=""
+while IFS= read -r lang_route; do
+  [ -n "$lang_route" ] || continue
+  lang_method="${lang_route%% *}"
+  lang_pattern="$(build_route_pattern "$lang_route")"
+  LANGUAGE_PATTERNS="$LANGUAGE_PATTERNS$(printf '^%s %s$' "$lang_method" "$lang_pattern")"$'\n'
+done <<< "$CODE_LANGUAGE_ROUTES"
+
+LANGUAGE_UNASKED=""
+while IFS= read -r lang_asked; do
+  [ -n "$lang_asked" ] || continue
+  lang_asked_route="${lang_asked%%\?*}"
+  lang_matched=0
+  while IFS= read -r lang_match_pattern; do
+    [ -n "$lang_match_pattern" ] || continue
+    if [[ "$lang_asked_route" =~ $lang_match_pattern ]]; then
+      lang_matched=1
+      break
+    fi
+  done <<< "$LANGUAGE_PATTERNS"
+  if [ "$lang_matched" -eq 0 ]; then
+    LANGUAGE_UNASKED="$LANGUAGE_UNASKED $lang_asked"
+  fi
+done <<< "$DOC_LANGUAGE_ROUTES"
+
+if [ -z "$CODE_LANGUAGE_ROUTES" ]; then
+  fail "$(printf '%-22s no route could be derived that answers in a language' \
+    'agent language routes')"
+elif [ -z "$DOC_LANGUAGE_ROUTES" ]; then
+  fail "$(printf '%-22s the guide asks for no language at all' 'agent language routes')"
+elif [ -n "$LANGUAGE_UNASKED" ]; then
+  fail "$(printf '%-22s the guide asks for a language on routes that do not take one:%s' \
+    'agent language routes' "$LANGUAGE_UNASKED")"
+else
+  ok "agent language routes" "$(printf '%s\n' "$DOC_LANGUAGE_ROUTES" | grep -c . || true)"
+fi
 # --- the protocol fields the guide states ---------------------------------------
 #
 # AGENT.md tells an agent how to wire itself up, and the fields every

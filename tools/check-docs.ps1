@@ -1473,6 +1473,124 @@ if ($codeLangCodesList -eq '') {
 } else {
   Write-Ok 'agent language switch' $codeLangCodesList
 }
+
+# --- the routes the guide asks for a language on -------------------------------
+#
+# AGENT.md tells an agent which endpoints take ?lang=.  Each one is a claim
+# about the server: it says the route answers in the language asked for.  A
+# route that does not take the parameter answers in English whatever the agent
+# sends, so the guide is wrong in the way that costs an agent the most -- it
+# looks like it worked.
+#
+# Nothing watched it.  The measurement: the guide asked for a language on a
+# route that does not take one, and the server stopped answering in a language
+# on a route the guide asked it in, and all four gate suites went on saying
+# that every claim in the documents matches the tree.  There was a gate for the
+# language codes -- en and zh -- and none for the routes that take them: the
+# switch was watched, the wiring was not.
+#
+# The tree's claim is the route whose handler asks for the language the request
+# named.  The document's claim is the requests it shows with a method, a path
+# and the parameter.
+#
+# The comparison is ONE-WAY: the guide's request is an example, and an example
+# is free to be shorter than the truth.  What it may not do is name a route
+# that does not take the parameter.
+
+# The routes whose handler asks for the language the request named.
+function Get-CodeLanguageRoutes {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/api.mbt'), $enc)
+  $out = @()
+  $method = ''
+  $path = ''
+  $body = ''
+  $expect = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -match '^fn ') {
+      if ($method -and $path -and $body -match 'lang_of\(req\)') { $out += ($method + ' ' + $path) }
+      $method = ''; $path = ''; $body = ''; $expect = $false
+      continue
+    }
+    if ($line -match 'app\.(get|post|put|delete|patch)\(') {
+      if ($method -and $path -and $body -match 'lang_of\(req\)') { $out += ($method + ' ' + $path) }
+      $method = ''; $path = ''; $body = ''; $expect = $false
+      $m = [regex]::Match($line, 'app\.(get|post|put|delete|patch)\(')
+      $method = $m.Groups[1].Value.ToUpperInvariant()
+      $body = $line
+      $p = [regex]::Match($line, '"/api/[^"]*"')
+      if ($p.Success) {
+        $path = $p.Value.Trim('"')
+      } else {
+        $expect = $true
+      }
+      continue
+    }
+    if ($expect) {
+      $p = [regex]::Match($line, '"/api/[^"]*"')
+      if ($p.Success) { $path = $p.Value.Trim('"') }
+      $expect = $false
+    }
+    if ($method) { $body = $body + "`n" + $line }
+  }
+  if ($method -and $path -and $body -match 'lang_of\(req\)') { $out += ($method + ' ' + $path) }
+  Sort-Set $out
+}
+
+# The requests the guide shows asking for a language.  They are in backticks,
+# and the method and the path are in the same backticks -- which is how the
+# guide writes them, and how its endpoint table does not.
+#
+# The backticked token is taken first and the request is recognized in it
+# afterwards: a class that holds both a backtick and a question mark cannot be
+# written the way one expects, and a guide that writes the token differently
+# should be caught by the rule rather than by the search for it.
+function Get-DocLanguageRoutes {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $agentDoc), $enc)
+  $out = @()
+  foreach ($m in [regex]::Matches($text, '`([^`\r\n]+)`')) {
+    $token = $m.Groups[1].Value
+    if ($token -notmatch '^(GET|POST|PUT|DELETE|PATCH) /api/[^?]+\?.*lang=') { continue }
+    $out += $token
+  }
+  Sort-Set $out
+}
+
+$codeLanguageRoutes = @(Get-CodeLanguageRoutes)
+$docLanguageRoutes = @(Get-DocLanguageRoutes)
+
+# The routes as patterns, so that a concrete value in a path can match the
+# parameter of a route.  A parameter becomes "any segment but the slash".
+$languagePatterns = @()
+foreach ($route in $codeLanguageRoutes) {
+  $parts = $route -split ' '
+  $pathPattern = ''
+  foreach ($segment in @($parts[1] -split '/')) {
+    if ($segment -eq '') { continue }
+    if ($segment -match '^:') { $pathPattern = $pathPattern + '/[^/]+' }
+    else { $pathPattern = $pathPattern + '/' + $segment }
+  }
+  $languagePatterns += ('^' + $parts[0] + ' ' + $pathPattern + '$')
+}
+
+$languageUnasked = @()
+foreach ($langAsked in $docLanguageRoutes) {
+  $langAskedRoute = ($langAsked -split '\?')[0]
+  $langMatched = $false
+  foreach ($langMatchPattern in $languagePatterns) {
+    if ($langAskedRoute -cmatch $langMatchPattern) { $langMatched = $true; break }
+  }
+  if (-not $langMatched) { $languageUnasked += $langAsked }
+}
+
+if ($codeLanguageRoutes.Count -eq 0) {
+  Write-Fail ("{0,-22} no route could be derived that answers in a language" -f 'agent language routes')
+} elseif ($docLanguageRoutes.Count -eq 0) {
+  Write-Fail ("{0,-22} the guide asks for no language at all" -f 'agent language routes')
+} elseif ($languageUnasked.Count -gt 0) {
+  Write-Fail ("{0,-22} the guide asks for a language on routes that do not take one: {1}" -f 'agent language routes', ($languageUnasked -join ' '))
+} else {
+  Write-Ok 'agent language routes' $docLanguageRoutes.Count
+}
 # --- the protocol fields the guide states ---------------------------------------
 #
 # AGENT.md tells an agent how to wire itself up, and the fields every
