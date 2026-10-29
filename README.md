@@ -624,9 +624,9 @@ is what the agent gets from `maked_options`.
 
 ### Read the run as numbers
 
-Every session carries five measures: new ground, settling, the slots used, the domains
-visited and the positions covered. They are reported together with the comparison of the
-last window of steps against the first, so a measure can be checked rather than believed.
+Every session carries five measures: `New ground`, `Settling`, `Slots used`, `Domains visited`
+and `Positions covered`. They are reported together with the comparison of the last window of
+steps against the first, so a measure can be checked rather than believed.
 
 ### Keep the table and the machine together
 

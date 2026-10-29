@@ -2706,6 +2706,53 @@ if ($domainNames.Count -eq 0 -or $docDomainNames.Count -eq 0) {
   $failures++
 }
 
+# --- the measure names ----------------------------------------------------------
+#
+# The README names the five measures a session carries, and the tree gives
+# each one a label -- the word the reader sees on the screen. A measure the
+# tree calls something else is a measure the reader cannot find by name, and a
+# measure the README leaves out is a measure the reader is not told about.
+#
+# The COUNT was watched; the NAMES were not. The measurement: the tree was
+# made to call a measure something else, and the README was made to call a
+# measure something the tree does not, and all four gate suites went on
+# saying that every claim in the documents matches the tree. A count of five
+# is not the same claim as the five names.
+#
+# The tree's names are the labels the metrics are given. The document's
+# names are the backticked names in the sentence that enumerates them, and
+# that sentence wraps across two lines, so the whole document is read at
+# once.
+function Get-CodeMeasureLabels {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/metrics.mbt'), $enc)
+  $out = @()
+  foreach ($m in [regex]::Matches($text, 'label: lang\.pick\("([^"]+)"')) { $out += $m.Groups[1].Value }
+  Sort-Set $out
+}
+
+function Get-DocMeasureNames {
+  $out = @()
+  $sentence = [regex]::Match($readme, 'Every session carries five measures:([^.]*)')
+  if (-not $sentence.Success) { return @() }
+  foreach ($t in [regex]::Matches($sentence.Groups[1].Value, '`([^`]+)`')) { $out += $t.Groups[1].Value }
+  Sort-Set $out
+}
+
+$codeMeasureLabels = @(Get-CodeMeasureLabels)
+$docMeasureNames = @(Get-DocMeasureNames)
+
+if ($codeMeasureLabels.Count -eq 0 -or $docMeasureNames.Count -eq 0) {
+  Write-Output ("  {0,-20} the measure names could not be found on both sides" -f 'Measure names')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $codeMeasureLabels $docMeasureNames) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Measure names', ($docMeasureNames -join ' '))
+} else {
+  Write-Output ("  {0,-20} the tree names [{1}], the document names [{2}]" -f 'Measure names', ($codeMeasureLabels -join ' '), ($docMeasureNames -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+}
+
 # --- the protocol fields --------------------------------------------------------
 #
 # The README tells an agent how to wire itself up, and the fields every

@@ -2659,6 +2659,53 @@ else
     "$(printf '%s\n' "$DOC_DOMAIN_NAMES" | tr '\n' ' ' | sed -e 's/ *$//')")"
 fi
 
+# --- the measure names ----------------------------------------------------------
+#
+# The README names the five measures a session carries, and the tree gives
+# each one a label -- the word the reader sees on the screen. A measure the
+# tree calls something else is a measure the reader cannot find by name, and a
+# measure the README leaves out is a measure the reader is not told about.
+#
+# The COUNT was watched; the NAMES were not. The measurement: the tree was
+# made to call a measure something else, and the README was made to call a
+# measure something the tree does not, and all four gate suites went on
+# saying that every claim in the documents matches the tree. A count of five
+# is not the same claim as the five names.
+#
+# The tree's names are the labels the metrics are given. The document's
+# names are the backticked names in the sentence that enumerates them, and
+# that sentence wraps across two lines, so the whole document is read at
+# once.
+
+code_measure_labels() {
+  grep -oE 'label: lang\.pick\("[^"]+"' backend/metrics.mbt \
+    | sed -E 's/^label: lang\.pick\("//; s/"$//' \
+    | LC_ALL=C sort -u
+}
+
+doc_measure_names() {
+  tr '\n' ' ' < "$README" \
+    | grep -oE 'Every session carries five measures:[^.]*' \
+    | grep -oE '`[^`]+`' \
+    | tr -d '`' \
+    | LC_ALL=C sort -u
+}
+
+CODE_MEASURE_LABELS=$(code_measure_labels)
+DOC_MEASURE_NAMES=$(doc_measure_names)
+
+if [ -z "$CODE_MEASURE_LABELS" ] || [ -z "$DOC_MEASURE_NAMES" ]; then
+  fail "$(printf '%-20s the measure names could not be found on both sides' 'Measure names')"
+elif same_members "$CODE_MEASURE_LABELS" "$DOC_MEASURE_NAMES"; then
+  printf '  ok      %-20s %s\n' 'Measure names' \
+    "$(printf '%s\n' "$DOC_MEASURE_NAMES" | tr '\n' ' ' | sed -e 's/ *$//')"
+else
+  fail "$(printf '%-20s the tree names [%s], the document names [%s]' \
+    'Measure names' \
+    "$(printf '%s\n' "$CODE_MEASURE_LABELS" | tr '\n' ' ' | sed -e 's/ *$//')" \
+    "$(printf '%s\n' "$DOC_MEASURE_NAMES" | tr '\n' ' ' | sed -e 's/ *$//')")"
+fi
+
 
 # --- the protocol fields --------------------------------------------------------
 #
