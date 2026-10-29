@@ -2290,6 +2290,98 @@ else
   fi
 fi
 
+# --- the keys a mapping table has ----------------------------------------------
+#
+# The README shows a mapping table of the reader's own, and the loader reads
+# certain keys out of it.  The SLOTS the table drives are watched; the KEYS the
+# table is written with are not.  A key the loader no longer reads is a
+# mapping table the reader wrote from the README whose rules never fire, and
+# nothing says so.
+#
+# This is the mapping table's claim, and not the corpus file's: the corpus
+# file's keys are held by the gate above, and this one is a different file
+# with a different loader.
+#
+# Nothing watched it.  The measurement: the tree was made to call the table's
+# note key something else -- everywhere the tree writes or reads it, so the
+# tree stayed coherent -- and the README's own table was made to call it
+# something the loader does not read, and all four gate suites went on saying
+# that every claim in the documents matches the tree.
+#
+# The tree's keys are the ones the loader reads out of a mapping table.  The
+# document's keys are the ones its own example is written with, and the
+# example is found by the format string it carries, so that the block read is
+# the mapping table's block and not some other example's.
+#
+# A rule of the table is a LIST ITEM, so its key can sit behind a dash: a key
+# is read the same way whether or not it is.
+#
+# The comparison is TWO-WAY: the example is the whole table, so a key the
+# loader reads that the example does not show is a key the reader does not
+# know about, and a key the example shows that the loader does not read is a
+# key the reader wrote for nothing.
+
+code_mapping_keys() {
+  awk '
+    /pub fn ResearchConfig::from_json/ { inside = 1; next }
+    inside && /^}/ { inside = 0; next }
+    inside {
+      if (match($0, /json_(strings|string|field|array)\([^,]*,\s*"[a-z_]+"\)/)) {
+        k = substr($0, RSTART, RLENGTH)
+        sub(/.*, "/, "", k)
+        sub(/".*/, "", k)
+        print k
+      }
+      if (match($0, /\.get\("[a-z_]+"\)/)) {
+        k = substr($0, RSTART, RLENGTH)
+        sub(/.*\("/, "", k)
+        sub(/"\).*/, "", k)
+        print k
+      }
+    }
+  ' backend/research_config.mbt | LC_ALL=C sort -u
+}
+
+doc_mapping_keys() {
+  awk '
+    /^```/ {
+      if (inside) {
+        if (hit) { print block }
+        inside = 0
+        hit = 0
+        block = ""
+      } else {
+        inside = 1
+        block = ""
+      }
+      next
+    }
+    inside {
+      block = block $0 "\n"
+      if ($0 ~ /maked\.research\.v1/) { hit = 1 }
+    }
+  ' "$README" \
+    | grep -oE '^[[:space:]]*(-[[:space:]]+)?[a-z_]+:' \
+    | sed -E 's/^[[:space:]]*(-[[:space:]]+)?([a-z_]+):$/\2/' \
+    | LC_ALL=C sort -u || true
+}
+
+CODE_MAPPING_KEYS=$(code_mapping_keys)
+DOC_MAPPING_KEYS=$(doc_mapping_keys)
+
+if [ -z "$CODE_MAPPING_KEYS" ] || [ -z "$DOC_MAPPING_KEYS" ]; then
+  fail "$(printf '%-20s the mapping table keys could not be found on both sides' \
+    'Mapping keys')"
+elif same_members "$CODE_MAPPING_KEYS" "$DOC_MAPPING_KEYS"; then
+  printf '  ok      %-20s %s\n' 'Mapping keys' \
+    "$(printf '%s\n' "$DOC_MAPPING_KEYS" | tr '\n' ' ' | sed -e 's/ *$//')"
+else
+  fail "$(printf '%-20s the tree says [%s], the document says [%s]' \
+    'Mapping keys' \
+    "$(printf '%s\n' "$CODE_MAPPING_KEYS" | tr '\n' ' ' | sed -e 's/ *$//')" \
+    "$(printf '%s\n' "$DOC_MAPPING_KEYS" | tr '\n' ' ' | sed -e 's/ *$//')")"
+fi
+
 # --- the tools the agent's server offers -------------------------------------
 #
 # The README has a table of the seven tools, and the arguments each one takes.

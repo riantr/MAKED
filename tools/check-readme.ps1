@@ -2373,6 +2373,97 @@ if ($codeCorpusKeys.Count -eq 0) {
   }
 }
 
+# --- the keys a mapping table has ----------------------------------------------
+#
+# The README shows a mapping table of the reader's own, and the loader reads
+# certain keys out of it.  The SLOTS the table drives are watched; the KEYS the
+# table is written with are not.  A key the loader no longer reads is a
+# mapping table the reader wrote from the README whose rules never fire, and
+# nothing says so.
+#
+# This is the mapping table's claim, and not the corpus file's: the corpus
+# file's keys are held by the gate above, and this one is a different file
+# with a different loader.
+#
+# Nothing watched it.  The measurement: the tree was made to call the table's
+# note key something else -- everywhere the tree writes or reads it, so the
+# tree stayed coherent -- and the README's own table was made to call it
+# something the loader does not read, and all four gate suites went on saying
+# that every claim in the documents matches the tree.
+#
+# The tree's keys are the ones the loader reads out of a mapping table.  The
+# document's keys are the ones its own example is written with, and the
+# example is found by the format string it carries, so that the block read is
+# the mapping table's block and not some other example's.
+#
+# A rule of the table is a LIST ITEM, so its key can sit behind a dash: a key
+# is read the same way whether or not it is.
+#
+# The comparison is TWO-WAY: the example is the whole table, so a key the
+# loader reads that the example does not show is a key the reader does not
+# know about, and a key the example shows that the loader does not read is a
+# key the reader wrote for nothing.
+function Get-CodeMappingKeys {
+  $out = @()
+  $lines = [System.IO.File]::ReadAllLines((Join-Path $PWD 'backend/research_config.mbt'), $enc)
+  $inside = $false
+  foreach ($line in $lines) {
+    if ($line -cmatch 'pub fn ResearchConfig::from_json') { $inside = $true; continue }
+    if ($inside -and $line -ceq '}') { $inside = $false; continue }
+    if (-not $inside) { continue }
+    if ($line -cmatch 'json_(strings|string|field|array)\([^,]*,\s*"([a-z_]+)"\)') { $out += $Matches[2]; continue }
+    if ($line -cmatch '\.get\("([a-z_]+)"\)') { $out += $Matches[1] }
+  }
+  Sort-Set $out
+}
+
+function Get-DocMappingKeys {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText($readmePath, $enc)
+  $lines = $text -split "`r?`n"
+  $inside = $false
+  $hit = $false
+  $block = @()
+  foreach ($line in $lines) {
+    if ($line -cmatch '^```') {
+      if ($inside) {
+        if ($hit) {
+          foreach ($row in $block) {
+            if ($row -cmatch '^\s*(-[ \t]+)?([a-z_]+):') { $out += $Matches[2] }
+          }
+        }
+        $inside = $false
+        $hit = $false
+        $block = @()
+      } else {
+        $inside = $true
+        $block = @()
+      }
+      continue
+    }
+    if ($inside) {
+      $block += $line
+      if ($line -cmatch 'maked\.research\.v1') { $hit = $true }
+    }
+  }
+  Sort-Set $out
+}
+
+$codeMappingKeys = @(Get-CodeMappingKeys)
+$docMappingKeys = @(Get-DocMappingKeys)
+
+if ($codeMappingKeys.Count -eq 0 -or $docMappingKeys.Count -eq 0) {
+  Write-Output ("  {0,-20} the mapping table keys could not be found on both sides" -f 'Mapping keys')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $codeMappingKeys $docMappingKeys) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Mapping keys', ($docMappingKeys -join ' '))
+} else {
+  Write-Output ("  {0,-20} the tree says [{1}], the document says [{2}]" -f 'Mapping keys', ($codeMappingKeys -join ' '), ($docMappingKeys -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+}
+
 # --- the tools the agent's server offers -------------------------------------
 #
 # The README has a table of the seven tools, and the arguments each one takes.
