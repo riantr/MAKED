@@ -3306,10 +3306,23 @@ fi
 # reader who copied the line finds that out the hard way.
 #
 # The tree is the handler: the values it matches on are the values it answers.
-# The document is the examples: every format value the document writes has to
-# be one of them. The comparison is one way, because the handler knows more
-# formats than the document shows, and the document shows the two a reader
-# wants.
+#
+# The document is TWO places, not one: the query values its examples write, and
+# the formats the row that describes the route says it answers. The second
+# place was not read, and nothing else held it either. The measurement that
+# found it: the server was made to stop answering the markdown spelling -- so
+# that the row's claim became false -- and the row was made to name a format
+# the server does not answer, and all four gate suites went on saying that
+# every claim in the documents matches the tree. The backend tests went on
+# passing too: 433 of them, on a tree whose server no longer answered the
+# format the row names.
+#
+# The comparison is one way, because the handler may know more formats than
+# the document names -- an alias nobody writes is still an alias -- but every
+# format the document names has to be one the server answers.
+#
+# The gate prints the SET the document names and not its size: a count cannot
+# see two twins reading two different sets of the same size.
 
 code_export_formats() {
   awk '
@@ -3320,9 +3333,22 @@ code_export_formats() {
     | LC_ALL=C sort -u
 }
 
+# The formats the row that describes the export route names.  The row is found
+# by the route it names, and the formats are read from the cell that describes
+# it -- the method and the route are in the cells before it.
+doc_export_row_formats() {
+  grep -E '^\|.*api/sessions/:id/export.*\|' "$README" \
+    | sed -E 's/^[^|]*\|[^|]*\|[^|]*\|//' | sed -E 's/\|.*$//' \
+    | grep -oE '`[a-z]+`' | tr -d '`' | LC_ALL=C sort -u
+}
+
+# The document's formats: the query values its examples write, and the formats
+# its row names.
 doc_export_formats() {
-  grep -oE 'format=[a-z]+' "$README" | sed -E 's/^format=//' \
-    | LC_ALL=C sort -u
+  {
+    grep -oE 'format=[a-z]+' "$README" | sed -E 's/^format=//'
+    doc_export_row_formats
+  } | LC_ALL=C sort -u
 }
 
 CODE_EXPORT_FORMATS=$(code_export_formats)
@@ -3332,7 +3358,7 @@ missing_from "$DOC_EXPORT_FORMATS" "$CODE_EXPORT_FORMATS"
 
 if [ -z "$MISSING_FROM" ]; then
   printf '  ok      %-20s %s\n' 'Export formats' \
-    "$(printf '%s\n' "$DOC_EXPORT_FORMATS" | grep -c . || true)"
+    "$(printf '%s\n' "$DOC_EXPORT_FORMATS" | tr '\n' ' ' | sed -e 's/ *$//')"
 else
   fail "$(printf '%-20s the document asks for [%s], and the server does not answer it' \
     'Export formats' "$MISSING_FROM")"

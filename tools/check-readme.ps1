@@ -3322,9 +3322,23 @@ if ($buildMissing.Count -eq 0) {
 # reader who copied the line finds that out the hard way.
 #
 # The tree is the handler: the values it matches on are the values it answers.
-# The document is the examples: every format value the document writes has to
-# be one of them. The comparison is one way, because the handler knows more
-# formats than the document shows.
+#
+# The document is TWO places, not one: the query values its examples write, and
+# the formats the row that describes the route says it answers. The second
+# place was not read, and nothing else held it either. The measurement that
+# found it: the server was made to stop answering the markdown spelling -- so
+# that the row's claim became false -- and the row was made to name a format
+# the server does not answer, and all four gate suites went on saying that
+# every claim in the documents matches the tree. The backend tests went on
+# passing too: 433 of them, on a tree whose server no longer answered the
+# format the row names.
+#
+# The comparison is one way, because the handler may know more formats than
+# the document names -- an alias nobody writes is still an alias -- but every
+# format the document names has to be one the server answers.
+#
+# The gate prints the SET the document names and not its size: a count cannot
+# see two twins reading two different sets of the same size.
 
 function Get-CodeExportFormats {
   $out = @()
@@ -3342,10 +3356,31 @@ function Get-CodeExportFormats {
   Sort-Set $out
 }
 
+# The formats the row that describes the export route names.  The row is found
+# by the route it names, and the formats are read from the cell that describes
+# it -- the method and the route are in the cells before it.
+function Get-DocExportRowFormats {
+  $out = @()
+  foreach ($line in ($readme -split "`r?`n")) {
+    if ($line -cnotmatch '^\|.*api/sessions/:id/export.*\|') { continue }
+    $cells = $line -split '\|'
+    if ($cells.Count -lt 4) { continue }
+    foreach ($m in [regex]::Matches($cells[3], '`(?<f>[a-z]+)`')) {
+      $out += $m.Groups['f'].Value
+    }
+  }
+  Sort-Set $out
+}
+
+# The document's formats: the query values its examples write, and the formats
+# its row names.
 function Get-DocExportFormats {
   $out = @()
   foreach ($m in [regex]::Matches($readme, 'format=([a-z]+)')) {
     $out += $m.Groups[1].Value
+  }
+  foreach ($f in (Get-DocExportRowFormats)) {
+    $out += $f
   }
   Sort-Set $out
 }
@@ -3355,7 +3390,7 @@ $docExportFormats = Get-DocExportFormats
 $exportMissing = @($docExportFormats | Where-Object { $codeExportFormats -cnotcontains $_ })
 
 if ($exportMissing.Count -eq 0) {
-  Write-Output ("  ok      {0,-20} {1}" -f 'Export formats', $docExportFormats.Count)
+  Write-Output ("  ok      {0,-20} {1}" -f 'Export formats', ($docExportFormats -join ' '))
 } else {
   Write-Output ("  {0,-20} the document asks for [{1}], and the server does not answer it" -f 'Export formats', ($exportMissing -join ' '))
   Write-Output "*** FAIL ***"
