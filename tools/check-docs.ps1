@@ -443,6 +443,27 @@ foreach ($pin in $pins) {
   }
 }
 
+# The documents that carry the marker, as the tree says it. Every document
+# in the architecture folder is a candidate: the marker is what makes one of
+# them history.
+#
+# The list is made here, before the gates that use it: the references gate
+# below reads every document that is NOT history, and it has to know which
+# ones those are.
+function Get-MarkedDocuments {
+  $out = @()
+  foreach ($file in @(Get-ChildItem -Path 'architecture' -File |
+      Where-Object { $_.Extension -eq '.md' -or $_.Extension -eq '.dot' })) {
+    $text = [System.IO.File]::ReadAllText($file.FullName, $enc)
+    if ($text.Contains('This document describes the past.')) {
+      $out += ('architecture/' + $file.Name)
+    }
+  }
+  Sort-Set $out
+}
+
+$markedDocs = @(Get-MarkedDocuments)
+
 # --- the references ---------------------------------------------------------
 #
 # Every `file.ext:line` or `file.ext:line-line` in the architecture
@@ -458,15 +479,11 @@ function Test-References($doc) {
   $text = [System.IO.File]::ReadAllText((Join-Path $PWD $doc), $enc)
   $refs = [regex]::Matches($text, '`([A-Za-z0-9_./-]+\.(?:mbt|moon\.pkg|ps1|sh|mod|dsl|dot|md)|Dockerfile):(\d+)(?:-(\d+))?`')
   $seen = @{}
-  # The count is of DISTINCT references, the way the bash twin counts them:
-  # two references that point at the same line are one reference, and two
-  # references that point at different lines of the same file are two.
-  $distinct = @{}
+  $ordered = @()
   $bad = $false
   foreach ($ref in $refs) {
     $file = $ref.Groups[1].Value
     $last = if ($ref.Groups[3].Success) { [int]$ref.Groups[3].Value } else { [int]$ref.Groups[2].Value }
-    if (-not $distinct.ContainsKey($ref.Value)) { $distinct[$ref.Value] = $true }
     # The key is the reference AS WRITTEN, minus the backticks: a range stays
     # a range. The bash twin keys the same way, so the two check the same
     # references, skip the same repeats and say the same thing when one of
@@ -474,6 +491,7 @@ function Test-References($doc) {
     $key = ($ref.Value -replace '`', '')
     if ($seen.ContainsKey($key)) { continue }
     $seen[$key] = $true
+    $ordered += $key
     $path = Join-Path $PWD $file
     if (-not (Test-Path $path)) {
       Write-Fail ("{0,-22} {1} names a file that is not there" -f $doc, $file)
@@ -487,12 +505,43 @@ function Test-References($doc) {
     }
   }
   if (-not $bad) {
-    Write-Ok "references $(Split-Path -Leaf $doc)" $distinct.Count
+    # The SET the document points at, and not its size: a count cannot see two
+    # twins reading two different sets of the same size, and the references are
+    # what the two twins have to agree about.
+    Write-Ok "references $(Split-Path -Leaf $doc)" ($ordered -join ' ')
   }
+  $script:referencesChecked += $ordered.Count
 }
 
-foreach ($doc in @($evidence, $deps, $deploy, 'architecture/flows.evidence.md')) {
+# Every document the pair reads is checked.  The gate used to read FIVE of
+# them by name -- the four evidence documents and the deployment note -- and a
+# reference in any other document was a reference nobody watched.  The
+# measurement: the tree grew a document, of the same shape as the ones that
+# are read, and that document carried a reference to a line the file does not
+# have, and all four gate suites went on saying that every claim in the
+# documents matches the tree.
+#
+# A document that describes the past is left alone: history is not the tree,
+# and a reference in it is not a claim about the tree.
+$referenceDocs = @()
+foreach ($file in @(Get-ChildItem -Path 'architecture' -File |
+    Where-Object { $_.Extension -eq '.md' -or $_.Extension -eq '.dot' })) {
+  $referenceDocs += ('architecture/' + $file.Name)
+}
+[Array]::Sort($referenceDocs, [System.StringComparer]::Ordinal)
+
+$referencesChecked = 0
+
+foreach ($doc in $referenceDocs) {
+  if ($markedDocs -ccontains $doc) { continue }
   Test-References $doc
+}
+
+# A gate that finds nothing is a gate that is not looking.  The documents make
+# a hundred and fifty references; a run that finds none of them is a run whose
+# reading broke, and a green gate that read nothing says nothing.
+if ($referencesChecked -eq 0) {
+  Write-Fail ("{0,-22} no reference could be found in any document" -f 'references')
 }
 
 # --- the links the documents carry --------------------------------------------
@@ -886,23 +935,6 @@ $pastDocs = @(
   'architecture/current-vs-target.dot'
   'architecture/migration-dependency.dot'
 )
-
-# The documents that carry the marker, as the tree says it. Every document
-# in the architecture folder is a candidate: the marker is what makes one of
-# them history.
-function Get-MarkedDocuments {
-  $out = @()
-  foreach ($file in @(Get-ChildItem -Path 'architecture' -File |
-      Where-Object { $_.Extension -eq '.md' -or $_.Extension -eq '.dot' })) {
-    $text = [System.IO.File]::ReadAllText($file.FullName, $enc)
-    if ($text.Contains('This document describes the past.')) {
-      $out += ('architecture/' + $file.Name)
-    }
-  }
-  Sort-Set $out
-}
-
-$markedDocs = @(Get-MarkedDocuments)
 
 function Test-PastHeader($doc) {
   # The marker has already been looked for: the answer is in $markedDocs.
@@ -2329,7 +2361,9 @@ function Get-DocDeploySettings {
 
 Test-Sets 'deployment settings' $codeSettings (Get-DocDeploySettings)
 
-Test-References $deployMd
+# The references of this document are checked with every other document, up
+# in the references gate: that gate reads every document that is not history,
+# so a reference in a new document is watched without anybody naming it here.
 
 # --- the paths the build writes, and the health check the image declares ------
 #

@@ -553,6 +553,25 @@ while read -r module version; do
   check_dependency_versions "$module" "$version" "dep ${module##*/}"
 done < <(sed -nE 's/^ *"([^"]+)@([^"]+)".*/\1 \2/p' moon.mod)
 
+# The documents that carry the marker, as the tree says it. Every document
+# in the architecture folder is a candidate: the marker is what makes one of
+# them history.
+#
+# The list is made here, before the gates that use it: the references gate
+# below reads every document that is NOT history, and it has to know which
+# ones those are.
+marked_documents() {
+  local file
+  for file in architecture/*.md architecture/*.dot; do
+    [ -e "$file" ] || continue
+    if grep -qF 'This document describes the past.' "$file"; then
+      printf '%s\n' "$file"
+    fi
+  done | LC_ALL=C sort -u
+}
+
+MARKED_DOCS=$(marked_documents)
+
 # --- the references ---------------------------------------------------------
 #
 # Every `file.ext:line` or `file.ext:line-line` in the architecture
@@ -571,6 +590,10 @@ done < <(sed -nE 's/^ *"([^"]+)@([^"]+)".*/\1 \2/p' moon.mod)
 # this gate on a machine where a fork is expensive.
 declare -A FILE_LINES
 FILE_LINE_COUNT=0
+
+# How many references the gate has checked in all.  A gate that finds nothing
+# is a gate that is not looking.
+REFERENCES_CHECKED=0
 
 file_line_count() {
   local file="$1"
@@ -628,13 +651,36 @@ check_references() {
     fi
   done
   if [ "$bad" -eq 0 ]; then
-    ok "references $(basename "$doc")" "${#refs[@]}"
+    # The SET the document points at, and not its size: a count cannot see two
+    # twins reading two different sets of the same size, and the references are
+    # what the two twins have to agree about.
+    ok "references $(basename "$doc")" "${refs[*]}"
   fi
+  REFERENCES_CHECKED=$((REFERENCES_CHECKED + ${#refs[@]}))
 }
 
-for doc in "$EVIDENCE" "$DEPS" "$DEPLOY" "architecture/flows.evidence.md"; do
+# Every document the pair reads is checked.  The gate used to read FIVE of
+# them by name -- the four evidence documents and the deployment note -- and a
+# reference in any other document was a reference nobody watched.  The
+# measurement: the tree grew a document, of the same shape as the ones that
+# are read, and that document carried a reference to a line the file does not
+# have, and all four gate suites went on saying that every claim in the
+# documents matches the tree.
+#
+# A document that describes the past is left alone: history is not the tree,
+# and a reference in it is not a claim about the tree.
+for doc in $(printf '%s\n' architecture/*.md architecture/*.dot | LC_ALL=C sort); do
+  not_in "$doc" "$MARKED_DOCS"
+  [ -n "$NOT_IN" ] || continue
   check_references "$doc"
 done
+
+# A gate that finds nothing is a gate that is not looking.  The documents make
+# a hundred and fifty references; a run that finds none of them is a run whose
+# reading broke, and a green gate that read nothing says nothing.
+if [ "$REFERENCES_CHECKED" -eq 0 ]; then
+  fail "$(printf '%-22s no reference could be found in any document' 'references')"
+fi
 
 # --- the links the documents carry --------------------------------------------
 #
@@ -985,21 +1031,6 @@ architecture/evolution-summary.md
 architecture/evolution-roadmap.md
 architecture/current-vs-target.dot
 architecture/migration-dependency.dot"
-
-# The documents that carry the marker, as the tree says it. Every document
-# in the architecture folder is a candidate: the marker is what makes one of
-# them history.
-marked_documents() {
-  local file
-  for file in architecture/*.md architecture/*.dot; do
-    [ -e "$file" ] || continue
-    if grep -qF 'This document describes the past.' "$file"; then
-      printf '%s\n' "$file"
-    fi
-  done | LC_ALL=C sort -u
-}
-
-MARKED_DOCS=$(marked_documents)
 
 check_past_header() {
   local doc="$1"
@@ -2409,7 +2440,9 @@ doc_deploy_settings() {
 
 check_sets "deployment settings" "$CODE_SETTINGS" "$(doc_deploy_settings)"
 
-check_references "$DEPLOY_MD"
+# The references of this document are checked with every other document, up
+# in the references gate: that gate reads every document that is not history,
+# so a reference in a new document is watched without anybody naming it here.
 
 # --- the paths the build writes, and the health check the image declares ------
 #
