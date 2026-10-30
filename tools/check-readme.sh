@@ -3229,6 +3229,62 @@ else
     "$(printf '%s\n' "$CODE_PROTOCOL_FIELDS" | tr '\n' ' ' | sed -e 's/ *$//')" \
     "$(printf '%s\n' "$DOC_PROTOCOL_FIELDS" | tr '\n' ' ' | sed -e 's/ *$//')")"
 fi
+# --- the method the protocol does not have --------------------------------------
+#
+# The README tells a reader what happens when it sends `initialize`: this
+# version of the protocol has no such method, and the server answers with
+# "Method not found".  MAKED's own discovery document says the same thing in
+# its protocol note -- "There is no handshake in this version of the protocol:
+# `initialize` is not a method" -- and nothing compared the two.
+#
+# The discovery document is the source, because the discovery document is what
+# the server ANSWERS with. Its note is where the method is written down, so
+# that is where it is read from -- the same place the protocol fields and the
+# protocol headers are read from, and for the same reason.
+#
+# The method is found by the words that follow it: a name in backticks that
+# "is not a method" follows is the method the protocol does not have, and a
+# name those words do not follow is the name of something else.
+#
+# The comparison is two ways.  A reader who sends a method the server does have
+# is sent to a method the document says is not there, and a reader who is not
+# told about a method the tree does not have will keep sending it.  The
+# document and the tree have to name the same methods.
+#
+# The gate prints the SET the document names and not its size: a count cannot
+# see two twins reading two different sets of the same size.
+
+code_absent_methods() {
+  awk '
+    /"protocol": \{/ { inside = 1; next }
+    inside && /^[ \t]*\},/ { exit }
+    inside { print }
+  ' backend/agent.mbt \
+    | grep -oE '`[A-Za-z_][A-Za-z0-9_]*` is not a method' \
+    | sed -E 's/^`//; s/` is not a method$//' \
+    | LC_ALL=C sort -u
+}
+
+doc_absent_methods() {
+  grep -oE '`[A-Za-z_][A-Za-z0-9_]*` is not a method' "$README" \
+    | sed -E 's/^`//; s/` is not a method$//' \
+    | LC_ALL=C sort -u
+}
+
+CODE_ABSENT_METHODS=$(code_absent_methods)
+DOC_ABSENT_METHODS=$(doc_absent_methods)
+
+if [ -z "$CODE_ABSENT_METHODS" ] || [ -z "$DOC_ABSENT_METHODS" ]; then
+  fail "$(printf '%-20s the method that is not a method could not be found on both sides' 'Absent method')"
+elif same_members "$CODE_ABSENT_METHODS" "$DOC_ABSENT_METHODS"; then
+  printf '  ok      %-20s %s\n' 'Absent method' \
+    "$(printf '%s\n' "$DOC_ABSENT_METHODS" | tr '\n' ' ' | sed -e 's/ *$//')"
+else
+  fail "$(printf '%-20s the tree names [%s], the document names [%s]' \
+    'Absent method' \
+    "$(printf '%s\n' "$CODE_ABSENT_METHODS" | tr '\n' ' ' | sed -e 's/ *$//')" \
+    "$(printf '%s\n' "$DOC_ABSENT_METHODS" | tr '\n' ' ' | sed -e 's/ *$//')")"
+fi
 # --- the protocol headers --------------------------------------------------------
 #
 # The README tells a reader what a request over HTTP has to carry: the

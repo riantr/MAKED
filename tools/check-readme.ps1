@@ -3260,6 +3260,61 @@ if ($codeProtocolFields.Count -eq 0 -or $docProtocolFields.Count -eq 0) {
   Write-Output "*** FAIL ***"
   $failures++
 }
+
+# --- the method the protocol does not have --------------------------------------
+#
+# The README tells a reader what happens when it sends `initialize`: this
+# version of the protocol has no such method, and the server answers with
+# "Method not found".  MAKED's own discovery document says the same thing in
+# its protocol note -- "There is no handshake in this version of the protocol:
+# `initialize` is not a method" -- and nothing compared the two.
+#
+# The discovery document is the source, because the discovery document is what
+# the server ANSWERS with. Its note is where the method is written down, so
+# that is where it is read from -- the same place the protocol fields and the
+# protocol headers are read from, and for the same reason.
+#
+# The method is found by the words that follow it: a name in backticks that
+# "is not a method" follows is the method the protocol does not have, and a
+# name those words do not follow is the name of something else.
+#
+# The comparison is two ways.  A reader who sends a method the server does have
+# is sent to a method the document says is not there, and a reader who is not
+# told about a method the tree does not have will keep sending it.  The
+# document and the tree have to name the same methods.
+#
+# The gate prints the SET the document names and not its size: a count cannot
+# see two twins reading two different sets of the same size.
+
+function Get-CodeAbsentMethods {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/agent.mbt'), $enc)
+  $m = [regex]::Match($text, '(?s)"protocol": \{(.*?)\n[ \t]*\},')
+  if (-not $m.Success) { return @() }
+  $out = @()
+  foreach ($t in [regex]::Matches($m.Groups[1].Value, '`([A-Za-z_][A-Za-z0-9_]*)` is not a method')) { $out += $t.Groups[1].Value }
+  Sort-Set $out
+}
+
+function Get-DocAbsentMethods {
+  $out = @()
+  foreach ($t in [regex]::Matches($readme, '`([A-Za-z_][A-Za-z0-9_]*)` is not a method')) { $out += $t.Groups[1].Value }
+  Sort-Set $out
+}
+
+$codeAbsentMethods = @(Get-CodeAbsentMethods)
+$docAbsentMethods = @(Get-DocAbsentMethods)
+
+if ($codeAbsentMethods.Count -eq 0 -or $docAbsentMethods.Count -eq 0) {
+  Write-Output ("  {0,-20} the method that is not a method could not be found on both sides" -f 'Absent method')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $codeAbsentMethods $docAbsentMethods) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Absent method', ($docAbsentMethods -join ' '))
+} else {
+  Write-Output ("  {0,-20} the tree names [{1}], the document names [{2}]" -f 'Absent method', ($codeAbsentMethods -join ' '), ($docAbsentMethods -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+}
 # --- the protocol headers --------------------------------------------------------
 #
 # The README tells a reader what a request over HTTP has to carry: the

@@ -1792,6 +1792,71 @@ else
   check_sets "agent protocol fields" "$CODE_PROTOCOL_FIELDS" "$DOC_PROTOCOL_FIELDS"
 fi
 
+# --- the method the protocol does not have --------------------------------------
+#
+# The guide tells an agent what happens when it sends `initialize`: this
+# version of the protocol has no such method, and the server answers with
+# "Method not found".  MAKED's own discovery document says the same thing in
+# its protocol note -- "There is no handshake in this version of the protocol:
+# `initialize` is not a method" -- and nothing compared the two.
+#
+# The discovery document is the source, because the discovery document is what
+# the server ANSWERS with. Its note is where the method is written down, so
+# that is where it is read from -- the same place the protocol fields and the
+# protocol headers are read from, and for the same reason.
+#
+# The method is found by the words that follow it: a name in backticks that
+# "is not a method" follows is the method the protocol does not have, and a
+# name those words do not follow is the name of something else.
+#
+# The comparison is two ways.  An agent that sends a method the server does
+# have is sent to a method the guide says is not there, and an agent that is
+# not told about a method the tree does not have will keep sending it.  The
+# guide and the tree have to name the same methods.
+#
+# The gate prints the SET the guide names and not its size: a count cannot see
+# two twins reading two different sets of the same size.
+
+code_absent_methods() {
+  awk '
+    /"protocol": \{/ { inside = 1; next }
+    inside && /^[ \t]*\},/ { exit }
+    inside { print }
+  ' backend/agent.mbt \
+    | grep -oE '`[A-Za-z_][A-Za-z0-9_]*` is not a method' \
+    | sed -E 's/^`//; s/` is not a method$//' \
+    | LC_ALL=C sort -u
+}
+
+doc_absent_methods() {
+  grep -oE '`[A-Za-z_][A-Za-z0-9_]*` is not a method' "$AGENT_DOC" \
+    | sed -E 's/^`//; s/` is not a method$//' \
+    | LC_ALL=C sort -u
+}
+
+CODE_ABSENT_METHODS=$(code_absent_methods)
+DOC_ABSENT_METHODS=$(doc_absent_methods)
+
+if [ -z "$CODE_ABSENT_METHODS" ] || [ -z "$DOC_ABSENT_METHODS" ]; then
+  fail "$(printf '%-22s the method that is not a method could not be found on both sides' 'agent absent method')"
+else
+  # The same comparison check_sets makes, but the SET is printed and not its
+  # size: a count cannot be contradicted, and two twins that read different
+  # names of the same count would print the same count and agree.
+  not_in "$CODE_ABSENT_METHODS" "$DOC_ABSENT_METHODS"; absent_missing="$NOT_IN"
+  not_in "$DOC_ABSENT_METHODS" "$CODE_ABSENT_METHODS"; absent_extra="$NOT_IN"
+  count_lines "$CODE_ABSENT_METHODS"; absent_na="$COUNT_LINES"
+  count_lines "$DOC_ABSENT_METHODS"; absent_nb="$COUNT_LINES"
+  join_lines "$CODE_ABSENT_METHODS"; absent_tree_text="$JOIN_LINES"
+  join_lines "$DOC_ABSENT_METHODS"; absent_doc_text="$JOIN_LINES"
+  if [ "$absent_na" = "$absent_nb" ] && [ -z "$absent_missing" ] && [ -z "$absent_extra" ]; then
+    ok "agent absent method" "$absent_doc_text"
+  else
+    fail "$(printf '%-22s the tree names [%s], the document names [%s]' \
+      'agent absent method' "$absent_tree_text" "$absent_doc_text")"
+  fi
+fi
+
 # --- the protocol headers the guide states ---------------------------------------
 #
 # The guide tells an agent what a request over HTTP has to carry: the

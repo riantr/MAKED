@@ -1687,6 +1687,69 @@ if ($codeProtocolFields.Count -eq 0 -or $docProtocolFields.Count -eq 0) {
   Test-Sets 'agent protocol fields' $codeProtocolFields $docProtocolFields
 }
 
+# --- the method the protocol does not have --------------------------------------
+#
+# The guide tells an agent what the protocol does NOT have, and MAKED's own
+# discovery document says the same in its protocol note -- "There is no
+# handshake in this version of the protocol: `initialize` is not a method" --
+# and nothing compared the two.
+#
+# The discovery document is the source, because the discovery document is
+# what the server ANSWERS with. Its note is where the method is written down,
+# so that is where it is read from -- the same place the protocol fields and
+# the protocol headers are read from, and for the same reason.
+#
+# The method is found by the words that follow it: a name in backticks that
+# "is not a method" follows is the method the protocol does not have, and a
+# name those words do not follow is the name of something else.
+#
+# The comparison is two ways.  An agent that sends a method the server does
+# have is sent to a method the guide says is not there, and an agent that is
+# not told about a method the tree does not have will keep sending it.  The
+# guide and the tree have to name the same methods.
+#
+# The gate prints the SET the guide names and not its size: a count cannot see
+# two twins reading two different sets of the same size.
+
+function Get-CodeAbsentMethods {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/agent.mbt'), $enc)
+  $m = [regex]::Match($text, '(?s)"protocol": \{(.*?)\n[ \t]*\},')
+  if (-not $m.Success) { return @() }
+  $out = @()
+  foreach ($t in [regex]::Matches($m.Groups[1].Value, '`([A-Za-z_][A-Za-z0-9_]*)` is not a method')) { $out += $t.Groups[1].Value }
+  Sort-Set $out
+}
+
+function Get-DocAbsentMethods {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $agentDoc), $enc)
+  $out = @()
+  foreach ($t in [regex]::Matches($text, '`([A-Za-z_][A-Za-z0-9_]*)` is not a method')) { $out += $t.Groups[1].Value }
+  Sort-Set $out
+}
+
+$codeAbsentMethods = @(Get-CodeAbsentMethods)
+$docAbsentMethods = @(Get-DocAbsentMethods)
+
+if ($codeAbsentMethods.Count -eq 0 -or $docAbsentMethods.Count -eq 0) {
+  Write-Fail ("{0,-22} the method that is not a method could not be found on both sides" -f 'agent absent method')
+} else {
+  # The same comparison check_sets makes, with the names in the message: a
+  # count cannot be contradicted, and two twins that read different names of
+  # the same count would print the same count and agree.
+  $sameAbsent = ($codeAbsentMethods.Count -eq $docAbsentMethods.Count)
+  foreach ($method in $codeAbsentMethods) {
+    if ($docAbsentMethods -cnotcontains $method) { $sameAbsent = $false }
+  }
+  foreach ($method in $docAbsentMethods) {
+    if ($codeAbsentMethods -cnotcontains $method) { $sameAbsent = $false }
+  }
+  if ($sameAbsent) {
+    Write-Ok 'agent absent method' ($docAbsentMethods -join ' ')
+  } else {
+    Write-Fail ("{0,-22} the tree names [{1}], the document names [{2}]" -f 'agent absent method', ($codeAbsentMethods -join ' '), ($docAbsentMethods -join ' '))
+  }
+}
+
 # --- the protocol headers the guide states ---------------------------------------
 #
 # The guide tells an agent what a request over HTTP has to carry: the
