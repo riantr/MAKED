@@ -1393,6 +1393,107 @@ if ($unresolved.Count -gt 0) {
   Write-Output ("  ok      {0,-20} {1}" -f 'API paths', (Get-DocApiPaths).Count)
 }
 
+# --- the method a document names next to a path --------------------------------
+#
+# The README names a method and a path together in its prose -- "GET
+# /api/loop/status" -- and the gate above holds the PATH.  The METHOD was not
+# held at all: a README that said "POST /api/model" would have gone unnoticed,
+# and a reader writing a client against the document would have posted to a
+# route the server only answers with a GET.
+#
+# The tree is the source: the routes the server registers, and the method each
+# one is registered under.  A path can be registered under more than one method
+# -- /api/entries is a GET and a POST -- so the method is part of the route and
+# not a decoration on the path.
+#
+# The claim is found by its own shape: a method, and a path that starts with
+# /api/.  The path may carry a query ("?lang=zh"), a concrete value where the
+# tree has a parameter ("/api/pages/model"), or a star that names a family
+# ("/api/loop/*").  Each of those is a claim about a route, and each of them is
+# held to the tree.
+#
+# The comparison is one way: the document names the routes a reader is meant to
+# call, and the server may serve more.
+#
+# The gate prints the SET the document names and not its size: a count cannot
+# see two twins reading two different sets of the same size.
+
+# The methods the document names next to a path, as "METHOD path".
+#
+# The URL of a command is not part of the claim -- "POST
+# http://127.0.0.1:8080/api/entries" is a claim about the method and the path,
+# and the host it names is the reader's, not the server's -- so the host is
+# taken off before the claim is read.
+function Get-DocApiMethods {
+  $out = @()
+  $re = '(GET|POST|PUT|DELETE|PATCH)(\|(GET|POST|PUT|DELETE|PATCH))*\s+(https?://[^/\s`"\\]*)?/api/[A-Za-z0-9_:/.~*-]+'
+  foreach ($m in [regex]::Matches($readme, $re)) {
+    $text = $m.Value
+    $text = [regex]::Replace($text, 'https?://[^/\s]*', '')
+    $text = [regex]::Replace($text, '\s+', ' ')
+    $text = [regex]::Replace($text, '\.$', '')
+    $parts = $text -split ' '
+    $methods = $parts[0] -split '\|'
+    $path = $parts[1]
+    foreach ($method in $methods) {
+      if ($method -ne '') { $out += ("{0} {1}" -f $method, $path) }
+    }
+  }
+  Sort-Set $out
+}
+
+# The methods the tree serves at a path.  A path that ends in a star names a
+# family, and a family is served by the routes under it.
+function Get-ApiMethodsAt($path, $routes) {
+  $out = @()
+  $family = $false
+  $prefix = $path
+  if ($path.EndsWith('*')) {
+    $family = $true
+    $prefix = $path.Substring(0, $path.Length - 1).TrimEnd('/')
+  } elseif ($path.EndsWith('/')) {
+    $family = $true
+    $prefix = $path.TrimEnd('/')
+  }
+  foreach ($route in $routes) {
+    $rmethod = $route.Substring(0, $route.IndexOf(' '))
+    $rpath = $route.Substring($route.IndexOf(' ') + 1)
+    if ($family) {
+      if ($rpath -ceq $prefix -or $rpath.StartsWith($prefix + '/')) { $out += $rmethod }
+    } else {
+      $pattern = [regex]::Replace($rpath, ':[A-Za-z_]+', '[^/]+')
+      if ($path -cmatch "^$pattern$") { $out += $rmethod }
+    }
+  }
+  Sort-Set $out
+}
+
+$docApiMethods = Get-DocApiMethods
+$apiMethodsBad = $false
+if ($docApiMethods.Count -eq 0) {
+  Write-Output ("  {0,-20} the document names no method next to a path" -f 'API methods')
+  Write-Output "*** FAIL ***"
+  $failures++
+  $apiMethodsBad = $true
+} else {
+  foreach ($claim in $docApiMethods) {
+    $method = $claim.Substring(0, $claim.IndexOf(' '))
+    $path = $claim.Substring($claim.IndexOf(' ') + 1)
+    $served = Get-ApiMethodsAt $path $treeRoutes
+    $want = ($served -join ' ')
+    if ($want -eq '') { $want = 'nothing' }
+    if (-not ($served -ccontains $method)) {
+      Write-Output ("  {0,-20} the document names [{1}], and the tree serves that path with [{2}]" -f 'API methods', $claim, $want)
+      Write-Output "*** FAIL ***"
+      $failures++
+      $apiMethodsBad = $true
+    }
+  }
+}
+if (-not $apiMethodsBad) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'API methods', ($docApiMethods -join ' '))
+}
+
 # The entry point the discovery document names, and the one the document
 # states. An agent that calls the wrong one gets nowhere, so the method the
 # server tells it to call and the method the README tells it to call have to

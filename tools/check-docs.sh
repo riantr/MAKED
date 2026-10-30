@@ -12970,6 +12970,142 @@ if [ "$API_ROUTE_BAD" -eq 0 ]; then
   ok "api route" "$API_ROUTE_CHECKED paths"
 fi
 
+# --- the method a document names next to a path --------------------------------
+#
+# The documents name a method and a path together -- "GET /api/loop/status" --
+# and the gate above holds the PATH.  The METHOD was not held at all: a
+# document that said "POST /api/model" would have gone unnoticed, and a reader
+# writing a client against the document would have posted to a route the server
+# only answers with a GET.
+#
+# The tree is the source: the routes the server registers, and the method each
+# one is registered under.  A path can be registered under more than one method
+# -- /api/entries is a GET and a POST -- so the method is part of the route and
+# not a decoration on the path.
+#
+# The claim is found by its own shape: a method, and a path that starts with
+# /api/.  The path may carry a query ("?lang=zh"), a concrete value where the
+# tree has a parameter ("/api/pages/model"), or a star that names a family
+# ("/api/loop/*").  Each of those is a claim about a route, and each of them is
+# held to the tree.
+#
+# The graphs are not read here: the gate "graph method" holds the whole SET of
+# methods a graph states for a handler, and this gate holds the prose.
+#
+# The comparison is one way: the document names the routes a reader is meant to
+# call, and the server may serve more.
+#
+# The gate prints the SET the document names and not its size: a count cannot
+# see two twins reading two different sets of the same size.
+
+# The methods the tree serves at a path.
+#
+# An exact path is one path, and a concrete value stands for a parameter of the
+# route: /api/pages/model is the route /api/pages/:slug with slug="model".  A
+# path that ends in a star names a family, and a family is served by the routes
+# under it.
+api_methods_at() {
+  local path="$1" endpoint emethod epath methods=""
+  local base="" i ok
+  local -a p r
+  case "$path" in
+    *'*') base="${path%\*}"; base="${base%/}" ;;
+  esac
+  if [ -n "$base" ]; then
+    for endpoint in $(printf '%s\n' "$TREE_ENDPOINTS" | sed 's/ /|/'); do
+      emethod="${endpoint%%|*}"
+      epath="${endpoint#*|}"
+      case "$epath" in
+        "$base") ;;
+        "$base"/*) ;;
+        *) continue ;;
+      esac
+      case " $methods " in *" $emethod "*) ;; *) methods="$methods $emethod" ;; esac
+    done
+  else
+    IFS='/' read -r -a p <<< "${path#/}"
+    for endpoint in $(printf '%s\n' "$TREE_ENDPOINTS" | sed 's/ /|/'); do
+      emethod="${endpoint%%|*}"
+      epath="${endpoint#*|}"
+      IFS='/' read -r -a r <<< "${epath#/}"
+      [ "${#p[@]}" = "${#r[@]}" ] || continue
+      ok=1
+      for ((i = 0; i < ${#p[@]}; i++)); do
+        case "${r[$i]}" in
+          :*|\**) continue ;;
+        esac
+        if [ "${p[$i]}" != "${r[$i]}" ]; then ok=0; break; fi
+      done
+      [ "$ok" -eq 1 ] || continue
+      case " $methods " in *" $emethod "*) ;; *) methods="$methods $emethod" ;; esac
+    done
+  fi
+  printf '%s\n' $methods | LC_ALL=C sort -u | tr '\n' ' ' | sed -e 's/ *$//'
+}
+
+# The methods a document names next to a path, as "line<TAB>METHOD path".
+#
+# The URL of a command is not part of the claim -- "POST
+# http://127.0.0.1:8080/api/entries" is a claim about the method and the path,
+# and the host it names is the reader's, not the server's -- so the host is
+# taken off before the claim is read.
+API_METHOD_RE='(GET|POST|PUT|DELETE|PATCH)(\|(GET|POST|PUT|DELETE|PATCH))*[[:space:]]+(https?://[^/[:space:]]*)?/api/[A-Za-z0-9_:/.~*-]+'
+
+api_method_claims() {
+  local doc="$1" line claim methods method path
+  grep -nEo "$API_METHOD_RE" "$doc" 2>/dev/null \
+    | sed -E 's/^([0-9]+):(.*)$/\1\t\2/' \
+    | while IFS=$'\t' read -r line claim; do
+        [ -n "$claim" ] || continue
+        claim="$(printf '%s' "$claim" \
+          | sed -E -e 's#https?://[^/[:space:]]*##' -e 's/[[:space:]]+/ /' -e 's/\.$//')"
+        methods="${claim%% *}"
+        path="${claim#* }"
+        printf '%s\n' "$methods" | tr '|' '\n' | while IFS= read -r method; do
+          [ -n "$method" ] || continue
+          printf '%s\t%s %s\n' "$line" "$method" "$path"
+        done
+      done
+}
+
+API_METHOD_BAD=0
+API_METHOD_CHECKED=0
+API_METHOD_CLAIMS=""
+for doc in "$AGENT_DOC" "$AGENTS_DOC" "${ARCH_DOCS[@]}"; do
+  case "$doc" in
+    *.dot) continue ;;
+  esac
+  not_in "$doc" "$MARKED_DOCS"
+  [ -n "$NOT_IN" ] || continue
+  while IFS=$'\t' read -r line claim; do
+    [ -n "$claim" ] || continue
+    API_METHOD_CHECKED=$((API_METHOD_CHECKED + 1))
+    API_METHOD_CLAIMS="$API_METHOD_CLAIMS$claim"$'\n'
+    method="${claim%% *}"
+    path="${claim#* }"
+    want="$(api_methods_at "$path")"
+    case " $want " in
+      *" $method "*) ;;
+      *)
+        fail "$(printf '%-22s %s line %s names [%s], and the tree serves that path with [%s]' \
+          'api method' "$doc" "$line" "$claim" "${want:-nothing}")"
+        API_METHOD_BAD=1
+        ;;
+    esac
+  done <<< "$(api_method_claims "$doc")"
+done
+
+API_METHOD_CLAIMS=$(printf '%s\n' "$API_METHOD_CLAIMS" | grep -v '^$' | LC_ALL=C sort -u)
+
+if [ "$API_METHOD_CHECKED" -eq 0 ]; then
+  fail "$(printf '%-22s no document names a method next to a path' 'api method')"
+  API_METHOD_BAD=1
+fi
+
+if [ "$API_METHOD_BAD" -eq 0 ]; then
+  ok "api method" "$(printf '%s\n' "$API_METHOD_CLAIMS" | tr '\n' ' ' | sed -e 's/ *$//')"
+fi
+
 # --- the values the documents state for the environment variables ---------------
 #
 # The tree pins a default for the environment variables the server reads:

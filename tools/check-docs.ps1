@@ -11222,6 +11222,136 @@ if ($script:apiRouteChecked -eq 0) {
 
 if (-not $script:apiRouteBad) { Write-Ok 'api route' ("{0} paths" -f $script:apiRouteChecked) }
 
+# --- the method a document names next to a path --------------------------------
+#
+# The documents name a method and a path together -- "GET /api/loop/status" --
+# and the gate above holds the PATH.  The METHOD was not held at all: a
+# document that said "POST /api/model" would have gone unnoticed, and a reader
+# writing a client against the document would have posted to a route the server
+# only answers with a GET.
+#
+# The tree is the source: the routes the server registers, and the method each
+# one is registered under.  A path can be registered under more than one method
+# -- /api/entries is a GET and a POST -- so the method is part of the route and
+# not a decoration on the path.
+#
+# The claim is found by its own shape: a method, and a path that starts with
+# /api/.  The path may carry a query ("?lang=zh"), a concrete value where the
+# tree has a parameter ("/api/pages/model"), or a star that names a family
+# ("/api/loop/*").  Each of those is a claim about a route, and each of them is
+# held to the tree.
+#
+# The graphs are not read here: the gate "graph method" holds the whole SET of
+# methods a graph states for a handler, and this gate holds the prose.
+#
+# The comparison is one way: the document names the routes a reader is meant to
+# call, and the server may serve more.
+#
+# The gate prints the SET the document names and not its size: a count cannot
+# see two twins reading two different sets of the same size.
+
+# The methods the tree serves at a path.
+#
+# An exact path is one path, and a concrete value stands for a parameter of the
+# route: /api/pages/model is the route /api/pages/:slug with slug="model".  A
+# path that ends in a star names a family, and a family is served by the routes
+# under it.
+function Get-ApiMethodsAt($path) {
+  $out = @()
+  $base = ''
+  if ($path.EndsWith('*')) {
+    $base = $path.Substring(0, $path.Length - 1).TrimEnd('/')
+  }
+  if ($base -ne '') {
+    foreach ($endpoint in (Get-TreeEndpoints)) {
+      $emethod = $endpoint.Substring(0, $endpoint.IndexOf(' '))
+      $epath = $endpoint.Substring($endpoint.IndexOf(' ') + 1)
+      if ($epath -ceq $base -or $epath.StartsWith($base + '/')) { $out += $emethod }
+    }
+  } else {
+    $p = @($path.Trim('/') -split '/' | Where-Object { $_ -ne '' })
+    foreach ($endpoint in (Get-TreeEndpoints)) {
+      $emethod = $endpoint.Substring(0, $endpoint.IndexOf(' '))
+      $epath = $endpoint.Substring($endpoint.IndexOf(' ') + 1)
+      $r = @($epath.Trim('/') -split '/' | Where-Object { $_ -ne '' })
+      if ($p.Count -ne $r.Count) { continue }
+      $ok = $true
+      for ($i = 0; $i -lt $p.Count; $i++) {
+        if ($r[$i].StartsWith(':') -or $r[$i].StartsWith('*')) { continue }
+        if ($p[$i] -cne $r[$i]) { $ok = $false; break }
+      }
+      if ($ok) { $out += $emethod }
+    }
+  }
+  Sort-Set $out
+}
+
+# The methods a document names next to a path, as "line<TAB>METHOD path".
+#
+# The URL of a command is not part of the claim -- "POST
+# http://127.0.0.1:8080/api/entries" is a claim about the method and the path,
+# and the host it names is the reader's, not the server's -- so the host is
+# taken off before the claim is read.
+function Get-ApiMethodClaims($doc) {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD $doc), $enc)
+  $re = '(GET|POST|PUT|DELETE|PATCH)(\|(GET|POST|PUT|DELETE|PATCH))*\s+(https?://[^/\s`"\\]*)?/api/[A-Za-z0-9_:/.~*-]+'
+  $lines = $text -split "`r?`n"
+  $n = 0
+  foreach ($line in $lines) {
+    $n++
+    foreach ($m in [regex]::Matches($line, $re)) {
+      $claim = $m.Value
+      $claim = [regex]::Replace($claim, 'https?://[^/\s]*', '')
+      $claim = [regex]::Replace($claim, '\s+', ' ')
+      $claim = [regex]::Replace($claim, '\.$', '')
+      $parts = $claim -split ' '
+      $methods = $parts[0] -split '\|'
+      $path = $parts[1]
+      foreach ($method in $methods) {
+        if ($method -ne '') { $out += ("{0}`t{1} {2}" -f $n, $method, $path) }
+      }
+    }
+  }
+  $out
+}
+
+$script:apiMethodBad = $false
+$script:apiMethodChecked = 0
+$apiMethodClaims = @()
+
+foreach ($doc in (@($agentDoc, $agentsDoc) + $archDocs)) {
+  if ($doc.EndsWith('.dot')) { continue }
+  if ($markedDocs -ccontains $doc) { continue }
+  foreach ($row in (Get-ApiMethodClaims $doc)) {
+    $tab = $row.IndexOf("`t")
+    $line = $row.Substring(0, $tab)
+    $claim = $row.Substring($tab + 1)
+    $script:apiMethodChecked++
+    $apiMethodClaims += $claim
+    $method = $claim.Substring(0, $claim.IndexOf(' '))
+    $path = $claim.Substring($claim.IndexOf(' ') + 1)
+    $served = Get-ApiMethodsAt $path
+    $want = ($served -join ' ')
+    if ($want -eq '') { $want = 'nothing' }
+    if (-not ($served -ccontains $method)) {
+      Write-Fail ("{0,-22} {1} line {2} names [{3}], and the tree serves that path with [{4}]" -f 'api method', $doc, $line, $claim, $want)
+      $script:apiMethodBad = $true
+    }
+  }
+}
+
+$apiMethodSet = Sort-Set $apiMethodClaims
+
+if ($script:apiMethodChecked -eq 0) {
+  Write-Fail ("{0,-22} no document names a method next to a path" -f 'api method')
+  $script:apiMethodBad = $true
+}
+
+if (-not $script:apiMethodBad) {
+  Write-Ok 'api method' (($apiMethodSet) -join ' ')
+}
+
 # --- the values the documents state for the environment variables ---------------
 #
 # The tree pins a default for the environment variables the server reads:

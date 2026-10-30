@@ -1395,6 +1395,96 @@ else
   printf '  ok      %-20s %s\n' 'API paths' "$(doc_api_paths | grep -c . || true)"
 fi
 
+# --- the method a document names next to a path --------------------------------
+#
+# The README names a method and a path together in its prose -- "GET
+# /api/loop/status" -- and the gate above holds the PATH.  The METHOD was not
+# held at all: a README that said "POST /api/model" would have gone unnoticed,
+# and a reader writing a client against the document would have posted to a
+# route the server only answers with a GET.
+#
+# The tree is the source: the routes the server registers, and the method each
+# one is registered under.  A path can be registered under more than one method
+# -- /api/entries is a GET and a POST -- so the method is part of the route and
+# not a decoration on the path.
+#
+# The claim is found by its own shape: a method, and a path that starts with
+# /api/.  The path may carry a query ("?lang=zh"), a concrete value where the
+# tree has a parameter ("/api/pages/model"), or a star that names a family
+# ("/api/loop/*").  Each of those is a claim about a route, and each of them is
+# held to the tree.
+#
+# The comparison is one way: the document names the routes a reader is meant to
+# call, and the server may serve more.
+#
+# The gate prints the SET the document names and not its size: a count cannot
+# see two twins reading two different sets of the same size.
+
+# The methods the document names next to a path, as "METHOD path".
+#
+# The URL of a command is not part of the claim -- "POST
+# http://127.0.0.1:8080/api/entries" is a claim about the method and the path,
+# and the host it names is the reader's, not the server's -- so the host is
+# taken off before the claim is read.
+doc_api_methods() {
+  grep -oE '(GET|POST|PUT|DELETE|PATCH)(\|(GET|POST|PUT|DELETE|PATCH))*[[:space:]]+(https?://[^/[:space:]`"\\]*)?/api/[A-Za-z0-9_:/.~*-]+' "$README" \
+    | sed -E -e 's#https?://[^/[:space:]`"\\]*##' -e 's/[[:space:]]+/ /' -e 's/\.$//' \
+    | awk '{
+        n = split($1, ms, /\|/);
+        path = $2;
+        for (i = 1; i <= n; i++) if (ms[i] != "") print ms[i], path;
+      }' \
+    | LC_ALL=C sort -u
+}
+
+# The methods the tree serves at a path.  A path that ends in a star names a
+# family, and a family is served by the routes under it.
+api_methods_at() {
+  local path="$1" route rmethod rpath
+  local family=0 prefix="$path"
+  case "$path" in
+    *'*') family=1; prefix="${path%\*}"; prefix="${prefix%/}" ;;
+    */) family=1; prefix="${prefix%/}" ;;
+  esac
+  while IFS= read -r route; do
+    [ -n "$route" ] || continue
+    rmethod="${route%% *}"
+    rpath="${route#* }"
+    if [ "$family" -eq 1 ]; then
+      case "$rpath" in
+        "$prefix"|"$prefix"/*) printf '%s\n' "$rmethod" ;;
+      esac
+    elif [[ "$path" =~ ^$(build_route_pattern "$route")$ ]]; then
+      printf '%s\n' "$rmethod"
+    fi
+  done <<< "$TREE_ROUTES" | LC_ALL=C sort -u
+}
+
+DOC_API_METHODS=$(doc_api_methods)
+
+API_METHODS_BAD=0
+if [ -z "$DOC_API_METHODS" ]; then
+  fail "$(printf '%-20s the document names no method next to a path' 'API methods')"
+  API_METHODS_BAD=1
+else
+  while IFS= read -r claim; do
+    [ -n "$claim" ] || continue
+    method="${claim%% *}"
+    path="${claim#* }"
+    if ! api_methods_at "$path" | grep -qxF "$method"; then
+      fail "$(printf '%-20s the document names [%s], and the tree serves that path with [%s]' \
+        'API methods' "$claim" \
+        "$(api_methods_at "$path" | tr '\n' ' ' | sed -e 's/ *$//' | sed -e 's/^$/nothing/')")"
+      API_METHODS_BAD=1
+    fi
+  done <<< "$DOC_API_METHODS"
+fi
+
+if [ "$API_METHODS_BAD" -eq 0 ]; then
+  printf '  ok      %-20s %s\n' 'API methods' \
+    "$(printf '%s\n' "$DOC_API_METHODS" | tr '\n' ' ' | sed -e 's/ *$//')"
+fi
+
 # The entry point the discovery document names, and the one the document
 # states. An agent that calls the wrong one gets nowhere, so the method the
 # server tells it to call and the method the README tells it to call have to
