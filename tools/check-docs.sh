@@ -3527,42 +3527,69 @@ graph_variables() {
 
 check_sets "topology variables" "$(code_variable_names)" "$(graph_variables)"
 
-# The methods the deployment graph gives each handler.
+# The methods every graph gives each handler.
 #
 # A label that states a method and a path states the methods the tree serves
 # that path with.  The path may be a family: a path that ends in a star is
 # the path itself and everything under it.
+#
+# The method does not have to START the label.  The dependency graph writes
+# the whole JSON API contract in one label, and the flow graph writes the
+# method after the step it belongs to, so a label that states a method and a
+# path is read wherever the two stand.
 graph_handler_methods() {
   local file="$1"
-  grep -oE 'label="[A-Z]+(\|[A-Z]+)* /api/[^"]+"' "$file" \
-    | sed -E 's/^label="//; s/"$//'
+  grep -oE 'label="[^"]*"' "$file" \
+    | sed -E 's/^label="//; s/"$//' \
+    | grep -oE '(GET|POST|PUT|DELETE|PATCH)(\|(GET|POST|PUT|DELETE|PATCH))* /api/[A-Za-z0-9_:/.~*-]+' \
+    | sed -E 's/\.$//' \
+    | LC_ALL=C sort -u
 }
 
 # The methods the tree serves a path with.
 #
-# An exact path is one path.  A path that ends in a star is a family: the
-# path without the star, and everything under it.  The family "/api/society/*"
-# is the path "/api/society" and the paths below it, so the collection that
-# answers the society is one the graph states as GET|POST.
+# An exact path is one path, and a concrete value stands for a parameter of
+# the route: /api/pages/model is the route /api/pages/:slug with slug="model".
+# A path that ends in a star is a family: the path without the star, and
+# everything under it.  The family "/api/society/*" is the path "/api/society"
+# and the paths below it, so the collection that answers the society is one the
+# graph states as GET|POST.
 tree_path_methods() {
   local want="$1" base="" endpoint emethod epath methods=""
+  local i ok
+  local -a p r
   case "$want" in
     *'*') base="${want%\*}"; base="${base%/}" ;;
   esac
-  for endpoint in $(printf '%s\n' "$TREE_ENDPOINTS" | sed 's/ /|/'); do
-    emethod="${endpoint%%|*}"
-    epath="${endpoint#*|}"
-    if [ -n "$base" ]; then
+  if [ -n "$base" ]; then
+    for endpoint in $(printf '%s\n' "$TREE_ENDPOINTS" | sed 's/ /|/'); do
+      emethod="${endpoint%%|*}"
+      epath="${endpoint#*|}"
       case "$epath" in
         "$base") ;;
         "$base"/*) ;;
         *) continue ;;
       esac
-    else
-      [ "$epath" = "$want" ] || continue
-    fi
-    case " $methods " in *" $emethod "*) ;; *) methods="$methods $emethod" ;; esac
-  done
+      case " $methods " in *" $emethod "*) ;; *) methods="$methods $emethod" ;; esac
+    done
+  else
+    IFS='/' read -r -a p <<< "${want#/}"
+    for endpoint in $(printf '%s\n' "$TREE_ENDPOINTS" | sed 's/ /|/'); do
+      emethod="${endpoint%%|*}"
+      epath="${endpoint#*|}"
+      IFS='/' read -r -a r <<< "${epath#/}"
+      [ "${#p[@]}" = "${#r[@]}" ] || continue
+      ok=1
+      for ((i = 0; i < ${#p[@]}; i++)); do
+        case "${r[$i]}" in
+          :*|\**) continue ;;
+        esac
+        if [ "${p[$i]}" != "${r[$i]}" ]; then ok=0; break; fi
+      done
+      [ "$ok" -eq 1 ] || continue
+      case " $methods " in *" $emethod "*) ;; *) methods="$methods $emethod" ;; esac
+    done
+  fi
   printf '%s\n' $methods | LC_ALL=C sort | tr '\n' '|' | sed -e 's/|$//'
 }
 
@@ -3586,33 +3613,54 @@ same_method_set() {
 }
 
 # Every handler the graph draws states the methods the tree serves it with.
+#
+# The graph says more than the prose does: it says WHICH methods there are, so
+# the comparison is two ways -- a method the graph does not name is a method
+# the reader will not find, and a method the graph names that the tree does
+# not serve is a method that is not there.
+#
+# The gate prints the SET of claims the graph states and not its size: a count
+# cannot see two twins reading two different sets of the same size.
 check_graph_methods() {
   local label="graph method"
-  local file="$1" claim methods path want got_list want_list n=0 bad=0
+  local file="$1" must_state="${2:-0}"
+  local claim methods path want got_list want_list n=0 bad=0 claims=""
   while IFS= read -r claim; do
     [ -n "$claim" ] || continue
     n=$((n + 1))
+    claims="$claims$claim "
     methods="${claim%% *}"
     path="${claim#* }"
     want="$(tree_path_methods "$path")"
     got_list="$(printf '%s' "$methods" | tr '|' ' ' | tr -s ' ' | sed -e 's/ *$//')"
     want_list="$(printf '%s' "$want" | tr '|' ' ' | tr -s ' ' | sed -e 's/ *$//')"
     if ! same_method_set "$got_list" "$want_list"; then
-      fail "$(printf '%-22s %s states [%s], the tree serves [%s]' \
-        "$label" "$(basename "$file")" "$methods" "$want")"
+      fail "$(printf '%-22s %s states [%s] for [%s], the tree serves [%s]' \
+        "$label" "$(basename "$file")" "$methods" "$path" "$want")"
       bad=1
     fi
   done < <(graph_handler_methods "$file")
   if [ "$n" -eq 0 ]; then
-    fail "$(printf '%-22s the graph states no method for any handler' "$label")"
+    # The deployment graph is the map of the API surface: it names a method
+    # for every handler, and a graph that stops naming them is a graph that
+    # went blind.  The other graphs state methods where they state them.
+    if [ "$must_state" -eq 1 ]; then
+      fail "$(printf '%-22s the deployment graph states no method for any handler' "$label")"
+    fi
     return
   fi
   if [ "$bad" -eq 0 ]; then
-    ok "$label" "$n"
+    ok "$label" "$(basename "$file"): $(printf '%s' "$claims" | sed -e 's/ *$//')"
   fi
 }
 
-check_graph_methods "$DEPLOY_DOT"
+for graph in $(current_graphs); do
+  if [ "$graph" = "$DEPLOY_DOT" ]; then
+    check_graph_methods "$graph" 1
+  else
+    check_graph_methods "$graph" 0
+  fi
+done
 
 # Every route the server registers.
 tree_routes() {

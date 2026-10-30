@@ -3523,37 +3523,57 @@ function Get-GraphVariables {
 
 Test-Sets 'topology variables' (Get-CodeVariableNames) (Get-GraphVariables)
 
-# The methods the deployment graph gives each handler.
+# The methods every graph gives each handler.
 #
 # A label that states a method and a path states the methods the tree serves
 # that path with.  The path may be a family: a path that ends in a star is
 # the path itself and everything under it.
+#
+# The method does not have to START the label.  The dependency graph writes
+# the whole JSON API contract in one label, and the flow graph writes the
+# method after the step it belongs to, so a label that states a method and a
+# path is read wherever the two stand.
 function Get-GraphHandlerMethods($file) {
   $text = [System.IO.File]::ReadAllText((Join-Path $PWD $file), $enc)
   $out = @()
-  foreach ($m in [regex]::Matches($text, 'label="([A-Z]+(?:\|[A-Z]+)*) (/api/[^"]+)"')) {
-    $out += ($m.Groups[1].Value + ' ' + $m.Groups[2].Value)
+  foreach ($lm in [regex]::Matches($text, 'label="([^"]*)"')) {
+    $label = $lm.Groups[1].Value
+    foreach ($m in [regex]::Matches($label, '(GET|POST|PUT|DELETE|PATCH)(\|(GET|POST|PUT|DELETE|PATCH))* /api/[A-Za-z0-9_:/.~*-]+')) {
+      $out += [regex]::Replace($m.Value, '\.$', '')
+    }
   }
-  $out
+  Sort-Set $out
 }
 
 # The methods the tree serves a path with.
 #
-# An exact path is one path.  A path that ends in a star is a family: the
-# path without the star, and everything under it.  The family "/api/society/*"
-# is the path "/api/society" and the paths below it, so the collection that
-# answers the society is one the graph states as GET|POST.
+# An exact path is one path, and a concrete value stands for a parameter of
+# the route: /api/pages/model is the route /api/pages/:slug with slug="model".
+# A path that ends in a star is a family: the path without the star, and
+# everything under it.  The family "/api/society/*" is the path "/api/society"
+# and the paths below it, so the collection that answers the society is one the
+# graph states as GET|POST.
 function Get-TreePathMethods($want) {
   $base = ''
   if ($want.EndsWith('*')) { $base = $want.Substring(0, $want.Length - 1).TrimEnd('/') }
   $methods = @()
+  $p = @($want.Trim('/') -split '/' | Where-Object { $_ -ne '' })
   foreach ($endpoint in (Get-TreeEndpoints)) {
     $space = $endpoint.IndexOf(' ')
     $emethod = $endpoint.Substring(0, $space)
     $epath = $endpoint.Substring($space + 1)
     if ($base -ne '') {
       if ($epath -cne $base -and -not $epath.StartsWith($base + '/')) { continue }
-    } elseif ($epath -cne $want) { continue }
+    } else {
+      $r = @($epath.Trim('/') -split '/' | Where-Object { $_ -ne '' })
+      if ($p.Count -ne $r.Count) { continue }
+      $ok = $true
+      for ($i = 0; $i -lt $p.Count; $i++) {
+        if ($r[$i].StartsWith(':') -or $r[$i].StartsWith('*')) { continue }
+        if ($p[$i] -cne $r[$i]) { $ok = $false; break }
+      }
+      if (-not $ok) { continue }
+    }
     if ($methods -cnotcontains $emethod) { $methods += $emethod }
   }
   (Sort-Set $methods) -join '|'
@@ -3579,11 +3599,21 @@ function Test-SameMethodSet($got, $want) {
 }
 
 # Every handler the graph draws states the methods the tree serves it with.
-function Test-GraphMethods($label, $file) {
+#
+# The graph says more than the prose does: it says WHICH methods there are, so
+# the comparison is two ways -- a method the graph does not name is a method
+# the reader will not find, and a method the graph names that the tree does
+# not serve is a method that is not there.
+#
+# The gate prints the SET of claims the graph states and not its size: a count
+# cannot see two twins reading two different sets of the same size.
+function Test-GraphMethods($label, $file, $mustState) {
   $bad = $false
   $n = 0
+  $claims = @()
   foreach ($claim in (Get-GraphHandlerMethods $file)) {
     $n = $n + 1
+    $claims += $claim
     $space = $claim.IndexOf(' ')
     $methods = $claim.Substring(0, $space)
     $path = $claim.Substring($space + 1)
@@ -3591,18 +3621,31 @@ function Test-GraphMethods($label, $file) {
     $gotList = ($methods -replace '\|', ' ').Trim()
     $wantList = ($want -replace '\|', ' ').Trim()
     if (-not (Test-SameMethodSet $gotList $wantList)) {
-      Write-Fail ("{0,-22} {1} states [{2}], the tree serves [{3}]" -f $label, (Split-Path -Leaf $file), $methods, $want)
+      Write-Fail ("{0,-22} {1} states [{2}] for [{3}], the tree serves [{4}]" -f $label, (Split-Path -Leaf $file), $methods, $path, $want)
       $bad = $true
     }
   }
   if ($n -eq 0) {
-    Write-Fail ("{0,-22} the graph states no method for any handler" -f $label)
+    # The deployment graph is the map of the API surface: it names a method
+    # for every handler, and a graph that stops naming them is a graph that
+    # went blind.  The other graphs state methods where they state them.
+    if ($mustState) {
+      Write-Fail ("{0,-22} the deployment graph states no method for any handler" -f $label)
+    }
     return
   }
-  if (-not $bad) { Write-Ok $label $n }
+  if (-not $bad) {
+    Write-Ok $label ("{0}: {1}" -f (Split-Path -Leaf $file), ($claims -join ' '))
+  }
 }
 
-Test-GraphMethods 'graph method' $deployDot
+foreach ($graph in (Get-CurrentGraphs)) {
+  if ($graph -ceq $deployDot) {
+    Test-GraphMethods 'graph method' $graph $true
+  } else {
+    Test-GraphMethods 'graph method' $graph $false
+  }
+}
 
 # Every route the server registers.
 function Get-TreeRoutes {

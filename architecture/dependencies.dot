@@ -105,7 +105,7 @@ digraph maked_dependencies {
 
   // --- JSON contract (the only backend-frontend link) ---
   json_contract [
-    label="JSON API contract\nGET /api/status\nGET /api/pages\nGET /api/bootstrap\nGET /api/pages/:slug\nGET /api/domains\nGET /api/model\nGET|POST /api/entries\nGET|POST /api/sessions\nGET|POST /api/loop/*\nGET|POST /api/research/*\nGET|POST /api/society/*\nGET /api/agent",
+    label="JSON API contract\nGET /api/status\nGET /api/pages\nGET /api/bootstrap\nGET /api/pages/:slug\nGET /api/domains\nGET /api/model\nGET|POST /api/entries\nGET|POST /api/sessions\nGET|POST /api/loop/*\nGET|POST|PUT /api/research/*\nGET|POST /api/society/*\nGET /api/agent",
     shape=note
     fillcolor="#fce5cd"
     style=dashed
