@@ -364,7 +364,10 @@ async test "a local corpus is the documents in the folder it names" {
     err => fail("the file was not written: " + @debug.to_string(err))
   }
   let corpus = corpus_from(corpus_payload("local", "", "", dir, 10))
-  let documents = @backend.fetch_corpus(corpus) catch { _ => [] }
+  let documents = match @backend.fetch_corpus(corpus) {
+    Ok(found) => found
+    Err(reason) => fail("the corpus could not be read: " + reason)
+  }
   @fs.remove(dir + "/note.md") catch {
     _ => ()
   }
@@ -439,7 +442,10 @@ async test "a local folder is read in path order" {
   @fs.write_file(dir + "/d/fourth.txt", "Fourth\n") catch {
     err => fail("the file was not written: " + @debug.to_string(err))
   }
-  let documents = @backend.read_local_documents(dir, 10) catch { _ => [] }
+  let documents = match @backend.read_local_documents(dir, 10) {
+    Ok(found) => found
+    Err(reason) => fail("the corpus could not be read: " + reason)
+  }
   @fs.remove(dir + "/b.txt") catch {
     _ => ()
   }
@@ -563,14 +569,48 @@ async test "a file that is not a pdf is refused" {
 }
 
 ///|
-/// A local corpus that names a folder that is not there reads nothing, and
-/// says so.
-async test "a local corpus that names nothing reads nothing" {
+/// A local corpus that names a folder that is not there cannot be read, and
+/// the read says why.
+///
+/// It used to say it read nothing, and a reader could not tell a broken
+/// configuration apart from a corpus that holds nothing. One is a mistake the
+/// reader can fix; the other is an answer, and handing out the second for
+/// the first is a failure that looks like a result.
+async test "a local corpus that names a folder that is not there says so" {
   let corpus = corpus_from(
     corpus_payload("local", "", "", "test_corpus_not_here", 10),
   )
-  let documents = @backend.fetch_corpus(corpus) catch { _ => [] }
-  assert_eq(documents.length(), 0)
+  match @backend.fetch_corpus(corpus) {
+    Ok(_) => fail("a folder that is not there was read as documents")
+    Err(reason) => {
+      assert_true(reason.contains("test_corpus_not_here"))
+      assert_true(reason.contains("does not exist"))
+    }
+  }
+}
+
+///|
+/// A local corpus that names a folder that IS there and holds no documents is
+/// an empty corpus, and it is read as one.
+///
+/// The other half of the rule above: a corpus that is empty and a corpus
+/// that could not be read are different facts, and only the second one is a
+/// failure. Reading an empty folder as a failure would be as wrong as
+/// reading a missing folder as an empty one.
+async test "a local corpus that names an empty folder is an empty corpus" {
+  let dir = "test_corpus_empty_dir"
+  @fs.mkdir(dir, recursive=true, allow_exist=true) catch {
+    err => fail("the folder was not made: " + @debug.to_string(err))
+  }
+  let corpus = corpus_from(corpus_payload("local", "", "", dir, 10))
+  let read = @backend.fetch_corpus(corpus)
+  @fs.rmdir(dir) catch {
+    _ => ()
+  }
+  match read {
+    Ok(documents) => assert_eq(documents.length(), 0)
+    Err(reason) => fail("an empty folder was refused: " + reason)
+  }
 }
 
 ///|

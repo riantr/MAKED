@@ -27,7 +27,7 @@ literal is. Confidence is **high** unless noted otherwise.
 | `App::adapt` bridges to moonback's `@moonback.Handler` | `backend/app.mbt:109-112` | high |
 | Catch-all GET `/*rest` returns JSON 404 | `backend/app.mbt:146` | high |
 | Route conflicts use `fail` (not `raise`) | `backend/app.mbt:141` | high |
-| 37 API routes: pages, entries, sessions, loop, research, society, agent | `backend/api.mbt:19-905` | high |
+| 37 API routes: pages, entries, sessions, loop, research, society, agent | `backend/api.mbt:19-971` | high |
 | Database wraps sqlite3.Connection | `backend/database.mbt:26` | high |
 | Schema: `pages` table with 12 columns | `backend/database.mbt:76-88` | high |
 | Schema: also `entries`, `sessions`, `session_steps` tables | `backend/database.mbt:100-134` | high |
@@ -47,8 +47,8 @@ literal is. Confidence is **high** unless noted otherwise.
 | Claim | Source | Confidence |
 |-------|--------|------------|
 | Elm-style TEA (Model/Update/View) via rabbita | `frontend/app.mbt:85-1300` | high |
-| Start-up chain: `GET /api/bootstrap`, then `GET /api/loop/status` | `frontend/app.mbt:1287`, `frontend/app.mbt:394` | high |
-| Client-side routing via History API subscription | `frontend/app.mbt:1198` | high |
+| Start-up chain: `GET /api/bootstrap`, then `GET /api/loop/status` | `frontend/app.mbt:1294`, `frontend/app.mbt:394` | high |
+| Client-side routing via History API subscription | `frontend/app.mbt:1206` | high |
 | `slug_of` maps URL path to page slug | `frontend/app.mbt:256` | high |
 | All pages held in memory after first load | `frontend/app.mbt:369` | high |
 | Page struct mirrors backend, decodes JSON totally | `frontend/page.mbt:16-131` | high |

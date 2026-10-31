@@ -51,7 +51,15 @@ fn is_json_path(path : String) -> Bool {
 
 ///|
 /// The documents a corpus gives, read through the reader it names.
-pub async fn fetch_corpus(config : CorpusConfig) -> Array[Document] {
+///
+/// Err when the source could not be read at all, with the reason why. A
+/// corpus that names a folder that is not there is not a corpus that holds
+/// nothing: one is a broken configuration and the other is an answer, and a
+/// reader cannot tell them apart when a failure is turned into an empty
+/// list.
+pub async fn fetch_corpus(
+  config : CorpusConfig,
+) -> Result[Array[Document], String] {
   match config.kind {
     Arxiv => fetch_arxiv_documents(config.query, config.max_results)
     Rss => fetch_rss_documents(config.url, config.max_results)
@@ -68,16 +76,23 @@ pub async fn fetch_corpus(config : CorpusConfig) -> Array[Document] {
 /// be built at all. That refusal was silent: the old reader asked arxiv for
 /// a path it could not name, the answer was an empty list, and the panel
 /// showed an empty list as if the reader had read nothing at all.
+///
+/// Err when arxiv could not be read, with the reason. An arxiv that answers
+/// with no entries is an empty corpus, and an arxiv that cannot be reached
+/// is a broken one.
 pub async fn fetch_arxiv_documents(
   query : String,
   max_results : Int32,
-) -> Array[Document] {
+) -> Result[Array[Document], String] {
   let url = "\{ARXIV_API}?search_query=\{query}&start=0&max_results=\{max_results}&sortBy=submittedDate&sortOrder=descending"
-  let body = fetch_text(url)
-  if body == "" {
-    return []
+  let body = match fetch_text(url) {
+    Ok(text) => text
+    Err(reason) => return Err(reason)
   }
-  limit_documents(parse_feed(body), max_results)
+  if body == "" {
+    return Ok([])
+  }
+  Ok(limit_documents(parse_feed(body), max_results))
 }
 
 ///|
@@ -85,15 +100,22 @@ pub async fn fetch_arxiv_documents(
 ///
 /// The feed is the reader's own subscription, so the reader already knows
 /// what is in it; MAKED's job is only to read it.
+///
+/// Err when the feed could not be read, with the reason, for the same reason
+/// the arxiv reader says it: a feed that cannot be reached is not a feed
+/// that holds nothing.
 pub async fn fetch_rss_documents(
   url : String,
   max_results : Int32,
-) -> Array[Document] {
-  let body = fetch_text(url)
-  if body == "" {
-    return []
+) -> Result[Array[Document], String] {
+  let body = match fetch_text(url) {
+    Ok(text) => text
+    Err(reason) => return Err(reason)
   }
-  limit_documents(parse_feed(body), max_results)
+  if body == "" {
+    return Ok([])
+  }
+  Ok(limit_documents(parse_feed(body), max_results))
 }
 
 ///|
@@ -103,13 +125,18 @@ pub async fn fetch_rss_documents(
 /// hands back. A corpus read in a different order on every run is a corpus
 /// that drives the loop differently every run, and a reader who replays
 /// yesterday's session would not get yesterday's steps.
+///
+/// Err when the path is not there, with the reason. A folder that is not
+/// there is a corpus that cannot be read; a folder that is there and holds
+/// no documents is an empty corpus. They are different facts.
 pub async fn read_local_documents(
   path : String,
   max_results : Int32,
-) -> Array[Document] {
+) -> Result[Array[Document], String] {
   if !@fs.exists(path) {
-    eprintln("error: the local corpus \{path} does not exist")
-    return []
+    let reason = "the local corpus \"" + path + "\" does not exist"
+    eprintln("error: \{reason}")
+    return Err(reason)
   }
   let kind = @fs.kind(path)
   let files : Array[String] = if kind == Directory {
@@ -130,7 +157,7 @@ pub async fn read_local_documents(
       None => ()
     }
   }
-  documents
+  Ok(documents)
 }
 
 ///|
@@ -898,26 +925,29 @@ fn unescape_entities(text : String) -> String {
 ///|
 /// The body of a URL, read as text.
 ///
-/// An empty string when the URL cannot be read, with the reason printed. The
-/// reason matters: a reader who pointed MAKED at a feed and got nothing
-/// needs to know whether the feed is empty or the address is wrong.
-async fn fetch_text(url : String) -> String {
+/// Err when the URL cannot be read, with the reason. The reason matters: a
+/// reader who pointed MAKED at a feed and got nothing needs to know whether
+/// the feed is empty or the address is wrong. It used to be printed and then
+/// thrown away, and the caller was handed an empty body that it could not
+/// tell apart from an empty feed.
+async fn fetch_text(url : String) -> Result[String, String] {
   let (response, data) = @http.get(url) catch {
     err => {
       eprintln("error: cannot read \{url}: \{err}")
-      return ""
+      return Err("cannot read \{url}: \{err}")
     }
   }
   if response.code != 200 {
     eprintln("error: \{url} answered \{response.code}")
-    return ""
+    return Err("\{url} answered \{response.code}")
   }
-  data.text() catch {
+  let text = data.text() catch {
     err => {
       eprintln("error: \{url} sent a body that is not text: \{err}")
-      return ""
+      return Err("\{url} sent a body that is not text: \{err}")
     }
   }
+  Ok(text)
 }
 
 ///|

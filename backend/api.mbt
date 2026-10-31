@@ -637,7 +637,14 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   app.get("/api/research/documents", req => {
     let lang = lang_of(req)
     let corpus = current_corpus()
-    let documents = fetch_corpus(corpus) catch { _ => [] }
+    // The read is told apart from an empty corpus. A corpus that names a
+    // folder that is not there is not a corpus that holds nothing, and the
+    // panel has to be able to say which one it is looking at.
+    let no_documents : Array[Document] = []
+    let (documents, read_error, read_reason) = match fetch_corpus(corpus) {
+      Ok(found) => (found, "", "")
+      Err(reason) => (no_documents, "corpus_unreadable", reason)
+    }
     let model = current_model()
     let config = current_research()
     let triggers = documents.map(fn(d) {
@@ -659,11 +666,23 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       "triggers": [..triggers],
       "count": documents.length(),
       "corpus": corpus_json(corpus),
+      // The reason the corpus could not be read, and the name of the failure.
+      // Empty when the corpus was read: an empty field is a field that says
+      // "nothing went wrong", and a client that only looks at one of the two
+      // still learns the truth.
+      "error": read_error,
+      "reason": read_reason,
       // An empty corpus is said out loud. A panel that shows nothing and
       // says nothing is a panel the reader cannot tell apart from a broken
       // one, and "the corpus held nothing" and "the fetch failed" are
       // different facts that look identical when neither is said.
-      "notice": if documents.length() == 0 {
+      "notice": if read_error != "" {
+        "The corpus (" +
+        corpus.describe() +
+        ") could not be read: " +
+        read_reason +
+        "."
+      } else if documents.length() == 0 {
         "The corpus (" + corpus.describe() + ") held no documents."
       } else {
         ""
@@ -674,7 +693,14 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   app.post("/api/research/drive", req => {
     let lang = lang_of(req)
     let corpus = current_corpus()
-    let documents = fetch_corpus(corpus) catch { _ => [] }
+    // The same distinction as the documents panel: a corpus that could not be
+    // read drives nothing, and says so, rather than driving nothing in
+    // silence.
+    let no_documents : Array[Document] = []
+    let (documents, read_error, read_reason) = match fetch_corpus(corpus) {
+      Ok(found) => (found, "", "")
+      Err(reason) => (no_documents, "corpus_unreadable", reason)
+    }
     let model = current_model()
     let config = current_research()
     let results : Array[Json] = []
@@ -729,6 +755,20 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       "documents_processed": documents.length(),
       "documents_driven": driven,
       "corpus": corpus_json(corpus),
+      // The reason the corpus could not be read. Without it a drive that
+      // read nothing looks exactly like a drive over an empty corpus, and
+      // the reader is left to guess which one happened.
+      "error": read_error,
+      "reason": read_reason,
+      "notice": if read_error != "" {
+        "The corpus (" +
+        corpus.describe() +
+        ") could not be read: " +
+        read_reason +
+        "."
+      } else {
+        ""
+      },
     }
     Response::json(body)
   })
@@ -855,14 +895,40 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   // rather than a status code they cannot act on.
   app.get("/api/research/causal", _req => {
     let corpus = current_corpus()
-    let documents = fetch_corpus(corpus) catch { _ => [] }
-    let causal_result = estimate_causal_effect(documents)
+    // The same honesty as the documents panel: an empty corpus and a fetch
+    // that failed look identical when neither is said out loud. A corpus
+    // that could not be read is refused with THAT reason, because the size
+    // of a corpus that was never read is not a fact.
+    let (documents, read_error, read_reason, causal_result) = match
+      fetch_corpus(corpus) {
+      Ok(found) => (found, "", "", estimate_causal_effect(found))
+      Err(reason) => {
+        let no_documents : Array[Document] = []
+        (
+          no_documents,
+          "corpus_unreadable",
+          reason,
+          CausalOutcome::refused_because(
+            "The corpus (" +
+            corpus.describe() +
+            ") could not be read: " +
+            reason,
+          ),
+        )
+      }
+    }
     let body : Json = {
       "causal": causal_result.to_json(),
       "documents_analyzed": documents.length(),
-      // The same honesty as the documents panel: an empty corpus and a
-      // fetch that failed look identical when neither is said out loud.
-      "notice": if documents.length() == 0 {
+      "error": read_error,
+      "reason": read_reason,
+      "notice": if read_error != "" {
+        "The corpus (" +
+        corpus.describe() +
+        ") could not be read: " +
+        read_reason +
+        "."
+      } else if documents.length() == 0 {
         "The corpus (" + corpus.describe() + ") held no documents."
       } else {
         ""

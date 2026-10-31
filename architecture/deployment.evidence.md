@@ -31,7 +31,7 @@
 
 | Claim | Source | Confidence |
 |-------|--------|------------|
-| The one outbound call is the corpus fetch | `backend/corpus_sources.mbt:905` (`@http.get(url)`) | high |
+| The one outbound call is the corpus fetch | `backend/corpus_sources.mbt:934` (`@http.get(url)`) | high |
 | SQLite accessed via FFI, not network | `backend/database.mbt:27` (`sqlite3.Connection::open`) | high |
 | Static files read via async/fs | `backend/maked_app.mbt:99` (`@fs.read_file`) | high |
 

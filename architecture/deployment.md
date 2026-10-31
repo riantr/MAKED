@@ -132,7 +132,7 @@ route.
 
 There is **one outbound call**: the server fetches the corpus you configured --
 the arXiv API or an RSS feed -- with `@http.get(url)`
-(`backend/corpus_sources.mbt:905`). It does not connect to any remote
+(`backend/corpus_sources.mbt:934`). It does not connect to any remote
 database, and it does not phone home.
 
 ## Deployment gaps

@@ -312,6 +312,19 @@ pub(all) enum CausalOutcome {
 }
 
 ///|
+/// A refusal that says the corpus could not be read.
+///
+/// The reason is the one the reader of the corpus was given, not a reason
+/// about the size of the corpus. "Only 0 documents; a causal estimate needs
+/// at least 10" would be a true statement about an empty corpus and a false
+/// one about a corpus that could not be read at all, and the reader who
+/// cannot tell the two apart is left to go and look for a corpus that is
+/// large enough instead of one that is there.
+pub fn CausalOutcome::refused_because(reason : String) -> CausalOutcome {
+  Refused({ reason, balance: [], })
+}
+
+///|
 
 ///|
 /// The features of one document: the numbers, or the name of the controlled

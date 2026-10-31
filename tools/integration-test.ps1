@@ -1371,6 +1371,37 @@ try {
         Assert-True "and the corpus that was running still runs" `
           ((Field $after "corpus").source.kind -eq "local")
 
+        # A corpus that names a source it cannot READ is a corpus that could
+        # not be read, and that is not the same fact as a corpus that holds
+        # nothing. The panel used to say "held no documents" for both, so a
+        # broken configuration and an answer looked identical, and the reader
+        # was left looking for a corpus that was big enough instead of one
+        # that was there.
+        $missingPath = (Join-Path $tempDir "maked_integration_missing_notes") -replace '\\', '/'
+        $unreadable = Put-Json "/api/research/corpus" `
+          @{ format = "maked.corpus.v1"; source = @{ kind = "local"; path = $missingPath } }
+        Assert-Status "a corpus that names a folder that is not there is accepted" 200 $unreadable
+        $read = Get-Json "/api/research/documents"
+        Assert-True "and the panel says the corpus could not be read" `
+          ((Field $read "notice") -like "*could not be read*")
+        Assert-True "and it does not claim the corpus held no documents" `
+          ((Field $read "notice") -notlike "*held no documents*")
+        Assert-True "and the reason names the folder that is not there" `
+          ((Field $read "reason") -like "*maked_integration_missing_notes*")
+        Assert-True "and the failure is named" `
+          ((Field $read "error") -eq "corpus_unreadable")
+        $drive = Post-Json "/api/research/drive"
+        $driveBody = ConvertFrom-Json $drive.Body
+        Assert-True "and a drive over it says the same thing" `
+          ((Field $driveBody "notice") -like "*could not be read*")
+        Assert-True "and it names the folder that is not there" `
+          ((Field $driveBody "reason") -like "*maked_integration_missing_notes*")
+        $causal = Get-Json "/api/research/causal"
+        Assert-True "and the causal panel does not blame the size of the corpus" `
+          ((Field (Field $causal "causal") "reason") -notlike "*at least 10*")
+        Assert-True "but the reason it gives is the one that is true" `
+          ((Field (Field $causal "causal") "reason") -like "*could not be read*")
+
         # A new corpus is accepted, installed and written back.
         $newCorpus = @'
 {

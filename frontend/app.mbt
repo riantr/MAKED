@@ -486,7 +486,11 @@ pub fn update(
           research_triggers: decode_research_triggers(json),
           research_corpus: decode_research_corpus(json),
           research_notice: get_string(json, "notice", ""),
-          research_error: "",
+          // The server says why a corpus could not be read, and the reason
+          // belongs in the loud line rather than in the quiet one: a corpus
+          // that could not be read is not an empty corpus, and the panel that
+          // shows both the same way is the panel that hides the difference.
+          research_error: get_string(json, "reason", ""),
         },
         @cmd.none,
       )
@@ -500,7 +504,8 @@ pub fn update(
           loop_error: "",
           research_documents: [],
           research_triggers: [],
-          research_error: "",
+          research_notice: get_string(json, "notice", ""),
+          research_error: get_string(json, "reason", ""),
         },
         @cmd.none,
       )
@@ -630,7 +635,9 @@ pub fn update(
         {
           ..model,
           causal_result: decode_causal_result(json),
-          causal_error: "",
+          // A corpus that could not be read is not a corpus that is too
+          // small, and the reason the server gave is the one that says so.
+          causal_error: get_string(json, "reason", ""),
         },
         @cmd.none,
       )
