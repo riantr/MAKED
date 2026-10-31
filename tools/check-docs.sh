@@ -3086,7 +3086,23 @@ check_chain_order() {
   local label="middleware order"
   local bad=0
   local doc line cell name all order
-  for doc in "$EVIDENCE" "architecture/flows.evidence.md" "$DEPLOY"; do
+  # Every document the pair reads is checked.  The gate used to read THREE of
+  # them by name -- the two evidence tables and the deployment evidence -- and
+  # a chain order stated in any other document was a claim nobody watched.
+  # The measurement: a NEW document was added, of the same shape as the
+  # evidence tables, carrying a row that states the chain as
+  # "routes -> spa_fallback -> static_files" -- the tree's own three parts, so
+  # the name gate stays quiet, and the tree's own line range, so the
+  # references gate stays quiet -- and all four gate suites went on saying
+  # that every claim in the documents matches the tree.  The control, the same
+  # row in a document the gate does read, was caught at once.
+  #
+  # A document that describes the past is history: it is not corrected.
+  for doc in "${ARCH_DOCS[@]}"; do
+    [ -f "$doc" ] || continue
+    # a document that describes the past is history: it is not corrected
+    not_in "$doc" "$MARKED_DOCS"
+    [ -n "$NOT_IN" ] || continue
     while IFS= read -r line; do
       case "$line" in "|"*) ;; *) continue ;; esac
       cell="${line#|}"

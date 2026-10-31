@@ -3028,6 +3028,9 @@ function Get-DocFlowChain {
 function Test-ChainOrder($label, $expected, $docs) {
   $bad = $false
   foreach ($doc in $docs) {
+    # a document that describes the past is history: it is not corrected
+    if (-not (Test-Path (Join-Path $PWD $doc))) { continue }
+    if ($markedDocs -ccontains $doc) { continue }
     $text = [System.IO.File]::ReadAllText((Join-Path $PWD $doc), $enc)
     foreach ($line in ($text -split "`r?`n")) {
       if (-not $line.StartsWith('|')) { continue }
@@ -3072,7 +3075,17 @@ if ($chainMoonbackPin -ceq $chainRuleMoonback) {
   Write-Fail ("{0,-22} the chain rule was read from moonback {1} and moon.mod now pins {2} -- read the rule again" -f 'chain rule', $chainRuleMoonback, $chainMoonbackPin)
 }
 
-Test-ChainOrder 'middleware order' $treeChainOrder @($evidence, 'architecture/flows.evidence.md', $deploy)
+# Every document the pair reads is checked.  The gate used to read THREE of
+# them by name -- the two evidence tables and the deployment evidence -- and a
+# chain order stated in any other document was a claim nobody watched.  The
+# measurement: a NEW document was added, of the same shape as the evidence
+# tables, carrying a row that states the chain as
+# "routes -> spa_fallback -> static_files" -- the tree's own three parts, so
+# the name gate stays quiet, and the tree's own line range, so the references
+# gate stays quiet -- and all four gate suites went on saying that every
+# claim in the documents matches the tree.  The control, the same row in a
+# document the gate does read, was caught at once.
+Test-ChainOrder 'middleware order' $treeChainOrder $archDocs
 
 # --- architecture/flows.md: the paths the requests take ----------------------
 #
