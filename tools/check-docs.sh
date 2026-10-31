@@ -572,6 +572,17 @@ marked_documents() {
 
 MARKED_DOCS=$(marked_documents)
 
+# The design documents: every markdown file and every graph.
+#
+# The list is made here, before the gates that use it, so that one list is
+# the one every gate reads: a gate that names the documents it reads holds
+# only what the names say, and the tree can grow past a list of names without
+# anything saying so.
+ARCH_DOCS=()
+while IFS= read -r f; do
+  ARCH_DOCS+=("$f")
+done < <(printf '%s\n' architecture/*.md architecture/*.dot | LC_ALL=C sort)
+
 # --- the references ---------------------------------------------------------
 #
 # Every `file.ext:line` or `file.ext:line-line` in the architecture
@@ -669,7 +680,7 @@ check_references() {
 #
 # A document that describes the past is left alone: history is not the tree,
 # and a reference in it is not a claim about the tree.
-for doc in $(printf '%s\n' architecture/*.md architecture/*.dot | LC_ALL=C sort); do
+for doc in "${ARCH_DOCS[@]}"; do
   not_in "$doc" "$MARKED_DOCS"
   [ -n "$NOT_IN" ] || continue
   check_references "$doc"
@@ -4212,12 +4223,6 @@ code_log_lines() {
     esac
   done < "$file"
 }
-
-# The design documents: every markdown file and every graph.
-ARCH_DOCS=()
-while IFS= read -r f; do
-  ARCH_DOCS+=("$f")
-done < <(printf '%s\n' architecture/*.md architecture/*.dot | LC_ALL=C sort)
 
 # The stream a claim names, if it names one.
 #
@@ -10193,7 +10198,20 @@ while IFS=$'\t' read -r d_name d_file d_line; do
   TYPE_NAMES="$TYPE_NAMES $d_name"
 done <<< "$TYPE_DEFS"
 
-for doc in "$EVIDENCE" "$DEPS" "$DEPLOY" architecture/flows.evidence.md; do
+# Every document the pair reads is checked.  The gate used to read FOUR of
+# them by name -- the three evidence documents and the flow evidence -- and a
+# type claim in any other document was a claim nobody watched.  The
+# measurement: a NEW document was added, of the same shape as the evidence
+# tables, carrying a row that points the Page type at a line of
+# backend/pages.mbt that is IN the file and is NOT the line the tree defines
+# Page on -- the line is inside the file, so the references gate stays quiet,
+# and the type is one the tree has, so the name gate stays quiet -- and all
+# four gate suites went on saying that every claim in the documents matches
+# the tree.  The control, the same row in a document the gate does read, was
+# caught at once.
+#
+# A document that describes the past is history: it is not corrected.
+for doc in "${ARCH_DOCS[@]}"; do
   [ -f "$doc" ] || continue
   # a document that describes the past is history: it is not corrected
   not_in "$doc" "$MARKED_DOCS"

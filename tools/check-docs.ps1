@@ -464,6 +464,19 @@ function Get-MarkedDocuments {
 
 $markedDocs = @(Get-MarkedDocuments)
 
+# The design documents: every markdown file and every graph.
+#
+# The list is made here, before the gates that use it, so that one list is
+# the one every gate reads: a gate that names the documents it reads holds
+# only what the names say, and the tree can grow past a list of names without
+# anything saying so.
+[string[]]$archDocs = @(
+  Get-ChildItem -Path (Join-Path $PWD 'architecture') -File |
+    Where-Object { $_.Extension -eq '.md' -or $_.Extension -eq '.dot' } |
+    ForEach-Object { 'architecture/' + $_.Name }
+)
+[Array]::Sort($archDocs, [System.StringComparer]::Ordinal)
+
 # --- the references ---------------------------------------------------------
 #
 # Every `file.ext:line` or `file.ext:line-line` in the architecture
@@ -523,16 +536,9 @@ function Test-References($doc) {
 #
 # A document that describes the past is left alone: history is not the tree,
 # and a reference in it is not a claim about the tree.
-$referenceDocs = @()
-foreach ($file in @(Get-ChildItem -Path 'architecture' -File |
-    Where-Object { $_.Extension -eq '.md' -or $_.Extension -eq '.dot' })) {
-  $referenceDocs += ('architecture/' + $file.Name)
-}
-[Array]::Sort($referenceDocs, [System.StringComparer]::Ordinal)
-
 $referencesChecked = 0
 
-foreach ($doc in $referenceDocs) {
+foreach ($doc in $archDocs) {
   if ($markedDocs -ccontains $doc) { continue }
   Test-References $doc
 }
@@ -4249,14 +4255,6 @@ function Get-TreeLogLines {
   }
   @{ stream = $stream; print = $print; add = $add; def = $def }
 }
-
-# The design documents: every markdown file and every graph.
-[string[]]$archDocs = @(
-  Get-ChildItem -Path (Join-Path $PWD 'architecture') -File |
-    Where-Object { $_.Extension -eq '.md' -or $_.Extension -eq '.dot' } |
-    ForEach-Object { 'architecture/' + $_.Name }
-)
-[Array]::Sort($archDocs, [System.StringComparer]::Ordinal)
 
 # The claims a document makes.
 #
@@ -9074,7 +9072,20 @@ foreach ($d in $typeDefs) {
   $typeNames += ,$d[0]
 }
 
-foreach ($doc in @($evidence, $deps, $deploy, 'architecture/flows.evidence.md')) {
+# Every document the pair reads is checked.  The gate used to read FOUR of
+# them by name -- the three evidence documents and the flow evidence -- and a
+# type claim in any other document was a claim nobody watched.  The
+# measurement: a NEW document was added, of the same shape as the evidence
+# tables, carrying a row that points the Page type at a line of
+# backend/pages.mbt that is IN the file and is NOT the line the tree defines
+# Page on -- the line is inside the file, so the references gate stays quiet,
+# and the type is one the tree has, so the name gate stays quiet -- and all
+# four gate suites went on saying that every claim in the documents matches
+# the tree.  The control, the same row in a document the gate does read, was
+# caught at once.
+#
+# A document that describes the past is history: it is not corrected.
+foreach ($doc in $archDocs) {
   if (-not (Test-Path (Join-Path $PWD $doc))) { continue }
   # a document that describes the past is history: it is not corrected
   if ($markedDocs -ccontains $doc) { continue }
