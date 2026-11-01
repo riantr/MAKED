@@ -595,8 +595,14 @@ fn bare_model() -> @frontend.Model {
     research_documents: [],
     research_triggers: [],
     research_error: "",
-    research_corpus: None,
+    research_corpus_source: "",
     research_notice: "",
+    research_corpus_kind: "arxiv",
+    research_corpus_input: "",
+    research_corpus_max: "20",
+    research_corpus_editing: false,
+    research_corpus_error: "",
+    research_corpus_notice: "",
     research_config: None,
     research_config_path: "",
     research_config_text: "",
@@ -1789,13 +1795,7 @@ test "the panel says which corpus it is reading" {
     @frontend.Msg::ResearchLoaded(Ok(corpus_payload())),
     silent_emit(),
   )
-  match model.research_corpus {
-    Some(corpus) =>
-      assert_true(
-        @frontend.get_string(corpus, "source", "").contains("./notes"),
-      )
-    None => fail("the corpus was not kept")
-  }
+  assert_true(model.research_corpus_source.contains("./notes"))
 }
 
 ///|
@@ -1843,6 +1843,243 @@ test "the corpus panel sends the read click" {
     }
   }
   assert_eq(reads, 1)
+}
+
+///|
+/// The reader can replace the corpus.
+///
+/// The server answers `PUT /api/research/corpus` and before this the page had
+/// no way to ask for it: a capability the server has and the reader cannot
+/// reach is a capability the reader does not have. The verb matters as much
+/// as the path -- a corpus is *replaced*, and the server's route is a PUT.
+test "the reader can replace the corpus" {
+  let (_, cmd) = @frontend.update(
+    {
+      ..bare_model(),
+      research_corpus_kind: "local",
+      research_corpus_input: "./my_notes",
+      research_corpus_max: "30",
+    },
+    @frontend.Msg::CorpusSaveClicked,
+    silent_emit(),
+  )
+  let request = cmd.to_repr().to_string()
+  assert_true(request.contains("/api/research/corpus"))
+  assert_true(request.contains("Put"))
+}
+
+///|
+/// The corpus the reader named is the corpus that is asked for.
+///
+/// The payload is the shape the server writes: every field is there, and the
+/// one this kind does not use is empty. A shape that changes with the kind
+/// is a shape the server has to guess at, and a path sent as a query is a
+/// corpus that names nothing.
+test "the corpus the reader named is the corpus that is asked for" {
+  let local = @frontend.corpus_payload("local", "./my_notes", "30")
+  let source = match @frontend.field(local, "source") {
+    Some(obj) => obj
+    None => Json::empty_object()
+  }
+  assert_eq(@frontend.get_string(local, "format", ""), "maked.corpus.v1")
+  assert_eq(@frontend.get_string(source, "kind", ""), "local")
+  assert_eq(@frontend.get_string(source, "path", ""), "./my_notes")
+  assert_eq(@frontend.get_string(source, "query", ""), "")
+  assert_eq(@frontend.get_string(source, "url", ""), "")
+  assert_eq(@frontend.get_int(source, "max_results", 0), 30)
+  let feed = @frontend.corpus_payload("rss", "https://example.com/feed", "20")
+  let feed_source = match @frontend.field(feed, "source") {
+    Some(obj) => obj
+    None => Json::empty_object()
+  }
+  assert_eq(
+    @frontend.get_string(feed_source, "url", ""),
+    "https://example.com/feed",
+  )
+  assert_eq(@frontend.get_string(feed_source, "path", ""), "")
+}
+
+///|
+/// A corpus the server refused says why.
+///
+/// The status code never reaches the client -- rabbita hands over the body
+/// whatever the status was -- so the body is the only place a refusal can be
+/// seen. A refusal that showed "the corpus could not be replaced" instead of
+/// the sentence would leave the reader with nothing to act on.
+test "a corpus the server refused says why" {
+  let json : Json = {
+    "error": "invalid_corpus",
+    "reason": "a local source needs a path",
+  }
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::CorpusSaved(Ok(json)),
+    silent_emit(),
+  )
+  assert_eq(model.research_corpus_error, "a local source needs a path")
+  assert_eq(model.research_corpus_notice, "")
+  // The editor stays open: the reader has to be able to fix what they named.
+  assert_true(model.research_corpus_editing)
+}
+
+///|
+/// A corpus that was replaced says what is running.
+///
+/// The reader asked for a corpus and the server ran one: the panel says
+/// which one, and what the server did with it -- written back to the file, or
+/// not, which is the difference between a corpus that lasts and one that
+/// lasts until the server stops.
+test "a corpus that was replaced says what is running" {
+  let json : Json = {
+    "corpus": {
+      "format": "maked.corpus.v1",
+      "source": {
+        "kind": "local",
+        "query": "",
+        "url": "",
+        "path": "./my_notes",
+        "max_results": 30,
+      },
+    },
+    "path": "corpus.yaml",
+    "saved": true,
+    "description": "local: ./my_notes",
+    "notice": "The corpus is running, and it was written back to corpus.yaml.",
+  }
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::CorpusSaved(Ok(json)),
+    silent_emit(),
+  )
+  assert_eq(model.research_corpus_source, "local: ./my_notes")
+  assert_true(model.research_corpus_notice.contains("written back"))
+  assert_eq(model.research_corpus_error, "")
+  assert_true(!model.research_corpus_editing)
+}
+
+///|
+/// The editor opens with the corpus the server is running.
+///
+/// The reader edits the corpus they have, not an empty one: the kind and the
+/// one thing that kind needs are what the server says it is reading now.
+test "the editor opens with the corpus the server is running" {
+  let json : Json = {
+    "corpus": {
+      "format": "maked.corpus.v1",
+      "source": {
+        "kind": "local",
+        "query": "",
+        "url": "",
+        "path": "./notes",
+        "max_results": 25,
+      },
+    },
+    "path": "corpus.yaml",
+    "writable": true,
+    "description": "local: ./notes",
+  }
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::CorpusLoaded(Ok(json)),
+    silent_emit(),
+  )
+  assert_eq(model.research_corpus_kind, "local")
+  assert_eq(model.research_corpus_input, "./notes")
+  assert_eq(model.research_corpus_max, "25")
+  assert_true(model.research_corpus_editing)
+}
+
+///|
+/// The editor asks the server what the corpus is.
+test "the editor asks the server what the corpus is" {
+  let (_, cmd) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::CorpusEditClicked,
+    silent_emit(),
+  )
+  let request = cmd.to_repr().to_string()
+  assert_true(request.contains("/api/research/corpus"))
+  assert_true(request.contains("Get"))
+}
+
+///|
+/// Choosing where the documents come from clears the field that was typed.
+///
+/// The field belongs to the kind the reader chose before: a path is not a
+/// query, and sending one as the other is a corpus that names nothing.
+test "choosing where the documents come from clears the field" {
+  let (model, _) = @frontend.update(
+    {
+      ..bare_model(),
+      research_corpus_kind: "local",
+      research_corpus_input: "./my_notes",
+    },
+    @frontend.Msg::CorpusKindClicked("rss"),
+    silent_emit(),
+  )
+  assert_eq(model.research_corpus_kind, "rss")
+  assert_eq(model.research_corpus_input, "")
+}
+
+///|
+/// The corpus panel offers the way to change the corpus.
+///
+/// A reader who cannot see how to change the corpus has not got a corpus
+/// they can choose; the control has to be on the panel, not in the source.
+test "the corpus panel offers the way to change the corpus" {
+  let seen : Array[@frontend.Msg] = []
+  let _ = @frontend.research_view(capturing_emit(seen), bare_model())
+  let mut edits = 0
+  for msg in seen {
+    match msg {
+      @frontend.Msg::CorpusEditClicked => edits += 1
+      _ => ()
+    }
+  }
+  assert_eq(edits, 1)
+}
+
+///|
+/// The editor's save is the save the reader expects.
+test "the corpus editor sends the save click" {
+  let seen : Array[@frontend.Msg] = []
+  let model = {
+    ..bare_model(),
+    research_corpus_editing: true,
+    research_corpus_input: "./my_notes",
+  }
+  let _ = @frontend.corpus_editor_view(capturing_emit(seen), model)
+  let mut saves = 0
+  for msg in seen {
+    match msg {
+      @frontend.Msg::CorpusSaveClicked => saves += 1
+      _ => ()
+    }
+  }
+  assert_eq(saves, 1)
+}
+
+///|
+/// The editor offers the three kinds a corpus can come from.
+///
+/// A corpus can come from arxiv, from a feed, or from a folder on the
+/// reader's own machine, and a kind the editor does not offer is a kind the
+/// reader cannot choose.
+test "the editor offers the three kinds a corpus can come from" {
+  let seen : Array[@frontend.Msg] = []
+  let model = { ..bare_model(), research_corpus_editing: true, }
+  let _ = @frontend.corpus_editor_view(capturing_emit(seen), model)
+  let kinds : Array[String] = []
+  for msg in seen {
+    match msg {
+      @frontend.Msg::CorpusKindClicked(kind) => kinds.push(kind)
+      _ => ()
+    }
+  }
+  assert_eq(kinds.length(), 3)
+  assert_true(kinds.contains("arxiv"))
+  assert_true(kinds.contains("rss"))
+  assert_true(kinds.contains("local"))
 }
 
 ///|

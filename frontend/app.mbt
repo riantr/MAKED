@@ -28,6 +28,21 @@ pub(all) enum Msg {
   ResearchConfigEditClicked
   ResearchConfigTextChanged(String)
   ResearchConfigSaveClicked
+  /// The corpus: where the documents come from. The reader names a source,
+  /// and the server either runs it or says why it cannot.
+  CorpusLoaded(Result[Json, Error])
+  CorpusSaved(Result[Json, Error])
+  /// The reader opened the corpus editor.
+  CorpusEditClicked
+  /// The reader chose where the documents come from: arxiv, a feed, or a
+  /// folder of their own.
+  CorpusKindClicked(String)
+  /// The reader typed the one thing that kind of source needs.
+  CorpusInputChanged(String)
+  /// The reader typed how many documents to read.
+  CorpusMaxChanged(String)
+  /// The reader asked for that corpus to be the one the server runs.
+  CorpusSaveClicked
   CausalLoaded(Result[Json, Error])
   /// The Society layer: the collective, read from the server.
   SocietyLoaded(Result[Json, Error])
@@ -100,14 +115,28 @@ pub(all) struct Model {
   research_documents : Array[Json]
   research_triggers : Array[Json]
   research_error : String
-  /// The corpus the server is reading: its kind, where it reads from, and
-  /// the file it was configured in. The reader has to be able to see which
-  /// corpus they are looking at, because "no documents" means something
-  /// quite different for each one.
-  research_corpus : Json?
+  /// The corpus the server is reading, in words: where it reads from. The
+  /// reader has to be able to see which corpus they are looking at, because
+  /// "no documents" means something quite different for each one.
+  research_corpus_source : String
   /// What the server said about the corpus it read, when it had something
   /// to say -- most often that the corpus held nothing.
   research_notice : String
+  /// The corpus the reader is putting together: the kind of source, the one
+  /// thing that kind needs, and how many documents to read from it. These are
+  /// the reader's own words, and the corpus they name is the corpus the
+  /// server runs afterwards.
+  research_corpus_kind : String
+  research_corpus_input : String
+  research_corpus_max : String
+  /// Whether the corpus editor is open. The editor is a few controls, and a
+  /// panel that carries them all the time is a panel nobody reads.
+  research_corpus_editing : Bool
+  /// What the corpus panel says after the last action. One of the two is
+  /// always empty, and between them they cover every outcome: a corpus either
+  /// is replaced, is refused with a reason, or fails to reach the server.
+  research_corpus_error : String
+  research_corpus_notice : String
   /// The mapping table the server is running: the rules, and the text the
   /// reader is editing them in. The table is data, and this is where the
   /// reader gets at it.
@@ -205,8 +234,14 @@ pub fn initial() -> Model {
     research_documents: [],
     research_triggers: [],
     research_error: "",
-    research_corpus: None,
+    research_corpus_source: "",
     research_notice: "",
+    research_corpus_kind: "arxiv",
+    research_corpus_input: "",
+    research_corpus_max: "20",
+    research_corpus_editing: false,
+    research_corpus_error: "",
+    research_corpus_notice: "",
     research_config: None,
     research_config_path: "",
     research_config_text: "",
@@ -484,7 +519,7 @@ pub fn update(
           ..model,
           research_documents: decode_research_documents(json),
           research_triggers: decode_research_triggers(json),
-          research_corpus: decode_research_corpus(json),
+          research_corpus_source: corpus_source_of(json),
           research_notice: get_string(json, "notice", ""),
           // The server says why a corpus could not be read, and the reason
           // belongs in the loud line rather than in the quiet one: a corpus
@@ -588,6 +623,117 @@ pub fn update(
       )
     ResearchConfigTextChanged(text) =>
       ({ ..model, research_config_text: text, }, @cmd.none)
+    // The corpus. The reader names a source and the server runs it: the
+    // server already answers PUT /api/research/corpus, and before this the
+    // page had no way to ask for it. A capability the server has and the
+    // reader cannot reach is a capability the reader does not have.
+    CorpusEditClicked =>
+      (
+        model,
+        @http.get("/api/research/corpus").expect_json(
+          emit.map(fn(result) { CorpusLoaded(result) }),
+        ),
+      )
+    CorpusLoaded(Ok(json)) =>
+      (
+        {
+          ..model,
+          research_corpus_kind: corpus_kind_of(json),
+          research_corpus_input: corpus_input_of(json),
+          research_corpus_max: corpus_max_of(json),
+          research_corpus_editing: true,
+          research_corpus_error: "",
+          research_corpus_notice: "",
+        },
+        @cmd.none,
+      )
+    CorpusLoaded(Err(_)) =>
+      (
+        {
+          ..model,
+          research_corpus_editing: true,
+          research_corpus_error: c.research.corpus_unavailable,
+          research_corpus_notice: "",
+        },
+        @cmd.none,
+      )
+    CorpusKindClicked(kind) =>
+      (
+        {
+          ..model,
+          research_corpus_kind: kind,
+          // The field the reader typed belongs to the kind they just chose,
+          // so it is cleared rather than kept: a path is not a query, and
+          // sending one as the other is a corpus that names nothing.
+          research_corpus_input: "",
+        },
+        @cmd.none,
+      )
+    CorpusInputChanged(text) =>
+      ({ ..model, research_corpus_input: text, }, @cmd.none)
+    CorpusMaxChanged(text) =>
+      ({ ..model, research_corpus_max: text, }, @cmd.none)
+    CorpusSaveClicked => {
+      let payload = corpus_payload(
+        model.research_corpus_kind,
+        model.research_corpus_input,
+        model.research_corpus_max,
+      )
+      (
+        {
+          ..model,
+          research_corpus_error: "",
+          research_corpus_notice: c.research.saving,
+        },
+        @http.put("/api/research/corpus")
+        .with_json(payload)
+        .expect_json(emit.map(fn(result) { CorpusSaved(result) })),
+      )
+    }
+    CorpusSaved(Ok(json)) => {
+      // The status code never reaches the client -- rabbita hands over the
+      // body whatever the status was -- so the body is the only place a
+      // refusal can be seen. A corpus the server refused is refused with a
+      // reason, and the reason is what the reader gets: "a local source
+      // needs a path" is something they can act on, and "the corpus could
+      // not be replaced" is not.
+      let reason = decode_error_reason(json)
+      if reason != "" {
+        (
+          {
+            ..model,
+            research_corpus_editing: true,
+            research_corpus_error: reason,
+            research_corpus_notice: "",
+          },
+          @cmd.none,
+        )
+      } else {
+        (
+          {
+            ..model,
+            research_corpus_source: get_string(json, "description", ""),
+            research_corpus_editing: false,
+            research_corpus_error: "",
+            // The server says what it did with the corpus: it is running, and
+            // where it was written back to, if it was. A corpus that was
+            // replaced and not written back is a corpus that lasts until the
+            // server stops, and the reader is told so.
+            research_corpus_notice: get_string(json, "notice", ""),
+          },
+          @cmd.none,
+        )
+      }
+    }
+    CorpusSaved(Err(_)) =>
+      (
+        {
+          ..model,
+          research_corpus_error: c.research.corpus_not_saved,
+          research_corpus_notice: "",
+        },
+        @cmd.none,
+      )
     ResearchConfigSaveClicked => {
       // The text is parsed here rather than sent as text, so that a table
       // that is not JSON at all is refused straight away instead of
@@ -1312,15 +1458,130 @@ fn decode_research_documents(json : Json) -> Array[Json] {
 }
 
 ///|
-/// The corpus out of the server's answer.
+/// The corpus out of the server's answer, in words.
 ///
 /// The panel shows which corpus it is looking at, because the same empty
 /// panel means "arxiv had nothing new" for one reader and "your folder has
-/// no notes in it" for another.
-fn decode_research_corpus(json : Json) -> Json? {
+/// no notes in it" for another. The answer carries the corpus in two shapes
+/// -- the one the documents panel reads and the one the corpus endpoint
+/// reads -- and the words are the same either way.
+fn corpus_source_of(json : Json) -> String {
   match field(json, "corpus") {
-    Some(obj) => Some(obj)
-    _ => None
+    Some(corpus) => get_string(corpus, "source", "")
+    None => ""
+  }
+}
+
+///|
+/// The kind of source the corpus is, as the server names it.
+///
+/// The reader's editor offers the same three kinds, and a kind the server
+/// names that the editor does not offer would be a kind the reader cannot
+/// keep.
+fn corpus_kind_of(json : Json) -> String {
+  match field(json, "corpus") {
+    Some(corpus) =>
+      match field(corpus, "source") {
+        // The corpus endpoint writes the source as an object; the documents
+        // panel writes it as a sentence, and a sentence has no kind in it.
+        Some(source) => get_string(source, "kind", "arxiv")
+        None => get_string(corpus, "kind", "arxiv")
+      }
+    None => "arxiv"
+  }
+}
+
+///|
+/// The one thing the corpus's kind needs: the query, the address, or the
+/// path. A corpus that names its source is a corpus the reader can edit.
+fn corpus_input_of(json : Json) -> String {
+  match field(json, "corpus") {
+    Some(corpus) =>
+      match field(corpus, "source") {
+        Some(source) => {
+          let kind = get_string(source, "kind", "arxiv")
+          if kind == "rss" {
+            get_string(source, "url", "")
+          } else if kind == "local" {
+            get_string(source, "path", "")
+          } else {
+            get_string(source, "query", "")
+          }
+        }
+        None => ""
+      }
+    None => ""
+  }
+}
+
+///|
+/// How many documents the corpus reads, as the reader typed it.
+fn corpus_max_of(json : Json) -> String {
+  match field(json, "corpus") {
+    Some(corpus) =>
+      match field(corpus, "source") {
+        Some(source) =>
+          match field(source, "max_results") {
+            Some(Number(value, ..)) => value.to_int().to_string()
+            _ => "20"
+          }
+        None => "20"
+      }
+    None => "20"
+  }
+}
+
+///|
+/// The corpus the reader named, as the server is asked for it.
+///
+/// The corpus is sent in the shape the server writes it: every field is
+/// there, and the one this kind does not use is empty. A shape that changes
+/// with the kind is a shape the server has to guess at.
+///
+/// Public because the payload is the claim: a test that cannot read it can
+/// only trust that the click arrived.
+pub fn corpus_payload(kind : String, input : String, max : String) -> Json {
+  let source : Json = {
+    "kind": kind,
+    "query": if kind == "arxiv" {
+      input
+    } else {
+      ""
+    },
+    "url": if kind == "rss" {
+      input
+    } else {
+      ""
+    },
+    "path": if kind == "local" {
+      input
+    } else {
+      ""
+    },
+    "max_results": corpus_max_number(max),
+  }
+  { "format": "maked.corpus.v1", "source": source }
+}
+
+///|
+/// How many documents the corpus reads, as a number.
+///
+/// A number the reader did not type, or typed as something that is not a
+/// number, is the server's own default rather than a zero: a corpus that
+/// reads nothing because the reader typed "many" is a corpus that reads
+/// nothing and says so.
+fn corpus_max_number(text : String) -> Int32 {
+  let value = @json.parse(text.trim()) catch { _ => 0 }
+  match value {
+    Number(number, ..) => {
+      let count = number.to_int()
+      if count > 0 {
+        count
+      } else {
+        20
+      }
+    }
+    _ => 20
   }
 }
 

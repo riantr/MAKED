@@ -153,6 +153,18 @@ pub struct ResearchWords {
   no_documents : String
   untitled : String
   trigger_mappings : String
+  /// The corpus the reader puts together: where the documents come from.
+  replace_corpus : String
+  corpus_kind_label : String
+  corpus_arxiv : String
+  corpus_rss : String
+  corpus_local : String
+  corpus_source_label : String
+  corpus_source_placeholder : String
+  corpus_max_label : String
+  save_corpus : String
+  corpus_unavailable : String
+  corpus_not_saved : String
   mapping_table : String
   show_table : String
   the_table : String
@@ -404,6 +416,17 @@ fn research_en() -> ResearchWords {
     no_documents: "No documents yet. Click 'Read the corpus' to begin.",
     untitled: "Untitled",
     trigger_mappings: "Trigger Mappings",
+    replace_corpus: "Replace the corpus",
+    corpus_kind_label: "Where the documents come from",
+    corpus_arxiv: "arXiv",
+    corpus_rss: "A feed",
+    corpus_local: "A folder on this machine",
+    corpus_source_label: "The source",
+    corpus_source_placeholder: "all:snns, https://example.com/feed, or ./notes",
+    corpus_max_label: "How many documents to read",
+    save_corpus: "Use this corpus",
+    corpus_unavailable: "the corpus could not be read",
+    corpus_not_saved: "the corpus could not be replaced",
     mapping_table: "The mapping table",
     show_table: "Show the table",
     the_table: "The table",
@@ -427,6 +450,17 @@ fn research_zh() -> ResearchWords {
     no_documents: "还没有文档。点击“读取语料”开始。",
     untitled: "无标题",
     trigger_mappings: "触发映射",
+    replace_corpus: "更换语料",
+    corpus_kind_label: "文档从哪里来",
+    corpus_arxiv: "arXiv",
+    corpus_rss: "订阅源",
+    corpus_local: "本机的一个文件夹",
+    corpus_source_label: "来源",
+    corpus_source_placeholder: "all:snns、https://example.com/feed，或 ./notes",
+    corpus_max_label: "最多读多少篇",
+    save_corpus: "使用这个语料",
+    corpus_unavailable: "语料读不到",
+    corpus_not_saved: "语料没能换掉",
     mapping_table: "映射表",
     show_table: "显示表格",
     the_table: "表格",

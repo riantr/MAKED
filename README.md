@@ -566,7 +566,7 @@ MAKED_moonbit/
 │   ├── page.mbt                      # the page, and how it is decoded
 │   ├── logo.mbt                      # the ring
 │   ├── views.mbt                     # the views
-│   └── frontend_test.mbt             # 129 tests
+│   └── frontend_test.mbt             # 139 tests
 ├── cmd/
 │   ├── server/main.mbt               # the web server
 │   ├── mcp/main.mbt                  # the agent's server
@@ -643,7 +643,7 @@ fits. Keep the two files next to each other, and set both variables.
 | What | How many | How it is checked |
 |---|---|---|
 | Backend tests | 434 | `moon test --target native backend` |
-| Frontend tests | 129 | `moon test --target js frontend` |
+| Frontend tests | 139 | `moon test --target js frontend` |
 | Integration checks | 379 | `tools/integration-test.ps1` — against a server that is really running |
 | Backend mutations | 148 | `tools/mutate-backend.ps1` |
 | Frontend mutations | 65 | `tools/mutate-frontend.ps1` |

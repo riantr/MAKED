@@ -475,12 +475,13 @@ pub fn research_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
       c.research.drive_with,
     ),
   ])
-  let corpus_line = match model.research_corpus {
-    None => @html.p(class="maked-research-corpus", c.research.not_read)
-    Some(corpus) => {
-      let source = get_string(corpus, "source", "unknown")
-      @html.p(class="maked-research-corpus", corpus_source(c, source))
-    }
+  let corpus_line = if model.research_corpus_source == "" {
+    @html.p(class="maked-research-corpus", c.research.not_read)
+  } else {
+    @html.p(
+      class="maked-research-corpus",
+      corpus_source(c, model.research_corpus_source),
+    )
   }
   let documents_list = if model.research_documents.length() == 0 {
     @html.p(class="maked-research-empty", c.research.no_documents)
@@ -539,6 +540,7 @@ pub fn research_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
   @html.section(class="maked-research", [
     @html.h2(class="maked-research-title", c.research.corpus_title),
     corpus_line,
+    corpus_editor_view(emit, model),
     buttons,
     documents_list,
     notice,
@@ -546,6 +548,92 @@ pub fn research_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     research_config_view(emit, model),
     error,
   ])
+}
+
+///|
+/// The corpus the reader puts together: where the documents come from.
+///
+/// The server can run any corpus the reader names -- a folder of their own
+/// notes, a feed they subscribe to, a different arXiv query -- and before
+/// this the page had no way to ask for one: the server answered
+/// `PUT /api/research/corpus` and the reader could not reach it. The editor
+/// is the way out, so it says what it does and what happened when the reader
+/// used it.
+pub fn corpus_editor_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
+  let c = chrome(model.lang)
+  let body = if model.research_corpus_editing {
+    let kinds = @html.div(class="maked-corpus-kinds", [
+      corpus_kind_button(emit, model, "arxiv", c.research.corpus_arxiv),
+      corpus_kind_button(emit, model, "rss", c.research.corpus_rss),
+      corpus_kind_button(emit, model, "local", c.research.corpus_local),
+    ])
+    @html.div(class="maked-corpus-editor", [
+      @html.p(class="maked-corpus-question", c.research.corpus_kind_label),
+      kinds,
+      @html.label(
+        class="maked-corpus-label",
+        for_="maked-corpus-source",
+        c.research.corpus_source_label,
+      ),
+      @html.input(
+        id="maked-corpus-source",
+        class="maked-corpus-input",
+        placeholder=c.research.corpus_source_placeholder,
+        value=model.research_corpus_input,
+        on_input=emit.map(fn(text) { CorpusInputChanged(text) }),
+      ),
+      @html.label(
+        class="maked-corpus-label",
+        for_="maked-corpus-max",
+        c.research.corpus_max_label,
+      ),
+      @html.input(
+        id="maked-corpus-max",
+        class="maked-corpus-input",
+        value=model.research_corpus_max,
+        on_input=emit.map(fn(text) { CorpusMaxChanged(text) }),
+      ),
+      @html.button(
+        class="maked-btn maked-btn-primary",
+        on_click=emit(CorpusSaveClicked),
+        c.research.save_corpus,
+      ),
+    ])
+  } else {
+    @html.button(
+      class="maked-btn maked-btn-plain",
+      on_click=emit(CorpusEditClicked),
+      c.research.replace_corpus,
+    )
+  }
+  let status = if model.research_corpus_error != "" {
+    @html.p(class="maked-corpus-error", model.research_corpus_error)
+  } else if model.research_corpus_notice != "" {
+    @html.p(class="maked-corpus-notice", model.research_corpus_notice)
+  } else {
+    @html.nothing
+  }
+  @html.div(class="maked-corpus", [body, status])
+}
+
+///|
+/// One of the three places a corpus can come from.
+///
+/// The kind the reader chose is the one that is lit, because a panel that
+/// shows three equal buttons leaves the reader to remember which one they
+/// are in.
+fn corpus_kind_button(
+  emit : @cmd.Emit[Msg],
+  model : Model,
+  kind : String,
+  label : String,
+) -> @html.Html {
+  let class = if model.research_corpus_kind == kind {
+    "maked-btn maked-btn-primary maked-corpus-kind maked-corpus-kind--on"
+  } else {
+    "maked-btn maked-btn-plain maked-corpus-kind"
+  }
+  @html.button(class~, on_click=emit(CorpusKindClicked(kind)), label)
 }
 
 ///|
