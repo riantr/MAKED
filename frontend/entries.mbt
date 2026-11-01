@@ -75,6 +75,34 @@ pub fn decode_created_entry(json : Json) -> Entry? {
 }
 
 ///|
+/// The record the server just changed, from `{"entry": {...}}`.
+///
+/// The same shape as a created record, so the same decoder reads both: the
+/// server answers a correction with the record as it now stands, and the
+/// client puts the reader's own words back on the screen rather than
+/// guessing what was stored.
+///
+/// `None` means the server answered with something that is not a record, and
+/// that is the shape a refusal takes.
+pub fn decode_updated_entry(json : Json) -> Entry? {
+  match field(json, "entry") {
+    Some(obj) => Some(entry_from_json(obj))
+    _ => None
+  }
+}
+
+///|
+/// The record with this id, if the workspace holds it.
+pub fn find_entry(entries : Array[Entry], id : Int32) -> Entry? {
+  for entry in entries {
+    if entry.id == id {
+      return Some(entry)
+    }
+  }
+  None
+}
+
+///|
 /// Why the server refused, from `{"error": ..., "reason": ...}`.
 ///
 /// The HTTP status code never reaches the client -- rabbita's HTTP client

@@ -617,6 +617,7 @@ fn bare_model() -> @frontend.Model {
     draft_domain: "",
     draft_title: "",
     draft_body: "",
+    entry_editing: 0,
     workspace_error: "",
     workspace_notice: "",
     sessions: [],
@@ -3547,6 +3548,162 @@ fn mode_status() -> Json {
       { "domain": "M", "title": "Model" },
       { "domain": "D", "title": "Data" },
       { "domain": "K", "title": "Knowledge" },
+    ],
+  }
+}
+
+///|
+/// The record being corrected goes into the form.
+///
+/// The reader corrects what is on the screen, not what they remember of it,
+/// so the form is filled from the record itself.
+test "the record being corrected goes into the form" {
+  let entries = @frontend.decode_entries(workspace_entries())
+  let model = { ..bare_model(), entries, }
+  let (after, _) = @frontend.update(
+    model,
+    @frontend.Msg::EntryEditClicked(7),
+    silent_emit(),
+  )
+  assert_eq(after.entry_editing, 7)
+  assert_eq(after.draft_domain, "M")
+  assert_eq(after.draft_title, "my model")
+  assert_eq(after.draft_body, "what I believe")
+}
+
+///|
+/// The correction reaches the server as a request to that record.
+///
+/// The verb matters as much as the path: a record is *changed*, and the
+/// server's route is a PUT. And the id in the path is the record's own, so
+/// the correction lands on the record the reader picked.
+test "the correction reaches the server as a request to that record" {
+  let entries = @frontend.decode_entries(workspace_entries())
+  let model = {
+    ..bare_model(),
+    entries,
+    entry_editing: 7,
+    draft_domain: "D",
+    draft_title: "my model, corrected",
+    draft_body: "and more",
+  }
+  let (_, cmd) = @frontend.update(
+    model,
+    @frontend.Msg::EntryUpdateClicked,
+    silent_emit(),
+  )
+  let request = cmd.to_repr().to_string()
+  assert_true(request.contains("/api/entries/7"))
+  assert_true(request.contains("Put"))
+}
+
+///|
+/// A correction leaves the record where it was.
+///
+/// The id and the time are the record's own: a corrected record is not a new
+/// record, and the workspace's order is the order the records were written
+/// in.
+test "a correction leaves the record where it was" {
+  let entries = @frontend.decode_entries(workspace_entries())
+  let model = { ..bare_model(), entries, entry_editing: 7, }
+  let body : Json = {
+    "entry": {
+      "id": "7",
+      "domain": "D",
+      "title": "my model, corrected",
+      "body": "and more",
+    },
+    "updated": true,
+  }
+  let (after, _) = @frontend.update(
+    model,
+    @frontend.Msg::EntryUpdated(Ok(body)),
+    silent_emit(),
+  )
+  assert_eq(after.entries.length(), 1)
+  assert_eq(after.entries[0].id, 7)
+  assert_eq(after.entries[0].created_at, "2026-11-01T00:00:00Z")
+  assert_eq(after.entries[0].domain, "D")
+  assert_eq(after.entries[0].title, "my model, corrected")
+  assert_eq(after.entry_editing, 0)
+  assert_eq(after.draft_title, "")
+}
+
+///|
+/// A refused correction says why.
+///
+/// The status code never reaches the client, so the body is the only place a
+/// reason can come from.
+test "a refused correction says why" {
+  let body : Json = {
+    "error": "not_found",
+    "id": 7,
+    "reason": "There is no record numbered 7.",
+  }
+  let (after, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::EntryUpdated(Ok(body)),
+    silent_emit(),
+  )
+  assert_eq(after.workspace_error, "There is no record numbered 7.")
+}
+
+///|
+/// The workspace offers the way to correct a record.
+///
+/// A record that could only be created and removed could not be corrected, and
+/// a correction the reader has to find in the source is not one they can make.
+test "the workspace offers the way to correct a record" {
+  let seen : Array[@frontend.Msg] = []
+  let entries = @frontend.decode_entries(workspace_entries())
+  let model = { ..bare_model(), entries, }
+  let _ = @frontend.workspace_view(capturing_emit(seen), model)
+  let mut edits = 0
+  for msg in seen {
+    match msg {
+      @frontend.Msg::EntryEditClicked(id) => {
+        edits += 1
+        assert_eq(id, 7)
+      }
+      _ => ()
+    }
+  }
+  assert_eq(edits, 1)
+}
+
+///|
+/// Leaving a correction alone leaves the record alone.
+test "leaving a correction alone leaves the record alone" {
+  let entries = @frontend.decode_entries(workspace_entries())
+  let model = {
+    ..bare_model(),
+    entries,
+    entry_editing: 7,
+    draft_title: "half written",
+    draft_body: "half written",
+  }
+  let (after, _) = @frontend.update(
+    model,
+    @frontend.Msg::EntryEditCancelled,
+    silent_emit(),
+  )
+  assert_eq(after.entry_editing, 0)
+  assert_eq(after.draft_title, "")
+  assert_eq(after.entries[0].title, "my model")
+}
+
+///|
+/// The workspace's records, as the server sends them.
+fn workspace_entries() -> Json {
+  {
+    "entries": [
+      {
+        "id": "7",
+        "domain": "M",
+        "title": "my model",
+        "body": "what I believe",
+        "created_at": "2026-11-01T00:00:00Z",
+      },
     ],
   }
 }

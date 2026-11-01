@@ -87,6 +87,15 @@ pub(all) enum Msg {
   DraftBodyChanged(String)
   DraftSubmitClicked
   EntryDeleteClicked(Int32)
+  /// The reader asked to correct a record: the record's own words go into the
+  /// form, so what is corrected is what is on the screen.
+  EntryEditClicked(Int32)
+  /// The reader changed their mind about the correction.
+  EntryEditCancelled
+  /// The reader saved the correction.
+  EntryUpdateClicked
+  /// The correction landed, or was refused with a reason.
+  EntryUpdated(Result[Json, Error])
   // The sessions: named explorations, and the history inside them.
   SessionCreated(Result[Json, Error])
   SessionActivated(Result[Json, Error])
@@ -180,6 +189,13 @@ pub(all) struct Model {
   draft_domain : String
   draft_title : String
   draft_body : String
+  /// The record being corrected, or 0 when the form is making a new one.
+  ///
+  /// A record could be created and removed but never changed, so a typo could
+  /// only be answered by writing the record again -- as a different record,
+  /// with a different id and a different place in the workspace's order. The
+  /// id is what the correction is sent to, so it has to be the record's own.
+  entry_editing : Int32
   /// What the workspace says after the last action. One of the two is always
   /// empty, and between them they cover every outcome: a save either lands,
   /// is refused with a reason, or fails to reach the server.
@@ -268,6 +284,7 @@ pub fn initial() -> Model {
     draft_domain: "",
     draft_title: "",
     draft_body: "",
+    entry_editing: 0,
     workspace_error: "",
     workspace_notice: "",
     sessions: [],
@@ -1060,6 +1077,135 @@ pub fn update(
       }
     }
     EntryDeleted(Err(_)) =>
+      (
+        {
+          ..model,
+          workspace_notice: "",
+          workspace_error: c.status.server_unreachable,
+        },
+        @cmd.none,
+      )
+    // Correcting a record.
+    //
+    // The record's own words go into the form, so what the reader corrects is
+    // what is on the screen and not what they remember of it.
+    EntryEditClicked(id) =>
+      match find_entry(model.entries, id) {
+        Some(entry) =>
+          (
+            {
+              ..model,
+              draft_domain: entry.domain,
+              draft_title: entry.title,
+              draft_body: entry.body,
+              entry_editing: id,
+              workspace_error: "",
+              workspace_notice: "",
+            },
+            @cmd.none,
+          )
+        None => (model, @cmd.none)
+      }
+    EntryEditCancelled =>
+      (
+        {
+          ..model,
+          entry_editing: 0,
+          draft_title: "",
+          draft_body: "",
+          workspace_error: "",
+          workspace_notice: "",
+        },
+        @cmd.none,
+      )
+    EntryUpdateClicked => {
+      // The same rules the server applies, checked here so that the common
+      // mistakes produce a sentence straight away instead of a round trip
+      // that comes back as a refusal.
+      let problem = draft_problem(
+        model.entry_domains,
+        model.draft_domain,
+        model.draft_title,
+        c,
+      )
+      if problem != "" {
+        (
+          { ..model, workspace_error: problem, workspace_notice: "", },
+          @cmd.none,
+        )
+      } else {
+        let payload : Json = {
+          "domain": model.draft_domain,
+          "title": model.draft_title,
+          "body": model.draft_body,
+        }
+        (
+          {
+            ..model,
+            workspace_error: "",
+            workspace_notice: c.workspace.saving,
+          },
+          // The correction goes to the record it corrects. The id is the one
+          // the reader picked, so the request names the record rather than a
+          // record the client kept a copy of.
+          @http.put("/api/entries/\{model.entry_editing}")
+          .with_json(payload)
+          .expect_json(emit.map(fn(result) { EntryUpdated(result) })),
+        )
+      }
+    }
+    EntryUpdated(Ok(json)) => {
+      // The server answers with the record as it now stands, and with an error
+      // object when it did not change it. The status code never reaches the
+      // client, so the body is the only place a refusal can be seen.
+      let updated = decode_updated_entry(json)
+      match updated {
+        Some(entry) => {
+          // The record keeps its place in the workspace: correcting it does
+          // not make it a new record, so its id and its time are its own.
+          let entries = model.entries.map(fn(e) {
+            if e.id == entry.id {
+              {
+                ..e,
+                domain: entry.domain,
+                title: entry.title,
+                body: entry.body,
+              }
+            } else {
+              e
+            }
+          })
+          (
+            {
+              ..model,
+              entries,
+              entry_editing: 0,
+              draft_title: "",
+              draft_body: "",
+              workspace_error: "",
+              workspace_notice: corrected_entry(c, entry.title, entry.domain),
+            },
+            @cmd.none,
+          )
+        }
+        None => {
+          let reason = decode_error_reason(json)
+          (
+            {
+              ..model,
+              workspace_notice: "",
+              workspace_error: if reason == "" {
+                c.workspace.refused
+              } else {
+                reason
+              },
+            },
+            @cmd.none,
+          )
+        }
+      }
+    }
+    EntryUpdated(Err(_)) =>
       (
         {
           ..model,

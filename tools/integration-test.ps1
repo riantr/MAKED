@@ -640,6 +640,44 @@ try {
   $blank = Post-Json "/api/entries" @{ domain = "M"; title = "   " }
   Assert-Status "a record with a blank title is refused" 400 $blank
 
+  # A record can be corrected in place. It could be created and removed but
+  # never changed, which meant a typo could only be answered by writing the
+  # record again -- as a different record, with a different id and a
+  # different place in the workspace's order.
+  $corrected = Put-Json "/api/entries/$entryId" @{ domain = "D"; title = "the model I use, corrected"; body = "a linear fit on 200 rows, and the reason" }
+  Assert-Status "correcting a record is a 200" 200 $corrected
+  $correctedEntry = (Field ($corrected.Body | ConvertFrom-Json) "entry")
+  Assert-Field "and the correction carries the new title" $correctedEntry "title" "the model I use, corrected"
+  Assert-Field "and the new domain" $correctedEntry "domain" "D"
+
+  $afterCorrection = Get-Json "/api/entries"
+  $correctedInList = @((Field $afterCorrection "entries") | Where-Object { $_.id -eq $entryId })
+  Assert-True "the corrected record is in the list" ($correctedInList.Count -eq 1) `
+    ("found {0} records with that id" -f $correctedInList.Count)
+  Assert-Field "and the list shows the new title" $correctedInList[0] "title" "the model I use, corrected"
+
+  # A correction is refused the same way a new record is: the same rules, so
+  # a change the create path would refuse is not a change.
+  $badCorrection = Put-Json "/api/entries/$entryId" @{ domain = "Z"; title = "wrong domain" }
+  Assert-Status "a correction in a domain that is not one of the five is refused" 400 $badCorrection
+  $badCorrectionBody = $badCorrection.Body | ConvertFrom-Json
+  Assert-Field "and the refusal says so" $badCorrectionBody "error" "invalid_entry"
+  Assert-FieldNotEmpty "and gives a reason" $badCorrectionBody "reason"
+
+  # A record that is not there cannot be corrected, and the refusal says which
+  # one is missing. The status code never reaches the client, so the body is
+  # the only place a reason can come from.
+  $missing = Put-Json "/api/entries/999999" @{ domain = "M"; title = "not there" }
+  Assert-Status "correcting a record that is not there is a 404" 404 $missing
+  $missingBody = $missing.Body | ConvertFrom-Json
+  Assert-Field "and the refusal says so" $missingBody "error" "not_found"
+  Assert-FieldNotEmpty "and gives a reason" $missingBody "reason"
+
+  # An id that is not a number cannot name a record either.
+  $badId = Put-Json "/api/entries/not-a-number" @{ domain = "M"; title = "x" }
+  Assert-Status "an id that is not a number is a 400" 400 $badId
+  Assert-FieldNotEmpty "and gives a reason" ($badId.Body | ConvertFrom-Json) "reason"
+
   $list = Get-Json "/api/entries"
   Assert-True "the record is in the list" (@(Field $list "entries").Count -ge 1)
 

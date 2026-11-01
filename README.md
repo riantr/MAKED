@@ -43,6 +43,9 @@ Protocol over stdio or HTTP.
 - ✅ **The reader chooses how the loop runs** — the panel says which mode is in force
   (structured, which follows the ring, or free, which lets any slot drive) and lets the
   reader change it; a run can also be started again from any domain of the ring
+- ✅ **Your own records, and your own corrections** — a record in the workspace can be
+  written, corrected in place and removed; a correction keeps the record's number, its
+  time and its place in the workspace's order
 - ✅ **The machine is a file** — a model file (JSON or YAML) with its own domains, positions,
   slots and rules; `MAKED_MODEL` names it
 - ✅ **The mapping table is a file** — the rules that say what a document means, read top
@@ -234,6 +237,7 @@ start-up rather than ignored.
 | `GET` | `/api/bootstrap` | pages, workspace entries and session state in one call |
 | `GET` | `/api/entries` | the workspace entries |
 | `POST` | `/api/entries` | put your own record in the workspace |
+| `PUT` | `/api/entries/:id` | correct one |
 | `DELETE` | `/api/entries/:id` | remove one |
 | `GET` | `/api/sessions` | the named explorations |
 | `POST` | `/api/sessions` | start one |
@@ -514,6 +518,18 @@ assigns the number and the time. A record is refused, with the reason, when the 
 not one of the five, when the title is empty, when the title is longer than 200 characters,
 or when the body is longer than 20,000.
 
+A record can also be corrected, and it stays the same record — the same number, the same
+place in the workspace's order, the same time:
+
+```bash
+curl -X PUT http://127.0.0.1:8080/api/entries/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"domain": "M", "title": "The failure I want to keep, corrected", "body": "The loop reached a position it could not leave."}'
+```
+
+The same rules apply to a correction as to a new record: a change the create path would
+refuse is not a change, and a record that is not there cannot be corrected.
+
 ### Driving it from another agent
 
 ```bash
@@ -556,7 +572,7 @@ MAKED_moonbit/
 │   ├── metrics.mbt                   # the measures, in both languages
 │   ├── session.mbt                   # explorations, timelines, exports
 │   ├── database.mbt                  # SQLite
-│   ├── *_test.mbt                    # 421 tests
+│   ├── *_test.mbt                    # 424 tests
 │   └── *_wbtest.mbt                  # 16 tests
 ├── frontend/                         # the single-page app (js)
 │   ├── app.mbt                       # the TEA loop and the messages
@@ -569,7 +585,7 @@ MAKED_moonbit/
 │   ├── page.mbt                      # the page, and how it is decoded
 │   ├── logo.mbt                      # the ring
 │   ├── views.mbt                     # the views
-│   └── frontend_test.mbt             # 148 tests
+│   └── frontend_test.mbt             # 154 tests
 ├── cmd/
 │   ├── server/main.mbt               # the web server
 │   ├── mcp/main.mbt                  # the agent's server
@@ -585,7 +601,7 @@ MAKED_moonbit/
 │   └── notes/                        # the corpus the local example names
 │       └── failed-launch.md
 ├── tools/
-│   ├── integration-test.ps1          # 393 checks against a running server
+│   ├── integration-test.ps1          # 406 checks against a running server
 │   ├── mutate-backend.ps1            # 148 mutations of the backend
 │   ├── mutate-frontend.ps1           # 65 mutations of the frontend
 │   ├── mutate-loop.ps1               # 16 mutations of the loop
@@ -645,9 +661,9 @@ fits. Keep the two files next to each other, and set both variables.
 
 | What | How many | How it is checked |
 |---|---|---|
-| Backend tests | 437 | `moon test --target native backend` |
-| Frontend tests | 148 | `moon test --target js frontend` |
-| Integration checks | 393 | `tools/integration-test.ps1` — against a server that is really running |
+| Backend tests | 440 | `moon test --target native backend` |
+| Frontend tests | 154 | `moon test --target js frontend` |
+| Integration checks | 406 | `tools/integration-test.ps1` — against a server that is really running |
 | Backend mutations | 148 | `tools/mutate-backend.ps1` |
 | Frontend mutations | 65 | `tools/mutate-frontend.ps1` |
 | Loop mutations | 16 | `tools/mutate-loop.ps1` |

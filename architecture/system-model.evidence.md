@@ -27,7 +27,7 @@ literal is. Confidence is **high** unless noted otherwise.
 | `App::adapt` bridges to moonback's `@moonback.Handler` | `backend/app.mbt:109-112` | high |
 | Catch-all GET `/*rest` returns JSON 404 | `backend/app.mbt:146` | high |
 | Route conflicts use `fail` (not `raise`) | `backend/app.mbt:141` | high |
-| 37 API routes: pages, entries, sessions, loop, research, society, agent | `backend/api.mbt:19-979` | high |
+| 38 API routes: pages, entries, sessions, loop, research, society, agent | `backend/api.mbt:19-1044` | high |
 | Database wraps sqlite3.Connection | `backend/database.mbt:26` | high |
 | Schema: `pages` table with 12 columns | `backend/database.mbt:76-88` | high |
 | Schema: also `entries`, `sessions`, `session_steps` tables | `backend/database.mbt:100-134` | high |
@@ -46,11 +46,11 @@ literal is. Confidence is **high** unless noted otherwise.
 
 | Claim | Source | Confidence |
 |-------|--------|------------|
-| Elm-style TEA (Model/Update/View) via rabbita | `frontend/app.mbt:97-1506` | high |
-| Start-up chain: `GET /api/bootstrap`, then `GET /api/loop/status` | `frontend/app.mbt:1500`, `frontend/app.mbt:441` | high |
-| Client-side routing via History API subscription | `frontend/app.mbt:1412` | high |
-| `slug_of` maps URL path to page slug | `frontend/app.mbt:303` | high |
-| All pages held in memory after first load | `frontend/app.mbt:416` | high |
+| Elm-style TEA (Model/Update/View) via rabbita | `frontend/app.mbt:106-1652` | high |
+| Start-up chain: `GET /api/bootstrap`, then `GET /api/loop/status` | `frontend/app.mbt:1646`, `frontend/app.mbt:458` | high |
+| Client-side routing via History API subscription | `frontend/app.mbt:1558` | high |
+| `slug_of` maps URL path to page slug | `frontend/app.mbt:320` | high |
+| All pages held in memory after first load | `frontend/app.mbt:433` | high |
 | Page struct mirrors backend, decodes JSON totally | `frontend/page.mbt:16-131` | high |
 | Views: `header`, `domain_cards`, `page_view`, `not_found_view`, `loading_view`, `error_view` | `frontend/views.mbt:28-200` | high |
 | Logo: SVG ring + taijitu, HTML letter overlay | `frontend/logo.mbt:1-201` | high |
@@ -93,7 +93,7 @@ package imports is written `(transitive)`: none of ours imports it.
 | Test file | What it covers | Source |
 |-----------|---------------|--------|
 | `backend/database_test.mbt` | 8 tests: round-trip, ring order, re-seed idempotency, CJK content, multi-row seed, missing slug, migrate idempotency, navigation | high |
-| `frontend/frontend_test.mbt` | 148 tests: slug_of, navigation order, find_page, decode_pages (valid + malformed), ring geometry, ring radius, ring percentages, node colors, and the two languages of every surface | high |
+| `frontend/frontend_test.mbt` | 154 tests: slug_of, navigation order, find_page, decode_pages (valid + malformed), ring geometry, ring radius, ring percentages, node colors, and the two languages of every surface | high |
 
 ## Tools
 

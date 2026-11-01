@@ -1053,8 +1053,42 @@ pub fn workspace_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
   } else {
     domain_target(c, model.draft_domain)
   }
+  // The form makes a new record, or corrects the one the reader picked.
+  //
+  // One form, because a correction is the same three fields as a new record
+  // and two forms would be two places for the same rules to live.
+  let editing = model.entry_editing > 0
+  let save_button = if editing {
+    @html.button(
+      class="maked-ws-save",
+      on_click=emit(EntryUpdateClicked),
+      c.workspace.save_change,
+    )
+  } else {
+    @html.button(
+      class="maked-ws-save",
+      on_click=emit(DraftSubmitClicked),
+      save_to(c, target),
+    )
+  }
+  let cancel_button = if editing {
+    @html.button(
+      class="maked-ws-cancel",
+      on_click=emit(EntryEditCancelled),
+      c.workspace.cancel,
+    )
+  } else {
+    @html.nothing
+  }
   let form = @html.div(class="maked-ws-form", [
-    @html.p(class="maked-ws-question", c.workspace.question),
+    @html.p(
+      class="maked-ws-question",
+      if editing {
+        c.workspace.correcting
+      } else {
+        c.workspace.question
+      },
+    ),
     @html.div(class="maked-ws-domains", domain_buttons),
     @html.label(
       class="maked-ws-label",
@@ -1083,11 +1117,7 @@ pub fn workspace_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
       on_input=emit.map(fn(text) { DraftBodyChanged(text) }),
       @html.nothing,
     ),
-    @html.button(
-      class="maked-ws-save",
-      on_click=emit(DraftSubmitClicked),
-      save_to(c, target),
-    ),
+    @html.div(class="maked-ws-actions", [save_button, cancel_button]),
   ])
   let status = if model.workspace_error != "" {
     @html.p(class="maked-ws-error", model.workspace_error)
@@ -1098,17 +1128,32 @@ pub fn workspace_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
   }
   let entry_items : Array[@html.Html] = []
   for entry in model.entries {
+    // The record being corrected is marked, so the reader can see which one
+    // the form is about: a correction that cannot be seen is a correction
+    // aimed at the wrong record.
+    let is_editing = if entry.id == model.entry_editing {
+      " maked-ws-entry--editing"
+    } else {
+      ""
+    }
     entry_items.push(
-      @html.li(class="maked-ws-entry", [
+      @html.li(class="maked-ws-entry\{is_editing}", [
         @html.span(class="maked-ws-entry-domain", entry.domain),
         @html.span(class="maked-ws-entry-title", entry.title),
         @html.p(class="maked-ws-entry-body", entry.body),
         @html.span(class="maked-ws-entry-time", entry.created_at),
-        @html.button(
-          class="maked-ws-entry-delete",
-          on_click=emit(EntryDeleteClicked(entry.id)),
-          c.workspace.delete,
-        ),
+        @html.div(class="maked-ws-entry-actions", [
+          @html.button(
+            class="maked-ws-entry-edit",
+            on_click=emit(EntryEditClicked(entry.id)),
+            c.workspace.edit,
+          ),
+          @html.button(
+            class="maked-ws-entry-delete",
+            on_click=emit(EntryDeleteClicked(entry.id)),
+            c.workspace.delete,
+          ),
+        ]),
       ]),
     )
   }

@@ -244,6 +244,12 @@ pub struct WorkspaceWords {
   no_domain : String
   wrong_domain : String
   no_title : String
+  /// Correcting a record: the words the workspace uses while a record is
+  /// being changed rather than written.
+  edit : String
+  correcting : String
+  save_change : String
+  cancel : String
 }
 
 ///|
@@ -590,6 +596,10 @@ fn workspace_en() -> WorkspaceWords {
     no_domain: "choose a domain first",
     wrong_domain: "the domain must be one of M, D, E, A, K",
     no_title: "give the entry a title",
+    edit: "Edit",
+    correcting: "Correcting this record. Save it and it is still the same record, in the same place.",
+    save_change: "Save the change",
+    cancel: "Leave it",
   }
 }
 
@@ -616,6 +626,10 @@ fn workspace_zh() -> WorkspaceWords {
     no_domain: "先选一个域",
     wrong_domain: "域必须是 M、D、E、A、K 之一",
     no_title: "给这条记录起个标题",
+    edit: "改一改",
+    correcting: "在改这条记录。改完保存，它就还是原来那一条。",
+    save_change: "保存修改",
+    cancel: "不改了",
   }
 }
 
@@ -1046,6 +1060,25 @@ pub fn saved_entry(c : Chrome, title : String, domain : String) -> String {
   match c.lang {
     English => "Saved “" + title + "” to the " + domain + " domain."
     Chinese => "已把“" + title + "”保存到 " + domain + " 域。"
+  }
+}
+
+///|
+/// What the panel says after a record was corrected.
+pub fn corrected_entry(c : Chrome, title : String, domain : String) -> String {
+  match c.lang {
+    English =>
+      "Corrected “" +
+      title +
+      "” in the " +
+      domain +
+      " domain. It is still the same record."
+    Chinese =>
+      "已把 " +
+      domain +
+      " 域里的“" +
+      title +
+      "”改好了。还是原来那一条。"
   }
 }
 

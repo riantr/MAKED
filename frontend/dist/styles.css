@@ -706,9 +706,9 @@ body {
     display: grid;
     grid-template-columns: 28px 1fr auto;
     grid-template-areas:
-        "domain title delete"
-        "domain body delete"
-        "domain time delete";
+        "domain title actions"
+        "domain body actions"
+        "domain time actions";
     column-gap: 10px;
     align-items: start;
     padding: 12px 0;
@@ -739,9 +739,35 @@ body {
     color: #aaa;
     font-size: 12px;
 }
+.maked-ws-entry-actions {
+    grid-area: actions;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: stretch;
+}
+/*
+ * The record being corrected is outlined rather than recoloured: a correction
+ * that cannot be seen is a correction aimed at the wrong record.
+ */
+.maked-ws-entry--editing {
+    outline: 2px solid #2c3e9e;
+    outline-offset: -2px;
+}
+.maked-ws-entry-edit {
+    padding: 4px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fff;
+    color: #777;
+    font-size: 12px;
+    cursor: pointer;
+}
+.maked-ws-entry-edit:hover {
+    border-color: #2c3e9e;
+    color: #2c3e9e;
+}
 .maked-ws-entry-delete {
-    grid-area: delete;
-    align-self: start;
     padding: 4px 10px;
     border: 1px solid #ddd;
     border-radius: 4px;
@@ -754,6 +780,22 @@ body {
     border-color: #e74c3c;
     color: #e74c3c;
 }
+/* The save and the "leave it" sit side by side while a record is corrected. */
+.maked-ws-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.maked-ws-cancel {
+    padding: 8px 16px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #fff;
+    color: #555;
+    font-size: 14px;
+    cursor: pointer;
+}
+.maked-ws-cancel:hover { background: #f0f0f0; }
 
 /* --- sessions ------------------------------------------------------------ */
 .maked-sessions {

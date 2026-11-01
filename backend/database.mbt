@@ -420,6 +420,37 @@ pub fn Database::delete_entry(self : Database, id : Int64) -> Bool raise {
 }
 
 ///|
+/// Change one entry's content, by id.
+///
+/// Returns whether a row was actually changed, so the API can answer 404 for
+/// an id that was never there instead of a 200 that claims to have changed
+/// something.
+///
+/// `created_at` is deliberately left alone. The record was created when it was
+/// created, and correcting it does not make it younger -- the workspace's
+/// order is the order the records were written in, and a correction is not a
+/// new record.
+pub fn Database::update_entry(
+  self : Database,
+  id : Int64,
+  domain : String,
+  title : String,
+  body : String,
+) -> Bool raise {
+  let stmt = self.connection.prepare(
+    "UPDATE entries SET domain = ?, title = ?, body = ? WHERE id = ?",
+  )
+  stmt.reset(clear_bindings=true)
+  stmt.bind(index=1, domain)
+  stmt.bind(index=2, title)
+  stmt.bind(index=3, body)
+  stmt.bind(index=4, id)
+  ignore(stmt.step())
+  stmt.finalize()
+  self.connection.changes() > 0L
+}
+
+///|
 const SESSION_COLUMNS : String = "id, name, parent_id, forked_step_id, head_step_id, start_cursor, mode, created_at, updated_at"
 
 ///|

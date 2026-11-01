@@ -31,7 +31,7 @@ digraph maked_components {
     node [fillcolor="#d4e6f1"]
 
     framework [label="Framework\nbackend/app.mbt\nbackend/request.mbt\nbackend/response.mbt\nRoute table +\nmiddleware chain"]
-    api       [label="API\nbackend/api.mbt\n37 JSON endpoints"]
+    api       [label="API\nbackend/api.mbt\n38 JSON endpoints"]
     content   [label="Content\nbackend/pages.mbt\nbackend/database.mbt\nThe ten public pages\nand the SQLite store"]
     assembly  [label="Assembly\nbackend/maked_app.mbt\nbackend/bootstrap.mbt\nbackend/version.mbt\nReads the files\nMAKED runs"]
     machine   [label="Machine\nbackend/model.mbt\nbackend/loop.mbt\nbackend/step.mbt\nbackend/metrics.mbt\nThe state machine\nMAKED runs"]

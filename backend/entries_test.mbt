@@ -217,3 +217,82 @@ async test "an entry does not appear as a page" {
   db.close()
   drop_db("test_entries_separation.db")
 }
+
+///|
+/// A corrected record is the same record.
+///
+/// The id and the time are the record's own: correcting it does not make it a
+/// new record, and a correction that moved it to the end of the workspace
+/// would be a different record wearing the old one's title.
+async test "a corrected entry keeps its id and its time" {
+  let db = open_entries_db("update")
+  let entry = db.insert_entry("M", "my model", "what I believe")
+  // Give the record an old time first. Within one second the time a record
+  // was created and the time it was corrected are the same string, so a
+  // correction that quietly rewrote the time would not be visible.
+  let stamp = db.connection.prepare(
+    "UPDATE entries SET created_at = '2000-01-01T00:00:00Z' WHERE id = ?",
+  )
+  stamp.reset(clear_bindings=true)
+  stamp.bind(index=1, entry.id)
+  ignore(stamp.step())
+  stamp.finalize()
+  let before = db.all_entries()[0]
+  assert_true(db.update_entry(entry.id, "D", "my model, corrected", "and more"))
+  let stored = db.all_entries()
+  assert_eq(stored.length(), 1)
+  assert_eq(stored[0].id, entry.id)
+  assert_eq(stored[0].created_at, before.created_at)
+  assert_eq(stored[0].created_at, "2000-01-01T00:00:00Z")
+  assert_eq(stored[0].domain, "D")
+  assert_eq(stored[0].title, "my model, corrected")
+  assert_eq(stored[0].body, "and more")
+  db.close()
+  drop_db("test_entries_update.db")
+}
+
+///|
+/// Correcting a record that is not there reports false, which is what lets the
+/// API answer 404 instead of a 200 that claims to have changed something.
+async test "updating an id that was never issued reports false" {
+  let db = open_entries_db("update_missing")
+  ignore(db.insert_entry("K", "kept", ""))
+  assert_true(!db.update_entry(9999L, "M", "not stored", ""))
+  // And it must not have changed the record that is there.
+  let stored = db.all_entries()
+  assert_eq(stored.length(), 1)
+  assert_eq(stored[0].title, "kept")
+  db.close()
+  drop_db("test_entries_update_missing.db")
+}
+
+///|
+/// A correction is checked the same way a new record is.
+///
+/// A change that the create path would refuse is not a change, and the rule
+/// that refuses it is the one rule.
+async test "a correction is checked the same way a new record is" {
+  let db = open_entries_db("update_checked")
+  let entry = db.insert_entry("M", "my model", "")
+  // The server checks before it writes, so the row is only ever changed by a
+  // payload that passed the same check as a new record.
+  match
+    @backend.Entry::from_json({
+      "domain": "Z",
+      "title": "wrong domain",
+      "body": "",
+    }) {
+    @backend.EntryDraft::Rejected(reason) =>
+      assert_true(reason.contains("domain must be one of"))
+    @backend.EntryDraft::Accepted(_, _, _) => assert_true(false)
+  }
+  match @backend.Entry::from_json({ "domain": "M", "title": "", "body": "" }) {
+    @backend.EntryDraft::Rejected(reason) =>
+      assert_eq(reason, "title must not be empty")
+    @backend.EntryDraft::Accepted(_, _, _) => assert_true(false)
+  }
+  // The record is untouched by the refusals.
+  assert_eq(db.all_entries()[0].title, "my model")
+  db.close()
+  drop_db("test_entries_update_checked.db")
+}

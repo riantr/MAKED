@@ -101,7 +101,14 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   //
   // GET    /api/entries      → every entry, oldest first
   // POST   /api/entries      → create one; the body is {domain,title,body}
+  // PUT    /api/entries/:id  → change one; the body is {domain,title,body}
   // DELETE /api/entries/:id  → remove one
+  //
+  // A record the reader wrote can be corrected in place. It could be created
+  // and removed but never changed, which meant a typo could only be answered
+  // by deleting the record and writing it again -- and the second record was
+  // a different record, with a different id and a different place in the
+  // workspace's order.
   app.get("/api/entries", _req => {
     let entries = db.all_entries().map(fn(e) { e.to_json() })
     let body : Json = {
@@ -140,20 +147,78 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     if id < 0 {
       // A missing or non-numeric id can never name a row. Saying so plainly
       // beats a 404 that implies the entry might exist.
+      let raw = match req.param("id") {
+        Some(value) => value
+        None => ""
+      }
       let body : Json = {
         "error": "bad_id",
-        "id": match req.param("id") {
-          Some(raw) => raw
-          None => ""
-        },
+        "id": raw,
+        // The reason travels with the refusal: the status code never reaches
+        // the client, so the body is the only place a reason can come from.
+        "reason": bad_entry_id_reason(raw, lang_of(req)),
       }
       Response::json(body, status=400)
     } else if db.delete_entry(id.to_int64()) {
       let body : Json = { "deleted": id }
       Response::json(body)
     } else {
-      let body : Json = { "error": "not_found", "id": id }
+      let body : Json = {
+        "error": "not_found",
+        "id": id,
+        "reason": entry_not_found_reason(id, lang_of(req)),
+      }
       Response::json(body, status=404)
+    }
+  })
+  // PUT /api/entries/:id → change one record's content.
+  //
+  // The same validation as creating one, because a correction that the create
+  // path would refuse is not a correction. The answer carries the record as
+  // it now stands, so the client can put the reader's own words back on the
+  // screen instead of guessing what was stored.
+  app.put("/api/entries/:id", req => {
+    let id = match req.param("id") {
+      Some(raw) => @string.parse_int(raw) catch { _ => -1 }
+      None => -1
+    }
+    if id < 0 {
+      let raw = match req.param("id") {
+        Some(value) => value
+        None => ""
+      }
+      let body : Json = {
+        "error": "bad_id",
+        "id": raw,
+        "reason": bad_entry_id_reason(raw, lang_of(req)),
+      }
+      Response::json(body, status=400)
+    } else {
+      let payload = req.json().unwrap_or(Json::empty_object())
+      match Entry::from_json(payload) {
+        Rejected(reason) => {
+          let body : Json = { "error": "invalid_entry", "reason": reason }
+          Response::json(body, status=400)
+        }
+        Accepted(domain, title, body_text) =>
+          if db.update_entry(id.to_int64(), domain, title, body_text) {
+            let entry : Json = {
+              "id": id,
+              "domain": domain,
+              "title": title,
+              "body": body_text,
+            }
+            let body : Json = { "entry": entry, "updated": true }
+            Response::json(body)
+          } else {
+            let body : Json = {
+              "error": "not_found",
+              "id": id,
+              "reason": entry_not_found_reason(id, lang_of(req)),
+            }
+            Response::json(body, status=404)
+          }
+      }
     }
   })
   // Session endpoints: the named explorations, and the history inside them.
@@ -1195,6 +1260,31 @@ fn corpus_json(corpus : CorpusConfig) -> Json {
 /// what the server supports.
 fn lang_of(req : Request) -> Lang {
   lang_from_query(req.query("lang"))
+}
+
+///|
+/// Why a record's id could not be read, in the language asked for.
+///
+/// The reason quotes what was sent, because the reader who typed a letter
+/// where a number belongs is the one who has to guess again.
+fn bad_entry_id_reason(raw : String, lang : Lang) -> String {
+  match lang {
+    English =>
+      "The server could not read '" + raw + "' as the number of a record."
+    Chinese => "服务端无法把 '" + raw + "' 读成记录的编号。"
+  }
+}
+
+///|
+/// Why a record was not there, in the language asked for.
+///
+/// The reason names the number that was asked for, so the reader can see
+/// which record is missing rather than being told that one is.
+fn entry_not_found_reason(id : Int32, lang : Lang) -> String {
+  match lang {
+    English => "There is no record numbered " + id.to_string() + "."
+    Chinese => "没有编号为 " + id.to_string() + " 的记录。"
+  }
 }
 
 ///|
