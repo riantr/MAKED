@@ -1067,3 +1067,67 @@ test "the status carries the group's whole vocabulary" {
     assert_true(json_str(item, "gloss") != "")
   }
 }
+
+///|
+/// The status carries the mode, the mode's machine word, and the modes there
+/// are.
+///
+/// The client posts the machine word back to set the mode, so the word has to
+/// travel with the payload -- a client that had to spell the mode itself
+/// would be asking for a mode the server may have renamed. And a client that
+/// cannot see the choice cannot offer it: the server could set the mode and
+/// the page had no way to ask.
+test "the status carries the mode and the modes" {
+  let state = @backend.LoopState::new()
+  let json = state.to_json(@backend.Lang::english())
+  // The machine word is the one the endpoint parses.
+  assert_eq(json_str(json, "mode_key"), "structured")
+  // The whole vocabulary travels with it: both modes, each with the words a
+  // reader needs to choose one.
+  let modes = json_array(json, "modes")
+  assert_eq(modes.length(), 2)
+  let keys : Array[String] = []
+  for item in modes {
+    assert_true(json_str(item, "key") != "")
+    assert_true(json_str(item, "designation") != "")
+    assert_true(json_str(item, "gloss") != "")
+    keys.push(json_str(item, "key"))
+  }
+  assert_true(keys.contains("structured"))
+  assert_true(keys.contains("free"))
+}
+
+///|
+/// The mode's machine word is the one the server accepts.
+///
+/// The endpoint parses "structured" and "free", and nothing else. A machine
+/// word that was not the one the endpoint parses would be a request that is
+/// refused for a reason the reader cannot act on.
+test "the mode's machine word is the one the server accepts" {
+  assert_eq(@backend.Structured.key(), "structured")
+  assert_eq(@backend.Free.key(), "free")
+}
+
+///|
+/// The status carries the domains of the ring.
+///
+/// A run can be started again from any domain of the ring, and the domains
+/// the server has are the ones the reader has to be offered -- a client with
+/// its own list of them is a client that can offer a domain the server does
+/// not have.
+test "the status carries the domains of the ring" {
+  let state = @backend.LoopState::new()
+  let json = state.to_json(@backend.Lang::english())
+  let domains = json_array(json, "domain_states")
+  assert_true(domains.length() > 0)
+  let letters : Array[String] = []
+  for item in domains {
+    assert_true(json_str(item, "domain") != "")
+    assert_true(json_str(item, "title") != "")
+    letters.push(json_str(item, "domain"))
+  }
+  // The five letters of the ring, all of them.
+  for letter in ["M", "D", "E", "A", "K"] {
+    assert_true(letters.contains(letter))
+  }
+}

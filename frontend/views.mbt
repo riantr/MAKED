@@ -194,6 +194,20 @@ fn last_narration(path : Array[SessionStep]) -> String {
 }
 
 ///|
+/// The class that marks the mode in force.
+///
+/// The mode the loop is running in is marked rather than dimmed: a reader has
+/// to be able to tell "the one you chose" from "the one you are in" at a
+/// glance.
+pub fn mode_class(status : LoopStatus, key : String) -> String {
+  if key == status.mode {
+    " maked-loop-mode--current"
+  } else {
+    ""
+  }
+}
+
+///|
 /// The loop panel on the index page: current position, drive slot, step/reset
 /// buttons, and the history of past transitions.
 pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
@@ -396,6 +410,54 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
       } else {
         @html.ul(class="maked-loop-history", history_items)
       }
+      // How the loop runs, and where a run can start again.
+      //
+      // Both of these were server capabilities the page had no way to ask
+      // for: the mode could be set, and a run could be started from any
+      // domain of the ring -- and the reader could do neither. The buttons
+      // are built from the backend's own vocabulary, the modes it offers and
+      // the domains it has, so the page cannot offer a choice the server does
+      // not have, and it cannot hide one it does.
+      let mode_buttons : Array[@html.Html] = []
+      for mode in status.modes {
+        let is_now = mode_class(status, mode.key)
+        mode_buttons.push(
+          @html.button(
+            class="maked-loop-mode\{is_now}",
+            title=mode.gloss,
+            on_click=emit(ModeClicked(mode.key)),
+            mode.designation,
+          ),
+        )
+      }
+      let current_mode = match find_mode(status, status.mode) {
+        Some(mode) => mode.designation
+        None => status.mode
+      }
+      let mode_row = @html.div(class="maked-loop-modes", [
+        @html.p(class="maked-loop-modes-label", mode_now(c, current_mode)),
+        @html.div(class="maked-loop-mode-row", mode_buttons),
+      ])
+      // Start the run again from a domain of the ring. The letter is the
+      // ring's own, so the request names a domain the server knows.
+      let domain_buttons : Array[@html.Html] = []
+      for domain in status.domains {
+        domain_buttons.push(
+          @html.button(
+            class="maked-loop-domain",
+            on_click=emit(DomainResetClicked(domain.letter)),
+            domain_label(c, domain.letter, domain.title),
+          ),
+        )
+      }
+      let domain_row = if domain_buttons.length() == 0 {
+        @html.nothing
+      } else {
+        @html.div(class="maked-loop-domains", [
+          @html.p(class="maked-loop-domains-label", c.loop_panel.start_from),
+          @html.div(class="maked-loop-domain-row", domain_buttons),
+        ])
+      }
       @html.section(class="maked-loop", [
         @html.h2(class="maked-loop-title", c.loop_panel.title),
         current,
@@ -404,6 +466,8 @@ pub fn loop_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
         metrics_block_html,
         session_line,
         buttons,
+        mode_row,
+        domain_row,
         slot_selector,
         history,
         error,

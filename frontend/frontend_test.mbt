@@ -3343,6 +3343,215 @@ test "the choice of a successor carries the language" {
 }
 
 ///|
+/// The loop status carries the mode, the modes, and the domains.
+///
+/// The backend computed all three and the frontend threw all three away, so
+/// the page could not say how the loop was running and could not offer to
+/// change it: the reader was shown a machine whose rules they could not see
+/// and could not touch.
+test "the loop status carries the mode, the modes, and the domains" {
+  let status = @frontend.decode_loop_status(mode_status())
+  assert_eq(status.mode, "structured")
+  assert_eq(status.modes.length(), 2)
+  assert_eq(status.modes[0].key, "structured")
+  assert_eq(status.modes[0].designation, "Structured")
+  assert_eq(status.modes[1].key, "free")
+  assert_eq(status.modes[1].designation, "Free")
+  assert_eq(status.domains.length(), 3)
+  assert_eq(status.domains[0].letter, "M")
+  assert_eq(status.domains[0].title, "Model")
+  assert_eq(status.domains[2].letter, "K")
+  assert_eq(status.domains[2].title, "Knowledge")
+}
+
+///|
+/// The mode that is in force is found by its machine word.
+///
+/// The word is the one the server sent and the one the server parses, so the
+/// page and the server are talking about the same mode rather than two that
+/// happen to look alike.
+test "the mode in force is found by its machine word" {
+  let status = @frontend.decode_loop_status(mode_status())
+  match @frontend.find_mode(status, "free") {
+    Some(mode) => assert_eq(mode.designation, "Free")
+    None => assert_true(false)
+  }
+  assert_true(@frontend.find_mode(status, "sideways") is None)
+}
+
+///|
+/// The reader can choose how the loop runs.
+///
+/// The server answers `POST /api/loop/mode/:mode` and before this the page
+/// had no way to ask for it: a capability the server has and the reader
+/// cannot reach is a capability the reader does not have.
+test "the reader can choose how the loop runs" {
+  let (_, cmd) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::ModeClicked("free"),
+    silent_emit(),
+  )
+  let request = cmd.to_repr().to_string()
+  assert_true(request.contains("/api/loop/mode/free"))
+  assert_true(request.contains("Post"))
+}
+
+///|
+/// The reader can start the run again from a domain of the ring.
+///
+/// The server answers `POST /api/loop/reset/:domain` and the page could only
+/// reset to the domain the run began in.
+test "the reader can start the run again from a domain" {
+  let (_, cmd) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::DomainResetClicked("K"),
+    silent_emit(),
+  )
+  let request = cmd.to_repr().to_string()
+  assert_true(request.contains("/api/loop/reset/K"))
+  assert_true(request.contains("Post"))
+}
+
+///|
+/// A refused mode says why.
+///
+/// The status code never reaches the client -- rabbita hands over the body
+/// whatever the status was -- so the body is the only place a reason can come
+/// from. A refusal without one is a shrug.
+test "a refused mode says why" {
+  let body : Json = {
+    "error": "unknown_mode",
+    "mode": "nonsense",
+    "reason": "The server does not know a mode called 'nonsense'.",
+  }
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::LoopModeSet(Ok(body)),
+    silent_emit(),
+  )
+  assert_eq(
+    model.loop_error,
+    "The server does not know a mode called 'nonsense'.",
+  )
+}
+
+///|
+/// A domain the server does not know says why, too.
+///
+/// The same rule as the mode: the run that could not be started is refused
+/// with a reason, and the reason is what the reader is shown.
+test "a refused domain says why" {
+  let body : Json = {
+    "error": "unknown_domain",
+    "domain": "ZZ",
+    "reason": "The server does not know a domain called 'ZZ'.",
+  }
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::LoopReset(Ok(body)),
+    silent_emit(),
+  )
+  assert_eq(model.loop_error, "The server does not know a domain called 'ZZ'.")
+}
+
+///|
+/// The loop panel offers the modes and the domains.
+///
+/// A reader who cannot see how to change the mode, or where the run can
+/// start, has not got the choice at all: the control has to be on the panel,
+/// not in the source.
+test "the loop panel offers the modes and the domains" {
+  let seen : Array[@frontend.Msg] = []
+  let status = @frontend.decode_loop_status(mode_status())
+  let model = { ..bare_model(), loop_status: Some(status), }
+  let _ = @frontend.loop_view(capturing_emit(seen), model)
+  let modes : Array[String] = []
+  let domains : Array[String] = []
+  for msg in seen {
+    match msg {
+      @frontend.Msg::ModeClicked(key) => modes.push(key)
+      @frontend.Msg::DomainResetClicked(letter) => domains.push(letter)
+      _ => ()
+    }
+  }
+  assert_eq(modes.length(), 2)
+  assert_true(modes.contains("structured"))
+  assert_true(modes.contains("free"))
+  assert_eq(domains.length(), 3)
+  assert_true(domains.contains("M"))
+  assert_true(domains.contains("D"))
+  assert_true(domains.contains("K"))
+}
+
+///|
+/// The loop panel says which mode is in force.
+///
+/// A reader who cannot tell which mode they are in cannot tell what the
+/// buttons will do -- and a mode that is in force but not marked is a rule
+/// the reader is living under without knowing it.
+test "the loop panel says which mode is in force" {
+  let status = @frontend.decode_loop_status(mode_status())
+  assert_eq(
+    @frontend.mode_class(status, "structured"),
+    " maked-loop-mode--current",
+  )
+  assert_eq(@frontend.mode_class(status, "free"), "")
+}
+
+///|
+/// The panel's sentences are in the language the reader is reading in.
+test "the mode and the domain sentences are in the language" {
+  assert_eq(
+    @frontend.mode_now(en(), "Structured"),
+    "How the loop runs. Now: Structured.",
+  )
+  assert_eq(
+    @frontend.mode_now(zh(), "结构化"),
+    "环现在这样跑：结构化。",
+  )
+  assert_eq(@frontend.domain_label(en(), "M", "Model"), "M · Model")
+  assert_eq(@frontend.domain_label(zh(), "M", "模型"), "M · 模型")
+}
+
+///|
+/// A loop status that carries a mode and a ring of domains.
+fn mode_status() -> Json {
+  {
+    "current_domain": "M",
+    "current_title": "Model",
+    "current_position": "Standing",
+    "current_position_label": "Standing",
+    "current_gloss": "A person standing.",
+    "next_domain": "D",
+    "drive_slot": "Ask",
+    "drive_slot_name": "ask",
+    "blocked": false,
+    "undecided": false,
+    "open_slots": [],
+    "history_length": 0,
+    "history": [],
+    "mode_key": "structured",
+    "modes": [
+      {
+        "key": "structured",
+        "designation": "Structured",
+        "gloss": "Follows the ring order, each domain driven by its slot.",
+      },
+      {
+        "key": "free",
+        "designation": "Free",
+        "gloss": "Any slot may drive, exploring the state space.",
+      },
+    ],
+    "domain_states": [
+      { "domain": "M", "title": "Model" },
+      { "domain": "D", "title": "Data" },
+      { "domain": "K", "title": "Knowledge" },
+    ],
+  }
+}
+
+///|
 /// The client's own sentences are in the language too.
 ///
 /// The workspace's refusals are written by the client rather than the

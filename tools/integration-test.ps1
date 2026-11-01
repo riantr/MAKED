@@ -701,6 +701,45 @@ try {
   $badMode = Post-Json "/api/loop/mode/sideways"
   Assert-Status "an unknown mode is a 400" 400 $badMode
 
+  # The payload carries the mode's machine word and the whole vocabulary of the
+  # modes. The client posts the word back, and it offers the choice: a client
+  # that cannot see the modes cannot offer them, and a client that had to
+  # spell the mode itself would be asking for a mode the server may have
+  # renamed.
+  $loopStatus = Get-Json "/api/loop/status"
+  Assert-Field "the status carries the mode's machine word" $loopStatus "mode_key" "structured"
+  $modes = @($loopStatus.modes)
+  Assert-True "and the modes it offers" ($modes.Count -eq 2) ("got {0}" -f $modes.Count)
+  Assert-True "and every one of them names itself" (@($modes | Where-Object { -not $_.key }).Count -eq 0)
+  Assert-True "and one of them is free" (@($modes | Where-Object { $_.key -eq "free" }).Count -eq 1)
+  Assert-True "and one of them is structured" (@($modes | Where-Object { $_.key -eq "structured" }).Count -eq 1)
+
+  # A refused mode says why. The status code never reaches the client -- the
+  # body is handed over whatever the status was -- so the body is the only
+  # place a reason can come from, and a refusal without one is a shrug.
+  $badModeBody = $badMode.Body | ConvertFrom-Json
+  Assert-HasField "a refused mode says why" $badModeBody "reason"
+  Assert-True "and the reason is a sentence" ($badModeBody.reason.Length -gt 0)
+
+  # A run can be started again from a named domain, and a domain the server
+  # does not know is refused with a reason.
+  $fromDomain = Post-Json "/api/loop/reset/K"
+  Assert-Status "starting the run from a domain is a 200" 200 $fromDomain
+  Assert-Field "and the run starts there" ($fromDomain.Body | ConvertFrom-Json) "current_domain" "K"
+  $badDomain = Post-Json "/api/loop/reset/ZZ"
+  Assert-Status "a domain the server does not know is a 400" 400 $badDomain
+  $badDomainBody = $badDomain.Body | ConvertFrom-Json
+  Assert-HasField "and says why" $badDomainBody "reason"
+  Assert-True "and the reason is a sentence" ($badDomainBody.reason.Length -gt 0)
+
+  # The status carries the domains of the ring, so the reader can be offered
+  # the ones the server has rather than a list the client keeps for itself.
+  $domainStates = @($loopStatus.domain_states)
+  Assert-True "the status carries the domains of the ring" ($domainStates.Count -eq 5) `
+    ("got {0}" -f $domainStates.Count)
+  Assert-True "and every one of them has a letter" `
+    (@($domainStates | Where-Object { -not $_.domain }).Count -eq 0)
+
   $reset = Post-Json "/api/loop/reset"
   Assert-Status "a reset is a 200" 200 $reset
   Assert-Field "and the history is empty again" ($reset.Body | ConvertFrom-Json) "history_length" 0

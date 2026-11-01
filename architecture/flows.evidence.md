@@ -23,11 +23,11 @@
 | spa_fallback checks: GET/HEAD, not /api/*, no dot in last segment | `backend/maked_app.mbt:91` | high |
 | spa_fallback reads dist/index.html via async fs | `backend/maked_app.mbt:91-115` | high |
 | The `history_fallback` is deliberately NOT used (would mask API 404s) | `backend/maked_app.mbt:74-80` | high |
-| rabbita mount triggers start() which issues GET /api/bootstrap | `frontend/app.mbt:1440` | high |
-| The bootstrap's answer asks for the loop status | `frontend/app.mbt:429` | high |
+| rabbita mount triggers start() which issues GET /api/bootstrap | `frontend/app.mbt:1500` | high |
+| The bootstrap's answer asks for the loop status | `frontend/app.mbt:441` | high |
 | bootstrap returns `{"pages": [...], "entries": [...], "entry_domains": [...], "session_state": {...}}` | `backend/api.mbt:61-76` | high |
-| on_url_changed fires on mount when routing is configured | `frontend/app.mbt:1352` | high |
-| slug_of maps /about → about, / → index | `frontend/app.mbt:291` | high |
+| on_url_changed fires on mount when routing is configured | `frontend/app.mbt:1412` | high |
+| slug_of maps /about → about, / → index | `frontend/app.mbt:303` | high |
 
 ## Flow 3: Client-side navigation
 
@@ -35,9 +35,9 @@
 |------|--------|------------|
 | Click handler on <li> (not <a>) because rabbita has no on_click for <a> | `frontend/views.mbt:13, 83` | high |
 | push_url uses History API | `frontend/views.mbt:83` (rabbita/nav) | high |
-| on_url_changed subscription wraps URL into Msg | `frontend/app.mbt:1352` | high |
-| update sets current = slug_of(url.path), no command issued | `frontend/app.mbt:382` | high |
-| All pages already in memory; no second fetch | `frontend/app.mbt:404` | high |
+| on_url_changed subscription wraps URL into Msg | `frontend/app.mbt:1412` | high |
+| update sets current = slug_of(url.path), no command issued | `frontend/app.mbt:394` | high |
+| All pages already in memory; no second fetch | `frontend/app.mbt:416` | high |
 
 ## Flow 4: API request
 

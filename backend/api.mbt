@@ -567,6 +567,11 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
             let body : Json = {
               "error": "unknown_domain",
               "domain": domain_name,
+              // The reason travels with the refusal. The status code never
+              // reaches the client -- rabbita hands over the body whatever the
+              // status was -- so the body is the only place a reason can come
+              // from, and a refusal without one is a shrug.
+              "reason": unknown_domain_reason(domain_name, lang_of(req)),
             }
             Response::json(body, status=400)
           }
@@ -614,7 +619,11 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
             Response::json(loop_payload(db, lang_of(req)))
           }
           None => {
-            let body : Json = { "error": "unknown_mode", "mode": raw_mode }
+            let body : Json = {
+              "error": "unknown_mode",
+              "mode": raw_mode,
+              "reason": unknown_mode_reason(raw_mode, lang_of(req)),
+            }
             Response::json(body, status=400)
           }
         }
@@ -627,7 +636,6 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   })
   // Research endpoints: the corpus, the documents it holds, and the loop
   // driven by them.
-  //
   // GET  /api/research/documents → the documents the corpus holds
   // POST /api/research/drive     → drive the Loop with those documents
   // GET  /api/research/config    → the mapping table the reader may edit
@@ -1187,6 +1195,38 @@ fn corpus_json(corpus : CorpusConfig) -> Json {
 /// what the server supports.
 fn lang_of(req : Request) -> Lang {
   lang_from_query(req.query("lang"))
+}
+
+///|
+/// Why a domain was refused, in the language asked for.
+///
+/// The reason names the domain that was refused, because "the domain is not
+/// one this server knows" without the name leaves the reader guessing which
+/// of the domains they typed was the wrong one.
+fn unknown_domain_reason(domain_name : String, lang : Lang) -> String {
+  match lang {
+    English => "The server does not know a domain called '" + domain_name + "'."
+    Chinese => "服务端不认识名为 '" + domain_name + "' 的域。"
+  }
+}
+
+///|
+/// Why a mode was refused, in the language asked for.
+///
+/// The reason names the modes the server does know, because the reader who
+/// asked for a mode the server refused is the one who has to guess again --
+/// and the list is the answer to that.
+fn unknown_mode_reason(raw_mode : String, lang : Lang) -> String {
+  match lang {
+    English =>
+      "The server does not know a mode called '" +
+      raw_mode +
+      "'. The modes are 'structured' and 'free'."
+    Chinese =>
+      "服务端不认识名为 '" +
+      raw_mode +
+      "' 的模式。模式只有 'structured' 和 'free' 两种。"
+  }
 }
 
 ///|

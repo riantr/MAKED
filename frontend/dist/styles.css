@@ -482,13 +482,77 @@ body {
     color: #777;
 }
 .maked-loop-slot--closed .maked-loop-slot-note { color: #aaa; }
+/* --- how the loop runs, and where it can start ---------------------------- */
+/*
+ * The mode is a rule the reader is living under, so the panel says which one
+ * is in force and offers the other. The mode in force is marked rather than
+ * dimmed: a reader has to be able to tell "the one you chose" from "the one
+ * you are in" at a glance.
+ */
+.maked-loop-modes {
+    margin: 0 0 18px;
+}
+.maked-loop-modes-label {
+    margin: 0 0 6px;
+    font-size: 14px;
+    color: #444;
+}
+.maked-loop-mode-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.maked-loop-mode {
+    padding: 6px 14px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #fff;
+    color: #555;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+.maked-loop-mode:hover { background: #f0f0f0; }
+.maked-loop-mode--current {
+    border-color: #2c3e9e;
+    color: #2c3e9e;
+    font-weight: 600;
+    background: #f2f4fb;
+}
+/*
+ * Starting the run again from another domain is a smaller thing than the
+ * mode, so it is a row of quiet buttons under it.
+ */
+.maked-loop-domains {
+    margin: 0 0 18px;
+}
+.maked-loop-domains-label {
+    margin: 0 0 6px;
+    font-size: 13px;
+    color: #777;
+}
+.maked-loop-domain-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.maked-loop-domain {
+    padding: 4px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fff;
+    color: #555;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+.maked-loop-domain:hover { background: #f6f6f6; }
 .maked-loop-history {
     margin: 0;
     padding-left: 18px;
     font-size: 13px;
     color: #555;
-}
-.maked-loop-event {
+}.maked-loop-event {
     display: flex;
     gap: 8px;
     padding: 2px 0;

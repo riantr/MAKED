@@ -141,6 +141,9 @@ pub struct LoopWords {
   open_sessions : String
   no_steps : String
   how_doing : String
+  /// The run can be started again from any domain of the ring. The reader
+  /// names the domain; the server starts there.
+  start_from : String
 }
 
 ///|
@@ -251,6 +254,7 @@ pub struct StatusWords {
   loop_unavailable : String
   step_failed : String
   reset_failed : String
+  mode_failed : String
   research_unavailable : String
   research_drive_failed : String
   causal_unavailable : String
@@ -385,6 +389,7 @@ fn loop_en() -> LoopWords {
     open_sessions: "open the sessions",
     no_steps: "No steps yet.",
     how_doing: "How the run is doing",
+    start_from: "Start the run again from",
   }
 }
 
@@ -402,6 +407,7 @@ fn loop_zh() -> LoopWords {
     open_sessions: "打开会话列表",
     no_steps: "还没有步进。",
     how_doing: "这段过程目前如何",
+    start_from: "从哪个域重新开始",
   }
 }
 
@@ -621,6 +627,7 @@ fn status_en() -> StatusWords {
     loop_unavailable: "loop status unavailable",
     step_failed: "step failed",
     reset_failed: "reset failed",
+    mode_failed: "the mode could not be changed",
     research_unavailable: "research data unavailable",
     research_drive_failed: "research drive failed",
     causal_unavailable: "causal inference unavailable",
@@ -637,6 +644,7 @@ fn status_zh() -> StatusWords {
     loop_unavailable: "环的状态不可用",
     step_failed: "步进失败",
     reset_failed: "复位失败",
+    mode_failed: "模式没有改成",
     research_unavailable: "研究数据不可用",
     research_drive_failed: "研究驱动失败",
     causal_unavailable: "因果推断不可用",
@@ -927,6 +935,29 @@ pub fn way_out(c : Chrome, count : String, designation : String) -> String {
       "给出 " +
       count +
       " 条出路，却不肯替你选。请选一条："
+  }
+}
+
+///|
+/// The mode the loop is running in, said out loud.
+///
+/// The name is the backend's own, in the language asked for. A mode the
+/// reader cannot see is a rule they are living under without knowing it --
+/// and the reason the server offers the mode at all is that the reader is
+/// meant to be able to change it.
+pub fn mode_now(c : Chrome, name : String) -> String {
+  match c.lang {
+    English => "How the loop runs. Now: " + name + "."
+    Chinese => "环现在这样跑：" + name + "。"
+  }
+}
+
+///|
+/// A domain of the ring, as a button: the letter and the name.
+pub fn domain_label(c : Chrome, letter : String, title : String) -> String {
+  match c.lang {
+    English => letter + " · " + title
+    Chinese => letter + " · " + title
   }
 }
 

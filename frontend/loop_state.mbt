@@ -46,6 +46,30 @@ pub(all) struct OpenSlot {
 } derive(Eq)
 
 ///|
+/// One way the loop can run, as the backend describes it.
+///
+/// `key` is the machine word: the exact path segment the server accepts when
+/// the reader asks for this mode. The client posts back what the server said
+/// rather than a word it made up, so a mode the server renames does not
+/// silently stop working.
+pub(all) struct ModeOption {
+  key : String
+  designation : String
+  gloss : String
+} derive(Eq)
+
+///|
+/// One domain of the ring, as the backend describes it.
+///
+/// `letter` is the ring's own letter -- the path segment the server accepts
+/// when the reader asks for the run to start again here -- and `title` is the
+/// name a reader sees.
+pub(all) struct DomainInfo {
+  letter : String
+  title : String
+} derive(Eq)
+
+///|
 pub(all) struct LoopStatus {
   current_domain : String
   current_title : String
@@ -62,6 +86,12 @@ pub(all) struct LoopStatus {
   open_slots : Array[OpenSlot]
   history_length : Int32
   history : Array[LoopEvent]
+  /// The mode the loop is running in, as the machine word.
+  mode : String
+  /// The modes there are, so the reader can be offered the choice.
+  modes : Array[ModeOption]
+  /// The domains of the ring, so the reader can start the run again from one.
+  domains : Array[DomainInfo]
 } derive(Eq)
 
 ///|
@@ -121,6 +151,25 @@ fn open_slot(json : Json) -> OpenSlot {
 }
 
 ///|
+/// One mode of the loop, as the backend describes it.
+fn mode_option(json : Json) -> ModeOption {
+  {
+    key: get_string(json, "key", ""),
+    designation: get_string(json, "designation", ""),
+    gloss: get_string(json, "gloss", ""),
+  }
+}
+
+///|
+/// One domain of the ring, as the backend describes it.
+fn domain_info(json : Json) -> DomainInfo {
+  {
+    letter: get_string(json, "domain", ""),
+    title: get_string(json, "title", ""),
+  }
+}
+
+///|
 /// The real reason a step may appear to do nothing.
 ///
 /// Before this was decoded, the backend computed `blocked` / `undecided` /
@@ -141,7 +190,26 @@ pub fn decode_loop_status(json : Json) -> LoopStatus {
     open_slots: get_array(json, "open_slots").map(fn(item) { open_slot(item) }),
     history_length: get_int(json, "history_length", 0),
     history: get_array(json, "history").map(fn(item) { loop_event(item) }),
+    // The mode and the modes, and the domains of the ring. The backend
+    // computed all three and the frontend discarded them, so the page could
+    // not say how the loop was running and could not offer to change it --
+    // the reader was shown a machine whose rules they could not see and
+    // could not touch.
+    mode: get_string(json, "mode_key", ""),
+    modes: get_array(json, "modes").map(fn(item) { mode_option(item) }),
+    domains: get_array(json, "domain_states").map(fn(item) { domain_info(item) }),
   }
+}
+
+///|
+/// The mode with this machine word, if the backend offered it.
+pub fn find_mode(status : LoopStatus, key : String) -> ModeOption? {
+  for mode in status.modes {
+    if mode.key == key {
+      return Some(mode)
+    }
+  }
+  None
 }
 
 ///|

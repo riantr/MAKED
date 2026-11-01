@@ -135,6 +135,20 @@ pub fn LoopMode::designation_in(self : LoopMode, lang : Lang) -> String {
 }
 
 ///|
+/// The mode's machine word: the exact path segment the server accepts.
+///
+/// The client posts this word back to set the mode, so it has to be the word
+/// the server parses -- not the label a reader sees, which the language can
+/// change. A client that had to recognise the label to build the request
+/// would break the first time somebody read the page in Chinese.
+pub fn LoopMode::key(self : LoopMode) -> String {
+  match self {
+    Structured => "structured"
+    Free => "free"
+  }
+}
+
+///|
 /// The mode's explanation, in the language asked for.
 pub fn LoopMode::gloss_in(self : LoopMode, lang : Lang) -> String {
   match lang {
@@ -1446,6 +1460,27 @@ pub fn group_states_json(lang : Lang) -> Json {
 }
 
 ///|
+/// The loop mode vocabulary, in the JSON shape the status response carries.
+///
+/// It travels with the status for the same reason the slots do: one request is
+/// enough to render the whole loop panel, and a choice the client cannot see
+/// is a choice the client cannot offer. The `key` in each entry is the machine
+/// word the server parses, so the client posts back what the server said
+/// rather than a word it made up.
+pub fn modes_json(lang : Lang) -> Json {
+  let items = []
+  for mode in [Structured, Free] {
+    let item : Json = {
+      "key": mode.key(),
+      "designation": mode.designation_in(lang),
+      "gloss": mode.gloss_in(lang),
+    }
+    items.push(item)
+  }
+  [..items]
+}
+
+///|
 /// JSON shape for the loop status API.
 ///
 /// `current_position` and `drive_slot` are read from the domain's **actual**
@@ -1563,5 +1598,13 @@ pub fn LoopState::to_json(self : LoopState, lang : Lang) -> Json {
     },
     "mode_designation": self.mode.designation(),
     "mode_gloss": self.mode.gloss(),
+    // The machine word for the mode, and the vocabulary of the modes there
+    // are. The client posts the word back to set the mode, so the word has to
+    // be the one the server parses; and a client that cannot see the choice
+    // cannot offer it. Before this the server held both capabilities -- the
+    // mode could be set and a run could be started from any domain -- and the
+    // page had no way to ask for either.
+    "mode_key": self.mode.key(),
+    "modes": modes_json(lang),
   }
 }

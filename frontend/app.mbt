@@ -20,6 +20,18 @@ pub(all) enum Msg {
   /// to pick. The slot's URL slug and the target's name.
   TargetStepClicked(String, String)
   ResetClicked
+  /// The reader chose how the loop runs: structured, or free.
+  ///
+  /// The message carries the machine word the backend sent, not a word the
+  /// client made up. A client that spelled the mode itself would be asking
+  /// for a mode the server may have renamed, and the refusal would come back
+  /// as a shrug.
+  ModeClicked(String)
+  /// The reader asked for the run to start again from a named domain. The
+  /// letter is the ring's own, as the backend spells it.
+  DomainResetClicked(String)
+  /// The mode was set, or refused with a reason.
+  LoopModeSet(Result[Json, Error])
   ResearchLoaded(Result[Json, Error])
   ResearchDriven(Result[Json, Error])
   /// The mapping table: the reader's own words for what a document means.
@@ -465,17 +477,65 @@ pub fn update(
       )
     LoopStepped(Err(_)) =>
       ({ ..model, loop_error: c.status.step_failed, }, @cmd.none)
-    LoopReset(Ok(json)) =>
-      (
-        {
-          ..apply_session_state_if_present(model, session_state_of(json)),
-          loop_status: Some(decode_loop_status(json)),
-          loop_error: "",
-        },
-        @cmd.none,
-      )
+    LoopReset(Ok(json)) => {
+      // A run that could not be started from the domain the reader named is
+      // refused with a reason, and the reason is what the reader gets: the
+      // status code never reaches the client, so the body is the only place a
+      // reason can come from.
+      let reason = decode_error_reason(json)
+      if reason != "" {
+        ({ ..model, loop_error: reason, }, @cmd.none)
+      } else {
+        (
+          {
+            ..apply_session_state_if_present(model, session_state_of(json)),
+            loop_status: Some(decode_loop_status(json)),
+            loop_error: "",
+          },
+          @cmd.none,
+        )
+      }
+    }
     LoopReset(Err(_)) =>
       ({ ..model, loop_error: c.status.reset_failed, }, @cmd.none)
+    // How the loop runs. The server answers with the whole status, so the
+    // panel does not have to ask a second question to find out what it did.
+    ModeClicked(key) =>
+      (
+        model,
+        @http.post("/api/loop/mode/\{key}" + lang_query(model.lang)).expect_json(
+          emit.map(fn(result) { LoopModeSet(result) }),
+        ),
+      )
+    // Start the run again from a domain the reader names. The letter is the
+    // ring's own, so the request names a domain the server knows.
+    DomainResetClicked(letter) =>
+      (
+        model,
+        @http.post("/api/loop/reset/\{letter}" + lang_query(model.lang)).expect_json(
+          emit.map(fn(result) { LoopReset(result) }),
+        ),
+      )
+    LoopModeSet(Ok(json)) => {
+      // The same rule as everywhere else on this client: the status code
+      // never arrives, so the body is where a refusal is seen. A mode the
+      // server refused is refused with a reason, and the reason is shown.
+      let reason = decode_error_reason(json)
+      if reason != "" {
+        ({ ..model, loop_error: reason, }, @cmd.none)
+      } else {
+        (
+          {
+            ..apply_session_state_if_present(model, session_state_of(json)),
+            loop_status: Some(decode_loop_status(json)),
+            loop_error: "",
+          },
+          @cmd.none,
+        )
+      }
+    }
+    LoopModeSet(Err(_)) =>
+      ({ ..model, loop_error: c.status.mode_failed, }, @cmd.none)
     StepClicked =>
       (
         model,
