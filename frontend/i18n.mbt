@@ -1064,6 +1064,44 @@ pub fn saved_entry(c : Chrome, title : String, domain : String) -> String {
 }
 
 ///|
+/// How much of the corpus was read.
+///
+/// The two numbers are the same when the corpus was read whole, and different
+/// when the reader asked for fewer documents than the corpus holds. The
+/// second case is said out loud: a corpus of two hundred read as twenty is
+/// not a corpus of twenty, and the reader is the one who has to decide
+/// whether twenty was enough.
+pub fn corpus_read(
+  c : Chrome,
+  read : String,
+  total : String,
+  capped : Bool,
+) -> String {
+  match c.lang {
+    English =>
+      if capped {
+        "Read " +
+        read +
+        " of " +
+        total +
+        " documents. The rest were left unread — the limit you set is why."
+      } else {
+        "Read all " + read + " documents."
+      }
+    Chinese =>
+      if capped {
+        "读了 " +
+        total +
+        " 份文档中的 " +
+        read +
+        " 份。其余的没有读——这是你设的上限。"
+      } else {
+        read + " 份文档都读了。"
+      }
+  }
+}
+
+///|
 /// What the panel says after a record was corrected.
 pub fn corrected_entry(c : Chrome, title : String, domain : String) -> String {
   match c.lang {

@@ -714,9 +714,10 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     // folder that is not there is not a corpus that holds nothing, and the
     // panel has to be able to say which one it is looking at.
     let no_documents : Array[Document] = []
-    let (documents, read_error, read_reason) = match fetch_corpus(corpus) {
-      Ok(found) => (found, "", "")
-      Err(reason) => (no_documents, "corpus_unreadable", reason)
+    let (documents, total, read_error, read_reason) = match
+      fetch_corpus(corpus) {
+      Ok(read) => (read.documents, read.total, "", "")
+      Err(reason) => (no_documents, 0, "corpus_unreadable", reason)
     }
     let model = current_model()
     let config = current_research()
@@ -738,6 +739,14 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       "documents": [..documents.map(fn(d) { d.to_json() })],
       "triggers": [..triggers],
       "count": documents.length(),
+      // How many documents the source holds, and how many were read.
+      //
+      // The two are the same unless the reader asked for fewer documents than
+      // the corpus has. A corpus of two hundred read as twenty is not a corpus
+      // of twenty, and a panel that shows twenty without saying why is a
+      // panel that misreports the corpus it is reading.
+      "total": total,
+      "capped": total > documents.length(),
       "corpus": corpus_json(corpus),
       // The reason the corpus could not be read, and the name of the failure.
       // Empty when the corpus was read: an empty field is a field that says
@@ -770,9 +779,10 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     // read drives nothing, and says so, rather than driving nothing in
     // silence.
     let no_documents : Array[Document] = []
-    let (documents, read_error, read_reason) = match fetch_corpus(corpus) {
-      Ok(found) => (found, "", "")
-      Err(reason) => (no_documents, "corpus_unreadable", reason)
+    let (documents, total, read_error, read_reason) = match
+      fetch_corpus(corpus) {
+      Ok(read) => (read.documents, read.total, "", "")
+      Err(reason) => (no_documents, 0, "corpus_unreadable", reason)
     }
     let model = current_model()
     let config = current_research()
@@ -827,6 +837,10 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       "final_state": final_state.to_json(lang),
       "documents_processed": documents.length(),
       "documents_driven": driven,
+      // How many the corpus holds, so that a drive over the first twenty of
+      // two hundred is not read as a drive over the whole corpus.
+      "total": total,
+      "capped": total > documents.length(),
       "corpus": corpus_json(corpus),
       // The reason the corpus could not be read. Without it a drive that
       // read nothing looks exactly like a drive over an empty corpus, and
@@ -972,13 +986,21 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     // that failed look identical when neither is said out loud. A corpus
     // that could not be read is refused with THAT reason, because the size
     // of a corpus that was never read is not a fact.
-    let (documents, read_error, read_reason, causal_result) = match
+    let (documents, total, read_error, read_reason, causal_result) = match
       fetch_corpus(corpus) {
-      Ok(found) => (found, "", "", estimate_causal_effect(found))
+      Ok(read) =>
+        (
+          read.documents,
+          read.total,
+          "",
+          "",
+          estimate_causal_effect(read.documents),
+        )
       Err(reason) => {
         let no_documents : Array[Document] = []
         (
           no_documents,
+          0,
           "corpus_unreadable",
           reason,
           CausalOutcome::refused_because(
@@ -993,6 +1015,11 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     let body : Json = {
       "causal": causal_result.to_json(),
       "documents_analyzed": documents.length(),
+      // How many the corpus holds. An estimate over the first twenty of two
+      // hundred documents is an estimate over twenty documents, and saying so
+      // is part of what the estimate rests on.
+      "total": total,
+      "capped": total > documents.length(),
       "error": read_error,
       "reason": read_reason,
       "notice": if read_error != "" {

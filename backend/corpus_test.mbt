@@ -365,7 +365,7 @@ async test "a local corpus is the documents in the folder it names" {
   }
   let corpus = corpus_from(corpus_payload("local", "", "", dir, 10))
   let documents = match @backend.fetch_corpus(corpus) {
-    Ok(found) => found
+    Ok(read) => read.documents
     Err(reason) => fail("the corpus could not be read: " + reason)
   }
   @fs.remove(dir + "/note.md") catch {
@@ -443,7 +443,7 @@ async test "a local folder is read in path order" {
     err => fail("the file was not written: " + @debug.to_string(err))
   }
   let documents = match @backend.read_local_documents(dir, 10) {
-    Ok(found) => found
+    Ok(read) => read.documents
     Err(reason) => fail("the corpus could not be read: " + reason)
   }
   @fs.remove(dir + "/b.txt") catch {
@@ -608,9 +608,129 @@ async test "a local corpus that names an empty folder is an empty corpus" {
     _ => ()
   }
   match read {
-    Ok(documents) => assert_eq(documents.length(), 0)
+    Ok(documents) => assert_eq(documents.documents.length(), 0)
     Err(reason) => fail("an empty folder was refused: " + reason)
   }
+}
+
+///|
+/// A corpus that holds more documents than the reader asked for says so.
+///
+/// The reader asked for two documents out of a folder of four, and the read
+/// says: two documents were read, and the source holds four. Without the
+/// second number a folder of four read as two is a folder of two, and a
+/// panel that shows two documents has no way to say that it looked at half
+/// of what was there.
+///
+/// The count is of the files that are documents: a picture in the folder is
+/// left alone, and it is not part of the corpus.
+async test "a corpus that holds more than was asked for says how many" {
+  let dir = "test_corpus_capped"
+  @fs.mkdir(dir, recursive=true, allow_exist=true) catch {
+    err => fail("the folder was not made: " + @debug.to_string(err))
+  }
+  @fs.write_file(dir + "/first.md", "First\n") catch {
+    err => fail("the file was not written: " + @debug.to_string(err))
+  }
+  @fs.write_file(dir + "/second.md", "Second\n") catch {
+    err => fail("the file was not written: " + @debug.to_string(err))
+  }
+  @fs.write_file(dir + "/third.md", "Third\n") catch {
+    err => fail("the file was not written: " + @debug.to_string(err))
+  }
+  @fs.write_file(dir + "/fourth.md", "Fourth\n") catch {
+    err => fail("the file was not written: " + @debug.to_string(err))
+  }
+  @fs.write_file(dir + "/not_a_document.png", "not a document") catch {
+    err => fail("the file was not written: " + @debug.to_string(err))
+  }
+  let read = @backend.read_local_documents(dir, 2)
+  @fs.remove(dir + "/first.md") catch {
+    _ => ()
+  }
+  @fs.remove(dir + "/second.md") catch {
+    _ => ()
+  }
+  @fs.remove(dir + "/third.md") catch {
+    _ => ()
+  }
+  @fs.remove(dir + "/fourth.md") catch {
+    _ => ()
+  }
+  @fs.remove(dir + "/not_a_document.png") catch {
+    _ => ()
+  }
+  @fs.rmdir(dir) catch {
+    _ => ()
+  }
+  match read {
+    Ok(found) => {
+      // Two documents were read...
+      assert_eq(found.documents.length(), 2)
+      // ...and the source holds four, which is the number that was missing.
+      assert_eq(found.total, 4)
+    }
+    Err(reason) => fail("the corpus could not be read: " + reason)
+  }
+}
+
+///|
+/// A corpus that holds no more than was asked for is not capped.
+///
+/// The total is the same as the count in that case, and saying "capped" about
+/// a corpus that was read whole would be a lie in the other direction.
+async test "a corpus that was read whole says it was read whole" {
+  let dir = "test_corpus_whole"
+  @fs.mkdir(dir, recursive=true, allow_exist=true) catch {
+    err => fail("the folder was not made: " + @debug.to_string(err))
+  }
+  @fs.write_file(dir + "/only.md", "Only one\n") catch {
+    err => fail("the file was not written: " + @debug.to_string(err))
+  }
+  let read = @backend.read_local_documents(dir, 10)
+  @fs.remove(dir + "/only.md") catch {
+    _ => ()
+  }
+  @fs.rmdir(dir) catch {
+    _ => ()
+  }
+  match read {
+    Ok(found) => {
+      assert_eq(found.documents.length(), 1)
+      assert_eq(found.total, 1)
+    }
+    Err(reason) => fail("the corpus could not be read: " + reason)
+  }
+}
+
+///|
+/// A feed that holds more than the reader asked for says how many it holds.
+///
+/// The same rule as a folder: the reader asked for one document out of a feed
+/// of three, and the answer is one document and a count of three. A feed of
+/// three read as one is not a feed of one.
+test "a feed that holds more than was asked for says how many" {
+  let body = "<rss><channel>" +
+    "<item><title>One</title><description>First.</description></item>" +
+    "<item><title>Two</title><description>Second.</description></item>" +
+    "<item><title>Three</title><description>Third.</description></item>" +
+    "</channel></rss>"
+  let read = @backend.feed_documents(body, 1)
+  assert_eq(read.documents.length(), 1)
+  assert_eq(read.documents[0].title, "One")
+  assert_eq(read.total, 3)
+}
+
+///|
+/// A feed that was read whole is not capped.
+test "a feed that was read whole says how many it holds" {
+  let body = "<rss><channel>" +
+    "<item><title>One</title><description>First.</description></item>" +
+    "<item><title>Two</title><description>Second.</description></item>" +
+    "</channel></rss>"
+  let read = @backend.feed_documents(body, 10)
+  assert_eq(read.documents.length(), 2)
+  assert_eq(read.total, 2)
 }
 
 ///|

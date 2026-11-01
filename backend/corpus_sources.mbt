@@ -50,6 +50,27 @@ fn is_json_path(path : String) -> Bool {
 }
 
 ///|
+/// What one corpus read produced: the documents that were read, and how many
+/// the source holds.
+///
+/// The two numbers are the same unless the reader asked for fewer documents
+/// than the source has, and that difference belongs to the reader. A corpus of
+/// two hundred read as twenty is not a corpus of twenty: a panel that says
+/// "twenty" without saying why misreports the corpus, and a causal estimate
+/// over the first twenty of two hundred says nothing at all about the other
+/// hundred and eighty.
+///
+/// The count lives here rather than at the call site because the place where
+/// the cap is applied is the place where the number is known. A reader that
+/// returns only the documents it kept has thrown the rest away.
+pub(all) struct CorpusDocuments {
+  /// The documents that were read.
+  documents : Array[Document]
+  /// How many documents the source holds.
+  total : Int32
+}
+
+///|
 /// The documents a corpus gives, read through the reader it names.
 ///
 /// Err when the source could not be read at all, with the reason why. A
@@ -59,7 +80,7 @@ fn is_json_path(path : String) -> Bool {
 /// list.
 pub async fn fetch_corpus(
   config : CorpusConfig,
-) -> Result[Array[Document], String] {
+) -> Result[CorpusDocuments, String] {
   match config.kind {
     Arxiv => fetch_arxiv_documents(config.query, config.max_results)
     Rss => fetch_rss_documents(config.url, config.max_results)
@@ -83,16 +104,16 @@ pub async fn fetch_corpus(
 pub async fn fetch_arxiv_documents(
   query : String,
   max_results : Int32,
-) -> Result[Array[Document], String] {
+) -> Result[CorpusDocuments, String] {
   let url = "\{ARXIV_API}?search_query=\{query}&start=0&max_results=\{max_results}&sortBy=submittedDate&sortOrder=descending"
   let body = match fetch_text(url) {
     Ok(text) => text
     Err(reason) => return Err(reason)
   }
   if body == "" {
-    return Ok([])
+    return Ok({ documents: [], total: 0, })
   }
-  Ok(limit_documents(parse_feed(body), max_results))
+  Ok(feed_documents(body, max_results))
 }
 
 ///|
@@ -107,15 +128,28 @@ pub async fn fetch_arxiv_documents(
 pub async fn fetch_rss_documents(
   url : String,
   max_results : Int32,
-) -> Result[Array[Document], String] {
+) -> Result[CorpusDocuments, String] {
   let body = match fetch_text(url) {
     Ok(text) => text
     Err(reason) => return Err(reason)
   }
   if body == "" {
-    return Ok([])
+    return Ok({ documents: [], total: 0, })
   }
-  Ok(limit_documents(parse_feed(body), max_results))
+  Ok(feed_documents(body, max_results))
+}
+
+///|
+/// The documents in a feed's body, and how many the feed holds.
+///
+/// Split out from the readers so that the part of the reading that does not
+/// need the network can be tested on its own. The cap and the count are
+/// decided here, and they are decided together: a feed of five read with a
+/// limit of two is two documents, and the count of what the feed held is
+/// five.
+pub fn feed_documents(body : String, max_results : Int32) -> CorpusDocuments {
+  let all = parse_feed(body)
+  { documents: limit_documents(all, max_results), total: all.length(), }
 }
 
 ///|
@@ -132,7 +166,7 @@ pub async fn fetch_rss_documents(
 pub async fn read_local_documents(
   path : String,
   max_results : Int32,
-) -> Result[Array[Document], String] {
+) -> Result[CorpusDocuments, String] {
   if !@fs.exists(path) {
     let reason = "the local corpus \"" + path + "\" does not exist"
     eprintln("error: \{reason}")
@@ -144,6 +178,12 @@ pub async fn read_local_documents(
   } else {
     [path]
   }
+  // How many documents the source holds: the readable files under the folder.
+  //
+  // The count is a walk over the names, not a read of every file. The cap
+  // exists so that a big folder is not read in full, and counting the files
+  // does not undo that -- it only says how many there were.
+  let total = files.filter(fn(file) { is_readable_extension(file) }).length()
   let documents : Array[Document] = []
   for file in files {
     if documents.length() >= max_results {
@@ -157,7 +197,7 @@ pub async fn read_local_documents(
       None => ()
     }
   }
-  Ok(documents)
+  Ok({ documents, total, })
 }
 
 ///|

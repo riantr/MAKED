@@ -1366,13 +1366,21 @@ try {
       $notePath,
       "# What we learned`n`nWe fail at scale, and we propose a new method.`n",
       $utf8)
+    # A second note, so that the corpus holds more than the reader asked for.
+    # The limit below is one, and the corpus holds two: that is the case the
+    # panel has to report, because a corpus of two read as one is not a corpus
+    # of one.
+    [System.IO.File]::WriteAllText(
+      (Join-Path $notesDir "second.md"),
+      "# What we tried next`n`nWe tried a second thing, and it failed too.`n",
+      $utf8)
     $corpusPath = Join-Path $tempDir ("maked_integration_corpus_{0}.yaml" -f $CorpusPort)
     # Forward slashes, because the corpus file is YAML and a Windows path
     # full of backslashes is a path nobody can read in a file.
     $notesPath = $notesDir -replace '\\', '/'
     [System.IO.File]::WriteAllText(
       $corpusPath,
-      ("format: maked.corpus.v1`nsource:`n  kind: local`n  path: {0}`n  max_results: 10`n" -f $notesPath),
+      ("format: maked.corpus.v1`nsource:`n  kind: local`n  path: {0}`n  max_results: 1`n" -f $notesPath),
       $utf8)
 
     $corpusArgs = @{
@@ -1414,6 +1422,12 @@ try {
           (((Field $documents "documents")[0]).title -eq "What we learned")
         Assert-True "and the corpus it came from is said out loud" `
           ((Field $documents "corpus").source -like "*maked_integration_notes*")
+        # The limit is said out loud. The corpus holds two notes and the
+        # reader asked for one, and a panel that shows one document without
+        # saying that the corpus holds two is a panel that misreports what it
+        # looked at.
+        Assert-Field "and the corpus says how many documents it holds" $documents "total" 2
+        Assert-True "and that the read was capped" ((Field $documents "capped") -eq $true)
 
         # The document drives the loop: the built-in table's "fail" rule
         # fires on it, and the built-in model has the slot it names.
@@ -1591,6 +1605,12 @@ try {
           (Field $body "sensitivity") "reading"
         Assert-True "and the corpus that was read is said out loud" `
           ((Field $causal "documents_analyzed") -eq 16)
+        # The estimate says what it was made over. Sixteen notes out of
+        # sixteen is the whole corpus; a number without that is a number the
+        # reader has to take on trust.
+        Assert-Field "and how many documents the corpus holds" $causal "total" 16
+        Assert-True "and that nothing was left unread" `
+          ((Field $causal "capped") -eq $false)
       }
     } finally {
       if ($null -ne $causalServer -and -not $causalServer.HasExited) {

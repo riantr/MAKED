@@ -519,6 +519,24 @@ fn metrics_block(c : Chrome, report : MetricReport) -> @html.Html {
 }
 
 ///|
+/// The sentence the research panel says about how much of the corpus was read.
+///
+/// Empty when the corpus was not read: a corpus that could not be read has a
+/// size that is not a fact, and the panel already says why it could not be
+/// read.
+pub fn corpus_read_sentence(c : Chrome, model : Model) -> String {
+  if model.research_total <= 0 {
+    return ""
+  }
+  corpus_read(
+    c,
+    model.research_documents.length().to_string(),
+    model.research_total.to_string(),
+    model.research_capped,
+  )
+}
+
+///|
 /// Research panel: read the corpus, and drive the Loop with what it holds.
 ///
 /// The panel says which corpus it is reading before it says anything about
@@ -546,6 +564,17 @@ pub fn research_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
       class="maked-research-corpus",
       corpus_source(c, model.research_corpus_source),
     )
+  }
+  // How much of the corpus was read.
+  //
+  // The corpus is the reader's, and the panel that shows twenty documents
+  // without saying that the corpus holds two hundred has not told the reader
+  // what it looked at. The count is only worth saying when the corpus was
+  // read: a corpus that could not be read has a size that is not a fact.
+  let read_line = if model.research_total <= 0 {
+    @html.nothing
+  } else {
+    @html.p(class="maked-research-read", corpus_read_sentence(c, model))
   }
   let documents_list = if model.research_documents.length() == 0 {
     @html.p(class="maked-research-empty", c.research.no_documents)
@@ -606,6 +635,7 @@ pub fn research_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     corpus_line,
     corpus_editor_view(emit, model),
     buttons,
+    read_line,
     documents_list,
     notice,
     triggers_list,

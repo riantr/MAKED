@@ -600,6 +600,8 @@ fn bare_model() -> @frontend.Model {
     research_corpus_kind: "arxiv",
     research_corpus_input: "",
     research_corpus_max: "20",
+    research_total: 0,
+    research_capped: false,
     research_corpus_editing: false,
     research_corpus_error: "",
     research_corpus_notice: "",
@@ -3690,6 +3692,86 @@ test "leaving a correction alone leaves the record alone" {
   assert_eq(after.entry_editing, 0)
   assert_eq(after.draft_title, "")
   assert_eq(after.entries[0].title, "my model")
+}
+
+///|
+/// The panel says how much of the corpus was read.
+///
+/// A corpus of two hundred read as twenty is not a corpus of twenty, and the
+/// panel that shows twenty without saying why is a panel that misreports what
+/// it looked at.
+test "the panel says how much of the corpus was read" {
+  let documents : Array[Json] = [{ "title": "one" }, { "title": "two" }]
+  let model = {
+    ..bare_model(),
+    research_documents: documents,
+    research_total: 200,
+    research_capped: true,
+  }
+  let sentence = @frontend.corpus_read_sentence(en(), model)
+  assert_true(sentence.contains("2"))
+  assert_true(sentence.contains("200"))
+  assert_true(sentence.contains("left unread"))
+}
+
+///|
+/// A corpus that was read whole is not said to have been capped.
+test "a corpus that was read whole says so" {
+  let documents : Array[Json] = [{ "title": "one" }, { "title": "two" }]
+  let model = {
+    ..bare_model(),
+    research_documents: documents,
+    research_total: 2,
+    research_capped: false,
+  }
+  let sentence = @frontend.corpus_read_sentence(en(), model)
+  assert_true(sentence.contains("all 2"))
+  assert_true(!sentence.contains("left unread"))
+}
+
+///|
+/// A corpus that could not be read has no size to report.
+///
+/// The size of a corpus that was never read is not a fact, and the panel
+/// already says why it could not be read.
+test "a corpus that was not read says nothing about its size" {
+  let model = { ..bare_model(), research_total: 0, research_capped: false, }
+  assert_eq(@frontend.corpus_read_sentence(en(), model), "")
+}
+
+///|
+/// The count comes from the server's answer, not from the client's own count.
+test "the corpus count comes from the server's answer" {
+  let body : Json = {
+    "documents": [{ "id": "1", "title": "one" }],
+    "count": 1,
+    "total": 200,
+    "capped": true,
+  }
+  let (after, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::ResearchLoaded(Ok(body)),
+    silent_emit(),
+  )
+  assert_eq(after.research_total, 200)
+  assert_true(after.research_capped)
+}
+
+///|
+/// The sentence is in the reader's language.
+test "the corpus count sentence is in the language" {
+  assert_eq(
+    @frontend.corpus_read(en(), "20", "200", true),
+    "Read 20 of 200 documents. The rest were left unread — the limit you set is why.",
+  )
+  assert_eq(
+    @frontend.corpus_read(en(), "20", "20", false),
+    "Read all 20 documents.",
+  )
+  assert_eq(
+    @frontend.corpus_read(zh(), "20", "200", true),
+    "读了 200 份文档中的 20 份。其余的没有读——这是你设的上限。",
+  )
 }
 
 ///|

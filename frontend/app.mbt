@@ -150,6 +150,15 @@ pub(all) struct Model {
   research_corpus_kind : String
   research_corpus_input : String
   research_corpus_max : String
+  /// How many documents the corpus holds, as the server counted them.
+  ///
+  /// The count of documents that were read is not the same number whenever
+  /// the reader asked for fewer than the corpus holds, and the difference is
+  /// the reader's to know: a corpus of two hundred read as twenty is not a
+  /// corpus of twenty.
+  research_total : Int32
+  /// True when the corpus holds more documents than were read.
+  research_capped : Bool
   /// Whether the corpus editor is open. The editor is a few controls, and a
   /// panel that carries them all the time is a panel nobody reads.
   research_corpus_editing : Bool
@@ -267,6 +276,8 @@ pub fn initial() -> Model {
     research_corpus_kind: "arxiv",
     research_corpus_input: "",
     research_corpus_max: "20",
+    research_total: 0,
+    research_capped: false,
     research_corpus_editing: false,
     research_corpus_error: "",
     research_corpus_notice: "",
@@ -598,6 +609,11 @@ pub fn update(
           research_triggers: decode_research_triggers(json),
           research_corpus_source: corpus_source_of(json),
           research_notice: get_string(json, "notice", ""),
+          // How much of the corpus was read. The server counted what it did
+          // not read, and the panel says so: a corpus of two hundred read as
+          // twenty is not a corpus of twenty.
+          research_total: get_int(json, "total", 0),
+          research_capped: get_bool(json, "capped", false),
           // The server says why a corpus could not be read, and the reason
           // belongs in the loud line rather than in the quiet one: a corpus
           // that could not be read is not an empty corpus, and the panel that
@@ -618,6 +634,11 @@ pub fn update(
           research_triggers: [],
           research_notice: get_string(json, "notice", ""),
           research_error: get_string(json, "reason", ""),
+          // A drive reads the corpus too, and the same count comes back with
+          // it: a drive over the first twenty of two hundred documents is a
+          // drive over twenty documents.
+          research_total: get_int(json, "total", 0),
+          research_capped: get_bool(json, "capped", false),
         },
         @cmd.none,
       )

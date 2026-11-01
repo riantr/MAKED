@@ -98,4 +98,4 @@ document adds evidence for the evolution recommendations.
 |----------|--------|
 | Frontend imports rabbita exclusively | `frontend/moon.pkg:13-20` |
 | No other frontend framework in dependencies | `moon.mod` lists only rabbita for frontend |
-| TEA pattern via create_state_with_init | `frontend/app.mbt:174-178` |
+| TEA pattern via create_state_with_init | `frontend/app.mbt:183-187` |

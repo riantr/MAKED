@@ -52,6 +52,9 @@ Protocol over stdio or HTTP.
   down, first match wins; `MAKED_RESEARCH` names it
 - ✅ **The corpus is yours** — arxiv, an RSS feed, or your own folder of `.txt`, `.md`,
   `.markdown`, `.pdf` and `.json` files; `MAKED_CORPUS` names it
+- ✅ **The corpus says what it did not read** — a corpus of two hundred read as twenty is not a
+  corpus of twenty, so the panel, the drive and the causal estimate all say how many the
+  corpus holds and how many were read
 - ✅ **The collective** — the Society layer, with its 13 positions, 28 transitions and 8
   phases; the English words are a file, so `MAKED_SOCIETY` can change them
 - ✅ **The collective's words are checked** — a vocabulary that names a position the machine
@@ -572,7 +575,7 @@ MAKED_moonbit/
 │   ├── metrics.mbt                   # the measures, in both languages
 │   ├── session.mbt                   # explorations, timelines, exports
 │   ├── database.mbt                  # SQLite
-│   ├── *_test.mbt                    # 424 tests
+│   ├── *_test.mbt                    # 428 tests
 │   └── *_wbtest.mbt                  # 16 tests
 ├── frontend/                         # the single-page app (js)
 │   ├── app.mbt                       # the TEA loop and the messages
@@ -585,7 +588,7 @@ MAKED_moonbit/
 │   ├── page.mbt                      # the page, and how it is decoded
 │   ├── logo.mbt                      # the ring
 │   ├── views.mbt                     # the views
-│   └── frontend_test.mbt             # 154 tests
+│   └── frontend_test.mbt             # 159 tests
 ├── cmd/
 │   ├── server/main.mbt               # the web server
 │   ├── mcp/main.mbt                  # the agent's server
@@ -601,7 +604,7 @@ MAKED_moonbit/
 │   └── notes/                        # the corpus the local example names
 │       └── failed-launch.md
 ├── tools/
-│   ├── integration-test.ps1          # 406 checks against a running server
+│   ├── integration-test.ps1          # 410 checks against a running server
 │   ├── mutate-backend.ps1            # 148 mutations of the backend
 │   ├── mutate-frontend.ps1           # 65 mutations of the frontend
 │   ├── mutate-loop.ps1               # 16 mutations of the loop
@@ -661,9 +664,9 @@ fits. Keep the two files next to each other, and set both variables.
 
 | What | How many | How it is checked |
 |---|---|---|
-| Backend tests | 440 | `moon test --target native backend` |
-| Frontend tests | 154 | `moon test --target js frontend` |
-| Integration checks | 406 | `tools/integration-test.ps1` — against a server that is really running |
+| Backend tests | 444 | `moon test --target native backend` |
+| Frontend tests | 159 | `moon test --target js frontend` |
+| Integration checks | 410 | `tools/integration-test.ps1` — against a server that is really running |
 | Backend mutations | 148 | `tools/mutate-backend.ps1` |
 | Frontend mutations | 65 | `tools/mutate-frontend.ps1` |
 | Loop mutations | 16 | `tools/mutate-loop.ps1` |
