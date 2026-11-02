@@ -13,7 +13,7 @@ name = "riantr/MAKED"
 
 version = "0.1.7"
 
-license = "Apache-2.0"
+license = "MIT"
 
 readme = "README.md"
 

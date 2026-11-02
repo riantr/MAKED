@@ -801,7 +801,7 @@ not have is refused; and an answer that is a refusal says why, in words.
 
 ## License
 
-Apache-2.0 License. See [LICENSE](LICENSE) for details.
+MIT License. See [LICENSE](LICENSE) for details.
 
 ## References
 
