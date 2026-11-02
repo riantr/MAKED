@@ -1,4 +1,6 @@
-# MAKED on MoonBit
+# MAKED
+
+![maked](maked.png)
 
 **An adversarial knowledge loop that shows its working.**
 
@@ -10,8 +12,10 @@ each domain is the adversarial overcoming of the one before it. The loop is driv
 hard-coded guess, and a position the table cannot move is reported as blocked rather than
 silently skipped.
 
-**34 positions × 8 slots × 272 rules**, and **229 mutations** across the three suites, every
-one of which has to be accounted for — 228 killed by the tests, one deliberately equivalent.
+One ring: **34 positions × 8 slots × 272 rules**. One subject per domain, one group
+across the domains (20 states), one society for the collective (13 positions × 8 phases
+× 28 transitions). And **229 mutations** across the three suites, every one of which has
+to be accounted for — 228 killed by the tests, one deliberately equivalent.
 
 Three layers sit on that ring:
 
@@ -33,51 +37,128 @@ Protocol over stdio or HTTP.
 
 ## Features
 
-- ✅ **A five-domain ring** — Model → Data → Experience → Attack → Knowledge, in that order,
-  each domain initialising independently; the starting domain is one request away
-- ✅ **Drive slots from the transition table** — of the 272 position/slot pairs, 228 are
-  `Block`; the loop reports "no way out" instead of pretending to move
-- ✅ **Undecided branches stay undecided** — when the table offers several successors and
-  none is preferred, MAKED lists them and lets the caller choose, and says which kind of
-  edge each one is
-- ✅ **The reader chooses how the loop runs** — the panel says which mode is in force
-  (structured, which follows the ring, or free, which lets any slot drive) and lets the
-  reader change it; a run can also be started again from any domain of the ring
-- ✅ **Your own records, and your own corrections** — a record in the workspace can be
-  written, corrected in place and removed; a correction keeps the record's number, its
-  time and its place in the workspace's order
-- ✅ **The pages say what you say** — a page can be corrected in place: the page keeps
-  its place in the navigation, the correction is in the language you wrote it in, and
-  it is still there after the server restarts
-- ✅ **The machine is a file** — a model file (JSON or YAML) with its own domains, positions,
-  slots and rules; `MAKED_MODEL` names it
-- ✅ **The mapping table is a file** — the rules that say what a document means, read top
-  down, first match wins; `MAKED_RESEARCH` names it
-- ✅ **The corpus is yours** — arxiv, an RSS feed, or your own folder of `.txt`, `.md`,
-  `.markdown`, `.pdf` and `.json` files; `MAKED_CORPUS` names it
-- ✅ **The corpus says what it did not read** — a corpus of two hundred read as twenty is not a
-  corpus of twenty, so the panel, the drive and the causal estimate all say how many the
-  corpus holds and how many were read
-- ✅ **The collective** — the Society layer, with its 13 positions, 28 transitions and 8
-  phases; the English words are a file, so `MAKED_SOCIETY` can change them
-- ✅ **The collective's words are checked** — a vocabulary that names a position the machine
-  does not have is a gap, and the gaps are reported rather than papered over
-- ✅ **Causal estimates that say what they rest on** — DoubleML, with the treatment, the
-  outcome, the controlled variables, the balance table, the overlap and the sensitivity all
-  reported
-- ✅ **Explorations you can take away** — named sessions whose every step records why it was
-  possible; replay, branch, rename, and export as Markdown or JSON
-- ✅ **Two languages, written not translated** — the loop, the timeline, the measures, the exported
-  document and the pages themselves all answer in English or Chinese; the Chinese is the table's
-  own wording
-- ✅ **An agent's server** — the Model Context Protocol (2026-07-28) over stdio or HTTP,
-  seven tools, every answer in sentences
-- ✅ **A discovery document** — `GET /api/agent`, for an agent that does not speak the
-  protocol: the same seven tools, the instructions, and the plain HTTP endpoints
-- ✅ **A browser front end** — a rabbita single-page app served by the same process as the
-  API; no second web server, no CORS configuration
-- ✅ **A file that cannot be read stops the start-up** — a half-read machine answers every
-  request confidently and wrongly, which is the worst thing a server can do
+* **A five-domain ring**
+
+  Model → Data → Experience → Attack → Knowledge, in that order, each domain
+  initialising independently; the starting domain is one request away.
+
+* **Drive slots from the transition table**
+
+  Of the 272 position/slot pairs, 228 are `Block`; the loop reports "no way
+  out" instead of pretending to move.
+
+* **Undecided branches stay undecided**
+
+  When the table offers several successors and none is preferred, MAKED lists
+  them and lets the caller choose, and says which kind of edge each one is.
+
+* **The reader chooses how the loop runs**
+
+  The panel says which mode is in force (structured, which follows the ring, or
+  free, which lets any slot drive) and lets the reader change it; a run can
+  also be started again from any domain of the ring.
+
+* **Your own records, and your own corrections**
+
+  A record in the workspace can be written, corrected in place and removed; a
+  correction keeps the record's number, its time and its place in the
+  workspace's order.
+
+* **The pages say what you say**
+
+  A page can be corrected in place: the page keeps its place in the navigation,
+  the correction is in the language you wrote it in, and it is still there
+  after the server restarts.
+
+* **The machine is a file**
+
+  A model file (JSON or YAML) with its own domains, positions, slots and rules;
+  `MAKED_MODEL` names it.
+
+* **The mapping table is a file**
+
+  The rules that say what a document means, read top down, first match wins;
+  `MAKED_RESEARCH` names it.
+
+* **The corpus is yours**
+
+  A corpus of arxiv, of an RSS feed, or of your own folder of `.txt`, `.md`,
+  `.markdown`, `.pdf` and `.json` files; `MAKED_CORPUS` names it.
+
+* **The corpus says what it did not read**
+
+  A corpus of two hundred read as twenty is not a corpus of twenty, so the
+  panel, the drive and the causal estimate all say how many the corpus holds
+  and how many were read.
+
+* **The collective**
+
+  The Society layer, with its 13 positions, 28 transitions and 8 phases; the
+  English words are a file, so `MAKED_SOCIETY` can change them.
+
+* **The collective's words are checked**
+
+  A vocabulary that names a position the machine does not have is a gap, and
+  the gaps are reported rather than papered over.
+
+* **Causal estimates that say what they rest on**
+
+  DoubleML, with the treatment, the outcome, the controlled variables, the
+  balance table, the overlap and the sensitivity all reported.
+
+* **Explorations you can take away**
+
+  Named sessions whose every step records why it was possible; replay, branch,
+  rename, and export as Markdown or JSON.
+
+* **Two languages, written not translated**
+
+  The loop, the timeline, the measures, the exported document and the pages
+  themselves all answer in English or Chinese; the Chinese is the table's own
+  wording.
+
+* **An agent's server**
+
+  The Model Context Protocol (2026-07-28) over stdio or HTTP, seven tools,
+  every answer in sentences.
+
+* **A discovery document**
+
+  `GET /api/agent`, for an agent that does not speak the protocol: the same
+  seven tools, the instructions, and the plain HTTP endpoints.
+
+* **A browser front end**
+
+  A rabbita single-page app served by the same process as the API; no second
+  web server, no CORS configuration.
+
+* **A file that cannot be read stops the start-up**
+
+  A half-read machine answers every request confidently and wrongly, which is
+  the worst thing a server can do.
+
+## What you get
+
+MAKED is a MoonBit module that ships two packages and three executables, and
+it is used in three ways: as a library, as a server, and as an agent's server.
+
+| You use | You get | Shape |
+|---|---|---|
+| `riantr/MAKED/backend` (native) and `riantr/MAKED/frontend` (js) | the loop, the API and the storage; the single-page app | two MoonBit packages |
+| `cmd/server` | the API and the browser app in one process | HTTP |
+| `cmd/mcp` | the agent's server | Model Context Protocol 2026-07-28, over stdio or HTTP |
+| `GET /api/agent` | the discovery document: the seven tools, their argument schemas, the HTTP endpoints, the four files | JSON |
+| `GET /api/model` | the machine as data: the domains, the positions, the slots, and the rule for every pair | JSON |
+| `GET /api/sessions/:id/export` | one exploration, taken away | Markdown or JSON |
+
+Every one of those is an explicit value, or a pure function of the files MAKED
+runs on: there is no hidden global state and no clock in the answers, which is
+why `moon test` can assert on them and why the gates can hold this document to
+the tree.
+
+The server and the agent's server are executables in this repository rather
+than packages, because they are applications: they open a database and they
+listen on a port.
 
 ## Installation
 
@@ -656,6 +737,7 @@ MAKED_moonbit/
 │   └── README.md                     # what it runs, and how to install it
 ├── AGENT.md                         # how to drive MAKED from another agent
 ├── AGENTS.md                        # how to work on MAKED
+├── maked.png                        # the logo
 ├── moon.mod  moon.pkg
 ├── build.ps1                         # build the bundle, check, test, build the server
 ├── ci.sh                             # 18 gates
