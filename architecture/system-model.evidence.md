@@ -27,36 +27,43 @@ literal is. Confidence is **high** unless noted otherwise.
 | `App::adapt` bridges to moonback's `@moonback.Handler` | `backend/app.mbt:109-112` | high |
 | Catch-all GET `/*rest` returns JSON 404 | `backend/app.mbt:146` | high |
 | Route conflicts use `fail` (not `raise`) | `backend/app.mbt:141` | high |
-| 38 API routes: pages, entries, sessions, loop, research, society, agent | `backend/api.mbt:19-1071` | high |
+| 39 API routes: pages, entries, sessions, loop, research, society, agent | `backend/api.mbt:19-1141` | high |
 | Database wraps sqlite3.Connection | `backend/database.mbt:26` | high |
-| Schema: `pages` table with 12 columns | `backend/database.mbt:76-88` | high |
+| Schema: `pages` table with 17 columns | `backend/database.mbt:76-88`, `backend/database.mbt:220-244` | high |
+| Schema: 5 more columns for a reader's correction of a page | `backend/database.mbt:220-244` | high |
 | Schema: also `entries`, `sessions`, `session_steps` tables | `backend/database.mbt:100-134` | high |
 | Seed uses `INSERT ... ON CONFLICT DO UPDATE` | `backend/database.mbt:94-123` | high |
 | Three SQLite behaviours drove the helper shape | `backend/database.mbt:1-17` | high |
-| Page struct with 12 fields (8 English + 4 Chinese), derives Eq | `backend/pages.mbt:31-58` | high |
-| 10 seed pages: 5 ring domains + tutorial, about, tasks + index + 404 | `backend/pages.mbt:272-375` | high |
-| Ring order: M -> D -> E -> A -> K (clockwise, not spelling order) | `backend/pages.mbt:91` | high |
+| Page struct with 17 fields (11 English + 6 Chinese), derives Eq | `backend/pages.mbt:31-72` | high |
+| 10 seed pages: 5 ring domains + tutorial, about, tasks + index + 404 | `backend/pages.mbt:421-521` | high |
+| Ring order: M -> D -> E -> A -> K (clockwise, not spelling order) | `backend/pages.mbt:235` | high |
 | Request wraps moonback Request | `backend/request.mbt:9` | high |
 | Response is a value type with Body enum | `backend/response.mbt:10-21` | high |
 | create_app assembles everything, adds logging middleware | `backend/maked_app.mbt:11-29` | high |
 | SPA fallback distinguishes browser nav from API 404 | `backend/maked_app.mbt:63-101` | high |
 | Static files served from `frontend/dist` | `backend/maked_app.mbt:53-55` | high |
 
+Five of the seventeen fields of `Page` hold a reader's correction: the title
+and the body in each of the two languages, and the moment the correction was
+written. The other twelve are the seed's own wording, in the same two
+languages, and the seed rewrites them on every start-up -- which is why the
+correction lives beside them rather than in them.
+
 ## Frontend architecture
 
 | Claim | Source | Confidence |
 |-------|--------|------------|
-| Elm-style TEA (Model/Update/View) via rabbita | `frontend/app.mbt:106-1673` | high |
-| Start-up chain: `GET /api/bootstrap`, then `GET /api/loop/status` | `frontend/app.mbt:1667`, `frontend/app.mbt:469` | high |
-| Client-side routing via History API subscription | `frontend/app.mbt:1579` | high |
-| `slug_of` maps URL path to page slug | `frontend/app.mbt:331` | high |
-| All pages held in memory after first load | `frontend/app.mbt:444` | high |
-| Page struct mirrors backend, decodes JSON totally | `frontend/page.mbt:16-131` | high |
-| Views: `header`, `domain_cards`, `page_view`, `not_found_view`, `loading_view`, `error_view` | `frontend/views.mbt:28-200` | high |
+| Elm-style TEA (Model/Update/View) via rabbita | `frontend/app.mbt:124-1827` | high |
+| Start-up chain: `GET /api/bootstrap`, then `GET /api/loop/status` | `frontend/app.mbt:1821`, `frontend/app.mbt:507` | high |
+| Client-side routing via History API subscription | `frontend/app.mbt:1733` | high |
+| `slug_of` maps URL path to page slug | `frontend/app.mbt:369` | high |
+| All pages held in memory after first load | `frontend/app.mbt:482` | high |
+| Page struct mirrors backend, decodes JSON totally | `frontend/page.mbt:18-145` | high |
+| Views: `header`, `domain_cards`, `page_view`, `not_found_view`, `loading_view`, `error_view` | `frontend/views.mbt:31-319` | high |
 | Logo: SVG ring + taijitu, HTML letter overlay | `frontend/logo.mbt:1-201` | high |
 | Ring geometry: 5 nodes clockwise from top, radius 68, viewBox 200x200 | `frontend/logo.mbt:32-70` | high |
 | Node colors: M indigo, D green, E red, A yellow, K grey | `frontend/logo.mbt:12-15, 32-40` | high |
-| `page_view` inserts the body with `Attrs::inner_html` (safe: backend is sole writer) | `frontend/views.mbt:141-153` | high |
+| `page_view` renders a seeded body with `Attrs::inner_html` and a corrected body as text | `frontend/views.mbt:144-157` | high |
 
 ## Entry points
 
@@ -93,7 +100,8 @@ package imports is written `(transitive)`: none of ours imports it.
 | Test file | What it covers | Source |
 |-----------|---------------|--------|
 | `backend/database_test.mbt` | 8 tests: round-trip, ring order, re-seed idempotency, CJK content, multi-row seed, missing slug, migrate idempotency, navigation | high |
-| `frontend/frontend_test.mbt` | 159 tests: slug_of, navigation order, find_page, decode_pages (valid + malformed), ring geometry, ring radius, ring percentages, node colors, and the two languages of every surface | high |
+| `backend/page_correction_test.mbt` | 12 tests: the reader's words reach the page, a correction survives the next seed, one language leaves the other alone, a correction does not move the page, the refusals | high |
+| `frontend/frontend_test.mbt` | 171 tests: slug_of, navigation order, find_page, decode_pages (valid + malformed), ring geometry, ring radius, ring percentages, node colors, and the two languages of every surface | high |
 
 ## Tools
 

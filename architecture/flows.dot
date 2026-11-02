@@ -37,7 +37,7 @@ digraph maked_flows {
     s2 [label="2. create_app(db_path)", fillcolor="#fde8cd"]
     s3 [label="3. Database::open\n  migrate (CREATE TABLE IF NOT EXISTS)", fillcolor="#fde8cd"]
     s4 [label="4. db.seed(seed_pages())\n  UPSERT 8 pages", fillcolor="#fde8cd"]
-    s5 [label="5. App::new()\n  add_middleware(logging)\n  build_api(38 routes)", fillcolor="#fde8cd"]
+    s5 [label="5. App::new()\n  add_middleware(logging)\n  build_api(39 routes)", fillcolor="#fde8cd"]
     s6 [label="6. to_module()\n  adapt handlers", fillcolor="#fde8cd"]
     s7 [label="7. moonback.listen(port)\n  server.serve()", fillcolor="#fde8cd"]
   }
@@ -111,11 +111,11 @@ digraph maked_flows {
 
   // ========== Flow 4: API request ==========
   subgraph cluster_api {
-    label="4. API request (GET /api/pages/model)"
+    label="4. API request (GET|PUT /api/pages/model)"
     style=dashed
     color="#9e4a7c"
 
-    a1 [label="1. GET /api/pages/model", fillcolor="#d4e6f1"]
+    a1 [label="1. GET|PUT /api/pages/model", fillcolor="#d4e6f1"]
     a2 [label="2. routes: match\n   :slug = 'model'", fillcolor="#d4e6f1"]
     a3 [label="3. logging wraps handler", fillcolor="#d4e6f1"]
     a4 [label="4. Request.param('slug')\n   → Some('model')", fillcolor="#d4e6f1"]

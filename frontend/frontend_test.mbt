@@ -33,6 +33,8 @@ fn page(
     body: "<p>body</p>",
     in_navigation: nav,
     sort,
+    corrected: false,
+    corrected_at: "",
   }
 }
 
@@ -589,6 +591,11 @@ fn bare_model() -> @frontend.Model {
     current: "index",
     loaded: true,
     error: "",
+    page_editing: "",
+    page_draft_title: "",
+    page_draft_body: "",
+    page_error: "",
+    page_notice: "",
     loop_status: None,
     loop_error: "",
     slots: [],
@@ -3815,4 +3822,265 @@ test "the client's own refusals are in the language" {
     "First exploration（分叉）",
   )
   assert_eq(@frontend.branch_name("", zh()), "分叉")
+}
+
+///|
+/// The reader's own words go into the form.
+///
+/// What the reader corrects has to be what is on the screen and not what they
+/// remember of it, so the page's own title and body are the form's starting
+/// point.
+test "the reader's words go into the form" {
+  let model = { ..bare_model(), pages: [page("model", "M", 0, true)], }
+  let (after, _) = @frontend.update(
+    model,
+    @frontend.Msg::PageEditClicked("model"),
+    silent_emit(),
+  )
+  assert_eq(after.page_editing, "model")
+  assert_eq(after.page_draft_title, "model")
+  assert_eq(after.page_draft_body, "<p>body</p>")
+}
+
+///|
+/// The correction goes to the page it corrects.
+///
+/// The request names the page the reader picked. A correction that went to
+/// whatever page the client happened to be holding would be a correction of
+/// the wrong page, and the server would answer "not found" with no reason.
+test "the correction reaches the page it corrects" {
+  let model = {
+    ..bare_model(),
+    pages: [page("model", "M", 0, true)],
+    page_editing: "model",
+    page_draft_title: "A better name",
+    page_draft_body: "The body I meant.",
+  }
+  let (_, cmd) = @frontend.update(
+    model,
+    @frontend.Msg::PageUpdateClicked,
+    silent_emit(),
+  )
+  let request = cmd.to_repr().to_string()
+  assert_true(request.contains("/api/pages/model"))
+}
+
+///|
+/// The correction says which language it is in.
+///
+/// A page is said twice, in two languages, and the reader corrects the one
+/// they are reading. A correction that did not say so would land in the
+/// wrong language, and the reader's words would appear on the other side of
+/// the page.
+test "the correction says which language it is in" {
+  let model = {
+    ..bare_model(),
+    pages: [page("model", "M", 0, true)],
+    page_editing: "model",
+    page_draft_title: "A better name",
+    page_draft_body: "The body I meant.",
+    lang: @frontend.UiLang::chinese(),
+  }
+  let (_, cmd) = @frontend.update(
+    model,
+    @frontend.Msg::PageUpdateClicked,
+    silent_emit(),
+  )
+  let request = cmd.to_repr().to_string()
+  assert_true(request.contains("lang=zh"))
+}
+
+///|
+/// A correction without a title does not go out.
+///
+/// The same rule the server applies, checked here so that the common mistake
+/// gives a sentence straight away instead of a round trip that comes back
+/// refused.
+test "a correction without a title is refused before it is sent" {
+  let model = {
+    ..bare_model(),
+    pages: [page("model", "M", 0, true)],
+    page_editing: "model",
+    page_draft_title: "   ",
+    page_draft_body: "The body I meant.",
+  }
+  let (after, cmd) = @frontend.update(
+    model,
+    @frontend.Msg::PageUpdateClicked,
+    silent_emit(),
+  )
+  assert_eq(after.page_error, en().pages.no_title)
+  assert_eq(after.page_notice, "")
+  // Nothing was sent: the command is the "none" the model always returns
+  // when it has nothing to ask the server for.
+  assert_true(!cmd.to_repr().to_string().contains("/api/pages/"))
+}
+
+///|
+/// The corrected page is put back on the screen.
+///
+/// The server answers with the page as it now stands, so the client puts the
+/// reader's own words back rather than guessing what was stored.
+test "the corrected page is put back on the screen" {
+  let body : Json = {
+    "page": {
+      "slug": "model",
+      "title": "A better name",
+      "body": "The body I meant.",
+      "corrected": true,
+      "corrected_at": "2026-11-01T00:00:00Z",
+    },
+  }
+  let model = {
+    ..bare_model(),
+    pages: [page("model", "M", 0, true)],
+    page_editing: "model",
+  }
+  let (after, _) = @frontend.update(
+    model,
+    @frontend.Msg::PageUpdated(Ok(body)),
+    silent_emit(),
+  )
+  assert_eq(after.pages.length(), 1)
+  assert_eq(after.pages[0].title, "A better name")
+  assert_eq(after.pages[0].body, "The body I meant.")
+  assert_true(after.pages[0].corrected)
+  assert_eq(after.pages[0].corrected_at, "2026-11-01T00:00:00Z")
+  // The form is closed: the correction is done.
+  assert_eq(after.page_editing, "")
+  assert_eq(after.page_draft_title, "")
+  assert_true(after.page_notice != "")
+}
+
+///|
+/// The corrected page keeps its place.
+///
+/// Correcting a page does not make it a new page: it keeps its slug and its
+/// order, so the navigation does not reshuffle under the reader.
+test "the corrected page keeps its place" {
+  let body : Json = {
+    "page": {
+      "slug": "model",
+      "title": "A better name",
+      "body": "The body I meant.",
+      "corrected": true,
+    },
+  }
+  let model = {
+    ..bare_model(),
+    pages: [
+      page("index", "", -1, false),
+      page("model", "M", 0, true),
+      page("data", "D", 1, true),
+    ],
+    page_editing: "model",
+  }
+  let (after, _) = @frontend.update(
+    model,
+    @frontend.Msg::PageUpdated(Ok(body)),
+    silent_emit(),
+  )
+  assert_eq(after.pages.length(), 3)
+  assert_eq(after.pages[0].slug, "index")
+  assert_eq(after.pages[1].slug, "model")
+  assert_eq(after.pages[2].slug, "data")
+  assert_eq(after.pages[1].sort, 0)
+  assert_true(after.pages[1].in_navigation)
+}
+
+///|
+/// A refused correction says why.
+///
+/// The status code never reaches the client -- rabbita's HTTP client hands
+/// over the body whatever the status was -- so the body is the only place a
+/// reason can come from. A refusal that lost its reason would be a click
+/// that did nothing and said nothing.
+test "a refused correction says why" {
+  let body : Json = {
+    "error": "not_found",
+    "slug": "model",
+    "reason": "There is no page called 'model'.",
+  }
+  let model = { ..bare_model(), page_editing: "model", }
+  let (after, _) = @frontend.update(
+    model,
+    @frontend.Msg::PageUpdated(Ok(body)),
+    silent_emit(),
+  )
+  assert_eq(after.page_error, "There is no page called 'model'.")
+  assert_eq(after.page_notice, "")
+}
+
+///|
+/// A refusal with no reason still says something.
+///
+/// The server's reason is used when there is one, and the server's own code
+/// is used when there is not -- a refusal that said nothing at all would be a
+/// click that did nothing and said nothing.
+test "a refusal with no reason still says something" {
+  let model = { ..bare_model(), page_editing: "model", }
+  let (after, _) = @frontend.update(
+    model,
+    @frontend.Msg::PageUpdated(Ok({ "error": "not_found" })),
+    silent_emit(),
+  )
+  assert_eq(after.page_error, "not_found")
+  // And with neither a reason nor a code, the client says it in its own
+  // words rather than showing a blank.
+  let (bare, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::PageUpdated(Ok({})),
+    silent_emit(),
+  )
+  assert_eq(bare.page_error, en().pages.refused)
+}
+
+///|
+/// A correction that cannot reach the server says so.
+test "a correction that cannot reach the server says so" {
+  let model = { ..bare_model(), page_editing: "model", }
+  let (after, _) = @frontend.update(
+    model,
+    @frontend.Msg::PageUpdated(Err(TestError("down"))),
+    silent_emit(),
+  )
+  assert_eq(after.page_error, en().status.server_unreachable)
+}
+
+///|
+/// The page says whose words they are.
+///
+/// The reader has to be able to tell their own words from the seed's. A page
+/// that speaks the reader's words without saying so is a page they cannot
+/// trust.
+test "the page says whose words they are" {
+  assert_eq(@frontend.page_corrected_mark(en()), en().pages.corrected)
+  assert_eq(@frontend.page_corrected_mark(zh()), zh().pages.corrected)
+}
+
+///|
+/// The client says what is missing, in the reader's language.
+test "the client's own sentences about a page are in the language" {
+  assert_eq(
+    @frontend.page_correction_problem(en(), "   "),
+    "give the page a title",
+  )
+  assert_eq(
+    @frontend.page_correction_problem(zh(), "   "),
+    "给这一页起个标题",
+  )
+  assert_eq(@frontend.page_correction_problem(en(), "a title"), "")
+}
+
+///|
+/// The sentences about a page are in both languages.
+test "the words about a page are in both languages" {
+  assert_eq(en().pages.edit, "Correct this page")
+  assert_eq(en().pages.save_change, "Save the change")
+  assert_eq(en().pages.cancel, "Leave it")
+  assert_eq(en().pages.no_title, "give the page a title")
+  assert_eq(zh().pages.edit, "改一改这一页")
+  assert_eq(zh().pages.save_change, "保存修改")
+  assert_eq(zh().pages.cancel, "不改了")
+  assert_eq(zh().pages.no_title, "给这一页起个标题")
 }

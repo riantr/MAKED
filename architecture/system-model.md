@@ -57,7 +57,10 @@ there is no second web server and no CORS.
    ring domains + tutorial, about, tasks, plus index and 404) carry the
    explanation; the reader's own records, explorations and tables are the
    writable part. The pages are seeded, but the workspace, the sessions and
-   the mapping table are not read-only.
+   the mapping table are not read-only. What a page says is writable too: a
+   correction is stored beside the seeded text rather than over it, so it
+   survives the next start-up, while the page's shape &mdash; its slug, its
+   place in the navigation &mdash; is not the reader's to move.
 
 6. **The language belongs to the server** &mdash; Every surface that carries the
    machine's words asks for the language it wants, and the server answers in

@@ -1,8 +1,10 @@
 // Typed accessors over the backend's JSON.
 //
 // The backend is the only writer of this data, so the shapes here mirror
-// `backend/pages.mbt` and `Page::to_json`. Two details of MoonBit's builtin
-// `Json` shape the code:
+// `backend/pages.mbt` and `Page::to_json`. The reader's own words reach a
+// page through the backend too, and the server says which words they are --
+// see the `corrected` flag below, which is what keeps the client's rendering
+// of them safe. Two details of MoonBit's builtin `Json` shape the code:
 //
 //   - A `{ ... }` literal is a `Map`, not a `Json`; it only becomes a `Json`
 //     where the expected type is known. Every literal here is annotated.
@@ -22,6 +24,16 @@ pub(all) struct Page {
   body : String
   in_navigation : Bool
   sort : Int32
+  /// Whether these words are the reader's rather than the seed's.
+  ///
+  /// The server says so, because it is the one that applied the correction.
+  /// The client cannot tell a corrected body from a seeded one by looking at
+  /// the words: both are strings in a JSON object. Without this flag the
+  /// client would render the reader's words as markup, which is the one thing
+  /// it must never do with them.
+  corrected : Bool
+  /// When the page was last corrected, or the empty string if it never was.
+  corrected_at : String
 } derive(Eq)
 
 // `Eq` is not optional here: rabbita's `create_state_with_init` uses it to
@@ -123,6 +135,8 @@ fn page_from_json(json : Json) -> Page {
     body: get_string(json, "body", ""),
     in_navigation: get_bool(json, "in_navigation", false),
     sort: get_int(json, "sort", 0),
+    corrected: get_bool(json, "corrected", false),
+    corrected_at: get_string(json, "corrected_at", ""),
   }
 }
 
@@ -134,6 +148,19 @@ pub fn decode_pages(json : Json) -> Array[Page] {
   match field(json, "pages") {
     Some(Array(items)) => items.map(fn(item) { page_from_json(item) })
     _ => []
+  }
+}
+
+///|
+/// The page the server just corrected, from `{"page": {...}}`.
+///
+/// `None` means the server answered with something that is not a page, and
+/// that is the shape a refusal takes. The caller turns it into a sentence
+/// rather than into a silent nothing.
+pub fn decode_updated_page(json : Json) -> Page? {
+  match field(json, "page") {
+    Some(obj) => Some(page_from_json(obj))
+    _ => None
   }
 }
 

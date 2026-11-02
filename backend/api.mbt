@@ -93,6 +93,76 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       }
     }
   })
+  // PUT /api/pages/:slug → correct one page's words.
+  //
+  // The reader corrects the page they are reading, in the language they are
+  // reading it in, and the answer carries the page as it now stands so the
+  // client can put the reader's own words back on the screen rather than
+  // guessing what was stored.
+  //
+  // What a correction may change is what the page *says*: its title and its
+  // body. The slug, the letter, the role and the place in the navigation are
+  // the site's shape rather than its prose, and a reader who could move a
+  // page into the navigation bar would be editing the site rather than its
+  // content. That boundary is the reason the correction lands in columns of
+  // its own and not in the seeded ones.
+  app.put("/api/pages/:slug", req => {
+    let lang = lang_of(req)
+    let payload = req.json().unwrap_or(Json::empty_object())
+    match req.param("slug") {
+      Some(slug) =>
+        if slug == "" {
+          let body : Json = {
+            "error": "missing_slug",
+            "slug": slug,
+            "reason": bad_page_slug_reason(slug, lang),
+          }
+          Response::json(body, status=400)
+        } else {
+          match Page::correction_from_json(payload) {
+            Rejected(reason) => {
+              let body : Json = { "error": "invalid_page", "reason": reason }
+              Response::json(body, status=400)
+            }
+            Accepted(title, body_text) =>
+              if db.update_page(slug, lang, title, body_text) {
+                match db.page_by_slug(slug) {
+                  Some(page) => {
+                    let answer : Json = {
+                      "page": page.to_json(lang),
+                      "updated": true,
+                    }
+                    Response::json(answer)
+                  }
+                  None => {
+                    let body : Json = {
+                      "error": "not_found",
+                      "slug": slug,
+                      "reason": page_not_found_reason(slug, lang),
+                    }
+                    Response::json(body, status=404)
+                  }
+                }
+              } else {
+                let body : Json = {
+                  "error": "not_found",
+                  "slug": slug,
+                  "reason": page_not_found_reason(slug, lang),
+                }
+                Response::json(body, status=404)
+              }
+          }
+        }
+      None => {
+        let body : Json = {
+          "error": "missing_slug",
+          "slug": "",
+          "reason": bad_page_slug_reason("", lang),
+        }
+        Response::json(body, status=400)
+      }
+    }
+  })
   app.get("/api/domains", req => {
     let body : Json = { "domains": domains_json(lang_of(req)) }
     Response::json(body)
@@ -1311,6 +1381,31 @@ fn entry_not_found_reason(id : Int32, lang : Lang) -> String {
   match lang {
     English => "There is no record numbered " + id.to_string() + "."
     Chinese => "没有编号为 " + id.to_string() + " 的记录。"
+  }
+}
+
+///|
+/// Why a page's slug could not be read, in the language asked for.
+///
+/// The reason quotes what was sent, because the reader who asked for a page
+/// that does not exist is the one who has to guess again about which one they
+/// meant.
+fn bad_page_slug_reason(slug : String, lang : Lang) -> String {
+  match lang {
+    English => "The server could not read '" + slug + "' as the name of a page."
+    Chinese => "服务端无法把 '" + slug + "' 读成页面的名字。"
+  }
+}
+
+///|
+/// Why a page was not there, in the language asked for.
+///
+/// The reason names the page that was asked for, so the reader can see which
+/// one is missing rather than being told that one is.
+fn page_not_found_reason(slug : String, lang : Lang) -> String {
+  match lang {
+    English => "There is no page called '" + slug + "'."
+    Chinese => "没有叫作 '" + slug + "' 的页面。"
   }
 }
 

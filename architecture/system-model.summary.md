@@ -29,16 +29,19 @@ SQLite) and a JavaScript frontend (rabbita SPA).
 
 4. **A write path for the reader's own work**: 10 pages stored in SQLite and
    seeded on every start, but the reader's own records, explorations and
-   tables are writable. The original django CMS had admin + Celery; this
-   scope is the ten public pages plus the reader's own working set.
+   tables are writable -- and so is what a page says: a correction is stored
+   beside the seeded text rather than over it, so it outlives the start-up
+   that would otherwise overwrite it. The original django CMS had admin +
+   Celery; this scope is the ten public pages plus the reader's own working
+   set.
 
 5. **Elm-style frontend**: rabbita TEA (Model/Update/View/Subscription). At
    start-up the client makes 2 requests -- the bootstrap, then the loop
    status -- and after that the routing is client-side, over the History API.
 
-6. **Well-tested invariants**: 603 tests across backend and frontend, focused
+6. **Well-tested invariants**: 627 tests across backend and frontend, focused
    on silent-failure modes (SQLite statement lifecycle, ring geometry, JSON
-   decoding total functions), plus 229 mutation anchors and 410 integration
+   decoding total functions), plus 229 mutation anchors and 428 integration
    checks against a server that is really running.
 
 ## Gaps and unknowns

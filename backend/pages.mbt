@@ -52,6 +52,23 @@ pub(all) struct Page {
   /// The body in Chinese: the same prose, written again rather than
   /// translated.
   body_zh : String
+  /// The reader's correction of the title, in English.
+  ///
+  /// Empty when the page has not been corrected in English. The correction
+  /// lives beside the seeded text rather than in it, because the seed
+  /// re-seeds every page on every start-up and would otherwise overwrite the
+  /// reader's words with its own.
+  corrected_title : String
+  /// The reader's correction of the body, in English.
+  corrected_body : String
+  /// The reader's correction of the title, in Chinese.
+  corrected_title_zh : String
+  /// The reader's correction of the body, in Chinese.
+  corrected_body_zh : String
+  /// When the page was last corrected, whichever language it was corrected in.
+  ///
+  /// Empty when the page has never been corrected.
+  corrected_at : String
 } derive(Eq)
 
 // The `implicit_impl_as_method` deprecation warning on that derive is accepted.
@@ -65,17 +82,144 @@ pub(all) struct Page {
 /// -- are each held in both languages, and the language decides which of the
 /// two is sent. The fallback is `Lang::pick`: a page with no Chinese is shown
 /// in English rather than as a blank.
+///
+/// A page the reader has corrected says the reader's words, in the language
+/// the reader corrected it in, and says that it is saying them: `corrected`
+/// says whether these are the reader's words and `corrected_at` says when
+/// they were written. A page that speaks the reader's words without saying so
+/// is a page the reader cannot trust, because they cannot tell their own
+/// sentence from the seed's.
 pub fn Page::to_json(self : Page, lang : Lang) -> Json {
+  let corrected = self.corrected_in(lang)
+  let title = if corrected {
+    self.corrected_title_of(lang)
+  } else {
+    lang.pick(self.title, self.title_zh)
+  }
+  let body = if corrected {
+    self.corrected_body_of(lang)
+  } else {
+    lang.pick(self.body, self.body_zh)
+  }
   {
     "slug": self.slug,
-    "title": lang.pick(self.title, self.title_zh),
+    "title": title,
     "letter": self.letter,
     "role": lang.pick(self.role, self.role_zh),
     "summary": lang.pick(self.summary, self.summary_zh),
-    "body": lang.pick(self.body, self.body_zh),
+    "body": body,
     "in_navigation": self.in_navigation,
     "sort": self.sort,
+    "corrected": corrected,
+    "corrected_at": self.corrected_at,
   }
+}
+
+///|
+/// Whether this page has been corrected in the language asked for.
+///
+/// The flag is the correction's own title being non-empty: a correction
+/// always carries a title, so an empty one means there is no correction in
+/// this language. That is a different question from "has this page ever been
+/// corrected", which `corrected_at` answers.
+pub fn Page::corrected_in(self : Page, lang : Lang) -> Bool {
+  match lang {
+    Chinese => self.corrected_title_zh != ""
+    English => self.corrected_title != ""
+  }
+}
+
+///|
+/// The title the reader wrote, in the language asked for.
+pub fn Page::corrected_title_of(self : Page, lang : Lang) -> String {
+  match lang {
+    Chinese => self.corrected_title_zh
+    English => self.corrected_title
+  }
+}
+
+///|
+/// The body the reader wrote, in the language asked for.
+pub fn Page::corrected_body_of(self : Page, lang : Lang) -> String {
+  match lang {
+    Chinese => self.corrected_body_zh
+    English => self.corrected_body
+  }
+}
+
+///|
+/// A title longer than this is a paste accident, not a title. Rejecting it at
+/// the boundary keeps a runaway client from filling the database in one
+/// request.
+pub const MAX_PAGE_TITLE : Int32 = 200
+
+///|
+/// The same guard for the body, generously: a long page is legitimate, and the
+/// limit here is a backstop rather than a product decision.
+pub const MAX_PAGE_BODY : Int32 = 20000
+
+///|
+/// The outcome of checking a submitted correction: either the reader's words,
+/// ready to store, or the reason they will not be stored.
+pub(all) enum PageCorrection {
+  Accepted(String, String)
+  Rejected(String)
+}
+
+///|
+/// Check a submitted correction and normalise it.
+///
+/// The title must not be empty. A page with no name is not a page, and a
+/// correction that leaves the page nameless is a deletion dressed up as an
+/// edit -- deleting is a thing the site does on its own terms, and it is not
+/// the reader's to do by emptying a field.
+///
+/// The body may be empty. A reader may want a page to say less, and an empty
+/// body says exactly that.
+///
+/// Surrounding whitespace is stripped from both, for the reason it is stripped
+/// everywhere else: a title that renders with one leading space looks like a
+/// layout bug rather than a typo.
+pub fn Page::validate_correction(
+  title : String,
+  body : String,
+) -> PageCorrection {
+  let title = title.trim().to_owned()
+  let body = body.trim().to_owned()
+  if title.is_empty() {
+    return Rejected("title must not be empty")
+  }
+  if title.length() > MAX_PAGE_TITLE {
+    return Rejected(
+      "title is " +
+      title.length().to_string() +
+      " characters; the limit is " +
+      MAX_PAGE_TITLE.to_string(),
+    )
+  }
+  if body.length() > MAX_PAGE_BODY {
+    return Rejected(
+      "body is " +
+      body.length().to_string() +
+      " characters; the limit is " +
+      MAX_PAGE_BODY.to_string(),
+    )
+  }
+  Accepted(title, body)
+}
+
+///|
+/// Read a submitted correction out of a JSON request body.
+///
+/// A missing or wrongly-typed field decodes to the empty string, which
+/// `validate_correction` then refuses with a message about that field. A
+/// missing key and an empty value are the same mistake to the person who made
+/// it.
+pub fn Page::correction_from_json(json : Json) -> PageCorrection {
+  Page::validate_correction(
+    json_string(json, "title"),
+    json_string(json, "body"),
+  )
 }
 
 ///|
@@ -257,6 +401,11 @@ pub fn not_found_page() -> Page {
     role_zh: "",
     summary_zh: "不在环上",
     body_zh: not_found_body_zh(),
+    corrected_title: "",
+    corrected_body: "",
+    corrected_title_zh: "",
+    corrected_body_zh: "",
+    corrected_at: "",
   }
 }
 
@@ -304,6 +453,14 @@ pub fn seed_pages() -> Array[Page] {
       title_zh,
       role_zh,
       summary_zh: role_zh,
+      // The seed never corrects a page. The correction columns start empty
+      // and the seed does not name them, so a correction the reader made
+      // earlier is still there after the next start-up.
+      corrected_title: "",
+      corrected_body: "",
+      corrected_title_zh: "",
+      corrected_body_zh: "",
+      corrected_at: "",
     })
     sort += 1
   }
@@ -350,6 +507,13 @@ pub fn seed_pages() -> Array[Page] {
       role_zh: "",
       summary_zh,
       body_zh,
+      // The seed never corrects a page, so these start empty and stay empty
+      // until the reader says otherwise.
+      corrected_title: "",
+      corrected_body: "",
+      corrected_title_zh: "",
+      corrected_body_zh: "",
+      corrected_at: "",
     })
     sort += 1
   }
@@ -371,5 +535,10 @@ pub fn home_page() -> Page {
     role_zh: "",
     summary_zh: "五个域，一个闭环",
     body_zh: home_body_zh(),
+    corrected_title: "",
+    corrected_body: "",
+    corrected_title_zh: "",
+    corrected_body_zh: "",
+    corrected_at: "",
   }
 }

@@ -96,6 +96,24 @@ pub(all) enum Msg {
   EntryUpdateClicked
   /// The correction landed, or was refused with a reason.
   EntryUpdated(Result[Json, Error])
+  // Correcting a page: the reader's own words on the site's own prose.
+  //
+  // A page was seeded and could only be re-seeded, so the words on it were
+  // the project's and could never be the reader's. These are the messages that
+  // let the reader change them.
+  /// The reader asked to correct a page: the page's own words go into the
+  /// form, so what is corrected is what is on the screen.
+  PageEditClicked(String)
+  /// The reader changed their mind about the correction.
+  PageEditCancelled
+  /// The reader changed the title they are typing.
+  PageDraftTitleChanged(String)
+  /// The reader changed the body they are typing.
+  PageDraftBodyChanged(String)
+  /// The reader saved the correction.
+  PageUpdateClicked
+  /// The correction landed, or was refused with a reason.
+  PageUpdated(Result[Json, Error])
   // The sessions: named explorations, and the history inside them.
   SessionCreated(Result[Json, Error])
   SessionActivated(Result[Json, Error])
@@ -127,6 +145,21 @@ pub(all) struct Model {
   current : String
   loaded : Bool
   error : String
+  /// The page being corrected, or the empty string when no page is being
+  /// corrected.
+  ///
+  /// The slug rather than an index, because the slug is what the correction
+  /// is sent to: a correction that named the page the client happened to be
+  /// holding would be a correction of the wrong page.
+  page_editing : String
+  /// What the reader is typing, so the form and the request cannot disagree.
+  page_draft_title : String
+  page_draft_body : String
+  /// What the page panel says after the last action. One of the two is always
+  /// empty, and between them they cover every outcome: a correction either
+  /// lands, is refused with a reason, or fails to reach the server.
+  page_error : String
+  page_notice : String
   loop_status : LoopStatus?
   loop_error : String
   /// The eight drive slots, fetched once and held. This replaces two
@@ -265,6 +298,11 @@ pub fn initial() -> Model {
     current: "index",
     loaded: false,
     error: "",
+    page_editing: "",
+    page_draft_title: "",
+    page_draft_body: "",
+    page_error: "",
+    page_notice: "",
     loop_status: None,
     loop_error: "",
     slots: [],
@@ -1235,6 +1273,122 @@ pub fn update(
         },
         @cmd.none,
       )
+    // Correcting a page.
+    //
+    // The page's own words go into the form, so what the reader corrects is
+    // what is on the screen and not what they remember of it.
+    PageEditClicked(slug) =>
+      match find_page(model.pages, slug) {
+        Some(page) =>
+          (
+            {
+              ..model,
+              page_editing: slug,
+              page_draft_title: page.title,
+              page_draft_body: page.body,
+              page_error: "",
+              page_notice: "",
+            },
+            @cmd.none,
+          )
+        None => (model, @cmd.none)
+      }
+    PageEditCancelled =>
+      (
+        {
+          ..model,
+          page_editing: "",
+          page_draft_title: "",
+          page_draft_body: "",
+          page_error: "",
+          page_notice: "",
+        },
+        @cmd.none,
+      )
+    PageDraftTitleChanged(text) =>
+      ({ ..model, page_draft_title: text, }, @cmd.none)
+    PageDraftBodyChanged(text) =>
+      ({ ..model, page_draft_body: text, }, @cmd.none)
+    PageUpdateClicked => {
+      // The same rule the server applies, checked here so that the common
+      // mistake produces a sentence straight away instead of a round trip
+      // that comes back as a refusal.
+      let problem = page_correction_problem(c, model.page_draft_title)
+      if problem != "" {
+        ({ ..model, page_notice: "", page_error: problem, }, @cmd.none)
+      } else {
+        let payload : Json = {
+          "title": model.page_draft_title,
+          "body": model.page_draft_body,
+        }
+        (
+          { ..model, page_error: "", page_notice: c.pages.saving, },
+          // The correction goes to the page it corrects. The slug is the one
+          // the reader picked, so the request names the page rather than a
+          // page the client kept a copy of.
+          @http.put("/api/pages/\{model.page_editing}" + lang_query(model.lang))
+          .with_json(payload)
+          .expect_json(emit.map(fn(result) { PageUpdated(result) })),
+        )
+      }
+    }
+    PageUpdated(Ok(json)) => {
+      // The server answers with the page as it now stands, and with an error
+      // object when it did not change it. The status code never reaches the
+      // client, so the body is the only place a refusal can be seen.
+      let updated = decode_updated_page(json)
+      match updated {
+        Some(page) => {
+          // The page keeps its place: correcting it does not make it a new
+          // page, so its slug and its order are its own. The words and the
+          // correction flag come from the server, and the shape of the page --
+          // its letter, its role, its place in the navigation -- comes from
+          // the page the client already holds. An answer that carried only
+          // some of it would otherwise drop the rest.
+          let pages = model.pages.map(fn(p) {
+            if p.slug == page.slug {
+              {
+                ..p,
+                title: page.title,
+                body: page.body,
+                corrected: page.corrected,
+                corrected_at: page.corrected_at,
+              }
+            } else {
+              p
+            }
+          })
+          (
+            {
+              ..model,
+              pages,
+              page_editing: "",
+              page_draft_title: "",
+              page_draft_body: "",
+              page_error: "",
+              page_notice: page_corrected_notice(c, page.title),
+            },
+            @cmd.none,
+          )
+        }
+        None => {
+          let reason = decode_error_reason(json)
+          (
+            {
+              ..model,
+              page_notice: "",
+              page_error: page_correction_refused(c, reason),
+            },
+            @cmd.none,
+          )
+        }
+      }
+    }
+    PageUpdated(Err(_)) =>
+      (
+        { ..model, page_notice: "", page_error: c.status.server_unreachable, },
+        @cmd.none,
+      )
     // The sessions.
     //
     // Every arm of this group says what happened, in the same place, every
@@ -1589,7 +1743,7 @@ fn view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     error_view(c, model.error)
   } else {
     match model.page() {
-      Some(page) => page_view(page)
+      Some(page) => page_view(emit, model, page)
       None => not_found_view(c, model.current)
     }
   }

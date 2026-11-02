@@ -204,6 +204,44 @@ fn Database::migrate(self : Database) -> Unit raise {
   if !self.has_column("pages", "body_zh") {
     self.exec("ALTER TABLE pages ADD COLUMN body_zh TEXT NOT NULL DEFAULT ''")
   }
+  // The columns that carry a reader's correction of a page.
+  //
+  // A correction lives in columns of its own rather than in the seeded ones,
+  // because the seed re-seeds every page on every start-up: a correction
+  // written into `title` or `body` would be overwritten the next time the
+  // server started, and a correction that does not outlive the process that
+  // took it is not a correction. The seed does not name these columns, so it
+  // cannot reach them, and the reader's words stay.
+  //
+  // There is one pair per language, because the reader corrects the page they
+  // are reading. A correction made in Chinese does not replace the English
+  // prose, and the other way round: the two are the same page said twice, and
+  // saying one of them differently is not saying both of them differently.
+  if !self.has_column("pages", "corrected_title") {
+    self.exec(
+      "ALTER TABLE pages ADD COLUMN corrected_title TEXT NOT NULL DEFAULT ''",
+    )
+  }
+  if !self.has_column("pages", "corrected_body") {
+    self.exec(
+      "ALTER TABLE pages ADD COLUMN corrected_body TEXT NOT NULL DEFAULT ''",
+    )
+  }
+  if !self.has_column("pages", "corrected_title_zh") {
+    self.exec(
+      "ALTER TABLE pages ADD COLUMN corrected_title_zh TEXT NOT NULL DEFAULT ''",
+    )
+  }
+  if !self.has_column("pages", "corrected_body_zh") {
+    self.exec(
+      "ALTER TABLE pages ADD COLUMN corrected_body_zh TEXT NOT NULL DEFAULT ''",
+    )
+  }
+  if !self.has_column("pages", "corrected_at") {
+    self.exec(
+      "ALTER TABLE pages ADD COLUMN corrected_at TEXT NOT NULL DEFAULT ''",
+    )
+  }
 }
 
 ///|
@@ -288,11 +326,18 @@ fn read_page(stmt : @sqlite3.Statement) -> Page raise {
     role_zh: stmt.column(index=9),
     summary_zh: stmt.column(index=10),
     body_zh: stmt.column(index=11),
+    // The reader's correction, if this page has one. Empty when it has not
+    // been corrected, and the page then says what the seed said.
+    corrected_title: stmt.column(index=12),
+    corrected_body: stmt.column(index=13),
+    corrected_title_zh: stmt.column(index=14),
+    corrected_body_zh: stmt.column(index=15),
+    corrected_at: stmt.column(index=16),
   }
 }
 
 ///|
-const SELECT_COLUMNS : String = "slug, title, letter, role, summary, body, nav, sort, title_zh, role_zh, summary_zh, body_zh"
+const SELECT_COLUMNS : String = "slug, title, letter, role, summary, body, nav, sort, title_zh, role_zh, summary_zh, body_zh, corrected_title, corrected_body, corrected_title_zh, corrected_body_zh, corrected_at"
 
 ///|
 pub fn Database::page_by_slug(self : Database, slug : String) -> Page? raise {
@@ -445,6 +490,41 @@ pub fn Database::update_entry(
   stmt.bind(index=2, title)
   stmt.bind(index=3, body)
   stmt.bind(index=4, id)
+  ignore(stmt.step())
+  stmt.finalize()
+  self.connection.changes() > 0L
+}
+
+///|
+/// Write the reader's correction of a page, in the language they read it in.
+///
+/// The correction goes into the columns of its own rather than into the seeded
+/// ones, and the seed does not name those columns, so the reader's words
+/// survive the next start-up.
+///
+/// The language decides which pair of columns is written: the reader corrects
+/// the page they are reading, so a correction made in Chinese leaves the
+/// English prose alone.
+///
+/// False means there is no such page.
+pub fn Database::update_page(
+  self : Database,
+  slug : String,
+  lang : Lang,
+  title : String,
+  body : String,
+) -> Bool raise {
+  let sql = match lang {
+    Chinese =>
+      "UPDATE pages SET corrected_title_zh = ?, corrected_body_zh = ?, corrected_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE slug = ?"
+    English =>
+      "UPDATE pages SET corrected_title = ?, corrected_body = ?, corrected_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE slug = ?"
+  }
+  let stmt = self.connection.prepare(sql)
+  stmt.reset(clear_bindings=true)
+  stmt.bind(index=1, title)
+  stmt.bind(index=2, body)
+  stmt.bind(index=3, slug)
   ignore(stmt.step())
   stmt.finalize()
   self.connection.changes() > 0L

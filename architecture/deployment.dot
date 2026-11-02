@@ -48,7 +48,7 @@ digraph maked_deployment {
         h_status [label="GET /api/status", fillcolor="#d4e6f1"]
         h_pages [label="GET /api/pages", fillcolor="#d4e6f1"]
         h_bootstrap [label="GET /api/bootstrap", fillcolor="#d4e6f1"]
-        h_page [label="GET /api/pages/:slug", fillcolor="#d4e6f1"]
+        h_page [label="GET|PUT /api/pages/:slug", fillcolor="#d4e6f1"]
         h_domains [label="GET /api/domains", fillcolor="#d4e6f1"]
         h_model [label="GET /api/model", fillcolor="#d4e6f1"]
         h_entries [label="GET|POST /api/entries", fillcolor="#fce5cd"]

@@ -89,6 +89,11 @@ async test "text content survives the round trip byte for byte" {
     role_zh: "中文角色",
     summary_zh: "中文摘要",
     body_zh: "<p>中文正文 — 太极环 &amp; more</p>",
+    corrected_title: "",
+    corrected_body: "",
+    corrected_title_zh: "",
+    corrected_body_zh: "",
+    corrected_at: "",
   }
   db.seed([page])
   match db.page_by_slug("cjk") {
@@ -139,6 +144,11 @@ async test "seeding two pages in one call does not repeat the first" {
       role_zh: "",
       summary_zh: "摘要一",
       body_zh: "正文一",
+      corrected_title: "",
+      corrected_body: "",
+      corrected_title_zh: "",
+      corrected_body_zh: "",
+      corrected_at: "",
     },
     {
       slug: "two",
@@ -153,6 +163,11 @@ async test "seeding two pages in one call does not repeat the first" {
       role_zh: "",
       summary_zh: "摘要二",
       body_zh: "正文二",
+      corrected_title: "",
+      corrected_body: "",
+      corrected_title_zh: "",
+      corrected_body_zh: "",
+      corrected_at: "",
     },
   ])
   assert_eq(db.all_pages().length(), 2)

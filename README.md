@@ -46,6 +46,9 @@ Protocol over stdio or HTTP.
 - ✅ **Your own records, and your own corrections** — a record in the workspace can be
   written, corrected in place and removed; a correction keeps the record's number, its
   time and its place in the workspace's order
+- ✅ **The pages say what you say** — a page can be corrected in place: the page keeps
+  its place in the navigation, the correction is in the language you wrote it in, and
+  it is still there after the server restarts
 - ✅ **The machine is a file** — a model file (JSON or YAML) with its own domains, positions,
   slots and rules; `MAKED_MODEL` names it
 - ✅ **The mapping table is a file** — the rules that say what a document means, read top
@@ -236,6 +239,7 @@ start-up rather than ignored.
 | `GET` | `/api/status` | is the server up, how many pages, which domains |
 | `GET` | `/api/pages` | the ten pages the server holds, in the language asked for |
 | `GET` | `/api/pages/:slug` | one page by slug |
+| `PUT` | `/api/pages/:slug` | correct what one page says |
 | `GET` | `/api/domains` | the five domains in ring order |
 | `GET` | `/api/bootstrap` | pages, workspace entries and session state in one call |
 | `GET` | `/api/entries` | the workspace entries |
@@ -533,6 +537,40 @@ curl -X PUT http://127.0.0.1:8080/api/entries/1 \
 The same rules apply to a correction as to a new record: a change the create path would
 refuse is not a change, and a record that is not there cannot be corrected.
 
+### Correcting a page
+
+The pages were the project's own words, seeded on every start-up, and there was no way to
+change them — so "editable content" meant the workspace and nothing else. A page can now
+be corrected too, and the correction is stored beside the seeded words rather than over
+them, so it survives the next start-up:
+
+```bash
+curl -X PUT http://127.0.0.1:8080/api/pages/model \
+  -H 'Content-Type: application/json' \
+  -d '{"title": "The model I read it as", "body": "What the model is, in my own words."}'
+```
+
+What a correction may change is what the page *says*: its title and its body. The slug,
+the letter, the role and the place in the navigation are the site's shape, and a reader
+who could move a page into the navigation bar would be editing the site rather than its
+content.
+
+A correction belongs to the language it was made in, because a page is said twice:
+
+```bash
+curl -X PUT 'http://127.0.0.1:8080/api/pages/model?lang=zh' \
+  -H 'Content-Type: application/json' \
+  -d '{"title": "我读出来的模型", "body": "用我自己的话说。"}'
+```
+
+The English page keeps the English prose until it is corrected in English too. The answer
+says whose words these are — the page carries a `corrected` flag and the time of the
+correction — and the reader's own words are shown as text, never as markup, because they
+are the reader's and not the project's.
+
+A correction needs a title: a page with no name is not a page. A page that is not there
+cannot be corrected, and the refusal says which one is missing.
+
 ### Driving it from another agent
 
 ```bash
@@ -575,7 +613,7 @@ MAKED_moonbit/
 │   ├── metrics.mbt                   # the measures, in both languages
 │   ├── session.mbt                   # explorations, timelines, exports
 │   ├── database.mbt                  # SQLite
-│   ├── *_test.mbt                    # 428 tests
+│   ├── *_test.mbt                    # 440 tests
 │   └── *_wbtest.mbt                  # 16 tests
 ├── frontend/                         # the single-page app (js)
 │   ├── app.mbt                       # the TEA loop and the messages
@@ -588,7 +626,7 @@ MAKED_moonbit/
 │   ├── page.mbt                      # the page, and how it is decoded
 │   ├── logo.mbt                      # the ring
 │   ├── views.mbt                     # the views
-│   └── frontend_test.mbt             # 159 tests
+│   └── frontend_test.mbt             # 171 tests
 ├── cmd/
 │   ├── server/main.mbt               # the web server
 │   ├── mcp/main.mbt                  # the agent's server
@@ -604,7 +642,7 @@ MAKED_moonbit/
 │   └── notes/                        # the corpus the local example names
 │       └── failed-launch.md
 ├── tools/
-│   ├── integration-test.ps1          # 410 checks against a running server
+│   ├── integration-test.ps1          # 428 checks against a running server
 │   ├── mutate-backend.ps1            # 148 mutations of the backend
 │   ├── mutate-frontend.ps1           # 65 mutations of the frontend
 │   ├── mutate-loop.ps1               # 16 mutations of the loop
@@ -664,9 +702,9 @@ fits. Keep the two files next to each other, and set both variables.
 
 | What | How many | How it is checked |
 |---|---|---|
-| Backend tests | 444 | `moon test --target native backend` |
-| Frontend tests | 159 | `moon test --target js frontend` |
-| Integration checks | 410 | `tools/integration-test.ps1` — against a server that is really running |
+| Backend tests | 456 | `moon test --target native backend` |
+| Frontend tests | 171 | `moon test --target js frontend` |
+| Integration checks | 428 | `tools/integration-test.ps1` — against a server that is really running |
 | Backend mutations | 148 | `tools/mutate-backend.ps1` |
 | Frontend mutations | 65 | `tools/mutate-frontend.ps1` |
 | Loop mutations | 16 | `tools/mutate-loop.ps1` |

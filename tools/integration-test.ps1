@@ -686,6 +686,61 @@ try {
   $again = Invoke-Api -Method DELETE -Path "/api/entries/$entryId"
   Assert-Status "deleting it again is a 404" 404 $again
 
+  # ── correcting a page ────────────────────────────────────────────────────
+  Write-Host ""
+  Write-Host "-- correcting a page"
+  # A page was seeded and could only be re-seeded, so the words on it were the
+  # project's and could never be the reader's. A correction changes what the
+  # page says and leaves the page where it is.
+  $pageBefore = Get-Json "/api/pages/model"
+  Assert-FieldNotEmpty "the page has a title to begin with" $pageBefore "title"
+
+  $pageCorrection = Put-Json "/api/pages/model" @{ title = "The model I read it as"; body = "What the model is, in my own words." }
+  Assert-Status "correcting a page is a 200" 200 $pageCorrection
+  $correctedPage = (Field ($pageCorrection.Body | ConvertFrom-Json) "page")
+  Assert-Field "and the correction carries the new title" $correctedPage "title" "The model I read it as"
+  Assert-Field "and the new body" $correctedPage "body" "What the model is, in my own words."
+  Assert-True "and the page says whose words they are" ((Field $correctedPage "corrected") -eq $true) `
+    ("expected the page to say it was corrected, got '{0}'" -f (Field $correctedPage "corrected"))
+
+  $pageAfter = Get-Json "/api/pages/model"
+  Assert-Field "the page now says the reader's words" $pageAfter "title" "The model I read it as"
+  Assert-Field "and the body too" $pageAfter "body" "What the model is, in my own words."
+
+  $pagesAfter = Get-Json "/api/pages"
+  $modelInList = @((Field $pagesAfter "pages") | Where-Object { $_.slug -eq "model" })
+  Assert-True "the corrected page is in the list" ($modelInList.Count -eq 1) `
+    ("found {0} pages with that slug" -f $modelInList.Count)
+  Assert-Field "and the list shows the reader's words" $modelInList[0] "title" "The model I read it as"
+  Assert-True "and the page keeps its place in the navigation" ($modelInList[0].in_navigation -eq $true) `
+    "the page lost its place in the navigation"
+
+  # A correction needs a title: a page with no name is not a page, and a
+  # correction that leaves the page nameless is a deletion dressed as an edit.
+  $blankPage = Put-Json "/api/pages/model" @{ title = "   "; body = "no name" }
+  Assert-Status "a correction with a blank title is refused" 400 $blankPage
+  Assert-FieldNotEmpty "and the refusal gives a reason" ($blankPage.Body | ConvertFrom-Json) "reason"
+
+  # A page that is not there cannot be corrected, and the refusal says which
+  # one is missing. The status code never reaches the client, so the body is
+  # the only place a reason can come from.
+  $missingPage = Put-Json "/api/pages/no-such-page" @{ title = "not there" }
+  Assert-Status "correcting a page that is not there is a 404" 404 $missingPage
+  $missingPageBody = $missingPage.Body | ConvertFrom-Json
+  Assert-Field "and the refusal says so" $missingPageBody "error" "not_found"
+  Assert-FieldNotEmpty "and gives a reason" $missingPageBody "reason"
+
+  # A correction is in the language it was made in. The reader corrects the
+  # page they are reading, so a correction made in Chinese leaves the English
+  # prose alone.
+  $chineseCorrection = Put-Json "/api/pages/data?lang=zh" @{ title = "The data I read it as"; body = "What the data is." }
+  Assert-Status "correcting a page in Chinese is a 200" 200 $chineseCorrection
+  $chinesePage = Get-Json "/api/pages/data?lang=zh"
+  Assert-Field "and the Chinese page says the reader's words" $chinesePage "title" "The data I read it as"
+  $englishData = Get-Json "/api/pages/data"
+  Assert-True "and the English page is not the Chinese one" ($englishData.title -ne "The data I read it as") `
+    ("the English page says '{0}'" -f $englishData.title)
+
   # ── the loop ─────────────────────────────────────────────────────────────
   Write-Host ""
   Write-Host "-- the loop"

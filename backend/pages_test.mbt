@@ -100,6 +100,11 @@ test "Page::to_json contains all required fields" {
     role_zh: "测试角色",
     summary_zh: "测试摘要",
     body_zh: "<p>测试正文</p>",
+    corrected_title: "",
+    corrected_body: "",
+    corrected_title_zh: "",
+    corrected_body_zh: "",
+    corrected_at: "",
   }
   let json = page.to_json(en())
   match json {
@@ -133,6 +138,11 @@ test "Page::to_json preserves slug and title" {
     role_zh: "角色",
     summary_zh: "摘要",
     body_zh: "正文",
+    corrected_title: "",
+    corrected_body: "",
+    corrected_title_zh: "",
+    corrected_body_zh: "",
+    corrected_at: "",
   }
   let json = page.to_json(en())
   match json {
@@ -166,6 +176,11 @@ test "Page::to_json preserves in_navigation and sort" {
     role_zh: "角色",
     summary_zh: "摘要",
     body_zh: "正文",
+    corrected_title: "",
+    corrected_body: "",
+    corrected_title_zh: "",
+    corrected_body_zh: "",
+    corrected_at: "",
   }
   let json = page.to_json(en())
   match json {
@@ -204,6 +219,11 @@ test "a page speaks in the language it was handed" {
     role_zh: "模型构建者",
     summary_zh: "模型构建者",
     body_zh: "<p>中文正文。</p>",
+    corrected_title: "",
+    corrected_body: "",
+    corrected_title_zh: "",
+    corrected_body_zh: "",
+    corrected_at: "",
   }
   let english = page.to_json(en())
   let chinese = page.to_json(zh())
@@ -241,6 +261,11 @@ test "a page with no Chinese is shown in English" {
     role_zh: "",
     summary_zh: "",
     body_zh: "",
+    corrected_title: "",
+    corrected_body: "",
+    corrected_title_zh: "",
+    corrected_body_zh: "",
+    corrected_at: "",
   }
   match page.to_json(zh()) {
     Object(fields) => {

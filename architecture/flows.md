@@ -36,7 +36,7 @@ env vars (MAKED_PORT, MAKED_HOST, MAKED_DB, MAKED_DIST)
     → seed([home_page, not_found_page])
     → App::new()
     → add_middleware(logging_middleware)
-    → build_api(app, db, db_path) — registers 38 routes
+    → build_api(app, db, db_path) — registers 39 routes
   → app.to_module() — adapts to moonback Module
   → moonback.App(root) with static + spa_fallback middleware
   → moonback.listen(port)
@@ -133,7 +133,9 @@ seed_pages() → Array[Page] (8 pages, hardcoded HTML bodies)
   → rabbita vdom → browser DOM
 ```
 
-**Key property**: the body is an HTML fragment stored in SQLite, rendered via
-`inner_html` (dangerous_inner_html). It is safe here because the backend is the
-sole writer of that column -- the reader's own records are a different table
-and a different endpoint, and they are rendered as text.
+**Key property**: a seeded body is an HTML fragment stored in SQLite, rendered via
+`inner_html` (dangerous_inner_html). It is safe there because the backend wrote that
+body and stores the strings itself. A body the reader corrected is a different thing:
+it is the reader's own words, so it is rendered as text and never as markup -- and
+the reader's own records, which are a different table and a different endpoint, are
+rendered as text for the same reason.

@@ -14,9 +14,12 @@
 //     on `a`. Navigation handlers therefore sit on a wrapper element.
 //
 // Page bodies arrive from the backend as HTML fragments and are inserted with
-// `Attrs::inner_html`. That is safe here only because the backend is the
-// sole writer of that content and it stores the strings itself -- it is not
-// user input. A comment saying so belongs next to the call, and did.
+// `Attrs::inner_html`. That is safe for a seeded body because the backend wrote
+// it and stores the strings itself -- it is not user input. It is NOT safe for
+// a body the reader corrected: those are the reader's own words, and they are
+// rendered as text instead, never as markup. The rule is therefore about which
+// body goes down which path, not about who writes the pages.
+// A comment saying so belongs next to the call, and did.
 
 ///|
 /// The site header: mark, wordmark, the navigation bar, and the switch that
@@ -136,26 +139,142 @@ pub fn domain_cards(pages : Array[Page]) -> @html.Html {
 }
 
 ///|
-/// Render one page's content.
+/// Render one page's content, and the form for correcting it.
 ///
-/// The body is inserted with `Attrs::inner_html`, which is rabbita's
-/// raw-markup escape hatch. That is safe here only because the backend is the
-/// sole writer of this content and stores the strings itself -- it is not user
-/// input, and there is no write path in the API to make it so. The compiler's
-/// `alert_xss_vulnerable` warning on the next line is the expected consequence
-/// and is accepted here on the strength of that argument.
+/// The body of a page the reader has corrected is rendered as text, never as
+/// markup. The seeded bodies are markup because the backend wrote them and
+/// there was no way for a reader to change them -- that was the argument for
+/// `inner_html` being safe here. A corrected body is a reader's own words, and
+/// rendering those as markup would let a reader put a `<script>` into their
+/// own page. So the reader's words are escaped and shown as text, with their
+/// line breaks kept.
 ///
 /// The title and the body are the page's own, in the language asked for: the
 /// server holds both languages and sends the one the reader asked for, so the
 /// prose is Chinese when the interface is Chinese rather than English under a
 /// Chinese heading.
-pub fn page_view(page : Page) -> @html.Html {
-  let body_attrs = @html.Attrs::build().inner_html(page.body)
+pub fn page_view(
+  emit : @cmd.Emit[Msg],
+  model : Model,
+  page : Page,
+) -> @html.Html {
+  let c = chrome(model.lang)
+  let body_html = if page.corrected {
+    corrected_body_html(page.body)
+  } else {
+    // The compiler's `alert_xss_vulnerable` warning on this line is the
+    // expected consequence of `inner_html`, and it is accepted because this
+    // branch is only reached for a page the reader has not corrected: the
+    // backend wrote this body and stores the strings itself.
+    let body_attrs = @html.Attrs::build().inner_html(page.body)
+    @html.div(class="maked-body", attrs=body_attrs, @html.nothing)
+  }
+  // The mark says whose words these are. A page that speaks the reader's
+  // words without saying so is a page they cannot trust, because they cannot
+  // tell a correction from the page they started with.
+  let mark = if page.corrected {
+    @html.p(class="maked-page-corrected", page_corrected_mark(c))
+  } else {
+    @html.nothing
+  }
+  // One form, and a button that opens it. The form is the page's own words
+  // with the reader's changes in them, so what is corrected is what is on
+  // the screen.
+  let editor = if model.page_editing == page.slug {
+    page_correction_form(emit, model, c)
+  } else {
+    @html.div(class="maked-page-actions", [
+      @html.button(
+        class="maked-page-edit",
+        on_click=emit(PageEditClicked(page.slug)),
+        c.pages.edit,
+      ),
+    ])
+  }
+  let status = if model.page_error != "" {
+    @html.p(class="maked-page-error", model.page_error)
+  } else if model.page_notice != "" {
+    @html.p(class="maked-page-notice", model.page_notice)
+  } else {
+    @html.nothing
+  }
   @html.article(class="maked-page", [
     @html.h1(class="maked-page-title", page.title),
-    // The children parameter is required even when the content comes from
-    // `inner_html`, so it is given `nothing`.
-    @html.div(class="maked-body", attrs=body_attrs, @html.nothing),
+    mark,
+    body_html,
+    editor,
+    status,
+  ])
+}
+
+///|
+/// The reader's own words, rendered as text.
+///
+/// The children of an element are escaped by the builder, which is the whole
+/// point of using them here rather than `inner_html`: a body the reader
+/// wrote is a string in a database, and the only safe way to show it is as
+/// text. The lines are kept apart so that the reader's paragraph breaks
+/// survive: HTML collapses a newline into a space, so a body rendered as one
+/// string would arrive as one long line.
+fn corrected_body_html(body : String) -> @html.Html {
+  let lines : Array[@html.Html] = []
+  for line in body.split("\n") {
+    lines.push(@html.p(class="maked-body-line", line.to_owned()))
+  }
+  @html.div(class="maked-body maked-body--corrected", lines)
+}
+
+///|
+/// The form for correcting a page.
+///
+/// The page's own words go into the form, so what the reader corrects is what
+/// is on the screen and not what they remember of it.
+fn page_correction_form(
+  emit : @cmd.Emit[Msg],
+  model : Model,
+  c : Chrome,
+) -> @html.Html {
+  @html.div(class="maked-page-form", [
+    @html.p(class="maked-page-question", c.pages.correcting),
+    @html.label(
+      class="maked-page-label",
+      for_="maked-page-title",
+      c.pages.title_label,
+    ),
+    @html.input(
+      id="maked-page-title",
+      class="maked-page-input",
+      placeholder=c.pages.title_placeholder,
+      value=model.page_draft_title,
+      maxlength=200,
+      on_input=emit.map(fn(text) { PageDraftTitleChanged(text) }),
+    ),
+    @html.label(
+      class="maked-page-label",
+      for_="maked-page-body",
+      c.pages.body_label,
+    ),
+    @html.textarea(
+      id="maked-page-body",
+      class="maked-page-textarea",
+      rows=10,
+      placeholder=c.pages.body_placeholder,
+      value=model.page_draft_body,
+      on_input=emit.map(fn(text) { PageDraftBodyChanged(text) }),
+      @html.nothing,
+    ),
+    @html.div(class="maked-page-actions", [
+      @html.button(
+        class="maked-page-save",
+        on_click=emit(PageUpdateClicked),
+        c.pages.save_change,
+      ),
+      @html.button(
+        class="maked-page-cancel",
+        on_click=emit(PageEditCancelled),
+        c.pages.cancel,
+      ),
+    ]),
   ])
 }
 

@@ -33,34 +33,41 @@
 
 | Backend function | JSON key produced | Frontend consumer | Source |
 |-----------------|-------------------|-------------------|--------|
-| `Page::to_json()` | "slug" | `get_string(json, "slug", "")` | `backend/pages.mbt:70`, `frontend/page.mbt:118` |
-| `Page::to_json()` | "title" | `get_string(json, "title", "")` | `backend/pages.mbt:71`, `frontend/page.mbt:119` |
-| `Page::to_json()` | "letter" | `get_string(json, "letter", "")` | `backend/pages.mbt:72`, `frontend/page.mbt:120` |
-| `Page::to_json()` | "role" | `get_string(json, "role", "")` | `backend/pages.mbt:73`, `frontend/page.mbt:121` |
-| `Page::to_json()` | "summary" | `get_string(json, "summary", "")` | `backend/pages.mbt:74`, `frontend/page.mbt:122` |
-| `Page::to_json()` | "body" | `get_string(json, "body", "")` | `backend/pages.mbt:75`, `frontend/page.mbt:123` |
-| `Page::to_json()` | "in_navigation" | `get_bool(json, "in_navigation", false)` | `backend/pages.mbt:76`, `frontend/page.mbt:124` |
-| `Page::to_json()` | "sort" | `get_int(json, "sort", 0)` | `backend/pages.mbt:77`, `frontend/page.mbt:125` |
+| `Page::to_json()` | "slug" | `get_string(json, "slug", "")` | `backend/pages.mbt:105`, `frontend/page.mbt:130` |
+| `Page::to_json()` | "title" | `get_string(json, "title", "")` | `backend/pages.mbt:106`, `frontend/page.mbt:131` |
+| `Page::to_json()` | "letter" | `get_string(json, "letter", "")` | `backend/pages.mbt:107`, `frontend/page.mbt:132` |
+| `Page::to_json()` | "role" | `get_string(json, "role", "")` | `backend/pages.mbt:108`, `frontend/page.mbt:133` |
+| `Page::to_json()` | "summary" | `get_string(json, "summary", "")` | `backend/pages.mbt:109`, `frontend/page.mbt:134` |
+| `Page::to_json()` | "body" | `get_string(json, "body", "")` | `backend/pages.mbt:110`, `frontend/page.mbt:135` |
+| `Page::to_json()` | "in_navigation" | `get_bool(json, "in_navigation", false)` | `backend/pages.mbt:111`, `frontend/page.mbt:136` |
+| `Page::to_json()` | "sort" | `get_int(json, "sort", 0)` | `backend/pages.mbt:112`, `frontend/page.mbt:137` |
+| `Page::to_json()` | "corrected" | `get_bool(json, "corrected", false)` | `backend/pages.mbt:113`, `frontend/page.mbt:138` |
+| `Page::to_json()` | "corrected_at" | `get_string(json, "corrected_at", "")` | `backend/pages.mbt:114`, `frontend/page.mbt:139` |
 
 The four keys that carry a word the machine owns -- title, role, summary and
 body -- are chosen by the language the request asked for, and the client
 reads the same key either way. `Lang::pick` is the single place that choice
 is made, so a key is never written in one language and read in another.
 
+The two keys that carry a correction are the reader's own words: `corrected`
+says whether they are the reader's, and `corrected_at` says when they were
+written. The client reads both, so a page that speaks the reader's words says
+so on the way to the screen.
+
 ### backend/database.mbt → SQLite lifecycle
 
 | Safeguard | What it prevents | Test that catches removal | Source |
 |-----------|-----------------|--------------------------|--------|
-| `exec()` always steps | DDL silently skipped | "migrate is idempotent and exec really executes" | `backend/database.mbt:41-66`, test:193-207 |
-| `seed()` resets before each bind | Stale bindings carry over | "seeding two pages in one call does not repeat the first" | `backend/database.mbt:237`, test:123-179 |
-| `page_by_slug()` resets (defensive) | Future reuse bug | Mutation test (equivalent mutant) | `backend/database.mbt:298` |
+| `exec()` always steps | DDL silently skipped | "migrate is idempotent and exec really executes" | `backend/database.mbt:41-66`, test:208-222 |
+| `seed()` resets before each bind | Stale bindings carry over | "seeding two pages in one call does not repeat the first" | `backend/database.mbt:275`, test:128-194 |
+| `page_by_slug()` resets (defensive) | Future reuse bug | Mutation test (equivalent mutant) | `backend/database.mbt:343` |
 | `finalize()` error propagation | Poisoned finalize masks step error | "seeded pages round-trip through SQLite" | `backend/database.mbt:52-65`, test:40-48 |
 
 ### frontend/app.mbt → rabbita TEA contract
 
 | rabbita signature | frontend implementation | Source |
 |-------------------|------------------------|--------|
-| `create_state_with_init(init~, update~, subscriptions~)` | `start` as init, `update`, `subscriptions` | `frontend/app.mbt:1658` |
-| `update : (Model, Msg, Emit[Msg]) -> (Model, Cmd)` | `fn update(model, msg, _emit) -> (Model, @cmd.none)` | `frontend/app.mbt:422` |
-| `subscriptions : (Model, Emit[Msg]) -> Sub` | `fn subscriptions(_model, emit) -> @sub.on_url_changed(...)` | `frontend/app.mbt:1578` |
-| `Emit::map : (a -> Msg) -> Emit[a] -> Emit[Msg]` | Used to lift URL and HTTP results into Msg | `frontend/app.mbt:1579` |
+| `create_state_with_init(init~, update~, subscriptions~)` | `start` as init, `update`, `subscriptions` | `frontend/app.mbt:1812` |
+| `update : (Model, Msg, Emit[Msg]) -> (Model, Cmd)` | `fn update(model, msg, _emit) -> (Model, @cmd.none)` | `frontend/app.mbt:460` |
+| `subscriptions : (Model, Emit[Msg]) -> Sub` | `fn subscriptions(_model, emit) -> @sub.on_url_changed(...)` | `frontend/app.mbt:1732` |
+| `Emit::map : (a -> Msg) -> Emit[a] -> Emit[Msg]` | Used to lift URL and HTTP results into Msg | `frontend/app.mbt:1733` |

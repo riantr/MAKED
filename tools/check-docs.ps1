@@ -150,24 +150,56 @@ function Get-TreeEndpoints {
   $out
 }
 
-# The columns of the `pages` table. The CREATE TABLE statement is a block of
-# #| lines -- MoonBit's string literal for the SQL -- and every line that
-# names a column says TEXT or INTEGER. Counting those lines counts the
-# columns.
+# The columns of the `pages` table.
+#
+# The table is built in two steps and the columns are counted as a SET, not as
+# a number of lines: the CREATE TABLE statement declares twelve of them, and
+# the migration adds more with ALTER TABLE ... ADD COLUMN. A column that both
+# steps name is ONE column -- title_zh is in the CREATE TABLE and in an ALTER
+# as well, because the ALTER is there for the files that were made before the
+# CREATE TABLE grew it. Counting the lines would count title_zh twice and the
+# table would have more columns than it has.
 function Count-PageColumns {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/database.mbt'), $enc)
+  $lines = $text -split "`n"
+  $inside = $false
+  $seen = @{}
+  $count = 0
+  foreach ($line in $lines) {
+    if ($inside) {
+      if ($line -match '^\s*#\|') {
+        if ($line -match 'TEXT|INTEGER') {
+          $name = ($line -replace '^[^\|]*\|', '').Trim() -split '[ \t]+' | Select-Object -First 1
+          if ($name -and -not $seen.ContainsKey($name)) { $seen[$name] = $true; $count++ }
+        }
+        continue
+      }
+      $inside = $false
+    }
+    elseif ($line -match 'CREATE TABLE IF NOT EXISTS pages') { $inside = $true; continue }
+    if ($line -match 'ALTER TABLE pages ADD COLUMN') {
+      $name = ($line -replace '.*ADD COLUMN[ \t]+', '') -split '[ \t]+' | Select-Object -First 1
+      if ($name -and -not $seen.ContainsKey($name)) { $seen[$name] = $true; $count++ }
+    }
+  }
+  $count
+}
+
+# The parameters the seed binds. This is the width of the INSERT the seed
+# prepares, which is not the width of the table: the seed does not name the
+# columns a reader's correction lives in, and must not.
+function Count-SeedBinds {
   $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/database.mbt'), $enc)
   $lines = $text -split "`n"
   $inside = $false
   $count = 0
   foreach ($line in $lines) {
     if (-not $inside) {
-      if ($line -match 'CREATE TABLE IF NOT EXISTS pages') { $inside = $true }
+      if ($line -match 'pub fn Database::seed') { $inside = $true }
       continue
     }
-    # Every line of the statement is a #| line; the statement ends at the
-    # first line that is not one.
-    if ($line -notmatch '^\s*#\|') { break }
-    if ($line -match 'TEXT|INTEGER') { $count++ }
+    if ($line -match '^\}') { break }
+    if ($line -match 'stmt\.bind\(index=') { $count++ }
   }
   $count
 }
@@ -2777,8 +2809,9 @@ Test-ClaimNumber 'logo viewBox' 'viewBox ([0-9]+x[0-9]+)' `
 # them.
 
 # The lines of a function body: from the line that starts it to the line that
-# closes the value it returns. The closing line is the one indented by two
-# spaces, which is where the block the keys live in ends.
+# closes the value it returns. The closing line is the one in the first
+# column: a body that ends earlier -- the closing brace of an `if` inside it
+# -- is not the end of the function, and stopping there reads nothing at all.
 function Get-FunctionLines($path, $startPattern) {
   $text = [System.IO.File]::ReadAllText((Join-Path $PWD $path), $enc)
   $out = @()
@@ -2786,7 +2819,7 @@ function Get-FunctionLines($path, $startPattern) {
   foreach ($line in ($text -split "`n")) {
     if ($line -match $startPattern) { $inside = $true }
     if (-not $inside) { continue }
-    if ($line -match '^  \}') { break }
+    if ($line -match '^\}') { break }
     $out += $line
   }
   $out
@@ -3109,7 +3142,7 @@ Test-ClaimNumber 'flow seed pages' 'seed_pages\(\)[^0-9]+([0-9]+) pages via UPSE
 Test-ClaimNumber 'flow page bodies' '\(([0-9]+) pages, hardcoded HTML bodies\)' `
   (Count-SeedPagesOnly) $flowsMd
 Test-ClaimNumber 'flow page columns' 'bind\(([0-9]+) params\)' `
-  (Count-PageColumns) $flowsMd
+  (Count-SeedBinds) $flowsMd
 
 # --- architecture/flows.md: the statements the flow prepares --------------------
 #
@@ -9807,6 +9840,9 @@ function Get-PagesLines {
 }
 
 # The client file that asks for the pages, and the line it asks on.
+#
+# Asking is a GET. A PUT is a mutation -- the reader correcting a page -- and
+# a mutation is not a second ask for the pages, so only a GET counts here.
 function Get-PagesFetch {
   $script:pagesFetchFile = ''
   $script:pagesFetchLine = 0
@@ -9815,7 +9851,7 @@ function Get-PagesFetch {
     if ($file.EndsWith('_test.mbt') -or $file.EndsWith('_wbtest.mbt')) { continue }
     $lines = [System.IO.File]::ReadAllLines((Join-Path $PWD $file), $enc)
     for ($i = 0; $i -lt $lines.Count; $i++) {
-      if ((Get-Code $lines[$i]).Contains('/api/pages')) {
+      if ((Get-Code $lines[$i]).Contains('get(/api/pages')) {
         $script:pagesFetchFile = $file
         $script:pagesFetchLine = $i + 1
         return

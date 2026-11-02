@@ -203,18 +203,51 @@ tree_endpoints() {
     | awk -F'|' '{ print toupper($1), $2 }'
 }
 
-# The columns of the `pages` table. The CREATE TABLE statement is a block of
-# #| lines -- MoonBit's string literal for the SQL -- and every line that
-# names a column says TEXT or INTEGER. Counting those lines counts the
-# columns.
+# The columns of the `pages` table.
+#
+# The table is built in two steps and the columns are counted as a SET, not as
+# a number of lines: the CREATE TABLE statement declares twelve of them, and
+# the migration adds more with ALTER TABLE ... ADD COLUMN. A column that both
+# steps name is ONE column -- title_zh is in the CREATE TABLE and in an
+# ALTER as well, because the ALTER is there for the files that were made
+# before the CREATE TABLE grew it. Counting the lines would count title_zh
+# twice and the table would have more columns than it has.
+#
+# The CREATE TABLE statement is a block of #| lines -- MoonBit's string
+# literal for the SQL -- and every line that names a column says TEXT or
+# INTEGER.
 count_page_columns() {
   awk '
     /CREATE TABLE IF NOT EXISTS pages/ { inside = 1; next }
     inside && /^\s*#\|/ {
-      if ($0 ~ /TEXT|INTEGER/) n++
+      if ($0 ~ /TEXT|INTEGER/) {
+        name = $0
+        sub(/^[^\|]*\|/, "", name)
+        gsub(/^[ \t]+|[ \t]+$/, "", name)
+        split(name, parts, /[ \t]+/)
+        if (parts[1] != "" && !(parts[1] in seen)) { seen[parts[1]] = 1; n++ }
+      }
       next
     }
-    inside { exit }
+    inside { inside = 0 }
+    /ALTER TABLE pages ADD COLUMN/ {
+      name = $0
+      sub(/.*ADD COLUMN[ \t]+/, "", name)
+      split(name, parts, /[ \t]+/)
+      if (parts[1] != "" && !(parts[1] in seen)) { seen[parts[1]] = 1; n++ }
+    }
+    END { print n + 0 }
+  ' backend/database.mbt
+}
+
+# The parameters the seed binds. This is the width of the INSERT the seed
+# prepares, which is not the width of the table: the seed does not name the
+# columns a reader's correction lives in, and must not.
+count_seed_binds() {
+  awk '
+    /pub fn Database::seed/ { inside = 1 }
+    inside && /^}/ { exit }
+    inside && /stmt\.bind\(index=/ { n++ }
     END { print n + 0 }
   ' backend/database.mbt
 }
@@ -2840,11 +2873,19 @@ check_claim_number "logo viewBox" 'viewBox ([0-9]+x[0-9]+)' \
 # document that says so in one column and not in the other is wrong in one of
 # them.
 
+# The keys the backend writes: the ones Page::to_json puts in the JSON.
+#
+# The keys live in the JSON literal the function returns: a line that is an
+# opening brace and nothing else, and the lines under it. The literal is
+# found by its own braces rather than by the end of the function, because a
+# function that computes a value with an `if` has a closing brace of its own
+# before the literal, and stopping there reads nothing at all.
 code_page_json_keys() {
   awk '
     /pub fn Page::to_json/ { inside = 1 }
-    inside && /^  \}/ { exit }
-    inside { print }
+    inside && /^  \{[ \t]*$/ { lit = 1; next }
+    lit && /^  \}[ \t]*$/ { exit }
+    lit { print }
   ' backend/pages.mbt | grep -oE '"[a-z_]+":' | tr -d '":' | LC_ALL=C sort -u
 }
 
@@ -3179,7 +3220,7 @@ check_claim_number "flow seed pages" 'seed_pages\(\)[^0-9]+([0-9]+) pages via UP
 check_claim_number "flow page bodies" '\(([0-9]+) pages, hardcoded HTML bodies\)' \
   "$(count_seed_pages_only)" "$FLOWS_MD"
 check_claim_number "flow page columns" 'bind\(([0-9]+) params\)' \
-  "$(count_page_columns)" "$FLOWS_MD"
+  "$(count_seed_binds)" "$FLOWS_MD"
 
 # --- architecture/flows.md: the statements the flow prepares --------------------
 #
@@ -11087,6 +11128,9 @@ pages_lines() {
 }
 
 # The client file that asks for the pages, and the line it asks on.
+#
+# Asking is a GET. A PUT is a mutation -- the reader correcting a page -- and
+# a mutation is not a second ask for the pages, so only a GET counts here.
 pages_fetch() {
   local file line code n
   PAGES_FETCH_FILE=""
@@ -11103,7 +11147,7 @@ pages_fetch() {
       code_of "$line"
       code="$CODE"
       case "$code" in
-        *"/api/pages"*)
+        *get\(/api/pages*)
           PAGES_FETCH_FILE="$file"
           PAGES_FETCH_LINE=$n
           return

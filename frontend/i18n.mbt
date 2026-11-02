@@ -351,6 +351,7 @@ pub struct Chrome {
   status : StatusWords
   causal : CausalWords
   society : SocietyWords
+  pages : PageWords
 }
 
 ///|
@@ -812,6 +813,75 @@ fn society_zh() -> SocietyWords {
 }
 
 ///|
+/// The words for correcting a page: the reader's own words on the site's own
+/// pages.
+///
+/// A page is the site's prose, and the words a reader puts on it are their own
+/// rather than the project's. The sentences here say so, because a page that
+/// speaks the reader's words without saying so is a page they cannot trust.
+pub struct PageWords {
+  /// The button that opens the correction form.
+  edit : String
+  /// The sentence the form opens with.
+  correcting : String
+  title_label : String
+  title_placeholder : String
+  body_label : String
+  body_placeholder : String
+  save_change : String
+  cancel : String
+  saving : String
+  /// The refusal, when the server gives no reason of its own.
+  refused : String
+  /// The client's own check, before the request goes out.
+  no_title : String
+  /// The mark on a page that has been corrected.
+  corrected : String
+  /// The sentence after a correction landed.
+  corrected_notice : String
+}
+
+///|
+/// The words for correcting a page, in English.
+fn pages_en() -> PageWords {
+  {
+    edit: "Correct this page",
+    correcting: "Correcting this page. What you write here replaces the words this page was written with, and it is still here after the server restarts.",
+    title_label: "Title",
+    title_placeholder: "What this page is called",
+    body_label: "The page",
+    body_placeholder: "What this page says.",
+    save_change: "Save the change",
+    cancel: "Leave it",
+    saving: "Saving…",
+    refused: "the server refused the correction",
+    no_title: "give the page a title",
+    corrected: "This page has been corrected. These are the reader's words.",
+    corrected_notice: "This page now says what you wrote.",
+  }
+}
+
+///|
+/// The words for correcting a page, in Chinese.
+fn pages_zh() -> PageWords {
+  {
+    edit: "改一改这一页",
+    correcting: "在改这一页。你在这里写下的话会替掉这一页原来的内容，服务器重启之后也还在。",
+    title_label: "标题",
+    title_placeholder: "这一页叫什么",
+    body_label: "正文",
+    body_placeholder: "这一页说些什么。",
+    save_change: "保存修改",
+    cancel: "不改了",
+    saving: "保存中…",
+    refused: "服务器拒绝了这个修改",
+    no_title: "给这一页起个标题",
+    corrected: "这一页被改过了，上面是读者自己的话。",
+    corrected_notice: "这一页现在说的是你写下的字。",
+  }
+}
+
+///|
 /// The words of the interface, in the language asked for.
 pub fn chrome(lang : UiLang) -> Chrome {
   match lang {
@@ -826,6 +896,7 @@ pub fn chrome(lang : UiLang) -> Chrome {
         status: status_en(),
         causal: causal_en(),
         society: society_en(),
+        pages: pages_en(),
       }
     Chinese =>
       {
@@ -838,6 +909,7 @@ pub fn chrome(lang : UiLang) -> Chrome {
         status: status_zh(),
         causal: causal_zh(),
         society: society_zh(),
+        pages: pages_zh(),
       }
   }
 }
@@ -853,9 +925,13 @@ pub fn chrome_of(lang : UiLang) -> Chrome {
 /// The query string that tells the server which language to answer in.
 ///
 /// Only the endpoints that read it carry it. The server honours `?lang=` on
-/// the endpoints that answer about the loop, the timeline and the research;
-/// the others answer in one language only, and carrying the switch there
-/// would be a promise the server does not keep.
+/// the endpoints that answer about the loop, the timeline, the research and
+/// the pages; the others answer in one language only, and carrying the switch
+/// there would be a promise the server does not keep.
+///
+/// The pages are on the list because a page is said twice: a correction is
+/// stored in the language it was made in, so a request that did not say which
+/// language would put the reader's words in the wrong place.
 pub fn lang_query(lang : UiLang) -> String {
   "?lang=" + lang.code()
 }
@@ -1117,6 +1193,54 @@ pub fn corrected_entry(c : Chrome, title : String, domain : String) -> String {
       " 域里的“" +
       title +
       "”改好了。还是原来那一条。"
+  }
+}
+
+///|
+/// The mark on a page that has been corrected.
+///
+/// The reader has to be able to tell their own words from the seed's. A page
+/// that says what they wrote without saying so is a page they cannot trust,
+/// because they cannot tell a correction from the page they started with.
+pub fn page_corrected_mark(c : Chrome) -> String {
+  c.pages.corrected
+}
+
+///|
+/// The sentence after a correction landed.
+pub fn page_corrected_notice(c : Chrome, title : String) -> String {
+  match c.lang {
+    English => "“" + title + "” now says what you wrote."
+    Chinese => "“" + title + "” 现在说的是你写下的字。"
+  }
+}
+
+///|
+/// The sentence the client shows when the server refuses a correction.
+///
+/// The reason the server sent is used when there is one: the server's reason
+/// names the thing that was wrong, and a sentence that only said "refused"
+/// would leave the reader guessing.
+pub fn page_correction_refused(c : Chrome, reason : String) -> String {
+  if reason == "" {
+    c.pages.refused
+  } else {
+    reason
+  }
+}
+
+///|
+/// The client's own check on a correction, before the request goes out.
+///
+/// The same rule the server applies, checked here so that the common mistake
+/// produces a sentence straight away instead of a round trip that comes back
+/// as a refusal. The server still validates -- this is a courtesy, not a
+/// substitute.
+pub fn page_correction_problem(c : Chrome, title : String) -> String {
+  if title.trim().to_owned().is_empty() {
+    c.pages.no_title
+  } else {
+    ""
   }
 }
 
