@@ -1570,6 +1570,23 @@ try {
           ((Field (Field $causal "causal") "reason") -notlike "*at least 10*")
         Assert-True "but the reason it gives is the one that is true" `
           ((Field (Field $causal "causal") "reason") -like "*could not be read*")
+        # And the note is in the language the request asked for. A panel that
+        # says "The corpus could not be read" to a reader who asked in
+        # Chinese has said it in the wrong language, and the reason is
+        # beside it in the reader's own tongue.
+        #
+        # The range is written as an escape rather than as the characters
+        # themselves: this file carries no byte order mark, so PowerShell
+        # reads it as the machine's own code page and a Chinese literal in it
+        # would not be the Chinese it looks like.
+        $readZh = Get-Json "/api/research/documents?lang=zh"
+        Assert-True "and the notice is in the language that was asked for" `
+          ([regex]::IsMatch([string](Field $readZh "notice"), '[\u4e00-\u9fff]')) `
+          ("the notice did not read as Chinese: {0}" -f (Limit (Field $readZh "notice")))
+        $causalZh = Get-Json "/api/research/causal?lang=zh"
+        Assert-True "and the causal refusal is in it too" `
+          ([regex]::IsMatch([string](Field (Field $causalZh "causal") "reason"), '[\u4e00-\u9fff]')) `
+          ("the refusal did not read as Chinese: {0}" -f (Limit (Field (Field $causalZh "causal") "reason")))
 
         # A new corpus is accepted, installed and written back.
         $newCorpus = @'

@@ -101,12 +101,20 @@ pub fn agent_status(db : Database, lang : Lang) -> Json raise {
     "the_run_so_far": summary_of(path, lang),
     "steps_taken": path.length(),
     "the_measures": measure(path, lang).to_json(),
-    "note": match lang {
-      English =>
-        "Call maked_options to see what the table offers from here, and maked_step to take one of them."
-      Chinese =>
-        "调用 maked_options 看这里表格提供了什么，再用 maked_step 走其中一步。"
-    },
+    "note": status_note(lang),
+  }
+}
+
+///|
+/// What to do next, in the language asked for.
+///
+/// The status says where the loop stands; this says where to go from there.
+pub fn status_note(lang : Lang) -> String {
+  match lang {
+    English =>
+      "Call maked_options to see what the table offers from here, and maked_step to take one of them."
+    Chinese =>
+      "调用 maked_options 看这里表格提供了什么，再用 maked_step 走其中一步。"
   }
 }
 
@@ -171,12 +179,7 @@ pub fn agent_options(depth : Int32, lang : Lang) -> Json {
           "slot": name,
           "slot_name": designation,
           "the_candidates": agent_strings(lands),
-          "note": match lang {
-            English =>
-              "The table offers several successors here and will not choose between them. Pass one of them to maked_step as the target."
-            Chinese =>
-              "这里的表格给出了好几个后继，不肯在其中挑选。把其中一个作为 target 传给 maked_step。"
-          },
+          "note": declined_note(lang),
         })
       }
     }
@@ -194,12 +197,31 @@ pub fn agent_options(depth : Int32, lang : Lang) -> Json {
     "cannot_move": cannot_move,
     "the_table_declined_to_choose": declined,
     "the_machine_says_could_happen_next": ahead,
-    "note": match lang {
-      English =>
-        "The machine does not choose for you. Take one of the moves that can_move names, with maked_step."
-      Chinese =>
-        "机器不替你选择。用 maked_step 走 can_move 中列出的某一步。"
-    },
+    "note": options_note(lang),
+  }
+}
+
+///|
+/// How the collective's undecided branch is answered, in the language asked
+/// for: the table offers several successors and declines to choose, so the
+/// caller answers the question.
+pub fn declined_note(lang : Lang) -> String {
+  match lang {
+    English =>
+      "The table offers several successors here and will not choose between them. Pass one of them to maked_step as the target."
+    Chinese =>
+      "这里的表格给出了好几个后继，不肯在其中挑选。把其中一个作为 target 传给 maked_step。"
+  }
+}
+
+///|
+/// What the options are for, in the language asked for.
+pub fn options_note(lang : Lang) -> String {
+  match lang {
+    English =>
+      "The machine does not choose for you. Take one of the moves that can_move names, with maked_step."
+    Chinese =>
+      "机器不替你选择。用 maked_step 走 can_move 中列出的某一步。"
   }
 }
 
@@ -236,6 +258,22 @@ pub fn agent_model() -> Json {
 }
 
 ///|
+/// The shape of the collective's answers, in the language asked for.
+///
+/// The collective has no drive slots, so the four shapes the subject machine
+/// answers with -- moved, held, open, block -- are the whole of what it can
+/// say. An agent reading the payload in one language gets this sentence in
+/// the same one.
+pub fn society_shape_note(lang : Lang) -> String {
+  match lang {
+    English =>
+      "The collective has no drive slots. It answers with the same four shapes the subject machine does: moved, held, open, block."
+    Chinese =>
+      "集体没有驱动槽。它给出的形状和主体机器一样，只有四种：移到了、停住了、未定、走不通。"
+  }
+}
+
+///|
 /// The collective, as the agent sees it.
 pub fn agent_society(lang : Lang) -> Json {
   let vocabulary = current_society_vocabulary()
@@ -253,7 +291,7 @@ pub fn agent_society(lang : Lang) -> Json {
     "the_collective": society_position_label(vocabulary, id, lang),
     "the_collective_position": id,
     "what_it_can_do_from_here": moves,
-    "note": "The collective has no drive slots. It answers with the same four shapes the subject machine does: moved, held, open, block.",
+    "note": society_shape_note(lang),
   }
 }
 
@@ -341,12 +379,18 @@ pub fn agent_sessions(db : Database, lang : Lang) -> Json raise {
   {
     "the_active_one": active,
     "the_explorations": items,
-    "note": match lang {
-      English =>
-        "An exploration is a named run of steps. maked_export takes one away as Markdown or JSON."
-      Chinese =>
-        "一次探索就是一串有名字的步。maked_export 可以把它作为 Markdown 或 JSON 带走。"
-    },
+    "note": sessions_note(lang),
+  }
+}
+
+///|
+/// What an exploration is, in the language asked for.
+pub fn sessions_note(lang : Lang) -> String {
+  match lang {
+    English =>
+      "An exploration is a named run of steps. maked_export takes one away as Markdown or JSON."
+    Chinese =>
+      "一次探索就是一串有名字的步。maked_export 可以把它作为 Markdown 或 JSON 带走。"
   }
 }
 

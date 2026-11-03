@@ -707,7 +707,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       "depth": bounded,
       "continuations": [..items],
       "by_slot": [..by_slot],
-      "note": "The machine does not choose for the subject: this lists the edges the transition table really offers, and the choosing is left to the person.",
+      "note": continuations_note(lang_of(req)),
     }
     Response::json(body)
   })
@@ -929,13 +929,9 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       // one, and "the corpus held nothing" and "the fetch failed" are
       // different facts that look identical when neither is said.
       "notice": if read_error != "" {
-        "The corpus (" +
-        corpus.describe() +
-        ") could not be read: " +
-        read_reason +
-        "."
+        corpus_unreadable_notice(corpus.describe(), lang)
       } else if documents.length() == 0 {
-        "The corpus (" + corpus.describe() + ") held no documents."
+        corpus_empty_notice(corpus.describe(), lang)
       } else {
         ""
       },
@@ -1018,11 +1014,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       "error": read_error,
       "reason": read_reason,
       "notice": if read_error != "" {
-        "The corpus (" +
-        corpus.describe() +
-        ") could not be read: " +
-        read_reason +
-        "."
+        corpus_unreadable_notice(corpus.describe(), lang)
       } else {
         ""
       },
@@ -1052,6 +1044,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   // not have is refused, with the reason, and the table that was running
   // keeps running: half a table fires on the wrong documents.
   app.put("/api/research/config", req => {
+    let lang = lang_of(req)
     let payload = req.json().unwrap_or(Json::empty_object())
     match
       ResearchConfig::from_json(
@@ -1066,17 +1059,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
           "config": config.to_json(),
           "path": config.path,
           "saved": saved,
-          "notice": if saved {
-            "The table is running, and it was written back to " +
-            config.path +
-            "."
-          } else if config.path == "" {
-            "The table is running. The built-in table is not written anywhere, so it lasts until the server stops."
-          } else {
-            "The table is running, but it could not be written back to " +
-            config.path +
-            "."
-          },
+          "notice": research_table_notice(config.path, saved, lang),
         }
         Response::json(body)
       }
@@ -1110,6 +1093,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   // refused, with the reason, and the corpus that was running keeps
   // running: a corpus that reads nothing is a panel that shows nothing.
   app.put("/api/research/corpus", req => {
+    let lang = lang_of(req)
     let payload = req.json().unwrap_or(Json::empty_object())
     match CorpusConfig::from_json(current_corpus().path, payload) {
       Accepted(corpus) => {
@@ -1120,17 +1104,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
           "path": corpus.path,
           "saved": saved,
           "description": corpus.describe(),
-          "notice": if saved {
-            "The corpus is running, and it was written back to " +
-            corpus.path +
-            "."
-          } else if corpus.path == "" {
-            "The corpus is running. The built-in corpus is not written anywhere, so it lasts until the server stops."
-          } else {
-            "The corpus is running, but it could not be written back to " +
-            corpus.path +
-            "."
-          },
+          "notice": research_corpus_notice(corpus.path, saved, lang),
         }
         Response::json(body)
       }
@@ -1150,7 +1124,8 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   // A refusal is a 200 with a reason in it, not a 400: the request was
   // fine, the corpus was not big enough, and a person is owed the reason
   // rather than a status code they cannot act on.
-  app.get("/api/research/causal", _req => {
+  app.get("/api/research/causal", req => {
+    let lang = lang_of(req)
     let corpus = current_corpus()
     // The same honesty as the documents panel: an empty corpus and a fetch
     // that failed look identical when neither is said out loud. A corpus
@@ -1174,10 +1149,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
           "corpus_unreadable",
           reason,
           CausalOutcome::refused_because(
-            "The corpus (" +
-            corpus.describe() +
-            ") could not be read: " +
-            reason,
+            corpus_unreadable_notice(corpus.describe(), lang) + ": " + reason,
           ),
         )
       }
@@ -1193,13 +1165,9 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       "error": read_error,
       "reason": read_reason,
       "notice": if read_error != "" {
-        "The corpus (" +
-        corpus.describe() +
-        ") could not be read: " +
-        read_reason +
-        "."
+        corpus_unreadable_notice(corpus.describe(), lang)
       } else if documents.length() == 0 {
-        "The corpus (" + corpus.describe() + ") held no documents."
+        corpus_empty_notice(corpus.describe(), lang)
       } else {
         ""
       },
@@ -1743,6 +1711,111 @@ fn missing_mode_reason(lang : Lang) -> String {
   match lang {
     English => "The request named no mode to set."
     Chinese => "请求没有指明要设置哪种模式。"
+  }
+}
+
+///|
+/// The notes the API answers with, in the language asked for.
+///
+/// A note is the softer half of a refusal: nothing was refused, but something
+/// still needs saying -- the corpus could not be read, the table was written
+/// back, the collective has no drive slots. The refusals carry a reason in
+/// the reader's language; these carry the same kind of sentence, for the
+/// same reason. A panel that says "The corpus could not be read" to a reader
+/// who asked in Chinese has said it in the wrong language.
+///
+/// The reason a note carries inside it -- a URL, a path, what the server saw
+/// when it tried -- is the server's own words and is not translated. The
+/// sentence around it is the reader's.
+///
+/// The words are `pub` so that a test can read them: a note that is English
+/// in a Chinese panel is a failure the reader sees and the compiler cannot,
+/// so it has to be checked rather than hoped for.
+
+///|
+/// The corpus could not be read.
+pub fn corpus_unreadable_notice(corpus : String, lang : Lang) -> String {
+  match lang {
+    English => "The corpus (" + corpus + ") could not be read."
+    Chinese => "语料库 (" + corpus + ") 读不出来。"
+  }
+}
+
+///|
+/// The corpus was read, and it held nothing.
+pub fn corpus_empty_notice(corpus : String, lang : Lang) -> String {
+  match lang {
+    English => "The corpus (" + corpus + ") held no documents."
+    Chinese => "语料库 (" + corpus + ") 里没有文档。"
+  }
+}
+
+///|
+/// The mapping table is running, and whether it was written back.
+pub fn research_table_notice(
+  path : String,
+  saved : Bool,
+  lang : Lang,
+) -> String {
+  match lang {
+    English =>
+      if saved {
+        "The table is running, and it was written back to " + path + "."
+      } else if path == "" {
+        "The table is running. The built-in table is not written anywhere, so it lasts until the server stops."
+      } else {
+        "The table is running, but it could not be written back to " +
+        path +
+        "."
+      }
+    Chinese =>
+      if saved {
+        "映射表在运行，并且已经写回了 " + path + "。"
+      } else if path == "" {
+        "映射表在运行。内置的表没有写回任何地方，所以它只活到服务端停下为止。"
+      } else {
+        "映射表在运行，但没能写回 " + path + "。"
+      }
+  }
+}
+
+///|
+/// The corpus is running, and whether it was written back.
+pub fn research_corpus_notice(
+  path : String,
+  saved : Bool,
+  lang : Lang,
+) -> String {
+  match lang {
+    English =>
+      if saved {
+        "The corpus is running, and it was written back to " + path + "."
+      } else if path == "" {
+        "The corpus is running. The built-in corpus is not written anywhere, so it lasts until the server stops."
+      } else {
+        "The corpus is running, but it could not be written back to " +
+        path +
+        "."
+      }
+    Chinese =>
+      if saved {
+        "语料库在运行，并且已经写回了 " + path + "。"
+      } else if path == "" {
+        "语料库在运行。内置的语料库没有写回任何地方，所以它只活到服务端停下为止。"
+      } else {
+        "语料库在运行，但没能写回 " + path + "。"
+      }
+  }
+}
+
+///|
+/// What the continuations are for: the edges are listed, the choosing is not.
+pub fn continuations_note(lang : Lang) -> String {
+  match lang {
+    English =>
+      "The machine does not choose for the subject: this lists the edges the transition table really offers, and the choosing is left to the person."
+    Chinese =>
+      "机器不替主体做选择：这里列出迁移表真正给出的边，选择留给人。"
   }
 }
 

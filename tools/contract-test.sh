@@ -557,6 +557,362 @@ case "$AGENT_REFUSAL_REPORT" in
 esac
 
 # ---------------------------------------------------------------------------
+# Contract: every note the product answers with is in the reader's language
+# ---------------------------------------------------------------------------
+#
+# A note is the softer half of a refusal. Nothing was refused, but something
+# still needs saying: the corpus could not be read, the table was written
+# back, the collective has no drive slots. The panel shows those sentences,
+# and the panel is in the reader's language.
+#
+# Seven of the eleven notes in the tree were English whatever the request
+# asked for, in a project that has a Chinese interface and a `lang` argument
+# on every route that can say anything. The refusals were given a reason in
+# the reader's language; the notes were left as they were found.
+#
+# The words a note uses live in one place, the same way the words a refusal
+# uses do, and this rule checks that every note comes from that vocabulary
+# and that every word in the vocabulary has an English reading and a Chinese
+# one.
+#
+# The vocabulary is read from the DEFINITIONS, not from the places that call
+# them. A vocabulary is a claim about what the product can say, and a word
+# that is defined but not yet called is still a word the product could say.
+# Reading the vocabulary from the call sites instead means the rule only
+# knows about the words some route happens to use today, and a word whose
+# Chinese reading was removed is invisible to the rule exactly when nobody
+# is calling it.
+#
+# The value of a note is read whole, across as many lines as it takes. A
+# note is often an if/else with a branch per fact -- the corpus could not be
+# read, the corpus held nothing, there is nothing to say -- and those
+# branches are the note. A rule that stops at the first branch sees one
+# branch of a note and calls the rest of it checked.
+#
+# Brackets inside a sentence are not brackets in the code, so the scan
+# steps over string literals and comments: a note that names a path is not
+# a note whose value ends at the comma inside the path.
+#
+# The discovery document is the one exception, and it is named: it is a
+# protocol map -- one document, one language -- and not an answer to a
+# request that asked for a language.
+#
+# The set of note kinds is printed rather than the number of notes: a count
+# is a claim about the size, and the kinds are the claim about what the rule
+# covers. An empty set is a failure -- a rule that found nothing to look at
+# is not a rule that passed.
+echo "  Contract: every note the product answers with is in the reader's language"
+NOTE_REPORT="$("$PYTHON" - "$ROOT/backend/api.mbt" "$ROOT/backend/agent.mbt" <<'PYEOF'
+import re
+import sys
+
+# The protocol map: one document, one language, and not an answer to a
+# request that asked for a language.
+PROTOCOL_FUNCTIONS = {"agent_discovery"}
+
+OPENERS = "([{"
+CLOSERS = ")]}"
+
+
+def text_spans(text):
+    """The text's spans: code, strings and comments, with their offsets.
+
+    A string literal is one span, so the quotes and the brackets inside a
+    sentence are the sentence's own and not the code's.
+    """
+    out = []
+    i = 0
+    n = len(text)
+    seg = 0
+    while i < n:
+        c = text[i]
+        if c == '"':
+            j = i + 1
+            while j < n:
+                if text[j] == "\\" and j + 1 < n:
+                    j += 2
+                    continue
+                if text[j] == '"':
+                    j += 1
+                    break
+                j += 1
+            out.append(("code", seg, i))
+            out.append(("string", i, j))
+            i = j
+            seg = j
+            continue
+        if c == "/" and i + 1 < n and text[i + 1] == "/":
+            j = text.find("\n", i)
+            if j < 0:
+                j = n
+            out.append(("code", seg, i))
+            out.append(("comment", i, j))
+            i = j
+            seg = j
+            continue
+        if c == "/" and i + 1 < n and text[i + 1] == "*":
+            j = text.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            out.append(("code", seg, i))
+            out.append(("comment", i, j))
+            i = j
+            seg = j
+            continue
+        i += 1
+    out.append(("code", seg, n))
+    return out
+
+
+def mask(text, sp):
+    """The text with its strings and comments blanked, same length.
+
+    The length is kept so that an offset in the masked text is the same
+    offset in the text.
+    """
+    out = list(text)
+    for kind, s, e in sp:
+        if kind == "code":
+            continue
+        for k in range(s, e):
+            if out[k] != "\n":
+                out[k] = " "
+    return "".join(out)
+
+
+def line_starts(text):
+    starts = [0]
+    for i, ch in enumerate(text):
+        if ch == "\n":
+            starts.append(i + 1)
+    return starts
+
+
+def line_of(starts, offset):
+    """The line an offset is on."""
+    lo, hi = 0, len(starts) - 1
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if starts[mid] <= offset:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo + 1
+
+
+def function_ranges(masked):
+    """Every named function's body range in the masked text."""
+    out = []
+    for m in re.finditer(r"\bfn\s+(\w+)\s*\(", masked):
+        depth = 0
+        j = m.end() - 1
+        while j < len(masked):
+            if masked[j] == "(":
+                depth += 1
+            elif masked[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        b = masked.find("{", j)
+        if b < 0:
+            continue
+        depth = 0
+        k = b
+        while k < len(masked):
+            if masked[k] == "{":
+                depth += 1
+            elif masked[k] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            k += 1
+        out.append((m.group(1), b, k))
+    return out
+
+
+def enclosing(ranges, offset):
+    """The innermost function whose body holds the offset."""
+    best = "<none>"
+    best_at = -1
+    for name, b, k in ranges:
+        if b <= offset <= k and b > best_at:
+            best = name
+            best_at = b
+    return best
+
+
+def key_colon(masked, end):
+    """The colon of the key, when the string that ends at `end` is one."""
+    j = end
+    while j < len(masked) and masked[j] in " \t":
+        j += 1
+    if j < len(masked) and masked[j] == ":":
+        return j
+    return None
+
+
+def value_after(text, skip_at, start):
+    """The value that begins at `start`, whole.
+
+    The value of a note is often an if/else with a branch per fact, and the
+    branches are the note, so the value is read across as many lines as it
+    takes: it ends at the comma that closes the field, not at the end of
+    the first branch.
+
+    Returns the code of the value -- with the string literals blanked, and
+    the same length as the text they came from, so an offset in the code is
+    an offset in the text -- and the strings the value carries.
+    """
+    depth = 0
+    code = []
+    strings = []
+    i = start
+    n = len(text)
+    while i < n:
+        skipped = skip_at.get(i)
+        if skipped is not None:
+            kind, end, content = skipped
+            if kind == "string":
+                strings.append((len(code), content))
+            code.append(" " * (end - i))
+            i = end
+            continue
+        c = text[i]
+        if c in OPENERS:
+            depth += 1
+        elif c in CLOSERS:
+            if depth == 0:
+                break
+            depth -= 1
+        elif c == "," and depth == 0:
+            break
+        code.append(c)
+        i += 1
+    return "".join(code), strings
+
+
+def call_spans(code, name):
+    """The spans of every call to `name` in the code."""
+    spans = []
+    for m in re.finditer(r"\b" + re.escape(name) + r"\s*\(", code):
+        depth = 0
+        j = m.end() - 1
+        while j < len(code):
+            if code[j] == "(":
+                depth += 1
+            elif code[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    spans.append((m.start(), j))
+                    break
+            j += 1
+    return spans
+
+
+files = [(path, open(path, encoding="utf-8").read()) for path in sys.argv[1:]]
+
+bad = []
+kinds = []
+sites = 0
+
+# The vocabulary spans both doors: the words a note may be written from.
+vocabulary = {}
+
+for path, text in files:
+    sp = text_spans(text)
+    masked = mask(text, sp)
+    starts = line_starts(text)
+    ranges = function_ranges(masked)
+    skip_at = {}
+    for kind, s, e in sp:
+        if kind != "code":
+            content = text[s + 1 : e - 1] if kind == "string" else ""
+            skip_at[s] = (kind, e, content)
+
+    # --- the vocabulary: every note word has both readings -------------------
+    for name, b, k in ranges:
+        if not re.search(r"_(?:note|notice)$", name):
+            continue
+        body = masked[b : k + 1]
+        vocabulary[name] = {
+            "line": line_of(starts, b),
+            "english": bool(re.search(r"\bEnglish\b\s*=>", body)),
+            "chinese": bool(re.search(r"\bChinese\b\s*=>", body)),
+        }
+
+    # --- the sites: every note takes its words from the vocabulary ----------
+    for kind, s, e in sp:
+        if kind != "string":
+            continue
+        content = text[s + 1 : e - 1]
+        if content not in ("note", "notice"):
+            continue
+        colon = key_colon(masked, e)
+        if colon is None:
+            continue
+        fn = enclosing(ranges, s)
+        if fn in PROTOCOL_FUNCTIONS:
+            continue
+        sites += 1
+        line = line_of(starts, s)
+        code, strings = value_after(text, skip_at, colon + 1)
+        used = re.findall(r"\b(\w+_(?:note|notice))\s*\(", code)
+        if not used:
+            bad.append("line %d (%s: a note that writes its own words)" % (line, fn))
+            continue
+        for name in used:
+            if name not in vocabulary:
+                bad.append("line %d (%s is not in the vocabulary)" % (line, name))
+        # The words of a note come from the vocabulary. A string passed to a
+        # helper as its argument is the reader's own word -- a path, a
+        # corpus -- and is not translated; a string written outside such a
+        # call is a note that writes its own words.
+        spans = []
+        for name in used:
+            spans.extend(call_spans(code, name))
+        for offset, lit in strings:
+            if not lit.strip():
+                continue
+            if any(a <= offset <= b for a, b in spans):
+                continue
+            bad.append("line %d (%s: a note that writes its own words)" % (line, fn))
+            break
+
+for name in sorted(vocabulary):
+    if name not in kinds:
+        kinds.append(name)
+    if not vocabulary[name]["english"]:
+        bad.append(
+            "line %d (%s has no English reading)" % (vocabulary[name]["line"], name)
+        )
+    elif not vocabulary[name]["chinese"]:
+        bad.append(
+            "line %d (%s has no Chinese reading)" % (vocabulary[name]["line"], name)
+        )
+
+if bad:
+    print("FAIL " + "; ".join(bad))
+elif not sites:
+    print("FAIL no note found, so the rule is watching nothing")
+elif not kinds:
+    print("FAIL no note kind found, so the rule is watching nothing")
+else:
+    print("OK " + ", ".join(sorted(kinds)))
+PYEOF
+)"
+TOTAL=$((TOTAL + 1))
+case "$NOTE_REPORT" in
+  "OK "*)
+    PASS=$((PASS + 1))
+    echo "  PASS  every note the product answers with is in the reader's language -- ${NOTE_REPORT#OK }"
+    ;;
+  *)
+    FAIL=$((FAIL + 1))
+    echo "  FAIL  every note the product answers with is in the reader's language -- ${NOTE_REPORT#FAIL }"
+    ;;
+esac
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
