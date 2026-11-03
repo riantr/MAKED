@@ -15,6 +15,7 @@
 // fallback rather than raising, so one malformed row cannot take down a page.
 
 ///|
+#derive(Eq)
 pub(all) struct Page {
   slug : String
   title : String
@@ -34,7 +35,7 @@ pub(all) struct Page {
   corrected : Bool
   /// When the page was last corrected, or the empty string if it never was.
   corrected_at : String
-} derive(Eq)
+}
 
 // `Eq` is not optional here: rabbita's `create_state_with_init` uses it to
 // decide whether a re-render is needed. That makes the `implicit_impl_as_method`

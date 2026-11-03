@@ -28,6 +28,7 @@
 
 ///|
 /// `Eq` is derived so tests can assert on page values directly.
+#derive(Eq)
 pub(all) struct Page {
   slug : String
   title : String
@@ -69,7 +70,7 @@ pub(all) struct Page {
   ///
   /// Empty when the page has never been corrected.
   corrected_at : String
-} derive(Eq)
+}
 
 // The `implicit_impl_as_method` deprecation warning on that derive is accepted.
 // Declaring `extend Page with Eq::{not_equal, equal}` silences it but trades it

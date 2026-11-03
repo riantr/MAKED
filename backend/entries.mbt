@@ -13,6 +13,7 @@
 
 ///|
 /// One record in the user's workspace.
+#derive(Eq)
 pub(all) struct Entry {
   /// Assigned by SQLite on insert. Monotonic, so ordering by it is ordering by
   /// creation without needing a clock the application can trust.
@@ -24,7 +25,7 @@ pub(all) struct Entry {
   /// UTC ISO-8601, produced by SQLite's own `strftime` rather than by the
   /// application clock.
   created_at : String
-} derive(Eq)
+}
 
 ///|
 /// The five domain letters, in the clockwise ring order the logo draws.

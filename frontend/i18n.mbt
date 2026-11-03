@@ -44,12 +44,13 @@
 /// an enum's constructors are read-only outside the package that defines it,
 /// so the ways of *having* a language are the two functions below rather than
 /// the bare variants.
+#derive(Eq, Debug)
 pub enum UiLang {
   /// The reading MAKED was built with.
   English
   /// The reading the table has in Chinese.
   Chinese
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend UiLang with Eq::{not_equal, equal}

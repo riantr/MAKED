@@ -42,6 +42,7 @@ pub const CORPUS_FORMAT : String = "maked.corpus.v1"
 /// title and some text". The mapping table reads the title and the text, and
 /// the causal analysis reads the same two, so the shape is what both of them
 /// need and nothing more.
+#derive(Eq, Debug)
 pub(all) struct Document {
   /// Something that identifies the document. For a local file it is the path.
   id : String
@@ -57,7 +58,7 @@ pub(all) struct Document {
   published : String
   /// Where it can be read, when the source says.
   link : String
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Document with Eq::{not_equal, equal}
@@ -84,6 +85,7 @@ pub fn Document::to_json(self : Document) -> Json {
 
 ///|
 /// Where the documents come from.
+#derive(Eq, Debug)
 pub(all) enum CorpusKind {
   /// An arxiv query: a question asked of the arxiv index.
   Arxiv
@@ -91,7 +93,7 @@ pub(all) enum CorpusKind {
   Rss
   /// A file or a folder on this machine.
   Local
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend CorpusKind with Eq::{not_equal, equal}
@@ -101,6 +103,7 @@ pub extend CorpusKind with Debug::{to_repr}
 
 ///|
 /// The corpus configuration MAKED is running.
+#derive(Eq, Debug)
 pub(all) struct CorpusConfig {
   /// Where the documents come from.
   kind : CorpusKind
@@ -116,7 +119,7 @@ pub(all) struct CorpusConfig {
   /// one, and that is the difference between a corpus that can be written
   /// back and one that cannot.
   path : String
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend CorpusConfig with Eq::{not_equal, equal}

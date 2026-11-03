@@ -37,6 +37,7 @@ pub const RESEARCH_FORMAT : String = "maked.research.v1"
 
 ///|
 /// One rule of the mapping table.
+#derive(Eq, Debug)
 pub(all) struct MappingRule {
   /// The words that make this rule fire. The rule fires when the document
   /// contains any one of them. They are kept in lower case, because the
@@ -49,7 +50,7 @@ pub(all) struct MappingRule {
   /// The reader's own note about the rule. It is data rather than a
   /// comment in the file, so it survives a write-back.
   notes : String
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend MappingRule with Eq::{not_equal, equal}
@@ -59,6 +60,7 @@ pub extend MappingRule with Debug::{to_repr}
 
 ///|
 /// The research configuration MAKED is running.
+#derive(Eq, Debug)
 pub(all) struct ResearchConfig {
   /// The mapping table, in priority order: the first rule that matches wins.
   rules : Array[MappingRule]
@@ -72,7 +74,7 @@ pub(all) struct ResearchConfig {
   /// one, and that is the difference between a table that can be written
   /// back and one that cannot.
   path : String
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend ResearchConfig with Eq::{not_equal, equal}

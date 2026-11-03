@@ -52,6 +52,7 @@
 /// step the table explicitly refused to make still advanced the cursor, and the
 /// page looked like it was moving. Comparing a label string to learn whether
 /// the subject moved is the bug this replaces.
+#derive(Eq, Debug)
 pub(all) enum StepEffect {
   /// Moved, Held or Converge: the position changed, or the table settled it.
   Advanced
@@ -59,7 +60,7 @@ pub(all) enum StepEffect {
   Undecided
   /// No-way: the table offers no road out of this position.
   Blocked
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend StepEffect with Eq::{not_equal, equal}
@@ -89,6 +90,7 @@ pub fn StepEffect::moved(self : StepEffect) -> Bool {
 
 ///|
 /// The loop mode: structured (follow ring order) or free (explore state space).
+#derive(Eq, Debug)
 pub(all) enum LoopMode {
   /// Structured mode: each domain uses its designated drive slot, following
   /// the ring order M→D→E→A→K. This is the philosophical default.
@@ -96,7 +98,7 @@ pub(all) enum LoopMode {
   /// Free mode: any slot can be used at any position, allowing exploration
   /// of different trajectories through the pyroduct state space.
   Free
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend LoopMode with Eq::{not_equal, equal}
@@ -413,6 +415,7 @@ pub fn starting_domain() -> Domain {
 
 ///|
 /// One recorded step in the loop history.
+#derive(Eq, Debug)
 pub(all) struct LoopEvent {
   domain : Domain
   /// The slot's id, as the model spells it.
@@ -442,7 +445,7 @@ pub(all) struct LoopEvent {
   /// sentence can be written again from a move; a sentence cannot be
   /// translated back into one.
   transition : Move
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend LoopEvent with Eq::{not_equal, equal}
@@ -477,12 +480,13 @@ pub fn LoopEvent::detail_in(
 ///|
 /// Individual state machine for one domain. Each domain has its own position
 /// in the model and its own history of events.
+#derive(Eq, Debug)
 pub(all) struct DomainState {
   domain : Domain
   /// The position id the subject stands at.
   position : String
   history : Array[LoopEvent]
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend DomainState with Eq::{not_equal, equal}
@@ -553,6 +557,7 @@ pub fn DomainState::step_by_outcome(
 /// a new model resets the loop, and the state that is left behind keeps
 /// running on the model it was built for, consistently, instead of half
 /// running on the new one.
+#derive(Eq)
 pub(all) struct LoopState {
   /// The model this state is running.
   model : Model
@@ -567,7 +572,7 @@ pub(all) struct LoopState {
   society_state : @society.State
   history : Array[LoopEvent]
   mode : LoopMode
-} derive(Eq)
+}
 
 ///|
 pub extend LoopState with Eq::{not_equal, equal}

@@ -140,6 +140,7 @@ pub(all) enum Msg {
 /// whether a re-render is needed; `Page` derives it for the same reason. The
 /// `implicit_impl_as_method` warning on that derive is the accepted cost --
 /// see `page.mbt`.
+#derive(Eq)
 pub(all) struct Model {
   pages : Array[Page]
   current : String
@@ -284,7 +285,7 @@ pub(all) struct Model {
   /// panel, the sessions and the workspace all read it, and the header's
   /// switch reads it to know which way to switch.
   lang : UiLang
-} derive(Eq)
+}
 
 ///|
 /// The state the app starts in.

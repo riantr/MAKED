@@ -19,6 +19,7 @@
 
 ///|
 /// The words of the exported document, in one language.
+#derive(Eq)
 pub(all) struct ExportWords {
   /// The title line: "# MAKED session: ".
   title : String
@@ -78,7 +79,7 @@ pub(all) struct ExportWords {
   source_explicit : String
   /// A step a document drove.
   source_research : String
-} derive(Eq)
+}
 
 ///|
 pub extend ExportWords with Eq::{not_equal, equal}

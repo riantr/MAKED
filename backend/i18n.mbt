@@ -20,12 +20,13 @@
 /// package and has to be able to *name* a language: it reads the caller's
 /// `lang` argument and passes the result to the backend, and a type it
 /// cannot construct is a type it cannot pass on.
+#derive(Eq, Debug)
 pub enum Lang {
   /// The reading the model writes itself: "Standing", "Situation".
   English
   /// The reading the model has in Chinese: "立位", "处境".
   Chinese
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Lang with Eq::{not_equal, equal}

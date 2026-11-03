@@ -33,16 +33,16 @@
 
 | Backend function | JSON key produced | Frontend consumer | Source |
 |-----------------|-------------------|-------------------|--------|
-| `Page::to_json()` | "slug" | `get_string(json, "slug", "")` | `backend/pages.mbt:105`, `frontend/page.mbt:130` |
-| `Page::to_json()` | "title" | `get_string(json, "title", "")` | `backend/pages.mbt:106`, `frontend/page.mbt:131` |
-| `Page::to_json()` | "letter" | `get_string(json, "letter", "")` | `backend/pages.mbt:107`, `frontend/page.mbt:132` |
-| `Page::to_json()` | "role" | `get_string(json, "role", "")` | `backend/pages.mbt:108`, `frontend/page.mbt:133` |
-| `Page::to_json()` | "summary" | `get_string(json, "summary", "")` | `backend/pages.mbt:109`, `frontend/page.mbt:134` |
-| `Page::to_json()` | "body" | `get_string(json, "body", "")` | `backend/pages.mbt:110`, `frontend/page.mbt:135` |
-| `Page::to_json()` | "in_navigation" | `get_bool(json, "in_navigation", false)` | `backend/pages.mbt:111`, `frontend/page.mbt:136` |
-| `Page::to_json()` | "sort" | `get_int(json, "sort", 0)` | `backend/pages.mbt:112`, `frontend/page.mbt:137` |
-| `Page::to_json()` | "corrected" | `get_bool(json, "corrected", false)` | `backend/pages.mbt:113`, `frontend/page.mbt:138` |
-| `Page::to_json()` | "corrected_at" | `get_string(json, "corrected_at", "")` | `backend/pages.mbt:114`, `frontend/page.mbt:139` |
+| `Page::to_json()` | "slug" | `get_string(json, "slug", "")` | `backend/pages.mbt:106`, `frontend/page.mbt:131` |
+| `Page::to_json()` | "title" | `get_string(json, "title", "")` | `backend/pages.mbt:107`, `frontend/page.mbt:132` |
+| `Page::to_json()` | "letter" | `get_string(json, "letter", "")` | `backend/pages.mbt:108`, `frontend/page.mbt:133` |
+| `Page::to_json()` | "role" | `get_string(json, "role", "")` | `backend/pages.mbt:109`, `frontend/page.mbt:134` |
+| `Page::to_json()` | "summary" | `get_string(json, "summary", "")` | `backend/pages.mbt:110`, `frontend/page.mbt:135` |
+| `Page::to_json()` | "body" | `get_string(json, "body", "")` | `backend/pages.mbt:111`, `frontend/page.mbt:136` |
+| `Page::to_json()` | "in_navigation" | `get_bool(json, "in_navigation", false)` | `backend/pages.mbt:112`, `frontend/page.mbt:137` |
+| `Page::to_json()` | "sort" | `get_int(json, "sort", 0)` | `backend/pages.mbt:113`, `frontend/page.mbt:138` |
+| `Page::to_json()` | "corrected" | `get_bool(json, "corrected", false)` | `backend/pages.mbt:114`, `frontend/page.mbt:139` |
+| `Page::to_json()` | "corrected_at" | `get_string(json, "corrected_at", "")` | `backend/pages.mbt:115`, `frontend/page.mbt:140` |
 
 The four keys that carry a word the machine owns -- title, role, summary and
 body -- are chosen by the language the request asked for, and the client
@@ -68,6 +68,6 @@ so on the way to the screen.
 | rabbita signature | frontend implementation | Source |
 |-------------------|------------------------|--------|
 | `create_state_with_init(init~, update~, subscriptions~)` | `start` as init, `update`, `subscriptions` | `frontend/app.mbt:1829` |
-| `update : (Model, Msg, Emit[Msg]) -> (Model, Cmd)` | `fn update(model, msg, _emit) -> (Model, @cmd.none)` | `frontend/app.mbt:460` |
+| `update : (Model, Msg, Emit[Msg]) -> (Model, Cmd)` | `fn update(model, msg, _emit) -> (Model, @cmd.none)` | `frontend/app.mbt:461` |
 | `subscriptions : (Model, Emit[Msg]) -> Sub` | `fn subscriptions(_model, emit) -> @sub.on_url_changed(...)` | `frontend/app.mbt:1749-1753` |
 | `Emit::map : (a -> Msg) -> Emit[a] -> Emit[Msg]` | Used to lift URL and HTTP results into Msg | `frontend/app.mbt:1750` |

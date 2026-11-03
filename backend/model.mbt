@@ -44,6 +44,7 @@
 /// The anchor is the position the domain starts at, and it is a position id
 /// like any other. It used to be derived from a match on a five-variant
 /// enum, which meant only MAKED's five lenses could ever exist.
+#derive(Eq, Debug)
 pub(all) struct Domain {
   /// The id this domain is referred to by.
   id : String
@@ -65,7 +66,7 @@ pub(all) struct Domain {
   /// Empty when the model has no Chinese phrase for it, and then the reader
   /// sees `role`.
   role_zh : String
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Domain with Eq::{not_equal, equal}
@@ -134,6 +135,7 @@ fn maked_domains() -> Array[Domain] {
 
 ///|
 /// A position the subject can stand at.
+#derive(Eq, Debug)
 pub(all) struct PositionSpec {
   id : String
   /// What a reader sees: "Standing".
@@ -161,7 +163,7 @@ pub(all) struct PositionSpec {
   /// This is the counterpart of `gloss` rather than of `label`: the English
   /// gloss is the English rendering of the same source sentence.
   gloss_zh : String
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend PositionSpec with Eq::{not_equal, equal}
@@ -171,6 +173,7 @@ pub extend PositionSpec with Debug::{to_repr}
 
 ///|
 /// A slot that can drive the subject.
+#derive(Eq, Debug)
 pub(all) struct SlotSpec {
   id : String
   /// What a reader sees: "Situation".
@@ -185,7 +188,7 @@ pub(all) struct SlotSpec {
   designation_zh : String
   /// The sentence in Chinese.
   gloss_zh : String
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend SlotSpec with Eq::{not_equal, equal}
@@ -195,6 +198,7 @@ pub extend SlotSpec with Debug::{to_repr}
 
 ///|
 /// One of the successors the table offered and would not choose between.
+#derive(Eq, Debug)
 pub(all) struct Candidate {
   /// The name of the edge that leads there.
   edge : String
@@ -202,7 +206,7 @@ pub(all) struct Candidate {
   to : String
   /// What the edge does to the subject: "moved", "held" or "same".
   kind : String
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Candidate with Eq::{not_equal, equal}
@@ -217,6 +221,7 @@ pub extend Candidate with Debug::{to_repr}
 /// the loop already understands: the subject moved, the table held it there,
 /// the table settled it, the table offered several successors and declined
 /// to choose, or there is no way out at all.
+#derive(Eq, Debug)
 pub(all) enum Move {
   /// The subject moved to a position, along an edge the table names.
   Moved(String, String)
@@ -229,7 +234,7 @@ pub(all) enum Move {
   Open(Array[Candidate])
   /// No way out of this position. The reason is the table's own.
   Block(String)
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Move with Eq::{not_equal, equal}
@@ -239,6 +244,7 @@ pub extend Move with Debug::{to_repr}
 
 ///|
 /// One rule: what happens when a slot is used at a position.
+#derive(Eq, Debug)
 pub(all) struct Rule {
   /// The position the rule is about.
   from : String
@@ -246,7 +252,7 @@ pub(all) struct Rule {
   slot : String
   /// What it does.
   transition : Move
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Rule with Eq::{not_equal, equal}
@@ -261,12 +267,13 @@ pub extend Rule with Debug::{to_repr}
 /// Continuations are the model's own answer to "what could happen next",
 /// and they are kept as data rather than recomputed, because the depth of
 /// the lookahead is a property of the model and not of the reader.
+#derive(Eq, Debug)
 pub(all) struct Continuation {
   from : String
   slot : String
   to : String
   steps : Int32
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Continuation with Eq::{not_equal, equal}
@@ -286,6 +293,7 @@ pub extend Continuation with Debug::{to_repr}
 /// Everything that *reasons* about an outcome matches on the kind, so a
 /// renamed model produces the same sentences as before -- with the reader
 /// seeing the model's own words.
+#derive(Eq, Debug)
 pub(all) struct OutcomeWord {
   /// The kind: "moved", "held", "same", "open" or "block".
   kind : String
@@ -296,7 +304,7 @@ pub(all) struct OutcomeWord {
   /// Empty when the model has no Chinese word for it, and then the reader
   /// sees `label`.
   label_zh : String
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend OutcomeWord with Eq::{not_equal, equal}
@@ -318,13 +326,14 @@ pub extend OutcomeWord with Debug::{to_repr}
 /// The key is the model's own English name for the edge. A model file that
 /// renames an edge renames it there, and its Chinese name follows the new
 /// name, because the table is looked up by whatever the transition says.
+#derive(Eq, Debug)
 pub(all) struct EdgeWord {
   /// The edge's name, exactly as a transition spells it.
   en : String
   /// The same edge in Chinese. Empty when the model has no Chinese name
   /// for it, and then the reader sees `en`.
   zh : String
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend EdgeWord with Eq::{not_equal, equal}
@@ -334,6 +343,7 @@ pub extend EdgeWord with Debug::{to_repr}
 
 ///|
 /// The whole machine.
+#derive(Eq, Debug)
 pub(all) struct Model {
   /// What the model is called.
   name : String
@@ -351,7 +361,7 @@ pub(all) struct Model {
   outcomes : Array[OutcomeWord]
   /// The name of every edge, in both languages.
   edges : Array[EdgeWord]
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Model with Eq::{not_equal, equal}

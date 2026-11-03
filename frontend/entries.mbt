@@ -18,13 +18,14 @@
 /// rather than as a number, so the id arrives as "2" and not as 2. Decoding it
 /// as a number would quietly yield 0 for every record, which would make every
 /// Delete button ask the server to remove record 0.
+#derive(Eq)
 pub(all) struct Entry {
   id : Int32
   domain : String
   title : String
   body : String
   created_at : String
-} derive(Eq)
+}
 
 ///|
 /// Read the record id, which arrives as a string because the backend holds it

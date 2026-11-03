@@ -56,6 +56,7 @@
 /// `head_step_id` is the session's present: the step it is standing on. The
 /// steps below it in the tree are the past, and the steps branching off it are
 /// the roads not taken.
+#derive(Eq)
 pub(all) struct Session {
   /// Assigned by SQLite on insert.
   id : Int64
@@ -72,7 +73,7 @@ pub(all) struct Session {
   mode : String
   created_at : String
   updated_at : String
-} derive(Eq)
+}
 
 // The `implicit_impl_as_method` deprecation warning on that derive is accepted,
 // exactly as it is on `Page`: declaring `extend Session with Eq::{not_equal,
@@ -81,6 +82,7 @@ pub(all) struct Session {
 
 ///|
 /// One recorded step inside a session.
+#derive(Eq)
 pub(all) struct SessionStep {
   id : Int64
   session_id : Int64
@@ -126,11 +128,12 @@ pub(all) struct SessionStep {
   /// The slots that had none, comma separated.
   blocked : String
   created_at : String
-} derive(Eq)
+}
 
 ///|
 /// The fields of a step that the caller supplies. `id` and `created_at` are
 /// assigned by SQLite, so they are not part of the draft.
+#derive(Eq)
 pub(all) struct StepDraft {
   session_id : Int64
   parent_step_id : Int64
@@ -151,7 +154,7 @@ pub(all) struct StepDraft {
   undecided : Bool
   available : String
   blocked : String
-} derive(Eq)
+}
 
 ///|
 /// The live session: the one the loop is currently advancing.

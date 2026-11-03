@@ -34,12 +34,13 @@ pub const SOCIETY_FORMAT : String = "maked.society.v1"
 
 ///|
 /// One word: a label, and for the positions a sentence about it.
+#derive(Eq)
 pub(all) struct SocietyWord {
   /// The name as the reader should see it.
   label : String
   /// A sentence saying what it means.
   gloss : String
-} derive(Eq)
+}
 
 ///|
 pub extend SocietyWord with Eq::{not_equal, equal}
@@ -49,6 +50,7 @@ pub extend SocietyWord with Eq::{not_equal, equal}
 ///
 /// Three sets of words, keyed by pyroduct's own names. A word that is not
 /// there is not a blank in the panel -- it is a gap the panel reports.
+#derive(Eq)
 pub(all) struct SocietyVocabulary {
   /// The words for the positions.
   positions : Map[String, SocietyWord]
@@ -60,13 +62,14 @@ pub(all) struct SocietyVocabulary {
   /// and that is the difference between a vocabulary that can be written
   /// back and one that cannot.
   path : String
-} derive(Eq)
+}
 
 ///|
 pub extend SocietyVocabulary with Eq::{not_equal, equal}
 
 ///|
 /// One position of the society machine.
+#derive(Eq)
 pub(all) struct SocietyPosition {
   /// pyroduct's name for the position.
   id : String
@@ -76,13 +79,14 @@ pub(all) struct SocietyPosition {
   gloss : String
   /// The phase the position belongs to, by pyroduct's name.
   phase : String
-} derive(Eq)
+}
 
 ///|
 pub extend SocietyPosition with Eq::{not_equal, equal}
 
 ///|
 /// One transition of the society machine.
+#derive(Eq)
 pub(all) struct SocietyTransition {
   /// Where the move starts, by pyroduct's name.
   from : String
@@ -90,7 +94,7 @@ pub(all) struct SocietyTransition {
   trigger : String
   /// Where the move lands, by pyroduct's name.
   to : String
-} derive(Eq)
+}
 
 ///|
 pub extend SocietyTransition with Eq::{not_equal, equal}
@@ -124,6 +128,7 @@ pub(all) enum SocietyStep {
 /// shapes in mind and decide which one it was handed. One shape is the
 /// whole of the difference between a panel that always knows where the
 /// collective stands and a panel that goes blank when a move is refused.
+#derive(Eq)
 pub(all) struct SocietyOutcome {
   /// What the move did, in the vocabulary MAKED uses everywhere: "moved",
   /// "held", "open" or "block". Empty when no move has been taken.
@@ -139,7 +144,7 @@ pub(all) struct SocietyOutcome {
   /// claim" is a fact with no history in it, and a reader watching the
   /// collective move has no way to tell a first step from a return.
   from : String
-} derive(Eq)
+}
 
 ///|
 pub extend SocietyOutcome with Eq::{not_equal, equal}

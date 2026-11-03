@@ -18,6 +18,7 @@
 
 ///|
 /// One named exploration, as the list of them reports it.
+#derive(Eq)
 pub(all) struct Session {
   id : Int32
   name : String
@@ -31,10 +32,11 @@ pub(all) struct Session {
   parent_id : Int32
   created_at : String
   updated_at : String
-} derive(Eq)
+}
 
 ///|
 /// One recorded step.
+#derive(Eq)
 pub(all) struct SessionStep {
   id : Int32
   /// How deep the step sits along its path, 1-based.
@@ -67,7 +69,7 @@ pub(all) struct SessionStep {
   available : Array[String]
   /// The slots that had none.
   blocked : Array[String]
-} derive(Eq)
+}
 
 ///|
 /// One measured number, and the reading that goes with it.
@@ -76,6 +78,7 @@ pub(all) struct SessionStep {
 /// shows both and derives neither: a client that worked out its own idea of
 /// "new ground" would be measuring a slightly different thing from the one
 /// the server is reporting, and the two would disagree on the screen.
+#derive(Eq)
 pub(all) struct Metric {
   /// The name it is filed under: "new_ground".
   key : String
@@ -87,11 +90,12 @@ pub(all) struct Metric {
   of : Int32
   /// The reading, in one sentence.
   sentence : String
-} derive(Eq)
+}
 
 ///|
 /// The report: the measures, and the comparison of the run's beginning with
 /// its end.
+#derive(Eq)
 pub(all) struct MetricReport {
   /// The window the measures are taken over.
   window : Int32
@@ -101,7 +105,7 @@ pub(all) struct MetricReport {
   metrics : Array[Metric]
   /// The comparison between the first window and the last one.
   comparison : String
-} derive(Eq)
+}
 
 ///|
 /// The report as it stands when there is nothing to report: no measures, and
@@ -113,6 +117,7 @@ pub fn empty_metric_report() -> MetricReport {
 ///|
 /// The whole session state: the list, the active one, its path, and the
 /// branches that are not on the path.
+#derive(Eq)
 pub(all) struct SessionState {
   sessions : Array[Session]
   active_session_id : Int32
@@ -140,7 +145,7 @@ pub(all) struct SessionState {
   /// it, the loop panel would show where the loop was before the action and
   /// the timeline would show where it is now, and the two would disagree.
   loop_status : LoopStatus?
-} derive(Eq)
+}
 
 ///|
 /// A list of strings, unwrapped from the one-element arrays the backend

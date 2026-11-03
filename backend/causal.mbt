@@ -85,6 +85,7 @@ const NOISE_SCALE : Double = 1.6
 
 ///|
 /// Result of a causal inference run.
+#derive(Debug)
 pub(all) struct CausalResult {
   theta : Double
   se : Double
@@ -105,7 +106,7 @@ pub(all) struct CausalResult {
   overlap : Overlap
   /// The sensitivity of the estimate to an unobserved confounder.
   sensitivity : Sensitivity
-} derive(Debug)
+}
 
 ///|
 pub extend CausalResult with Debug::{to_repr}
@@ -125,6 +126,7 @@ pub extend CausalResult with Debug::{to_repr}
 /// enormous: a standard error of a hundred billion is not a measurement,
 /// it is the arithmetic saying there is nothing to measure. So the overlap
 /// is measured and reported, and the estimate says so.
+#derive(Debug)
 pub(all) struct Overlap {
   /// Whether the two groups overlap at all.
   overlaps : Bool
@@ -148,7 +150,7 @@ pub(all) struct Overlap {
   propensity_max : Double
   /// A sentence saying what the overlap means, in words.
   reading : String
-} derive(Debug)
+}
 
 ///|
 pub extend Overlap with Debug::{to_repr}
@@ -162,6 +164,7 @@ pub extend Overlap with Debug::{to_repr}
 /// more than a tenth of a standard deviation is a variable the two groups
 /// do not really have in common, and controlling for it does not make the
 /// groups comparable.
+#derive(Debug)
 pub(all) struct BalanceRow {
   /// The variable's name, in words.
   name : String
@@ -182,7 +185,7 @@ pub(all) struct BalanceRow {
   /// as a difference of zero -- a zero there would say the groups are
   /// alike, which is the opposite of the truth.
   separated : Bool
-} derive(Debug)
+}
 
 ///|
 pub extend BalanceRow with Debug::{to_repr}
@@ -195,6 +198,7 @@ pub extend BalanceRow with Debug::{to_repr}
 /// one means the estimate survives a confounder stronger than the one the
 /// reader would have to invent to break it; a value below one means a
 /// plausible confounder could already have flipped it.
+#derive(Debug)
 pub(all) struct Sensitivity {
   /// The robustness value: the multiple of confounding that would flip the
   /// sign of the estimate.
@@ -214,7 +218,7 @@ pub(all) struct Sensitivity {
   /// merely noisy would be reported as fragile, and an estimate that is
   /// merely fragile would be reported as noisy.
   robust : Bool
-} derive(Debug)
+}
 
 ///|
 pub extend Sensitivity with Debug::{to_repr}
@@ -294,12 +298,13 @@ pub fn Sensitivity::to_json(self : Sensitivity) -> Json {
 /// A refusal carries its evidence. "These two groups do not overlap" is a
 /// statement the reader cannot check without the table that shows *which*
 /// variables do not overlap, so the balance travels with the refusal.
+#derive(Debug)
 pub(all) struct CausalRefusal {
   /// Why the estimate was not made, in words.
   reason : String
   /// The balance of the two groups, where there is one to report.
   balance : Array[BalanceRow]
-} derive(Debug)
+}
 
 ///|
 pub extend CausalRefusal with Debug::{to_repr}

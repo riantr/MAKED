@@ -54,10 +54,10 @@ correction lives beside them rather than in them.
 | Claim | Source | Confidence |
 |-------|--------|------------|
 | Elm-style TEA (Model/Update/View) via rabbita | `frontend/app.mbt:124-1844` | high |
-| Start-up chain: `GET /api/bootstrap`, then `GET /api/loop/status` | `frontend/app.mbt:1838`, `frontend/app.mbt:507` | high |
+| Start-up chain: `GET /api/bootstrap`, then `GET /api/loop/status` | `frontend/app.mbt:1839`, `frontend/app.mbt:507` | high |
 | Client-side routing via History API subscription | `frontend/app.mbt:1750` | high |
-| `slug_of` maps URL path to page slug | `frontend/app.mbt:369` | high |
-| All pages held in memory after first load | `frontend/app.mbt:482` | high |
+| `slug_of` maps URL path to page slug | `frontend/app.mbt:370` | high |
+| All pages held in memory after first load | `frontend/app.mbt:483` | high |
 | Page struct mirrors backend, decodes JSON totally | `frontend/page.mbt:18-145` | high |
 | Views: `header`, `domain_cards`, `page_view`, `not_found_view`, `loading_view`, `error_view` | `frontend/views.mbt:31-319` | high |
 | Logo: SVG ring + taijitu, HTML letter overlay | `frontend/logo.mbt:1-201` | high |

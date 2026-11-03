@@ -5,6 +5,7 @@
 // backend has already resolved, so the decoding is flat.
 
 ///|
+#derive(Eq)
 pub(all) struct LoopEvent {
   domain : String
   slot : String
@@ -12,7 +13,7 @@ pub(all) struct LoopEvent {
   detail : String
   position : String
   position_label : String
-} derive(Eq)
+}
 
 ///|
 /// One drive slot, as the backend describes it in `GET /api/loop/slots`.
@@ -20,11 +21,12 @@ pub(all) struct LoopEvent {
 /// `name` is the URL slug the step endpoint takes; `designation` is what the
 /// button shows. Keeping both here is what lets the frontend stop hard-coding
 /// its own copy of the eight-slot vocabulary.
+#derive(Eq)
 pub(all) struct Slot {
   name : String
   designation : String
   gloss : String
-} derive(Eq)
+}
 
 ///|
 /// A slot that really has an outgoing edge at the current position.
@@ -37,13 +39,14 @@ pub(all) struct Slot {
 /// has to recognise the *word* "Undecided" to know the model declined to
 /// choose breaks the moment the model is renamed -- and renaming a model is
 /// exactly what a model file is for.
+#derive(Eq)
 pub(all) struct OpenSlot {
   name : String
   designation : String
   outcome : String
   outcome_kind : String
   targets : Array[String]
-} derive(Eq)
+}
 
 ///|
 /// One way the loop can run, as the backend describes it.
@@ -52,11 +55,12 @@ pub(all) struct OpenSlot {
 /// the reader asks for this mode. The client posts back what the server said
 /// rather than a word it made up, so a mode the server renames does not
 /// silently stop working.
+#derive(Eq)
 pub(all) struct ModeOption {
   key : String
   designation : String
   gloss : String
-} derive(Eq)
+}
 
 ///|
 /// One domain of the ring, as the backend describes it.
@@ -64,12 +68,14 @@ pub(all) struct ModeOption {
 /// `letter` is the ring's own letter -- the path segment the server accepts
 /// when the reader asks for the run to start again here -- and `title` is the
 /// name a reader sees.
+#derive(Eq)
 pub(all) struct DomainInfo {
   letter : String
   title : String
-} derive(Eq)
+}
 
 ///|
+#derive(Eq)
 pub(all) struct LoopStatus {
   current_domain : String
   current_title : String
@@ -92,7 +98,7 @@ pub(all) struct LoopStatus {
   modes : Array[ModeOption]
   /// The domains of the ring, so the reader can start the run again from one.
   domains : Array[DomainInfo]
-} derive(Eq)
+}
 
 ///|
 fn get_array(json : Json, key : String) -> Array[Json] {
