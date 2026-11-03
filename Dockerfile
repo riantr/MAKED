@@ -37,12 +37,24 @@ RUN apt-get update \
       make \
  && rm -rf /var/lib/apt/lists/*
 
-# The same installer URL the CI workflow uses, verified on a runner.
-RUN curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
-ENV PATH="/root/.moon/bin:${PATH}"
-
 WORKDIR /app
 COPY . .
+
+# The same installer URL the CI workflow uses, verified on a runner.
+#
+# The toolchain is installed *after* the source is copied, and that order is the
+# point. The installer serves the current release and the release server keeps
+# only `latest` -- every versioned path answers 403 -- so there is no version
+# to pin in the URL. A toolchain layer that is cached across builds therefore
+# keeps serving the compiler from whenever the cache was filled, and the image
+# builds today's source with an older compiler. That is not hypothetical: the
+# tree moved when the compiler moved (`derive` became an attribute), and the
+# image failed to build with a compiler that no longer understood the tree it
+# was holding. Installing the toolchain with the source keeps the image
+# honest: the compiler in the image is the one that built the source in it.
+RUN curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+ENV PATH="/root/.moon/bin:${PATH}"
+RUN moon version --all
 
 # `moon update` refreshes the registry index and the lockfile. The packages
 # themselves are downloaded by the build below: since 0.1.20261016 the

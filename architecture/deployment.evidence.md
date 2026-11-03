@@ -12,7 +12,7 @@
 | Warns if dist directory not found at startup | `cmd/server/main.mbt:46-47` | high |
 | Middleware order: static_files → spa_fallback → routes | `cmd/server/main.mbt:79-84` | high |
 | No TLS, no reverse proxy; MAKED_HOST widens the reach | `cmd/server/main.mbt:63-67` | high |
-| The image health-checks `GET /api/status`, and the server serves that route | `Dockerfile:101-102`, `backend/api.mbt:19` | high |
+| The image health-checks `GET /api/status`, and the server serves that route | `Dockerfile:113-114`, `backend/api.mbt:19` | high |
 
 ## Build pipeline
 
@@ -25,7 +25,7 @@
 | frontend/dist contains index.html, main.js, styles.css | `frontend/dist/` directory listing | high |
 | Native build output is `_build/native/release/build/cmd/server/server` | `tools/contract-test.sh:100` | high |
 | Js build output is `_build/js/release/build/cmd/web/web.js` | `build.ps1:26` | high |
-| `build.ps1`, `ci.yml` and the `Dockerfile` stage the bundle into `frontend/dist/main.js` | `build.ps1:28`, `.github/workflows/ci.yml:240`, `Dockerfile:63` | high |
+| `build.ps1`, `ci.yml` and the `Dockerfile` stage the bundle into `frontend/dist/main.js` | `build.ps1:28`, `.github/workflows/ci.yml:240`, `Dockerfile:75` | high |
 
 ## Network boundaries
 
@@ -53,4 +53,4 @@
 | No CI/CD beyond copilot setup | `.github/workflows/ci.yml` runs six jobs on every push, and `publish.yml` builds the release | `.github/workflows/ci.yml`, `.github/workflows/publish.yml` |
 | No tests in CI | `moon test` runs for both targets, plus the contract, component, static and dynamic analysis gates | `.github/workflows/ci.yml` |
 | No prebuilt binaries | Three platforms are built and attached to the release: linux-x86_64, macos-arm64, windows-x64 | `.github/workflows/publish.yml` |
-| No health check endpoint | The image declares a `HEALTHCHECK` that polls `GET /api/status`, and the server serves that route | `Dockerfile:101-102`, `backend/api.mbt:19` |
+| No health check endpoint | The image declares a `HEALTHCHECK` that polls `GET /api/status`, and the server serves that route | `Dockerfile:113-114`, `backend/api.mbt:19` |
