@@ -351,32 +351,60 @@ pub fn agent_sessions(db : Database, lang : Lang) -> Json raise {
 }
 
 ///|
+/// The answer to a request to take an exploration away.
+pub(all) enum ExportAnswer {
+  /// The export itself. The payload is the exploration in the form that was
+  /// asked for.
+  Exported(Json)
+  /// There is no exploration with that id.
+  NoSession(Int64)
+  /// There is no export format called that. The formats the server does write
+  /// travel with the refusal, so a caller who asked for the wrong one can see
+  /// the right one instead of asking again and being refused again.
+  UnknownFormat(String, Array[String])
+}
+
+///|
+/// The export formats the server writes.
+///
+/// The same two the browser's export route writes, read from one place so the
+/// two doors cannot offer different ones.
+pub fn agent_export_formats() -> Array[String] {
+  ["md", "json"]
+}
+
+///|
 /// One exploration, as something to take away.
 ///
 /// Markdown is the reading form and JSON is the machine form, and both are
 /// the same run of steps. The Markdown opens with the run so far and carries
 /// the measures, so an exploration is worth reading on its own.
+///
+/// A format the server does not write is refused by name, with the formats it
+/// does write named beside it. Guessing is how an agent ends up holding a
+/// Markdown document it asked not to have and never finding out.
 pub fn agent_export(
   db : Database,
   session_id : Int64,
   format : String,
   lang : Lang,
-) -> Json raise {
+) -> ExportAnswer raise {
   let session = match db.session_by_id(session_id) {
     Some(s) => s
-    None =>
-      return {
-        "error": "there is no exploration with that id",
-        "id": session_id,
-      }
+    None => return NoSession(session_id)
   }
-  if format == "json" {
-    { "format": "json", "the_exploration": export_json(db, session, lang) }
-  } else {
-    {
-      "format": "markdown",
-      "the_exploration": Json::string(export_markdown(db, session, lang)),
-    }
+  match format {
+    "json" =>
+      Exported({
+        "format": "json",
+        "the_exploration": export_json(db, session, lang),
+      })
+    "md" | "markdown" =>
+      Exported({
+        "format": "markdown",
+        "the_exploration": Json::string(export_markdown(db, session, lang)),
+      })
+    _ => UnknownFormat(format, agent_export_formats())
   }
 }
 
@@ -708,5 +736,181 @@ pub fn agent_discovery() -> Json {
     "http": Json::array(agent_http_endpoints()),
     "files": Json::array(agent_files()),
     "note": "A file that cannot be read stops MAKED before it serves anything, and the reason is on stderr. An empty environment variable counts as unset.",
+  }
+}
+
+///|
+/// Why the agent refuses, in the language the caller asked in.
+///
+/// The agent's server is the product's second front door, and the payloads
+/// these refusals wrap are already in the caller's language. A refusal that
+/// only speaks one language is the one part of the answer the caller who
+/// asked in the other language cannot read -- and a refusal is the part that
+/// says what went wrong.
+///
+/// So every word a refusal uses lives here, in both languages, and the agent's
+/// server asks for it here rather than writing it out at the place it is
+/// given. A refusal written at the point of refusal is a refusal that is
+/// English until somebody remembers to translate it.
+///
+/// The browser's routes have their own vocabulary for the same job, in
+/// `api.mbt`. Two doors, two audiences, two vocabularies -- but one vocabulary
+/// per door, so neither door can end up with half its refusals in one
+/// language.
+
+///|
+/// The server has no database to work on.
+pub fn agent_refusal_no_database(lang : Lang) -> String {
+  match lang {
+    English => "MAKED's database is not open."
+    Chinese => "MAKED 的数据库没有打开。"
+  }
+}
+
+///|
+/// The loop could not be read. The detail is what the server saw.
+pub fn agent_refusal_loop_unreadable(detail : String, lang : Lang) -> String {
+  match lang {
+    English => "The loop could not be read: " + detail
+    Chinese => "循环读不出来：" + detail
+  }
+}
+
+///|
+/// The step could not be taken. The detail is what the server saw.
+pub fn agent_refusal_step_failed(detail : String, lang : Lang) -> String {
+  match lang {
+    English => "The step could not be taken: " + detail
+    Chinese => "这一步走不了：" + detail
+  }
+}
+
+///|
+/// The step was taken, and could not be read back to say what it did.
+pub fn agent_refusal_step_unreadable(detail : String, lang : Lang) -> String {
+  match lang {
+    English => "The step could not be read back: " + detail
+    Chinese => "这一步读不回来：" + detail
+  }
+}
+
+///|
+/// The explorations could not be read. The detail is what the server saw.
+pub fn agent_refusal_sessions_unreadable(
+  detail : String,
+  lang : Lang,
+) -> String {
+  match lang {
+    English => "The explorations could not be read: " + detail
+    Chinese => "这些探索读不出来：" + detail
+  }
+}
+
+///|
+/// The exploration could not be exported. The detail is what the server saw.
+pub fn agent_refusal_export_failed(detail : String, lang : Lang) -> String {
+  match lang {
+    English => "The exploration could not be exported: " + detail
+    Chinese => "这次探索导出不了：" + detail
+  }
+}
+
+///|
+/// The slot that was asked for is not one MAKED has.
+///
+/// The slots it does have travel with the refusal. A caller that has to make
+/// a second round trip to find out what the slots are has to guess first, and
+/// the guess is the thing that costs it.
+pub fn agent_refusal_unknown_slot(
+  name : String,
+  slots : Array[String],
+  lang : Lang,
+) -> String {
+  match lang {
+    English =>
+      "MAKED does not know a drive slot called '" +
+      name +
+      "'. The slots it has are " +
+      join_parts(slots) +
+      "."
+    Chinese =>
+      "MAKED 不认识名为 '" +
+      name +
+      "' 的驱动槽。它有的槽是" +
+      join_list_zh(slots) +
+      "。"
+  }
+}
+
+///|
+/// The successor that was asked for is not one the table offers here.
+///
+/// The successors it does offer travel with the refusal, for the same reason
+/// the slots do.
+pub fn agent_refusal_unknown_target(
+  target : String,
+  targets : Array[String],
+  lang : Lang,
+) -> String {
+  match lang {
+    English =>
+      if targets.length() == 0 {
+        "MAKED does not know a successor called '" +
+        target +
+        "' here. The table offers no successor from here at all."
+      } else {
+        "MAKED does not know a successor called '" +
+        target +
+        "' here. The table offers " +
+        join_parts(targets) +
+        "."
+      }
+    Chinese =>
+      if targets.length() == 0 {
+        "MAKED 不认识这里名为 '" +
+        target +
+        "' 的后继。此处它根本没有给出任何后继。"
+      } else {
+        "MAKED 不认识这里名为 '" +
+        target +
+        "' 的后继。转移表给出的是" +
+        join_list_zh(targets) +
+        "。"
+      }
+  }
+}
+
+///|
+/// There is no exploration with that id.
+pub fn agent_refusal_no_session(id : Int64, lang : Lang) -> String {
+  match lang {
+    English => "MAKED has no exploration with the id " + id.to_string() + "."
+    Chinese => "MAKED 没有编号为 " + id.to_string() + " 的探索。"
+  }
+}
+
+///|
+/// There is no export format called that.
+///
+/// The formats MAKED does write travel with the refusal, so a caller that
+/// guessed wrong sees the right answer rather than guessing again.
+pub fn agent_refusal_unknown_format(
+  format : String,
+  formats : Array[String],
+  lang : Lang,
+) -> String {
+  match lang {
+    English =>
+      "MAKED does not know an export format called '" +
+      format +
+      "'. The formats are " +
+      join_parts(formats) +
+      "."
+    Chinese =>
+      "MAKED 不认识名为 '" +
+      format +
+      "' 的导出格式。格式只有 " +
+      join_list_zh(formats) +
+      " 两种。"
   }
 }

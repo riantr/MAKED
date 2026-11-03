@@ -427,6 +427,136 @@ case "$REFUSAL_REPORT" in
 esac
 
 # ---------------------------------------------------------------------------
+# Contract: every refusal the agent gives is in the caller's language
+# ---------------------------------------------------------------------------
+#
+# The agent's server is the product's second front door. The payloads it
+# answers with are already in the language the caller asked in, and the
+# refusal -- the one part that says what went wrong -- was not: nine of the
+# eleven places the agent surface could refuse wrote their words out in
+# English at the point of refusal.
+#
+# A refusal written at the point of refusal is a refusal that is English
+# until somebody remembers to translate it, so the words live in one place
+# instead: the vocabulary in the backend, and the agent's server asks for
+# them there. This rule checks both halves of that: every refusal takes its
+# words from the vocabulary, and every word in the vocabulary has an English
+# reading and a Chinese one.
+#
+# The set of refusal kinds is printed rather than the number of refusals: a
+# count is a claim about the size, and the kinds are the claim about what
+# the rule covers. An empty set is a failure -- a rule that found nothing to
+# look at is not a rule that passed.
+echo "  Contract: every refusal the agent gives is in the caller's language"
+AGENT_REFUSAL_REPORT="$("$PYTHON" - "$ROOT/cmd/mcp/main.mbt" "$ROOT/backend/agent.mbt" <<'PYEOF'
+import re
+import sys
+
+mcp_path, agent_path = sys.argv[1], sys.argv[2]
+mcp = open(mcp_path, encoding="utf-8").read()
+agent = open(agent_path, encoding="utf-8").read()
+
+# --- the vocabulary: every refusal word has both languages ------------------
+helpers = {}
+for m in re.finditer(r"pub fn (agent_refusal_\w+)\(", agent):
+    name = m.group(1)
+    start = agent.find("{", m.end())
+    if start < 0:
+        continue
+    depth = 0
+    end = start
+    for j in range(start, len(agent)):
+        depth += agent[j].count("{") - agent[j].count("}")
+        if depth <= 0:
+            end = j
+            break
+    body = agent[start : end + 1]
+    helpers[name] = {
+        "line": agent[: m.start()].count("\n") + 1,
+        "bilingual": ("English" in body and "Chinese" in body),
+    }
+
+# --- the sites: every refusal takes its words from the vocabulary -----------
+sites = []
+for m in re.finditer(r"MCPError::\w+\(", mcp):
+    open_at = m.end() - 1
+    depth = 0
+    j = open_at
+    while j < len(mcp):
+        if mcp[j] == "(":
+            depth += 1
+        elif mcp[j] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        j += 1
+    expr = mcp[open_at + 1 : j]
+    line = mcp[: m.start()].count("\n") + 1
+    used = re.findall(r"agent_refusal_\w+", expr)
+    sites.append({"line": line, "used": used, "expr": expr})
+
+bad = []
+for site in sites:
+    if not site["used"]:
+        bad.append("line %d (a refusal that writes its own words)" % site["line"])
+        continue
+    for name in site["used"]:
+        if name not in helpers:
+            bad.append("line %d (%s is not in the vocabulary)" % (site["line"], name))
+        elif not helpers[name]["bilingual"]:
+            bad.append(
+                "line %d (%s has no Chinese reading)" % (site["line"], name)
+            )
+
+# --- the export refuses a format it does not write -------------------------
+# The export used to answer Markdown for every format that was not "json",
+# so an agent that asked for a format MAKED does not write was handed a
+# document in a format it did not ask for and never found out.
+export = re.search(r"pub fn agent_export\(", agent)
+if export is None:
+    bad.append("no agent_export to refuse with")
+else:
+    start = agent.find("{", export.end())
+    depth = 0
+    end = start
+    for j in range(start, len(agent)):
+        depth += agent[j].count("{") - agent[j].count("}")
+        if depth <= 0:
+            end = j
+            break
+    body = agent[start : end + 1]
+    if "UnknownFormat" not in body:
+        bad.append("the export guesses a format instead of refusing it")
+
+kinds = []
+for site in sites:
+    for name in site["used"]:
+        if name not in kinds:
+            kinds.append(name)
+
+if bad:
+    print("FAIL " + "; ".join(bad))
+elif not sites:
+    print("FAIL no refusal found, so the rule is watching nothing")
+elif not kinds:
+    print("FAIL no refusal kind found, so the rule is watching nothing")
+else:
+    print("OK " + ", ".join(sorted(kinds)))
+PYEOF
+)"
+TOTAL=$((TOTAL + 1))
+case "$AGENT_REFUSAL_REPORT" in
+  "OK "*)
+    PASS=$((PASS + 1))
+    echo "  PASS  every refusal the agent gives is in the caller's language -- ${AGENT_REFUSAL_REPORT#OK }"
+    ;;
+  *)
+    FAIL=$((FAIL + 1))
+    echo "  FAIL  every refusal the agent gives is in the caller's language -- ${AGENT_REFUSAL_REPORT#FAIL }"
+    ;;
+esac
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""

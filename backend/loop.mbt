@@ -1347,6 +1347,23 @@ pub fn all_slots_info(lang : Lang) -> Array[(String, String, String)] {
 }
 
 ///|
+/// The ids of the slots the model really has.
+///
+/// The machine's own ids -- the ones a client posts back -- read out of the
+/// model rather than written down here, because a list copied into a file is
+/// a list that is wrong the day the machine changes shape.
+///
+/// The browser's refusal and the agent's refusal both name the slots from
+/// here, so the two doors cannot offer different ones.
+pub fn slot_ids() -> Array[String] {
+  let ids = []
+  for slot in current_model().slots {
+    ids.push(slot.id)
+  }
+  ids
+}
+
+///|
 /// JSON shape for an exitable slot at the current position.
 ///
 /// The outcome travels as two things: the label a reader sees, and the kind

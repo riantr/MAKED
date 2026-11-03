@@ -463,16 +463,30 @@ async test "the explorations are listed and the active one is marked" {
 }
 
 ///|
+/// The export itself, or a failure with the reason it failed.
+fn exported(answer : @backend.ExportAnswer) -> Json raise {
+  match answer {
+    @backend.Exported(payload) => payload
+    @backend.NoSession(id) =>
+      fail("the export refused: there is no exploration " + id.to_string())
+    @backend.UnknownFormat(format, _) =>
+      fail("the export refused the format " + format)
+  }
+}
+
+///|
 /// An exploration can be taken away as Markdown and as JSON.
 async test "an exploration can be taken away as Markdown and as JSON" {
   let db = open_session_db("agent_export")
   let session = fresh_session(db, "First exploration")
   let _ = @backend.take_drive_step(db, @backend.Lang::english())
-  let markdown = @backend.agent_export(db, session.id, "markdown", en())
+  let markdown = exported(
+    @backend.agent_export(db, session.id, "markdown", en()),
+  )
   assert_eq(json_str(markdown, "format"), "markdown")
   let text = json_str(markdown, "the_exploration")
   assert_true(text.contains("First exploration"))
-  let json = @backend.agent_export(db, session.id, "json", en())
+  let json = exported(@backend.agent_export(db, session.id, "json", en()))
   assert_eq(json_str(json, "format"), "json")
   // The machine form is an object, not a string: an agent that wants to
   // process it must not have to read prose.
@@ -494,11 +508,13 @@ async test "the agent's export is in the language" {
   let db = open_session_db("agent_export_zh")
   let session = fresh_session(db, "First exploration")
   let _ = @backend.take_drive_step(db, @backend.Lang::english())
-  let markdown = @backend.agent_export(db, session.id, "markdown", zh())
+  let markdown = exported(
+    @backend.agent_export(db, session.id, "markdown", zh()),
+  )
   let text = json_str(markdown, "the_exploration")
   assert_true(text.contains("会话"))
   assert_false(text.contains("MAKED session:"))
-  let json = @backend.agent_export(db, session.id, "json", zh())
+  let json = exported(@backend.agent_export(db, session.id, "json", zh()))
   assert_true(json.stringify().contains("新增地盘"))
   db.close()
   drop_db(session_db_path("agent_export_zh"))
@@ -509,8 +525,160 @@ async test "the agent's export is in the language" {
 async test "an exploration that does not exist is refused" {
   let db = open_session_db("agent_export_missing")
   let _ = fresh_session(db, "First exploration")
-  let payload = @backend.agent_export(db, 999999L, "markdown", en())
-  assert_eq(json_str(payload, "error"), "there is no exploration with that id")
+  match @backend.agent_export(db, 999999L, "markdown", en()) {
+    @backend.NoSession(id) => assert_eq(id, 999999L)
+    @backend.Exported(_) =>
+      fail("an exploration that does not exist was exported")
+    @backend.UnknownFormat(_, _) =>
+      fail("the format was refused instead of the exploration")
+  }
+}
+
+///|
+/// A format the server does not write is refused, not guessed.
+///
+/// The export used to answer Markdown for every format that was not "json",
+/// so an agent that asked for a format MAKED does not write was handed a
+/// document in a format it did not ask for and never found out. The refusal
+/// names the formats there are, so the agent can ask again and be right.
+async test "a format the server does not write is refused" {
+  let db = open_session_db("agent_export_format")
+  let session = fresh_session(db, "First exploration")
+  let _ = @backend.take_drive_step(db, @backend.Lang::english())
+  match @backend.agent_export(db, session.id, "yaml", en()) {
+    @backend.UnknownFormat(format, formats) => {
+      assert_eq(format, "yaml")
+      assert_eq(formats.length(), 2)
+      assert_true(formats.contains("md"))
+      assert_true(formats.contains("json"))
+    }
+    @backend.Exported(_) =>
+      fail("a format the server does not write was exported")
+    @backend.NoSession(_) =>
+      fail("the exploration was refused instead of the format")
+  }
+  db.close()
+  drop_db(session_db_path("agent_export_format"))
+}
+
+///|
+/// Every refusal the agent gives is in the language that was asked for.
+///
+/// The agent's server is the product's second front door. A refusal there
+/// that only speaks English is the one part of the answer a caller that asked
+/// in Chinese cannot read -- and a refusal is the part that says what went
+/// wrong.
+///
+/// So every refusal is asked for in both languages here. The Chinese one has
+/// to be a different sentence from the English one: a refusal that ignores
+/// the language is the whole bug.
+async test "every refusal the agent gives is in the language" {
+  let english = [
+    @backend.agent_refusal_no_database(en()),
+    @backend.agent_refusal_loop_unreadable("boom", en()),
+    @backend.agent_refusal_step_failed("boom", en()),
+    @backend.agent_refusal_step_unreadable("boom", en()),
+    @backend.agent_refusal_sessions_unreadable("boom", en()),
+    @backend.agent_refusal_export_failed("boom", en()),
+    @backend.agent_refusal_unknown_slot("no-such-slot", ["act", "see"], en()),
+    @backend.agent_refusal_unknown_target("no-such-target", ["see"], en()),
+    @backend.agent_refusal_no_session(7L, en()),
+    @backend.agent_refusal_unknown_format("yaml", ["md", "json"], en()),
+  ]
+  let chinese = [
+    @backend.agent_refusal_no_database(zh()),
+    @backend.agent_refusal_loop_unreadable("boom", zh()),
+    @backend.agent_refusal_step_failed("boom", zh()),
+    @backend.agent_refusal_step_unreadable("boom", zh()),
+    @backend.agent_refusal_sessions_unreadable("boom", zh()),
+    @backend.agent_refusal_export_failed("boom", zh()),
+    @backend.agent_refusal_unknown_slot("no-such-slot", ["act", "see"], zh()),
+    @backend.agent_refusal_unknown_target("no-such-target", ["see"], zh()),
+    @backend.agent_refusal_no_session(7L, zh()),
+    @backend.agent_refusal_unknown_format("yaml", ["md", "json"], zh()),
+  ]
+  assert_eq(english.length(), chinese.length())
+  for reason in english {
+    assert_false(reason.is_empty())
+  }
+  let mut index = 0
+  while index < english.length() {
+    // The Chinese refusal is a different sentence, not the English one.
+    assert_true(english[index] != chinese[index])
+    // And it is written in Chinese rather than translated: the Chinese
+    // sentence carries Chinese punctuation, which the English one does not.
+    assert_true(
+      chinese[index].contains("。") || chinese[index].contains("："),
+    )
+    assert_false(
+      english[index].contains("。") || english[index].contains("："),
+    )
+    index = index + 1
+  }
+}
+
+///|
+/// A refusal names what was sent, in both languages.
+///
+/// The reader who asked for the wrong thing is the one who can act on the
+/// answer, so the answer has to say which thing was wrong. The name of the
+/// slot, the successor, the session and the format are the same in both
+/// languages -- they are the reader's own words, not ours.
+async test "a refusal names what was sent" {
+  assert_true(
+    @backend.agent_refusal_unknown_slot("no-such-slot", ["act"], en()).contains(
+      "no-such-slot",
+    ),
+  )
+  assert_true(
+    @backend.agent_refusal_unknown_slot("no-such-slot", ["act"], zh()).contains(
+      "no-such-slot",
+    ),
+  )
+  assert_true(
+    @backend.agent_refusal_unknown_target("no-such-target", ["see"], en()).contains(
+      "no-such-target",
+    ),
+  )
+  assert_true(
+    @backend.agent_refusal_unknown_target("no-such-target", ["see"], zh()).contains(
+      "no-such-target",
+    ),
+  )
+  assert_true(@backend.agent_refusal_no_session(7L, en()).contains("7"))
+  assert_true(@backend.agent_refusal_no_session(7L, zh()).contains("7"))
+  assert_true(
+    @backend.agent_refusal_unknown_format("yaml", ["md", "json"], en()).contains(
+      "yaml",
+    ),
+  )
+  assert_true(
+    @backend.agent_refusal_unknown_format("yaml", ["md", "json"], zh()).contains(
+      "yaml",
+    ),
+  )
+}
+
+///|
+/// The refusal that names a slot carries the slots there are.
+///
+/// An agent that has to make a second round trip to find out what the slots
+/// are has to guess first, and the guess is what costs it.
+async test "the refusal that names a slot carries the slots" {
+  let reason = @backend.agent_refusal_unknown_slot(
+    "no-such-slot",
+    ["act", "see"],
+    en(),
+  )
+  assert_true(reason.contains("act"))
+  assert_true(reason.contains("see"))
+  let chinese = @backend.agent_refusal_unknown_slot(
+    "no-such-slot",
+    ["act", "see"],
+    zh(),
+  )
+  assert_true(chinese.contains("act"))
+  assert_true(chinese.contains("see"))
 }
 
 ///|

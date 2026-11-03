@@ -41,11 +41,17 @@ fn database() -> @maked.Database? {
 /// A tool that cannot reach the database says so. It does not answer with
 /// an empty result, because an empty result read as "the loop is at its
 /// first position" is a lie about a server that is not running.
-fn database_or_error() -> Result[@maked.Database, @mcp_types.MCPError] {
+fn database_or_error(
+  lang : @maked.Lang,
+) -> Result[@maked.Database, @mcp_types.MCPError] {
   match database() {
     Some(db) => Ok(db)
     None =>
-      Err(@mcp_types.MCPError::InternalError("MAKED's database is not open."))
+      Err(
+        @mcp_types.MCPError::InternalError(
+          @maked.agent_refusal_no_database(lang),
+        ),
+      )
   }
 }
 
@@ -108,15 +114,16 @@ async fn status_tool(
   _context : @runtime.RequestContext,
   args : Json,
 ) -> Result[@tool.ToolResult, @mcp_types.MCPError] {
-  let db = match database_or_error() {
+  let lang = lang_of(args)
+  let db = match database_or_error(lang) {
     Ok(db) => db
     Err(err) => return Err(err)
   }
-  let payload = @maked.agent_status(db, lang_of(args)) catch {
+  let payload = @maked.agent_status(db, lang) catch {
     err =>
       return Err(
         @mcp_types.MCPError::InternalError(
-          "the loop could not be read: " + @debug.to_string(err),
+          @maked.agent_refusal_loop_unreadable(@debug.to_string(err), lang),
         ),
       )
   }
@@ -143,11 +150,11 @@ async fn step_tool(
   _context : @runtime.RequestContext,
   args : Json,
 ) -> Result[@tool.ToolResult, @mcp_types.MCPError] {
-  let db = match database_or_error() {
+  let lang = lang_of(args)
+  let db = match database_or_error(lang) {
     Ok(db) => db
     Err(err) => return Err(err)
   }
-  let lang = lang_of(args)
   let slot = string_of(args, "slot")
   let target = string_of(args, "target")
   if slot == "" {
@@ -155,7 +162,7 @@ async fn step_tool(
       err =>
         return Err(
           @mcp_types.MCPError::InternalError(
-            "the step could not be taken: " + @debug.to_string(err),
+            @maked.agent_refusal_step_failed(@debug.to_string(err), lang),
           ),
         )
     }
@@ -164,28 +171,25 @@ async fn step_tool(
       err =>
         return Err(
           @mcp_types.MCPError::InternalError(
-            "the step could not be taken: " + @debug.to_string(err),
+            @maked.agent_refusal_step_failed(@debug.to_string(err), lang),
           ),
         )
     }
     match answer {
       @maked.Taken(_) => ()
+      // The slots travel with the refusal: an agent that has to make a second
+      // round trip to learn what the slots are has to guess first, and the
+      // guess is what costs it.
       @maked.UnknownSlot(name) =>
         return Err(
           @mcp_types.MCPError::InvalidParams(
-            "there is no drive slot called \"" +
-            name +
-            "\". Call maked_options to see the slots there are.",
+            @maked.agent_refusal_unknown_slot(name, @maked.slot_ids(), lang),
           ),
         )
       @maked.UnknownTarget(asked, targets) =>
         return Err(
           @mcp_types.MCPError::InvalidParams(
-            "there is no successor called \"" +
-            asked +
-            "\" here. The table offers: " +
-            targets.join(", ") +
-            ".",
+            @maked.agent_refusal_unknown_target(asked, targets, lang),
           ),
         )
     }
@@ -194,7 +198,7 @@ async fn step_tool(
     err =>
       return Err(
         @mcp_types.MCPError::InternalError(
-          "the step could not be read back: " + @debug.to_string(err),
+          @maked.agent_refusal_step_unreadable(@debug.to_string(err), lang),
         ),
       )
   }
@@ -234,15 +238,16 @@ async fn sessions_tool(
   _context : @runtime.RequestContext,
   args : Json,
 ) -> Result[@tool.ToolResult, @mcp_types.MCPError] {
-  let db = match database_or_error() {
+  let lang = lang_of(args)
+  let db = match database_or_error(lang) {
     Ok(db) => db
     Err(err) => return Err(err)
   }
-  let payload = @maked.agent_sessions(db, lang_of(args)) catch {
+  let payload = @maked.agent_sessions(db, lang) catch {
     err =>
       return Err(
         @mcp_types.MCPError::InternalError(
-          "the explorations could not be read: " + @debug.to_string(err),
+          @maked.agent_refusal_sessions_unreadable(@debug.to_string(err), lang),
         ),
       )
   }
@@ -255,7 +260,8 @@ async fn export_tool(
   _context : @runtime.RequestContext,
   args : Json,
 ) -> Result[@tool.ToolResult, @mcp_types.MCPError] {
-  let db = match database_or_error() {
+  let lang = lang_of(args)
+  let db = match database_or_error(lang) {
     Ok(db) => db
     Err(err) => return Err(err)
   }
@@ -267,15 +273,32 @@ async fn export_tool(
   }
   let format = string_of(args, "format")
   let wanted = if format == "" { "markdown" } else { format }
-  let payload = @maked.agent_export(db, id, wanted, lang_of(args)) catch {
+  let answer = @maked.agent_export(db, id, wanted, lang) catch {
     err =>
       return Err(
         @mcp_types.MCPError::InternalError(
-          "the exploration could not be exported: " + @debug.to_string(err),
+          @maked.agent_refusal_export_failed(@debug.to_string(err), lang),
         ),
       )
   }
-  Ok(result_of(payload))
+  match answer {
+    @maked.Exported(payload) => Ok(result_of(payload))
+    // A refusal is an error, not a payload with an error in it: an agent that
+    // asked for a format MAKED does not write is told so, rather than handed
+    // a document in a format it did not ask for.
+    @maked.NoSession(gone) =>
+      return Err(
+        @mcp_types.MCPError::InvalidParams(
+          @maked.agent_refusal_no_session(gone, lang),
+        ),
+      )
+    @maked.UnknownFormat(asked_for, formats) =>
+      return Err(
+        @mcp_types.MCPError::InvalidParams(
+          @maked.agent_refusal_unknown_format(asked_for, formats, lang),
+        ),
+      )
+  }
 }
 
 ///|

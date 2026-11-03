@@ -1674,8 +1674,8 @@ fn unknown_slot_reason(name : String, lang : Lang) -> String {
 /// machine changes shape.
 fn slot_ids_json() -> Json {
   let items : Array[Json] = []
-  for slot in current_model().slots {
-    items.push([slot.id])
+  for id in slot_ids() {
+    items.push([id])
   }
   [..items]
 }

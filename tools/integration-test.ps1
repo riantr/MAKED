@@ -1987,15 +1987,18 @@ try {
     $status = '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"_meta":' + $meta + ',"name":"maked_status","arguments":{}}}'
     $step = '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"_meta":' + $meta + ',"name":"maked_step","arguments":{}}}'
     $badSlot = '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"_meta":' + $meta + ',"name":"maked_step","arguments":{"slot":"no-such-slot"}}}'
+    $zhBadSlot = '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"_meta":' + $meta + ',"name":"maked_step","arguments":{"slot":"no-such-slot","lang":"zh"}}}'
+    $badFormat = '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"_meta":' + $meta + ',"name":"maked_export","arguments":{"format":"yaml"}}}'
+    $badSession = '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"_meta":' + $meta + ',"name":"maked_export","arguments":{"session_id":999999,"format":"md"}}}'
 
     # --- over stdio ---------------------------------------------------------
     $stdioDb = Join-Path $tempDir ("maked_integration_agent_stdio_{0}.db" -f $AgentPort)
     if (Test-Path $stdioDb) { Remove-Item $stdioDb -Force }
     $session = Invoke-StdioSession -Exe $mcpExe -DbPath $stdioDb `
-      -Lines @($discover, $list, $status, $step, $badSlot) -Expect 5
+      -Lines @($discover, $list, $status, $step, $badSlot, $zhBadSlot, $badFormat, $badSession) -Expect 8
     Assert-True "the agent's server answers every question over stdio" `
-      ($session.Answers.Count -eq 5) `
-      ("expected 5 answers, got {0} -- stderr: {1}" -f $session.Answers.Count, (Limit $session.Errors))
+      ($session.Answers.Count -eq 8) `
+      ("expected 8 answers, got {0} -- stderr: {1}" -f $session.Answers.Count, (Limit $session.Errors))
     if ($session.Answers.Count -lt 5) { return }
 
     $answers = @()
@@ -2026,6 +2029,41 @@ try {
     if ($null -ne (Field $answers[4] "error")) {
       Assert-Contains "and the refusal names the slot that was asked for" `
         (Field (Field $answers[4] "error") "message") "no-such-slot"
+    }
+    # A refusal in the caller's language. The caller asked in Chinese, and
+    # the refusal is the one part of the answer that says what went wrong: a
+    # refusal that is English is a refusal the caller cannot read.
+    Assert-True "a refusal is in the language the caller asked in" `
+      ($null -ne (Field $answers[5] "error")) `
+      ("expected an error for the Chinese refusal, got: {0}" -f (Limit $session.Answers[5]))
+    if ($null -ne (Field $answers[5] "error")) {
+      $zhMessage = [string](Field (Field $answers[5] "error") "message")
+      # The range is written as an escape rather than as the characters
+      # themselves: this file carries no byte order mark, so PowerShell reads
+      # it as the machine's own code page and a Chinese literal in it would
+      # not be the Chinese it looks like.
+      Assert-True "and the Chinese refusal is written in Chinese" `
+        ([regex]::IsMatch($zhMessage, '[\u4e00-\u9fff]')) `
+        ("the refusal did not read as Chinese: {0}" -f (Limit $zhMessage))
+      Assert-Contains "and it names the slot that was asked for" $zhMessage "no-such-slot"
+    }
+    # The export refuses a format the server does not write, rather than
+    # handing back a document in a format nobody asked for.
+    Assert-True "the export refuses a format the server does not write" `
+      ($null -ne (Field $answers[6] "error")) `
+      ("expected an error for an export format that does not exist, got: {0}" -f (Limit $session.Answers[6]))
+    if ($null -ne (Field $answers[6] "error")) {
+      $formatMessage = [string](Field (Field $answers[6] "error") "message")
+      Assert-Contains "and the refusal names the format that was asked for" $formatMessage "yaml"
+      Assert-Contains "and it names the formats the server does write" $formatMessage "json"
+    }
+    # And an exploration that does not exist is refused too.
+    Assert-True "the export refuses an exploration that does not exist" `
+      ($null -ne (Field $answers[7] "error")) `
+      ("expected an error for an exploration that does not exist, got: {0}" -f (Limit $session.Answers[7]))
+    if ($null -ne (Field $answers[7] "error")) {
+      Assert-Contains "and the refusal names the exploration that was asked for" `
+        ([string](Field (Field $answers[7] "error") "message")) "999999"
     }
 
     # --- over HTTP ----------------------------------------------------------
