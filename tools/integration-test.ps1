@@ -562,7 +562,13 @@ try {
   Assert-Field "the model page is the letter M" $model "letter" "M"
   $missing = Invoke-Api -Method GET -Path "/api/pages/nonexistent"
   Assert-Status "a page that is not there is a 404" 404 $missing
-  Assert-Field "and it says which one" ($missing.Body | ConvertFrom-Json) "error" "not_found"
+  $missingPageBody = $missing.Body | ConvertFrom-Json
+  Assert-Field "and it says which one" $missingPageBody "error" "not_found"
+  # The refusal says why, in words. The status code never reaches the client,
+  # so the body is the only place a reason can come from, and a refusal
+  # without one is a shrug the reader has to guess at.
+  Assert-FieldNotEmpty "and it gives a reason" $missingPageBody "reason"
+  Assert-Contains "and the reason names the page" (Field $missingPageBody "reason") "nonexistent"
 
   Write-Host ""
   Write-Host "-- the pages in the other language"
@@ -782,7 +788,16 @@ try {
   Assert-Status "a step by a named slot is a 200" 200 $named
   $unknown = Post-Json "/api/loop/step/not-a-slot"
   Assert-Status "a step by a slot that does not exist is a 400" 400 $unknown
-  Assert-Field "and says which one" ($unknown.Body | ConvertFrom-Json) "error" "unknown_slot"
+  $unknownBody = $unknown.Body | ConvertFrom-Json
+  Assert-Field "and says which one" $unknownBody "error" "unknown_slot"
+  # This is the refusal the reader used to never see: the client took every
+  # answer as a step that had happened, so a slot the machine does not have
+  # looked exactly like a step that quietly did nothing. The reason is what
+  # makes it visible, and the slots the machine does have are what makes it
+  # actionable.
+  Assert-FieldNotEmpty "and says why" $unknownBody "reason"
+  Assert-Contains "and the reason names the slot" (Field $unknownBody "reason") "not-a-slot"
+  Assert-HasField "and the slots it does have come with it" $unknownBody "slots"
 
   $continuations = Get-Json "/api/loop/continuations?depth=2"
   Assert-HasField "the continuations are listed" $continuations "continuations"
@@ -895,7 +910,12 @@ try {
   # ones it does: a reader who asked for the wrong one can see the right one.
   $wrong = Post-Json "/api/loop/step/$slot" @{ target = "Nowhere" }
   Assert-Status "a target the table does not offer is a 400" 400 $wrong
-  Assert-Field "and it says so" ($wrong.Body | ConvertFrom-Json) "error" "unknown_target"
+  $wrongBody = $wrong.Body | ConvertFrom-Json
+  Assert-Field "and it says so" $wrongBody "error" "unknown_target"
+  # The reason names the successors the table does offer, so the sentence
+  # alone is enough for the reader to pick the right one.
+  Assert-FieldNotEmpty "and gives a reason" $wrongBody "reason"
+  Assert-Contains "and the reason names the target" (Field $wrongBody "reason") "Nowhere"
 
   # ── the model ─────────────────────────────────────────────────────────────
   # The machine itself, as data. It is served so that it can be read, edited
@@ -1074,6 +1094,9 @@ try {
 
   $badFormat = Invoke-Api -Method GET -Path "/api/sessions/$sessionId/export?format=xml"
   Assert-Status "an export in an unknown format is a 400" 400 $badFormat
+  $badFormatBody = $badFormat.Body | ConvertFrom-Json
+  Assert-FieldNotEmpty "and the refusal gives a reason" $badFormatBody "reason"
+  Assert-Contains "and the reason names the formats it does write" (Field $badFormatBody "reason") "md"
 
   $sessions = Get-Json "/api/sessions"
   Assert-True "the session list holds the sessions" (@(Field $sessions "sessions").Count -ge 2)

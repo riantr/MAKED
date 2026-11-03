@@ -347,6 +347,86 @@ assert_contract "status has mode_gloss field" "$RESP" \
   "assert isinstance(d['mode_gloss'], str)"
 
 # ---------------------------------------------------------------------------
+# Contract: every refusal carries a reason
+# ---------------------------------------------------------------------------
+#
+# A refusal that carries no reason is a shrug: the reader is told that
+# something did not happen and nothing else. The client cannot do better --
+# the HTTP status code never reaches it, so the body is the only place a
+# reason can come from -- which means a body without a reason is a refusal
+# the reader cannot act on.
+#
+# The rule is checked over the source rather than over the responses
+# because the responses are only a sample: the source holds every refusal
+# the API can answer, including the ones this script does not happen to
+# trigger. A gate that only watched the refusals it could provoke would let
+# the next one through.
+#
+# The set of refusal kinds is printed rather than the number of refusals: a
+# count is a claim about the size, and the kinds are the claim about what
+# the rule covers. An empty set is a failure -- a rule that found nothing to
+# look at is not a rule that passed.
+echo "  Contract: every refusal carries a reason"
+REFUSAL_REPORT="$("$PYTHON" - "$ROOT/backend/api.mbt" <<'PYEOF'
+import re
+import sys
+
+path = sys.argv[1]
+lines = open(path, encoding="utf-8").read().split("\n")
+
+sites = []
+for i, line in enumerate(lines):
+    if not re.search(r"status=(400|404)", line):
+        continue
+    start = None
+    for j in range(i, max(-1, i - 40), -1):
+        if "let body : Json = {" in lines[j]:
+            start = j
+            break
+    if start is None:
+        sites.append((i + 1, "<no body literal>", True))
+        continue
+    depth = 0
+    block = []
+    for j in range(start, len(lines)):
+        depth += lines[j].count("{") - lines[j].count("}")
+        block.append(lines[j])
+        if depth <= 0:
+            break
+    text = "\n".join(block)
+    code = ""
+    m = re.search(r'"error":\s*"([^"]+)"', text)
+    if m:
+        code = m.group(1)
+    sites.append((i + 1, code, '"reason"' not in text))
+
+kinds = []
+for _, code, _ in sites:
+    if code and code not in kinds:
+        kinds.append(code)
+
+bad = [(ln, code) for ln, code, missing in sites if missing]
+if bad:
+    print("FAIL " + ", ".join("line %d (%s)" % (ln, code) for ln, code in bad))
+elif not sites:
+    print("FAIL no refusal found, so the rule is watching nothing")
+else:
+    print("OK " + ", ".join(kinds))
+PYEOF
+)"
+TOTAL=$((TOTAL + 1))
+case "$REFUSAL_REPORT" in
+  "OK "*)
+    PASS=$((PASS + 1))
+    echo "  PASS  every refusal carries a reason -- ${REFUSAL_REPORT#OK }"
+    ;;
+  *)
+    FAIL=$((FAIL + 1))
+    echo "  FAIL  every refusal carries a reason -- ${REFUSAL_REPORT#FAIL }"
+    ;;
+esac
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""

@@ -6211,7 +6211,12 @@ code_tree_names() {
     present+=("$file")
   done <<< "$files"
   [ "${#present[@]}" -gt 0 ] || return
-  out=$(LC_ALL=C grep -hoE "$NAME_RE" "${present[@]}" | LC_ALL=C sort -u || true)
+  # `-I` skips the files that are not text. The names in a picture are not
+  # names of the tree, and the PowerShell twin skips the same files, so the
+  # two count the same vocabulary. Without it the twins print different
+  # numbers for the same tree, and a twin that prints a different number is
+  # not a twin.
+  out=$(LC_ALL=C grep -hoEI "$NAME_RE" "${present[@]}" | LC_ALL=C sort -u || true)
   while IFS= read -r name; do
     [ -n "$name" ] || continue
     TREE_NAME["$name"]=1

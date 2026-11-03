@@ -83,12 +83,20 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
         match db.page_by_slug(slug) {
           Some(page) => Response::json(page.to_json(lang))
           None => {
-            let body : Json = { "error": "not_found", "slug": slug }
+            let body : Json = {
+              "error": "not_found",
+              "slug": slug,
+              "reason": page_not_found_reason(slug, lang),
+            }
             Response::json(body, status=404)
           }
         }
       None => {
-        let body : Json = { "error": "missing_slug" }
+        let body : Json = {
+          "error": "missing_slug",
+          "slug": "",
+          "reason": bad_page_slug_reason("", lang),
+        }
         Response::json(body, status=400)
       }
     }
@@ -337,13 +345,21 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   app.get("/api/sessions/:id", req => {
     let id = session_id_param(req)
     if id < 0 {
-      let body : Json = { "error": "bad_id" }
+      let body : Json = {
+        "error": "bad_id",
+        "id": session_id_text(req),
+        "reason": bad_session_id_reason(session_id_text(req), lang_of(req)),
+      }
       Response::json(body, status=400)
     } else {
       match db.session_by_id(id.to_int64()) {
         Some(_) => Response::json(session_payload(db, lang_of(req)))
         None => {
-          let body : Json = { "error": "not_found", "id": id }
+          let body : Json = {
+            "error": "not_found",
+            "id": id,
+            "reason": session_not_found_reason(id, lang_of(req)),
+          }
           Response::json(body, status=404)
         }
       }
@@ -352,17 +368,29 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   app.post("/api/sessions/:id/activate", req => {
     let id = session_id_param(req)
     if id < 0 {
-      let body : Json = { "error": "bad_id" }
+      let body : Json = {
+        "error": "bad_id",
+        "id": session_id_text(req),
+        "reason": bad_session_id_reason(session_id_text(req), lang_of(req)),
+      }
       Response::json(body, status=400)
     } else {
       match activate_session(db, id.to_int64()) {
         Done(_) => Response::json(session_payload(db, lang_of(req)))
         MissingSession => {
-          let body : Json = { "error": "not_found", "id": id }
+          let body : Json = {
+            "error": "not_found",
+            "id": id,
+            "reason": session_not_found_reason(id, lang_of(req)),
+          }
           Response::json(body, status=404)
         }
         MissingStep => {
-          let body : Json = { "error": "not_on_path", "id": id }
+          let body : Json = {
+            "error": "not_on_path",
+            "id": id,
+            "reason": session_path_broken_reason(id, lang_of(req)),
+          }
           Response::json(body, status=400)
         }
         Refused(reason) => {
@@ -375,7 +403,11 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   app.post("/api/sessions/:id/replay", req => {
     let id = session_id_param(req)
     if id < 0 {
-      let body : Json = { "error": "bad_id" }
+      let body : Json = {
+        "error": "bad_id",
+        "id": session_id_text(req),
+        "reason": bad_session_id_reason(session_id_text(req), lang_of(req)),
+      }
       Response::json(body, status=400)
     } else {
       let payload = req.json().unwrap_or(Json::empty_object())
@@ -383,13 +415,21 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       match rewind_session(db, id.to_int64(), step.to_int64()) {
         Done(_) => Response::json(session_payload(db, lang_of(req)))
         MissingSession => {
-          let body : Json = { "error": "not_found", "id": id }
+          let body : Json = {
+            "error": "not_found",
+            "id": id,
+            "reason": session_not_found_reason(id, lang_of(req)),
+          }
           Response::json(body, status=404)
         }
         MissingStep => {
           // The step is not on this session's current path, so rewinding to
           // it would silently resurrect a branch that was already abandoned.
-          let body : Json = { "error": "not_on_path", "step": step }
+          let body : Json = {
+            "error": "not_on_path",
+            "step": step,
+            "reason": step_not_on_path_reason(step, lang_of(req)),
+          }
           Response::json(body, status=400)
         }
         Refused(reason) => {
@@ -402,7 +442,11 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   app.post("/api/sessions/:id/branch", req => {
     let id = session_id_param(req)
     if id < 0 {
-      let body : Json = { "error": "bad_id" }
+      let body : Json = {
+        "error": "bad_id",
+        "id": session_id_text(req),
+        "reason": bad_session_id_reason(session_id_text(req), lang_of(req)),
+      }
       Response::json(body, status=400)
     } else {
       let payload = req.json().unwrap_or(Json::empty_object())
@@ -421,11 +465,19 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
             Done(_) =>
               Response::json(session_payload(db, lang_of(req)), status=201)
             MissingSession => {
-              let body : Json = { "error": "not_found", "id": id }
+              let body : Json = {
+                "error": "not_found",
+                "id": id,
+                "reason": session_not_found_reason(id, lang_of(req)),
+              }
               Response::json(body, status=404)
             }
             MissingStep => {
-              let body : Json = { "error": "not_on_path", "step": step }
+              let body : Json = {
+                "error": "not_on_path",
+                "step": step,
+                "reason": step_not_on_path_reason(step, lang_of(req)),
+              }
               Response::json(body, status=400)
             }
             Refused(reason) => {
@@ -439,7 +491,11 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   app.post("/api/sessions/:id/rename", req => {
     let id = session_id_param(req)
     if id < 0 {
-      let body : Json = { "error": "bad_id" }
+      let body : Json = {
+        "error": "bad_id",
+        "id": session_id_text(req),
+        "reason": bad_session_id_reason(session_id_text(req), lang_of(req)),
+      }
       Response::json(body, status=400)
     } else {
       let payload = req.json().unwrap_or(Json::empty_object())
@@ -461,12 +517,20 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
                   session_payload_with(db, "renamed", session, lang_of(req)),
                 )
               None => {
-                let body : Json = { "error": "not_found", "id": id }
+                let body : Json = {
+                  "error": "not_found",
+                  "id": id,
+                  "reason": session_not_found_reason(id, lang_of(req)),
+                }
                 Response::json(body, status=404)
               }
             }
           } else {
-            let body : Json = { "error": "not_found", "id": id }
+            let body : Json = {
+              "error": "not_found",
+              "id": id,
+              "reason": session_not_found_reason(id, lang_of(req)),
+            }
             Response::json(body, status=404)
           }
       }
@@ -475,7 +539,11 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   app.delete("/api/sessions/:id", req => {
     let id = session_id_param(req)
     if id < 0 {
-      let body : Json = { "error": "bad_id" }
+      let body : Json = {
+        "error": "bad_id",
+        "id": session_id_text(req),
+        "reason": bad_session_id_reason(session_id_text(req), lang_of(req)),
+      }
       Response::json(body, status=400)
     } else if db.delete_session(id.to_int64()) {
       // The live session cannot be a session that no longer exists. If it
@@ -498,19 +566,31 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       let body : Json = { "deleted": id }
       Response::json(body)
     } else {
-      let body : Json = { "error": "not_found", "id": id }
+      let body : Json = {
+        "error": "not_found",
+        "id": id,
+        "reason": session_not_found_reason(id, lang_of(req)),
+      }
       Response::json(body, status=404)
     }
   })
   app.get("/api/sessions/:id/export", req => {
     let id = session_id_param(req)
     if id < 0 {
-      let body : Json = { "error": "bad_id" }
+      let body : Json = {
+        "error": "bad_id",
+        "id": session_id_text(req),
+        "reason": bad_session_id_reason(session_id_text(req), lang_of(req)),
+      }
       Response::json(body, status=400)
     } else {
       match db.session_by_id(id.to_int64()) {
         None => {
-          let body : Json = { "error": "not_found", "id": id }
+          let body : Json = {
+            "error": "not_found",
+            "id": id,
+            "reason": session_not_found_reason(id, lang_of(req)),
+          }
           Response::json(body, status=404)
         }
         Some(session) => {
@@ -525,12 +605,14 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
                 "attachment; filename=\"maked-session-\{id}.md\"",
               )
             _ => {
+              let format = match req.query("format") {
+                Some(text) => text
+                None => ""
+              }
               let body : Json = {
                 "error": "unknown_format",
-                "format": match req.query("format") {
-                  Some(text) => text
-                  None => ""
-                },
+                "format": format,
+                "reason": unknown_export_format_reason(format, lang_of(req)),
               }
               Response::json(body, status=400)
             }
@@ -656,7 +738,15 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
         match take_slot_step(db, slot_name, asked, lang_of(req)) {
           Taken(body) => Response::json(body)
           UnknownSlot(name) => {
-            let body : Json = { "error": "unknown_slot", "slot": name }
+            // The slots the machine really has travel with the refusal: the
+            // reader who clicked a slot that is not there is looking for the
+            // one that is, and a refusal that names nothing is a shrug.
+            let body : Json = {
+              "error": "unknown_slot",
+              "slot": name,
+              "slots": slot_ids_json(),
+              "reason": unknown_slot_reason(name, lang_of(req)),
+            }
             Response::json(body, status=400)
           }
           UnknownTarget(target, targets) => {
@@ -668,13 +758,17 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
               "error": "unknown_target",
               "target": target,
               "targets": string_array_json(targets),
+              "reason": unknown_target_reason(target, targets, lang_of(req)),
             }
             Response::json(body, status=400)
           }
         }
       }
       None => {
-        let body : Json = { "error": "missing_slot" }
+        let body : Json = {
+          "error": "missing_slot",
+          "reason": missing_slot_reason(lang_of(req)),
+        }
         Response::json(body, status=400)
       }
     }
@@ -713,7 +807,10 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
         }
       }
       None => {
-        let body : Json = { "error": "missing_domain" }
+        let body : Json = {
+          "error": "missing_domain",
+          "reason": missing_domain_reason(lang_of(req)),
+        }
         Response::json(body, status=400)
       }
     }
@@ -764,7 +861,10 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
         }
       }
       None => {
-        let body : Json = { "error": "missing_mode" }
+        let body : Json = {
+          "error": "missing_mode",
+          "reason": missing_mode_reason(lang_of(req)),
+        }
         Response::json(body, status=400)
       }
     }
@@ -1451,6 +1551,198 @@ fn session_id_param(req : Request) -> Int32 {
   match req.param("id") {
     Some(raw) => @string.parse_int(raw) catch { _ => -1 }
     None => -1
+  }
+}
+
+///|
+/// The session id in a path parameter, as the caller sent it.
+///
+/// The number and the text are both needed: the number says which session the
+/// server looked for, and the text says what was actually written, so a
+/// refusal can quote it back. A refusal that cannot say what was sent leaves
+/// the reader to guess which of the things they typed was the wrong one.
+fn session_id_text(req : Request) -> String {
+  match req.param("id") {
+    Some(raw) => raw
+    None => ""
+  }
+}
+
+///|
+/// Why a session id could not be read, in the language asked for.
+///
+/// The reason quotes what was sent, because the reader who typed a word where
+/// a number belongs is the one who has to guess again about which session
+/// they meant.
+fn bad_session_id_reason(raw : String, lang : Lang) -> String {
+  match lang {
+    English =>
+      "The server could not read '" + raw + "' as the number of a session."
+    Chinese => "服务端无法把 '" + raw + "' 读成会话的编号。"
+  }
+}
+
+///|
+/// Why a session was not there, in the language asked for.
+///
+/// The reason names the session that was asked for, so the reader can see
+/// which one is missing rather than being told that one is.
+fn session_not_found_reason(id : Int32, lang : Lang) -> String {
+  match lang {
+    English => "There is no session numbered " + id.to_string() + "."
+    Chinese => "没有编号为 " + id.to_string() + " 的会话。"
+  }
+}
+
+///|
+/// Why a step could not be rewound to, in the language asked for.
+///
+/// The step is not on the session's current path, so rewinding to it would
+/// resurrect a branch that was already abandoned. The reason names the step,
+/// because a step number the reader cannot see is a step number they cannot
+/// check.
+fn step_not_on_path_reason(step : Int32, lang : Lang) -> String {
+  match lang {
+    English =>
+      "Step " +
+      step.to_string() +
+      " is not on this session's path, so the run cannot be rewound or forked there."
+    Chinese =>
+      "第 " +
+      step.to_string() +
+      " 步不在这个会话的路径上，运行无法在那里回退或分叉。"
+  }
+}
+
+///|
+/// Why a session could not be put back in front of the reader.
+///
+/// This is the case where the session's own head step is not on the path the
+/// session recorded, which is a session the server cannot rebuild. The reason
+/// says which session it is, because there is nothing else to act on.
+fn session_path_broken_reason(id : Int32, lang : Lang) -> String {
+  match lang {
+    English =>
+      "The server could not put session " +
+      id.to_string() +
+      " back in front of the reader: its own path could not be replayed."
+    Chinese =>
+      "服务端无法把会话 " +
+      id.to_string() +
+      " 放回读者面前：它自己的路径无法回放。"
+  }
+}
+
+///|
+/// Why an export format was refused, in the language asked for.
+///
+/// The reason names the formats the server does write, because the reader who
+/// asked for a format that does not exist is the one who has to guess again --
+/// and the list is the answer to that.
+fn unknown_export_format_reason(format : String, lang : Lang) -> String {
+  match lang {
+    English =>
+      "The server does not know an export format called '" +
+      format +
+      "'. The formats are 'md' and 'json'."
+    Chinese =>
+      "服务端不认识名为 '" +
+      format +
+      "' 的导出格式。格式只有 'md' 和 'json' 两种。"
+  }
+}
+
+///|
+/// Why a slot was refused, in the language asked for.
+///
+/// The reason names the slot that was asked for, because the reader who
+/// clicked something the machine does not have is looking for the thing it
+/// does have.
+fn unknown_slot_reason(name : String, lang : Lang) -> String {
+  match lang {
+    English => "The server does not know a slot called '" + name + "'."
+    Chinese => "服务端不认识名为 '" + name + "' 的槽位。"
+  }
+}
+
+///|
+/// The ids of the slots the model really has, as the API reports them.
+///
+/// The names are the machine's own ids -- the ones a client posts back -- and
+/// they are read out of the model rather than written down here, because a
+/// list copied into this file would be a list that is wrong the day the
+/// machine changes shape.
+fn slot_ids_json() -> Json {
+  let items : Array[Json] = []
+  for slot in current_model().slots {
+    items.push([slot.id])
+  }
+  [..items]
+}
+
+///|
+/// Why a successor was refused, in the language asked for.
+///
+/// The reason names the successors the table really offers, because the
+/// reader who asked for the wrong one can then see the right one instead of
+/// watching the page do nothing.
+fn unknown_target_reason(
+  target : String,
+  targets : Array[String],
+  lang : Lang,
+) -> String {
+  match lang {
+    English =>
+      if targets.length() == 0 {
+        "The table does not offer a successor called '" +
+        target +
+        "'. It offers no successor from here at all."
+      } else {
+        "The table does not offer a successor called '" +
+        target +
+        "'. It offers " +
+        join_parts(targets) +
+        "."
+      }
+    Chinese =>
+      if targets.length() == 0 {
+        "转移表没有名为 '" +
+        target +
+        "' 的后继。此处它根本没有给出任何后继。"
+      } else {
+        "转移表没有名为 '" +
+        target +
+        "' 的后继。此处它给出的是" +
+        join_list_zh(targets) +
+        "。"
+      }
+  }
+}
+
+///|
+/// Why a request named no slot, in the language asked for.
+fn missing_slot_reason(lang : Lang) -> String {
+  match lang {
+    English => "The request named no slot to move with."
+    Chinese => "请求没有指明用哪个槽位来移动。"
+  }
+}
+
+///|
+/// Why a request named no domain, in the language asked for.
+fn missing_domain_reason(lang : Lang) -> String {
+  match lang {
+    English => "The request named no domain to start the run from."
+    Chinese => "请求没有指明从哪个域开始这次运行。"
+  }
+}
+
+///|
+/// Why a request named no mode, in the language asked for.
+fn missing_mode_reason(lang : Lang) -> String {
+  match lang {
+    English => "The request named no mode to set."
+    Chinese => "请求没有指明要设置哪种模式。"
   }
 }
 

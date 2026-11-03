@@ -3394,10 +3394,18 @@ if ($codeProtocolHeaders.Count -eq 0 -or $docProtocolHeaders.Count -eq 0) {
 function Get-CodeRefusalStatus {
   $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/api.mbt'), $enc)
   $inside = $false
+  $indent = 0
   foreach ($line in ($text -split "`n")) {
-    if ($line -cmatch 'UnknownSlot\(name\) => \{') { $inside = $true; continue }
+    if ($line -cmatch 'UnknownSlot\(name\) => \{') {
+      $inside = $true
+      # The indentation of the branch itself. The branch ends at a brace at
+      # that indentation -- and not at the brace that closes the body literal
+      # inside it, which is indented further and is not the end of anything.
+      $indent = $line.Length - $line.TrimStart().Length
+      continue
+    }
     if ($inside -and $line -cmatch 'status=([0-9]+)') { return $Matches[1] }
-    if ($inside -and $line -cmatch '^[ \t]*\}') { return '' }
+    if ($inside -and $line -cmatch '^([ \t]*)\}' -and $Matches[1].Length -eq $indent) { return '' }
   }
   ''
 }

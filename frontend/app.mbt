@@ -528,19 +528,36 @@ pub fn update(
       )
     LoopLoaded(Err(_)) =>
       ({ ..model, loop_error: c.status.loop_unavailable, }, @cmd.none)
-    LoopStepped(Ok(json)) =>
-      (
-        {
-          // The session state comes with the step, so the panel's step count
-          // and its summary of the run are the ones this step produced. They
-          // used to be the ones from start-up, and the count stopped moving
-          // after the first click.
-          ..apply_session_state_if_present(model, session_state_of(json)),
-          loop_status: Some(decode_loop_status(json)),
-          loop_error: "",
-        },
-        @cmd.none,
-      )
+    LoopStepped(Ok(json)) => {
+      // The same rule as everywhere else on this client: the status code
+      // never arrives, so the body is where a refusal is seen. A step the
+      // server refused -- a slot the machine does not have, a successor the
+      // table does not offer -- is a step that did not happen, and the reader
+      // has to be told which one and why.
+      //
+      // It used not to be. This handler took every answer as a step that had
+      // happened, cleared the error and decoded the status out of a body that
+      // carries no status at all, so a refused step looked exactly like a
+      // step that quietly did nothing: the button worked, the page looked
+      // normal, and nothing said what had been refused.
+      let reason = decode_error_reason(json)
+      if reason != "" {
+        ({ ..model, loop_error: reason, }, @cmd.none)
+      } else {
+        (
+          {
+            // The session state comes with the step, so the panel's step count
+            // and its summary of the run are the ones this step produced. They
+            // used to be the ones from start-up, and the count stopped moving
+            // after the first click.
+            ..apply_session_state_if_present(model, session_state_of(json)),
+            loop_status: Some(decode_loop_status(json)),
+            loop_error: "",
+          },
+          @cmd.none,
+        )
+      }
+    }
     LoopStepped(Err(_)) =>
       ({ ..model, loop_error: c.status.step_failed, }, @cmd.none)
     LoopReset(Ok(json)) => {

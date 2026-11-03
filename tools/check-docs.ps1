@@ -5794,6 +5794,13 @@ function Get-TreeNames {
     if ($rel -ceq 'tools/check-docs.sh' -or $rel -ceq 'tools/check-docs.ps1') { continue }
     $full = Join-Path $PWD $rel
     if (-not (Test-Path $full)) { continue }
+    # A file that is not text is not part of the vocabulary. The names in a
+    # picture are not names of the tree, and the bash twin skips the same
+    # files -- its grep is told to skip the binary ones -- so the two count
+    # the same vocabulary. Without it the twins print different numbers for
+    # the same tree, and a twin that prints a different number is not a twin.
+    $bytes = [System.IO.File]::ReadAllBytes($full)
+    if ($bytes -contains 0) { continue }
     try { $text = [System.IO.File]::ReadAllText($full, $enc) } catch { continue }
     foreach ($m in [regex]::Matches($text, $nameRe)) { $null = $set.Add($m.Value) }
   }

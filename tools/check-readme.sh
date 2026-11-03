@@ -3366,12 +3366,19 @@ fi
 
 code_refusal_status() {
   awk '
-    /UnknownSlot\(name\) => \{/ { inside = 1; next }
+    /UnknownSlot\(name\) => \{/ {
+      inside = 1
+      # The indentation of the branch itself. The branch ends at a brace at
+      # that indentation -- and not at the brace that closes the body literal
+      # inside it, which is indented further and is not the end of anything.
+      indent = match($0, /[^ \t]/) - 1
+      next
+    }
     inside && match($0, /status=[0-9]+/) {
       print substr($0, RSTART + 7, RLENGTH - 7)
       exit
     }
-    inside && /^[ \t]*\}/ { exit }
+    inside && /^[ \t]*\}/ && (match($0, /[^ \t]/) - 1) == indent { exit }
   ' backend/api.mbt
 }
 

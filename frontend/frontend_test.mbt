@@ -4084,3 +4084,54 @@ test "the words about a page are in both languages" {
   assert_eq(zh().pages.cancel, "不改了")
   assert_eq(zh().pages.no_title, "给这一页起个标题")
 }
+
+///|
+/// A refused step says why.
+///
+/// The reader clicked a slot the machine does not have. The server refuses
+/// with a reason in the body -- the status code never reaches the client, so
+/// the body is the only place a reason can come from -- and this client used
+/// to swallow the refusal: it took every answer as a step that had happened,
+/// cleared the error and decoded a status out of a body that carries no
+/// status at all. The page looked normal, the button looked broken, and
+/// nothing said what had been refused.
+test "a refused step says why instead of looking like a step that did nothing" {
+  let refusal = Json::object({
+    "error": "unknown_slot",
+    "slot": "nope",
+    "reason": "The server does not know a slot called 'nope'.",
+  })
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::LoopStepped(Ok(refusal)),
+    silent_emit(),
+  )
+  assert_true(model.loop_error.contains("does not know a slot"))
+  // And the panel is not taken apart by the refusal. A refusal is not a
+  // status, so decoding one out of a body that carries no status would
+  // replace the panel's own with an empty one -- the reader would lose what
+  // the panel was showing to be told about a refusal.
+  assert_true(model.loop_status is None)
+}
+
+///|
+/// A step that happened still updates the panel.
+///
+/// The refusal is read out of the body, so a body that carries no refusal
+/// must still be taken as the step it is -- otherwise every ordinary step
+/// would be reported as a failure and the panel would never move.
+test "a step that happened still updates the panel" {
+  let answer = Json::object({
+    "current_domain": "D",
+    "current_position": "Data",
+    "history_length": 1,
+    "slots": [],
+  })
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::LoopStepped(Ok(answer)),
+    silent_emit(),
+  )
+  assert_eq(model.loop_error, "")
+  assert_true(model.loop_status is Some(_))
+}

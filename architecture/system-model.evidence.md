@@ -27,7 +27,7 @@ literal is. Confidence is **high** unless noted otherwise.
 | `App::adapt` bridges to moonback's `@moonback.Handler` | `backend/app.mbt:109-112` | high |
 | Catch-all GET `/*rest` returns JSON 404 | `backend/app.mbt:146` | high |
 | Route conflicts use `fail` (not `raise`) | `backend/app.mbt:141` | high |
-| 39 API routes: pages, entries, sessions, loop, research, society, agent | `backend/api.mbt:19-1141` | high |
+| 39 API routes: pages, entries, sessions, loop, research, society, agent | `backend/api.mbt:19-1241` | high |
 | Database wraps sqlite3.Connection | `backend/database.mbt:26` | high |
 | Schema: `pages` table with 17 columns | `backend/database.mbt:76-88`, `backend/database.mbt:220-244` | high |
 | Schema: 5 more columns for a reader's correction of a page | `backend/database.mbt:220-244` | high |
@@ -53,9 +53,9 @@ correction lives beside them rather than in them.
 
 | Claim | Source | Confidence |
 |-------|--------|------------|
-| Elm-style TEA (Model/Update/View) via rabbita | `frontend/app.mbt:124-1827` | high |
-| Start-up chain: `GET /api/bootstrap`, then `GET /api/loop/status` | `frontend/app.mbt:1821`, `frontend/app.mbt:507` | high |
-| Client-side routing via History API subscription | `frontend/app.mbt:1733` | high |
+| Elm-style TEA (Model/Update/View) via rabbita | `frontend/app.mbt:124-1844` | high |
+| Start-up chain: `GET /api/bootstrap`, then `GET /api/loop/status` | `frontend/app.mbt:1838`, `frontend/app.mbt:507` | high |
+| Client-side routing via History API subscription | `frontend/app.mbt:1750` | high |
 | `slug_of` maps URL path to page slug | `frontend/app.mbt:369` | high |
 | All pages held in memory after first load | `frontend/app.mbt:482` | high |
 | Page struct mirrors backend, decodes JSON totally | `frontend/page.mbt:18-145` | high |
@@ -101,7 +101,7 @@ package imports is written `(transitive)`: none of ours imports it.
 |-----------|---------------|--------|
 | `backend/database_test.mbt` | 8 tests: round-trip, ring order, re-seed idempotency, CJK content, multi-row seed, missing slug, migrate idempotency, navigation | high |
 | `backend/page_correction_test.mbt` | 12 tests: the reader's words reach the page, a correction survives the next seed, one language leaves the other alone, a correction does not move the page, the refusals | high |
-| `frontend/frontend_test.mbt` | 171 tests: slug_of, navigation order, find_page, decode_pages (valid + malformed), ring geometry, ring radius, ring percentages, node colors, and the two languages of every surface | high |
+| `frontend/frontend_test.mbt` | 173 tests: slug_of, navigation order, find_page, decode_pages (valid + malformed), ring geometry, ring radius, ring percentages, node colors, and the two languages of every surface | high |
 
 ## Tools
 

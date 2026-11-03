@@ -707,7 +707,7 @@ MAKED_moonbit/
 │   ├── page.mbt                      # the page, and how it is decoded
 │   ├── logo.mbt                      # the ring
 │   ├── views.mbt                     # the views
-│   └── frontend_test.mbt             # 171 tests
+│   └── frontend_test.mbt             # 173 tests
 ├── cmd/
 │   ├── server/main.mbt               # the web server
 │   ├── mcp/main.mbt                  # the agent's server
@@ -723,7 +723,7 @@ MAKED_moonbit/
 │   └── notes/                        # the corpus the local example names
 │       └── failed-launch.md
 ├── tools/
-│   ├── integration-test.ps1          # 428 checks against a running server
+│   ├── integration-test.ps1          # 437 checks against a running server
 │   ├── mutate-backend.ps1            # 148 mutations of the backend
 │   ├── mutate-frontend.ps1           # 65 mutations of the frontend
 │   ├── mutate-loop.ps1               # 16 mutations of the loop
@@ -785,8 +785,8 @@ fits. Keep the two files next to each other, and set both variables.
 | What | How many | How it is checked |
 |---|---|---|
 | Backend tests | 456 | `moon test --target native backend` |
-| Frontend tests | 171 | `moon test --target js frontend` |
-| Integration checks | 428 | `tools/integration-test.ps1` — against a server that is really running |
+| Frontend tests | 173 | `moon test --target js frontend` |
+| Integration checks | 437 | `tools/integration-test.ps1` — against a server that is really running |
 | Backend mutations | 148 | `tools/mutate-backend.ps1` |
 | Frontend mutations | 65 | `tools/mutate-frontend.ps1` |
 | Loop mutations | 16 | `tools/mutate-loop.ps1` |

@@ -67,7 +67,7 @@ so on the way to the screen.
 
 | rabbita signature | frontend implementation | Source |
 |-------------------|------------------------|--------|
-| `create_state_with_init(init~, update~, subscriptions~)` | `start` as init, `update`, `subscriptions` | `frontend/app.mbt:1812` |
+| `create_state_with_init(init~, update~, subscriptions~)` | `start` as init, `update`, `subscriptions` | `frontend/app.mbt:1829` |
 | `update : (Model, Msg, Emit[Msg]) -> (Model, Cmd)` | `fn update(model, msg, _emit) -> (Model, @cmd.none)` | `frontend/app.mbt:460` |
-| `subscriptions : (Model, Emit[Msg]) -> Sub` | `fn subscriptions(_model, emit) -> @sub.on_url_changed(...)` | `frontend/app.mbt:1732` |
-| `Emit::map : (a -> Msg) -> Emit[a] -> Emit[Msg]` | Used to lift URL and HTTP results into Msg | `frontend/app.mbt:1733` |
+| `subscriptions : (Model, Emit[Msg]) -> Sub` | `fn subscriptions(_model, emit) -> @sub.on_url_changed(...)` | `frontend/app.mbt:1749-1753` |
+| `Emit::map : (a -> Msg) -> Emit[a] -> Emit[Msg]` | Used to lift URL and HTTP results into Msg | `frontend/app.mbt:1750` |
