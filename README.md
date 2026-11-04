@@ -4,7 +4,7 @@
 
 **An adversarial knowledge loop that shows its working.**
 
-Current release: **v0.1.7** — published as [`riantr/MAKED`](https://mooncakes.io/docs/riantr/MAKED@0.1.7) on mooncakes.io.
+Current release: **v0.1.8** — published as [`riantr/MAKED`](https://mooncakes.io/docs/riantr/MAKED@0.1.8) on mooncakes.io.
 
 MAKED is a five-domain ring — **Model → Data → Experience → Attack → Knowledge** — in which
 each domain is the adversarial overcoming of the one before it. The loop is driven by a
@@ -173,7 +173,7 @@ Then add the package you want to your `moon.mod`:
 ```moonbit nocheck
 ///|
 import {
-  "riantr/MAKED/backend@0.1.7" @maked,
+  "riantr/MAKED/backend@0.1.8" @maked,
 }
 ```
 
@@ -778,7 +778,7 @@ fits. Keep the two files next to each other, and set both variables.
 
 ## Development Status
 
-**Current release**: v0.1.7 · **Repository**: <https://github.com/riantr/MAKED>
+**Current release**: v0.1.8 · **Repository**: <https://github.com/riantr/MAKED>
 
 ### Test and gate counts
 

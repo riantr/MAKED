@@ -11,7 +11,7 @@
 
 name = "riantr/MAKED"
 
-version = "0.1.7"
+version = "0.1.8"
 
 license = "MIT"
 

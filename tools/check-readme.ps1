@@ -1626,7 +1626,7 @@ if ($wrongVersion.Count -gt 0) {
 #
 # The "referenced versions" check above reads the versions the document names
 # in the `name@version` form, so the mooncakes link and the package pin are
-# covered by it. The bare `v0.1.7` is not: a release name is not a reference
+# covered by it. The bare `v0.1.8` is not: a release name is not a reference
 # to a module, and a README that names a release the module never had is a
 # README a reader cannot install from.
 #
@@ -1668,8 +1668,8 @@ if ($docReleaseVersions.Count -eq 0) {
 #
 # The README's table of the ready-to-run builds names three files, and the
 # release workflow is what builds them. The names have to be the same: a
-# reader who downloads "maked-0.1.7-linux-x86_64.tar.gz" from a release
-# that carried "maked-0.1.7-linux-amd64.tar.gz" is a reader with a 404.
+# reader who downloads "maked-0.1.8-linux-x86_64.tar.gz" from a release
+# that carried "maked-0.1.8-linux-amd64.tar.gz" is a reader with a 404.
 #
 # The workflow's matrix is the source: each entry says which platform the
 # binary is for and how it is archived, and the asset is the two of them

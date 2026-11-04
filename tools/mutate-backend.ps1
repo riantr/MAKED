@@ -1080,8 +1080,8 @@ $mutations = @(
   @{
     name = 'the version the agent reports drifts from the module'
     file = 'backend/version.mbt'
-    old  = 'pub const MAKED_VERSION : String = "0.1.7"'
-    new  = 'pub const MAKED_VERSION : String = "0.1.8"'
+    old  = 'pub const MAKED_VERSION : String = "0.1.8"'
+    new  = 'pub const MAKED_VERSION : String = "0.1.9"'
   },
   # The discovery document. An agent that reads it has nothing else to go
   # on, so every part of it that can go missing has to be caught.
