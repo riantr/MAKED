@@ -32,16 +32,16 @@ communicate only through the JSON API contract at runtime.
 ### External dependency tree
 
 ```
-moonbitlang/moonback@0.8.9          ← HTTP server framework
-moonbitlang/async@0.22.5            ← Async runtime (fs, http, process)
+moonbitlang/moonback@0.8.10         ← HTTP server framework
+moonbitlang/async@0.22.7            ← Async runtime (fs, http, process)
 moonbit-community/sqlite3@0.2.3     ← SQLite FFI bindings
-moonbit-community/rabbita@0.16.6    ← Elm-style SPA framework
+moonbit-community/rabbita@0.17.0    ← Elm-style SPA framework
 moonbit-community/yaml@0.0.8        ← The mapping table's syntax
-moonbitlang/pdflite@0.4.0           ← Markdown export
-moonbitlang/x@0.5.6                 ← Utility library (transitive)
-riantr/moonbit_doubleML@0.164.15    ← The causal estimate
-riantr/pyroduct@0.1.32              ← The state machine and the collective
-colmugx/mcp@0.18.1                  ← The agent's server
+moonbitlang/pdflite@0.4.1           ← Markdown export
+moonbitlang/x@0.5.7                 ← Utility library (transitive)
+riantr/moonbit_doubleML@0.164.62    ← The causal estimate
+riantr/pyroduct@0.1.35              ← The state machine and the collective
+colmugx/mcp@0.18.2                  ← The agent's server
 ```
 
 ## Change impact analysis

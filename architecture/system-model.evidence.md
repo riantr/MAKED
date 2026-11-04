@@ -78,16 +78,16 @@ correction lives beside them rather than in them.
 
 | Dependency | Version | Used by | Source |
 |-----------|---------|---------|--------|
-| moonbit-community/rabbita | 0.16.6 | frontend, cmd/web | `moon.mod:48` |
+| moonbit-community/rabbita | 0.17.0 | frontend, cmd/web | `moon.mod:48` |
 | moonbit-community/sqlite3 | 0.2.3 | backend | `moon.mod:49` |
 | moonbit-community/yaml | 0.0.8 | backend | `moon.mod:50` |
-| moonbitlang/async | 0.22.5 | backend, cmd/server, cmd/mcp | `moon.mod:51` |
-| moonbitlang/moonback | 0.8.9 | backend, cmd/server | `moon.mod:52` |
-| moonbitlang/pdflite | 0.4.0 | backend | `moon.mod:53` |
-| moonbitlang/x | 0.5.6 | (transitive) | `moon.mod:54` |
-| riantr/moonbit_doubleML | 0.164.15 | backend | `moon.mod:55` |
-| riantr/pyroduct | 0.1.32 | backend | `moon.mod:56` |
-| colmugx/mcp | 0.18.1 | cmd/mcp | `moon.mod:57` |
+| moonbitlang/async | 0.22.7 | backend, cmd/server, cmd/mcp | `moon.mod:51` |
+| moonbitlang/moonback | 0.8.10 | backend, cmd/server | `moon.mod:52` |
+| moonbitlang/pdflite | 0.4.1 | backend | `moon.mod:53` |
+| moonbitlang/x | 0.5.7 | (transitive) | `moon.mod:54` |
+| riantr/moonbit_doubleML | 0.164.62 | backend | `moon.mod:55` |
+| riantr/pyroduct | 0.1.35 | backend | `moon.mod:56` |
+| colmugx/mcp | 0.18.2 | cmd/mcp | `moon.mod:57` |
 
 A package is named in the **Used by** column when its own `moon.pkg` imports
 the dependency, in any of its import blocks: a test import is an import too.

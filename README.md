@@ -23,11 +23,11 @@ Three layers sit on that ring:
 |---|---|
 | **Subject** | One state machine per domain — 34 positions × 8 slots × 272 rules, of which 228 have no way out |
 | **Group** | Group states computed across the domains — Scattered → Converging → Common Tongue → Settled (20 states) |
-| **Society** | The collective as a communicative whole — 13 positions × 8 phases × 28 transitions, from [riantr/pyroduct](https://mooncakes.io/docs/riantr/pyroduct@0.1.32) |
+| **Society** | The collective as a communicative whole — 13 positions × 8 phases × 28 transitions, from [riantr/pyroduct](https://mooncakes.io/docs/riantr/pyroduct@0.1.35) |
 
-The state machine is `riantr/pyroduct@0.1.32`. The front end is
-[rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.16.6), the server is a
-Flask-style micro-framework on [moonback](https://mooncakes.io/docs/moonbitlang/moonback@0.8.9),
+The state machine is `riantr/pyroduct@0.1.35`. The front end is
+[rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.17.0), the server is a
+Flask-style micro-framework on [moonback](https://mooncakes.io/docs/moonbitlang/moonback@0.8.10),
 and the storage is SQLite.
 
 Everything a person would want to change is a **file**: the machine, the table that says what
@@ -887,13 +887,13 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 ## References
 
-- [pyroduct](https://mooncakes.io/docs/riantr/pyroduct@0.1.32) — the state machine, the
+- [pyroduct](https://mooncakes.io/docs/riantr/pyroduct@0.1.35) — the state machine, the
   group states and the collective
-- [rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.16.6) — the single-page
+- [rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.17.0) — the single-page
   front end
-- [moonback](https://mooncakes.io/docs/moonbitlang/moonback@0.8.9) — the HTTP server the
+- [moonback](https://mooncakes.io/docs/moonbitlang/moonback@0.8.10) — the HTTP server the
   micro-framework sits on
-- [moonbit_doubleML](https://mooncakes.io/docs/riantr/moonbit_doubleML@0.164.15) — the
+- [moonbit_doubleML](https://mooncakes.io/docs/riantr/moonbit_doubleML@0.164.62) — the
   causal estimate
 - [Model Context Protocol](https://modelcontextprotocol.io) — the agent's server, version
   2026-07-28

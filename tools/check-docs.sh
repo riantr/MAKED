@@ -2952,13 +2952,13 @@ check_sets "page decoder keys" "$(code_page_decoder_keys)" "$(doc_page_decoder_k
 # the runtime order, which sent a reader looking for the router before the
 # static files -- the opposite of what happens.
 #
-# The rule was read from moonback 0.8.9: module.mbt appends each middleware to
+# The rule was read from moonback 0.8.10: module.mbt appends each middleware to
 # the app's list, middleware.mbt chains that list in declaration order and
 # compose() puts the current middleware in front, and app.mbt gives the chain
 # the router as the handler. The pin is watched, so a different moonback
 # cannot change the answer without the rule being read again.
 
-CHAIN_RULE_MOONBACK="0.8.9"
+CHAIN_RULE_MOONBACK="0.8.10"
 CHAIN_ORDER=""
 CHAIN_MOONBACK_PIN=""
 CHAIN_FLOWS="architecture/flows.md"
@@ -9386,7 +9386,7 @@ fi
 #
 # The dependency a node names is the first line of its label with the version
 # taken off. The two graphs name it the two ways -- the dependency graph says
-# "moonbitlang/x@0.5.6" and the component graph says "x@0.5.6" -- and the
+# "moonbitlang/x@0.5.7" and the component graph says "x@0.5.7" -- and the
 # tree knows both.
 #
 # Who owns the claim depends on what the tail of the edge is:
@@ -13504,7 +13504,7 @@ fi
 # --- the pins the graphs state -------------------------------------------------
 #
 # The component graph and the dependency graph both write the version of the
-# packages the project leans on: sqlite3@0.2.3, moonback@0.8.9 and the rest.
+# packages the project leans on: sqlite3@0.2.3, moonback@0.8.10 and the rest.
 # The dependency graph was held to the tree: the "graph pins" gate asks that the
 # set of pins it states is the set the manifests pin, both ways.  The component
 # graph was held to nothing.  It states nine pins, and no gate read them.

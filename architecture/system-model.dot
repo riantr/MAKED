@@ -75,15 +75,15 @@ digraph maked_components {
     color="#999999"
     node [shape=component, fillcolor="#e8e8e8"]
 
-    moonback [label="moonback@0.8.9\nHTTP server + router\nmoonback/middlewares/unstable_static"]
+    moonback [label="moonback@0.8.10\nHTTP server + router\nmoonback/middlewares/unstable_static"]
     sqlite3  [label="sqlite3@0.2.3\nSQLite FFI"]
     yaml     [label="yaml@0.0.8\nThe machine files"]
-    async    [label="async@0.22.5\nasync/fs, async/http,\nasync/io, async/stdio"]
-    rabbita  [label="rabbita@0.16.6\nrabbita/cmd, rabbita/html,\nrabbita/http, rabbita/nav,\nrabbita/sub, rabbita/svg,\nrabbita/url"]
-    pdflite  [label="pdflite@0.4.0\npdflite/markdown"]
-    doubleml [label="moonbit_doubleML@0.164.15\nThe regression the\nloop reports"]
-    pyroduct [label="pyroduct@0.1.32\npyroduct/group, pyroduct/society,\npyroduct/src"]
-    mcpsdk   [label="mcp@0.18.1\nmcp/protocol/tool,\nmcp/protocol/types,\nmcp/runtime"]
+    async    [label="async@0.22.7\nasync/fs, async/http,\nasync/io, async/stdio"]
+    rabbita  [label="rabbita@0.17.0\nrabbita/cmd, rabbita/html,\nrabbita/http, rabbita/nav,\nrabbita/sub, rabbita/svg,\nrabbita/url"]
+    pdflite  [label="pdflite@0.4.1\npdflite/markdown"]
+    doubleml [label="moonbit_doubleML@0.164.62\nThe regression the\nloop reports"]
+    pyroduct [label="pyroduct@0.1.35\npyroduct/group, pyroduct/society,\npyroduct/src"]
+    mcpsdk   [label="mcp@0.18.2\nmcp/protocol/tool,\nmcp/protocol/types,\nmcp/runtime"]
   }
 
   // --- Backend edges ---
