@@ -963,17 +963,27 @@ $mutations = @(
     old  = '    "steps_taken": path.length(),'
     new  = '    "steps_taken": 0,'
   },
+  # The export answers with an enum now -- `Exported`, `NoSession`,
+  # `UnknownFormat` -- so a refusal is a value the caller matches on instead
+  # of a payload that carries an error string.  The anchors below are the
+  # lines that carry the behaviour now: the format the answer claims, the
+  # refusal the answer gives, and the language the answer is written in.
+  #
+  # An anchor at a shape the code has left behind applies to nothing, and a
+  # mutation that applies to nothing is reported as a survivor.  The checker
+  # calls that a dead anchor, which is the right word: the guard was pointing
+  # at air and the suite stayed green.
   @{
     name = 'the json export is labelled as markdown'
     file = 'backend/agent.mbt'
-    old  = '    { "format": "json", "the_exploration": export_json(db, session, lang) }'
-    new  = '    { "format": "markdown", "the_exploration": export_json(db, session, lang) }'
+    old  = '        "format": "json",'
+    new  = '        "format": "markdown",'
   },
   @{
     name = 'an exploration that does not exist is not refused'
     file = 'backend/agent.mbt'
-    old  = '        "error": "there is no exploration with that id",'
-    new  = '        "error": "",'
+    old  = '    None => return NoSession(session_id)'
+    new  = '    None => return Exported(Json::empty_object())'
   },
   # The step, which the panel and the agent's tools share.
   @{
@@ -1267,8 +1277,8 @@ $mutations = @(
   @{
     name = 'the agent''s export is in English'
     file = 'backend/agent.mbt'
-    old  = '    { "format": "json", "the_exploration": export_json(db, session, lang) }'
-    new  = '    { "format": "json", "the_exploration": export_json(db, session, Lang::english()) }'
+    old  = '        "the_exploration": export_json(db, session, lang),'
+    new  = '        "the_exploration": export_json(db, session, Lang::english()),'
   },
   # --- the pages -------------------------------------------------------------
   #
@@ -1283,17 +1293,24 @@ $mutations = @(
   # route that hands it the language is pinned by the integration suite, which
   # asks the running server over HTTP; a mutation at the route itself is a
   # mutation nothing in this battery can catch.
+  #
+  # The title and the body are anchored at the pick and not at the field that
+  # carries it.  A page that has been corrected carries the correction
+  # instead, so `Page::to_json` chooses between the page's own words and the
+  # correction before it writes either, and the field holds a local.  An
+  # anchor at the field names a shape the code no longer has, and an anchor
+  # that names nothing applies to nothing.
   @{
     name = 'the page body stays in English'
     file = 'backend/pages.mbt'
-    old  = '    "body": lang.pick(self.body, self.body_zh),'
-    new  = '    "body": self.body,'
+    old  = '    lang.pick(self.body, self.body_zh)'
+    new  = '    self.body'
   },
   @{
     name = 'the page title stays in English'
     file = 'backend/pages.mbt'
-    old  = '    "title": lang.pick(self.title, self.title_zh),'
-    new  = '    "title": self.title,'
+    old  = '    lang.pick(self.title, self.title_zh)'
+    new  = '    self.title'
   },
   @{
     name = 'the page role stays in English'

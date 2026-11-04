@@ -30,7 +30,7 @@ TOTAL=0
 # the domains are the model's now, written down in backend/model.mbt as data --
 # so five of the ten anchors here matched nothing at all.
 #
-# Two traps this script already hit, both of which look like a weak test and
+# Three traps this script already hit, all of which look like a weak test and
 # are not:
 #
 #   - An anchor that does not occur in the file. `sed` succeeds when it
@@ -41,6 +41,14 @@ TOTAL=0
 #   - A single-quoted pattern containing a backtick. The backtick is literal
 #     there, so the anchor silently never matches. Quote anchors that contain
 #     a backtick with double quotes instead.
+#   - A pattern that spans two lines. `grep` matches one line at a time and
+#     `sed` reads its script one line at a time, so a pattern with a newline
+#     in it can never match, and a replacement with one is a second sed
+#     command rather than a replacement. The anchor check catches it -- the
+#     mutation is reported as an ERROR, not as a survivor -- but the mutation
+#     has to be written as the LINE it changes. The one that spanned two lines
+#     was the built-in table's first rule, whose keywords and slot are on
+#     separate lines; the anchor is the slot line now.
 
 mutate_and_test() {
   local desc="$1"
@@ -148,13 +156,18 @@ mutate_and_test \
 # that says the wrong slot. The built-in table's first rule is the claim of
 # superiority, and it drives the feedback slot.
 echo "  Mutation: the mapping table's first rule"
+# The anchor is the slot line and not the pair of lines that name the rule,
+# because a pattern cannot span two lines here. `sed` replaces every match
+# on a line, so the anchor reaches the table's second feedback rule as well,
+# and the mutation is caught by two tests rather than one: "the built-in
+# table maps a claim of superiority to feedback" and "the built-in table maps
+# a reported failure to feedback".  That is worth knowing rather than
+# hiding: the table's rules are pinned one by one, and this mutation says so.
 mutate_and_test \
   "the built-in table's first rule drives the wrong slot" \
   "backend/research_config.mbt" \
-  '      keywords: ["state-of-the-art", "outperform", "sota"],
-      slot: "feedback",' \
-  '      keywords: ["state-of-the-art", "outperform", "sota"],
-      slot: "act",'
+  '      slot: "feedback",' \
+  '      slot: "act",'
 
 # ---------------------------------------------------------------------------
 # Mutation 6: Change causal threshold
