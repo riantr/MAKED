@@ -1,11 +1,11 @@
 # typos configuration
 #
 # `Check typos` is the gate that has actually stopped a release on this account
-# before, so it is worth writing down why the one word this project needs to
-# whitelist is the project's own name.
+# before, so it is worth writing down why the words this project needs to
+# whitelist are the ones below.
 #
 # `maked` is not a misspelling of "marked"/"made"/"makes" here. It is the
-# project name, and it appears in 281 places across the repository:
+# project name, and it appears 4275 times across 107 files in the repository:
 #
 #   - the MoonBit package alias `@maked` (backend/moon.pkg, cmd/server/moon.pkg)
 #   - the CSS class prefix `.maked-*` in frontend/dist/styles.css, which is
@@ -17,9 +17,28 @@
 #
 # Without this entry `typos` exits non-zero and blocks the publish step.
 #
-# This is deliberately the ONLY word in this file. A real typo should fail the
-# gate and be fixed, not quietly appended here. If a second project-specific
-# word ever needs whitelisting, it belongs in this file with the reason stated.
+# The other two entries are not project vocabulary at all. They are constructs
+# of the languages the gates are written in, and a dictionary that does not
+# know them reads them as misspellings:
+#
+#   - `ccontains` is PowerShell's case-sensitive "contains" operator, used 93
+#     times across the PowerShell twins of the document gates
+#     (tools/check-docs.ps1 and tools/check-readme.ps1). The twins have to
+#     agree with the bash ones exactly, and case matters there, so the
+#     case-SENSITIVE operator is the one they need.
+#   - `lits` is a local variable holding the literal tokens of a line, in the
+#     bash and the PowerShell document gates. It is a short name for
+#     "literals", and it is the same word in both twins.
+#
+# The CI publish job pins typos v1.19.0, which predates the check that finds
+# the last two, so CI has never seen them. The local typos is newer, and a
+# gate that cannot be run locally is a gate that is not run at all: these two
+# entries make the local run agree with the CI one, so a release can be
+# checked before the tag instead of only after it.
+#
+# A real typo should fail the gate and be fixed, not quietly appended here. If
+# another word ever needs whitelisting, it belongs in this file with the reason
+# stated.
 #
 # `extend-words` maps the word to itself, which teaches the dictionary that this
 # spelling is intentional. It applies case-insensitively, so both `maked` and
@@ -27,3 +46,5 @@
 
 [default.extend-words]
 maked = "maked"
+ccontains = "ccontains"
+lits = "lits"
