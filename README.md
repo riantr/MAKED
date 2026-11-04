@@ -2,6 +2,10 @@
 
 ![maked](maked.png)
 
+[![mooncakes](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fmooncakes.io%2Fapi%2Fv0%2Fmodules%2Friantr%2FMAKED&query=%24.version&label=mooncakes&prefix=v)](https://mooncakes.io/docs/riantr/MAKED)
+[![release](https://img.shields.io/github/v/release/riantr/MAKED)](https://github.com/riantr/MAKED/releases)
+[![license](https://img.shields.io/github/license/riantr/MAKED)](LICENSE)
+
 **An adversarial knowledge loop that shows its working.**
 
 Current release: **v0.1.8** — published as [`riantr/MAKED`](https://mooncakes.io/docs/riantr/MAKED@0.1.8) on mooncakes.io.
@@ -160,7 +164,7 @@ The server and the agent's server are executables in this repository rather
 than packages, because they are applications: they open a database and they
 listen on a port.
 
-## Installation
+## Install
 
 ### As a MoonBit package
 
@@ -218,7 +222,144 @@ Unpack it, run the executable in that directory, and open <http://127.0.0.1:8080
 `RUN.txt` inside the archive says the same thing. Downloads:
 <https://github.com/riantr/MAKED/releases>
 
-## Command-Line Usage
+### What the release was checked on
+
+`moon 0.1.20261102` (`moonc v0.10.19`) — the toolchain this tree is written
+against, and the one every number in this file was measured on.
+
+The workflow installs the toolchain from the official install script, which
+serves the **current** release, so the runner's version moves with it. The
+tree and the toolchain move together: when upstream changed the spelling of
+`derive`, the tree was reformatted to the new one rather than pinned to the
+old, because a pinned toolchain is not installable — the release server
+publishes `latest` and `nightly`, and every versioned path answers 403.
+
+That is the toolchain this release was **verified** against, not a tested
+**minimum**: no older toolchain has been exercised here, and quoting a lower
+bound nobody ran would be a claim, not a fact.
+
+The release is checked by six jobs, and the same six run on every push:
+
+| Job | What it does |
+|---|---|
+| `Test` | the backend and the frontend suites |
+| `Gates` | the formatter, the mutation anchors, the typos gate, and the two document gates |
+| `Build (native)` | the server and the agent's server, released |
+| `Build (js)` | the browser bundle |
+| `Integration` | the suite against a server that is really running |
+| `Container` | the image, pushed to `ghcr.io/riantr/maked` |
+
+The dependencies were checked against the registry **before** the release, not
+after: eight of them moved to their newest published versions, the whole gate
+suite was run again with them, and this file was written afterwards. A release
+measured against an older pin is a release measured against something nobody
+ships.
+
+### What changed in 0.1.8
+
+Five changes, and **none of them breaks the published surface**:
+
+- **The tree moved to the toolchain CI installs.** Upstream MoonBit shipped a
+  release, and the formatter began to ask for a new spelling of `derive` — an
+  attribute above the type rather than a clause on the closing brace. Fifty-
+  eight types across ten backend files wanted to move, and the Gates job went
+  red on a tree nobody had touched. The tree was reformatted with the current
+  toolchain and the thirty-nine line claims the documents make were re-anchored
+  to the lines the tree now holds.
+- **The container builds the tree it is holding.** The toolchain was
+  installed *before* the source was copied, so that layer was a cache hit and
+  the image compiled today's tree with the compiler that was current when the
+  cache was filled. It is installed after the source now, so the compiler in
+  the image is always the one that built the source in it.
+- **Eight dependencies moved to their latest published versions** — rabbita,
+  async, moonback, pdflite, x, moonbit_doubleML, pyroduct and the MCP package
+  — and the chain rule that reads moonback's middleware order was re-read
+  rather than assumed to carry over.
+- **Six guards that had stopped guarding were repointed.** An anchor is the
+  line a mutation is applied to; six of them named a shape the code had left
+  behind, so those mutations were never made and the suites reported a
+  survivor that was really a claim about nothing. Each of the six was proved by
+  breaking it on its own, and the 229 anchors are alive with none of them dead.
+- **The typos gate runs.** It had stopped this account before, and it could
+  not be run locally: the local typos is older than the version CI pins, and
+  the newer one knows two words the older one does not — `ccontains`,
+  PowerShell's case-sensitive contains operator, and `lits`, a local variable
+  holding a line's literals. Neither is a misspelling, so both are
+  whitelisted with the reason stated.
+
+### Packages and targets
+
+The module holds two packages and three executables. The **packages** are
+libraries and are imported by name; the **executables** are applications and
+are run.
+
+| Package | Target | What it is |
+|---|---|---|
+| `riantr/MAKED/backend` | native | the loop, the API and the storage |
+| `riantr/MAKED/frontend` | js | the single-page app |
+
+| Executable | Target | What it is |
+|---|---|---|
+| `cmd/server` | native | the API and the browser app in one process |
+| `cmd/mcp` | native | the agent's server, over stdio or HTTP |
+| `cmd/web` | js | the browser bundle |
+
+A module dependency and a package dependency are two different things, and the
+toolchain is strict about it. `moon.mod` names the **module** and pins the
+version it resolved; `moon.pkg` names the **package** inside a module and takes
+**no version at all**. A version in a `moon.pkg` import is not a newer
+spelling — it is an import the toolchain cannot find:
+
+```
+Cannot find import 'riantr/MAKED/backend@0.1.8' in my/app
+```
+
+For the same reason there is no `@latest`: the version is parsed as semver, so
+`latest`, `^0.1.8`, `>=0.1.8` and `v0.1.8` are all rejected. A bare
+`moon add riantr/MAKED` resolves the newest release and pins the concrete
+version it found — that is the "latest" this toolchain has.
+
+## The five domains
+
+The ring has five domains and each one is the adversarial overcoming of the one
+before it. The order is **M → D → E → A → K**, and the loop runs it as a ring
+rather than a line: the starting domain is one request away from any other.
+
+| Letter | Domain | What it holds |
+|---|---|---|
+| M | Model | the machine: the rules that say what may move where |
+| D | Data | the corpus, and the mapping table that says what a document means |
+| E | Experience | the runs: the explorations, their steps and their measures |
+| A | Attack | the question the loop cannot answer, and the refusals it returns |
+| K | Knowledge | what the ring has worked out, and what it writes down |
+
+Each domain is a state machine of its own, and they initialise independently:
+the pointer moves, the states do not reset. Whether a slot can push a position
+is answered by the **transition table** and never by a hard-coded guess, and a
+position the table cannot move is reported as blocked rather than silently
+skipped. Of the 272 position/slot pairs, 228 are `Block`, and the loop says so
+in words rather than pretending to move.
+
+Three layers sit on that ring:
+
+| Layer | What it is |
+|---|---|
+| **Subject** | one state machine per domain — the machine the loop runs on |
+| **Group** | the group states computed across the domains — Scattered → Converging → Common Tongue → Settled |
+| **Society** | the collective: its own vocabulary file, its own phases and its own moves |
+
+The collective's words are a file (`MAKED_SOCIETY`), not a string in the
+binary, and a vocabulary that names a position the machine does not have is a
+gap the panel reports out loud.
+
+The mark draws the same five letters, clockwise from the top: M at the top, D
+at the right, E at the lower right, A at the lower left and K at the upper
+left. The browser app draws it as SVG rather than as a bitmap, so it scales
+and themes with the rest of the site.
+
+## Running it
+
+### Command line
 
 ```bash
 # The web server: the API and the browser app, one process.
@@ -238,78 +379,6 @@ type-checks the backend, runs every test, and builds the server:
 .\build.ps1
 moon run --release --target native cmd/server
 ```
-
-## Quick Start
-
-### Run the loop
-
-```bash
-docker compose up --build
-```
-
-Open <http://127.0.0.1:8080/>. The panel shows where the loop stands, what the last move
-did in words, and which slots the table offers from here. Take a move, and the run is written
-down — every step with the reason it was possible.
-
-### Run it from another agent
-
-The short version:
-
-```bash
-curl -s http://127.0.0.1:8080/api/agent
-```
-
-That is the discovery document: the seven tools with their argument schemas, the
-instructions for calling them, the plain HTTP endpoints that ask the same questions, and the
-four files MAKED runs on. An agent that reads it needs nothing else.
-
-MAKED also speaks the Model Context Protocol, version **2026-07-28**. Build the agent's
-server and point your agent at it:
-
-```bash
-moon build --release --target native cmd/mcp
-```
-
-```json
-{
-  "mcpServers": {
-    "maked": {
-      "command": "/path/to/MAKED_moonbit/_build/native/release/build/cmd/mcp/mcp.exe"
-    }
-  }
-}
-```
-
-The agent's server speaks stdio by default; set `MAKED_MCP_PORT` and it speaks HTTP
-instead, on the port you name.
-
-> The agent's server is **not** in the published release artifacts yet — those carry the
-> web server and the browser bundle. It is built from this repository, and it will join the
-> release when it is worth shipping.
-
-Two things about this protocol version are worth knowing before you wire it up:
-
-- **There is no handshake.** `initialize` is not a method in 2026-07-28; the server answers
-  it with `-32601 Method not found`. The entry point is `server/discover`.
-- **Every request carries its own version.** Each request's `params._meta` must contain
-  `io.modelcontextprotocol/protocolVersion` (a string) and
-  `io.modelcontextprotocol/clientCapabilities` (an object). A request without them is
-  refused with `-32602`.
-
-Over HTTP there are two more: the `MCP-Protocol-Version: 2026-07-28` header, and an
-`Mcp-Method: <method>` header naming the method the body carries.
-
-### Write a machine of your own
-
-```bash
-MAKED_MODEL=models/product-iteration.json \
-MAKED_RESEARCH=research/product-iteration.yaml \
-moon run --release --target native cmd/server
-```
-
-The loop now runs on *your* domains, positions and slots — and the table is read against
-*your* machine, so a rule that names a slot your machine does not have is refused at
-start-up rather than ignored.
 
 ## API Reference
 
@@ -515,7 +584,281 @@ Apart from that, the rules are these:
 - **A vocabulary that names a position the collective does not have is a gap.** The gaps are
   reported, in the panel and in the API.
 
-## Examples
+## Project Structure
+
+```
+MAKED_moonbit/
+├── backend/                          # the loop, the API and the storage (native)
+│   ├── model.mbt                     # the machine: domains, positions, slots, rules
+│   ├── loop.mbt                      # the subject loop and the group states
+│   ├── society.mbt                   # the collective
+│   ├── step.mbt                      # one step, shared by the API and the agent
+│   ├── agent.mbt                     # the agent's payloads, in sentences, and the discovery document
+│   ├── bootstrap.mbt                 # the start-up: plan → read → install
+│   ├── version.mbt                   # the version the agent reports
+│   ├── api.mbt                       # every HTTP route
+│   ├── app.mbt                       # the Flask-style app: the route table and the middleware chain
+│   ├── maked_app.mbt                 # the app, assembled
+│   ├── request.mbt                   # the request wrapper
+│   ├── response.mbt                  # the response helpers
+│   ├── pages.mbt                     # the content model, and the ten public pages
+│   ├── entries.mbt                   # the workspace: the things the reader brings
+│   ├── research_config.mbt           # the mapping table
+│   ├── research.mbt                  # what a document means
+│   ├── corpus.mbt                    # the corpus
+│   ├── corpus_sources.mbt            # where the documents come from: arxiv, a feed, a folder
+│   ├── datafile.mbt                  # a file that may be JSON or YAML
+│   ├── causal.mbt                    # the causal estimate
+│   ├── narration.mbt                 # the sentences
+│   ├── i18n.mbt                      # the language switch
+│   ├── export_words.mbt              # the exported document's words, in both languages
+│   ├── metrics.mbt                   # the measures, in both languages
+│   ├── session.mbt                   # explorations, timelines, exports
+│   ├── database.mbt                  # SQLite
+│   ├── *_test.mbt                    # 447 tests
+│   └── *_wbtest.mbt                  # 16 tests
+├── frontend/                         # the single-page app (js)
+│   ├── app.mbt                       # the TEA loop and the messages
+│   ├── i18n.mbt                      # the words the client owns
+│   ├── loop_state.mbt                # the loop's state, and why a step may do nothing
+│   ├── society.mbt                   # the society panel
+│   ├── session.mbt                   # the explorations panel
+│   ├── entries.mbt                   # the workspace panel
+│   ├── causal.mbt                    # the causal panel
+│   ├── page.mbt                      # the page, and how it is decoded
+│   ├── logo.mbt                      # the ring
+│   ├── views.mbt                     # the views
+│   └── frontend_test.mbt             # 173 tests
+├── cmd/
+│   ├── server/main.mbt               # the web server
+│   ├── mcp/main.mbt                  # the agent's server
+│   └── web/main.mbt                  # the browser bundle
+├── models/                           # example machines
+│   ├── product-iteration.json
+│   └── product-iteration.yaml
+├── research/                         # example tables, corpora and vocabularies
+│   ├── product-iteration.yaml
+│   ├── society.yaml
+│   ├── corpus-arxiv.yaml
+│   ├── corpus-local.yaml
+│   └── notes/                        # the corpus the local example names
+│       └── failed-launch.md
+├── tools/
+│   ├── integration-test.ps1          # 447 checks against a running server
+│   ├── mutate-backend.ps1            # 148 mutations of the backend
+│   ├── mutate-frontend.ps1           # 65 mutations of the frontend
+│   ├── mutate-loop.ps1               # 16 mutations of the loop
+│   ├── check-mutation-anchors.ps1    # 229 anchors, and whether any is dead
+│   ├── check-readme.ps1              # the claims this document states, against the tree
+│   ├── check-readme.sh               # the same gate, in bash
+│   ├── check-docs.ps1                # the other documents' claims, against the tree
+│   └── check-docs.sh                 # the same gate, in bash
+├── .githooks/                        # the pre-commit hook, and the note beside it
+│   ├── pre-commit                    # the hook itself
+│   └── README.md                     # what it runs, and how to install it
+├── AGENT.md                         # how to drive MAKED from another agent
+├── AGENTS.md                        # how to work on MAKED
+├── LOGO.jpeg                        # an alternate mark of the same five domains
+├── maked.png                        # the logo, at the size the README shows it
+├── maked_Logo.png                   # the same mark, at full resolution
+├── moon.mod  moon.pkg
+├── build.ps1                         # build the bundle, check, test, build the server
+├── ci.sh                             # 18 gates
+└── Dockerfile  docker-compose.yml
+```
+
+## Usage Tips
+
+### Start the loop anywhere
+
+The loop may start at any domain; the starting domain is one request away:
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/loop/reset/knowledge
+```
+
+The five domains are `model`, `data`, `experience`, `attack` and `knowledge`. Each domain's
+state machine initialises independently — only the pointer moves.
+
+### Ask before you move
+
+`GET /api/loop/status` carries the slots that are open from where the loop stands, and
+`GET /api/loop/continuations` tells you what the machine says could happen next and how
+far away it is. The same information in one place, with the reason each slot cannot move,
+is what the agent gets from `maked_options`.
+
+### Read the run as numbers
+
+Every session carries five measures: `New ground`, `Settling`, `Slots used`, `Domains visited`
+and `Positions covered`. They are reported together with the comparison of the last window of
+steps against the first, so a measure can be checked rather than believed.
+
+### Keep the table and the machine together
+
+A machine of your own has slots of your own, and the built-in table names slots it does not
+have. MAKED says so at start-up — but the panel stays quiet until you give it a table that
+fits. Keep the two files next to each other, and set both variables.
+
+## Common Pitfalls and Best Practices
+
+### ✅ DO:
+
+1. **Give the machine and the table together.** A table whose rules name slots the running
+   machine does not have is refused at start-up, on purpose.
+
+   ```bash
+   MAKED_MODEL=models/product-iteration.json \
+   MAKED_RESEARCH=research/product-iteration.yaml \
+   moon run --release --target native cmd/server
+   ```
+
+2. **Ask what the table offers before taking a move.** `maked_options` lists the slots that
+   can move and the ones that cannot, and says why. A slot with no road out of a position is
+   not a failure of the caller.
+
+3. **Let an undecided branch stay undecided.** When the table offers several successors and
+   none is preferred, take the target as an argument rather than picking one for the
+   subject.
+
+4. **Read a refusal as an answer.** A refused request comes back with the reason, in words,
+   and names the thing that was asked for.
+
+### ❌ DON'T:
+
+1. **Don't treat the ring order as evidence that anything moved.** The ring order
+   M → D → E → A → K is the order the logo draws. It is presentation, not state.
+
+2. **Don't mix the protocols on one stream.** The agent's server speaks MCP on stdout.
+   Diagnostics belong on stderr — a line of prose in the middle of a protocol stream is a
+   line the client cannot parse, and the reason MAKED refused to start is lost in the noise.
+
+3. **Don't read a file you cannot read whole.** MAKED refuses a file it cannot read rather
+   than half-reading it, and the start-up stops. Keep that: a half-read machine answers
+   every request confidently and wrongly.
+
+4. **Don't hand a table to a machine it does not fit.** A rule that names a slot the
+   machine does not have is a rule about nowhere, and reading it would mean inventing a slot
+   to hold it.
+
+## Roadmap
+
+- [x] The five-domain ring, with the drive slots taken from the transition table
+- [x] The machine as a file
+- [x] The mapping table as a file
+- [x] The corpus as a file
+- [x] The collective, and its words as a file
+- [x] Causal estimates that report what they rest on
+- [x] Explorations: replay, branch, rename, export
+- [x] The agent's server — Model Context Protocol over stdio and HTTP
+- [x] A discovery document at `GET /api/agent`, for agents that do not speak MCP
+- [x] A Chinese front end
+- [x] The measures and the exported document in two languages
+- [x] The pages in two languages, and no longer describing a program that is not this one
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new behaviour
+4. Ensure all gates pass with `bash ci.sh`
+5. Submit a pull request
+
+The contributor's guide is [AGENTS.md](AGENTS.md): what the gates check, how the mutation
+batteries work, and the pre-commit hook.
+
+The gates that matter most are the two that check the tests themselves: `moon fmt --check`
+(the formatter rewrites the source, and a mutation anchor that pointed at a line the
+formatter has since re-wrapped stops matching — the mutation then never happens and the
+suite reports a survivor that is really a claim about nothing), and
+`tools/check-mutation-anchors.ps1` (an anchor that does not occur in the file is a guard
+that cannot fail).
+
+Contributions should keep the three rules that the rest of the project rests on: a file that
+cannot be read is refused rather than half-read; a rule that names a slot the machine does
+not have is refused; and an answer that is a refusal says why, in words.
+
+## Quick Start
+
+Two ways in: the loop in a browser, and the agent's server over the Model
+Context Protocol. Both are the same machine; the second one just speaks the
+protocol an agent speaks.
+
+### Run the loop
+
+```bash
+docker compose up --build
+```
+
+Open <http://127.0.0.1:8080/>. The panel shows where the loop stands, what the last move
+did in words, and which slots the table offers from here. Take a move, and the run is written
+down — every step with the reason it was possible.
+
+### Run it from another agent
+
+The short version:
+
+```bash
+curl -s http://127.0.0.1:8080/api/agent
+```
+
+That is the discovery document: the seven tools with their argument schemas, the
+instructions for calling them, the plain HTTP endpoints that ask the same questions, and the
+four files MAKED runs on. An agent that reads it needs nothing else.
+
+MAKED also speaks the Model Context Protocol, version **2026-07-28**. Build the agent's
+server and point your agent at it:
+
+```bash
+moon build --release --target native cmd/mcp
+```
+
+```json
+{
+  "mcpServers": {
+    "maked": {
+      "command": "/path/to/MAKED_moonbit/_build/native/release/build/cmd/mcp/mcp.exe"
+    }
+  }
+}
+```
+
+The agent's server speaks stdio by default; set `MAKED_MCP_PORT` and it speaks HTTP
+instead, on the port you name.
+
+> The agent's server is **not** in the published release artifacts yet — those carry the
+> web server and the browser bundle. It is built from this repository, and it will join the
+> release when it is worth shipping.
+
+Two things about this protocol version are worth knowing before you wire it up:
+
+- **There is no handshake.** `initialize` is not a method in 2026-07-28; the server answers
+  it with `-32601 Method not found`. The entry point is `server/discover`.
+- **Every request carries its own version.** Each request's `params._meta` must contain
+  `io.modelcontextprotocol/protocolVersion` (a string) and
+  `io.modelcontextprotocol/clientCapabilities` (an object). A request without them is
+  refused with `-32602`.
+
+Over HTTP there are two more: the `MCP-Protocol-Version: 2026-07-28` header, and an
+`Mcp-Method: <method>` header naming the method the body carries.
+
+### Write a machine of your own
+
+```bash
+MAKED_MODEL=models/product-iteration.json \
+MAKED_RESEARCH=research/product-iteration.yaml \
+moon run --release --target native cmd/server
+```
+
+The loop now runs on *your* domains, positions and slots — and the table is read against
+*your* machine, so a rule that names a slot your machine does not have is refused at
+start-up rather than ignored.
+
+## Example
+
+Every one of these is a file you write yourself, and every one of them is
+refused when it does not fit the machine it is run against — which is the
+point: a table that names a slot the running machine does not have is a rule
+about nowhere.
 
 ### A machine of your own
 
@@ -663,122 +1006,25 @@ $ curl -s http://127.0.0.1:8735/mcp \
     -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}'
 ```
 
-## Project Structure
+## Gates and drift detectors
 
-```
-MAKED_moonbit/
-├── backend/                          # the loop, the API and the storage (native)
-│   ├── model.mbt                     # the machine: domains, positions, slots, rules
-│   ├── loop.mbt                      # the subject loop and the group states
-│   ├── society.mbt                   # the collective
-│   ├── step.mbt                      # one step, shared by the API and the agent
-│   ├── agent.mbt                     # the agent's payloads, in sentences, and the discovery document
-│   ├── bootstrap.mbt                 # the start-up: plan → read → install
-│   ├── version.mbt                   # the version the agent reports
-│   ├── api.mbt                       # every HTTP route
-│   ├── app.mbt                       # the Flask-style app: the route table and the middleware chain
-│   ├── maked_app.mbt                 # the app, assembled
-│   ├── request.mbt                   # the request wrapper
-│   ├── response.mbt                  # the response helpers
-│   ├── pages.mbt                     # the content model, and the ten public pages
-│   ├── entries.mbt                   # the workspace: the things the reader brings
-│   ├── research_config.mbt           # the mapping table
-│   ├── research.mbt                  # what a document means
-│   ├── corpus.mbt                    # the corpus
-│   ├── corpus_sources.mbt            # where the documents come from: arxiv, a feed, a folder
-│   ├── datafile.mbt                  # a file that may be JSON or YAML
-│   ├── causal.mbt                    # the causal estimate
-│   ├── narration.mbt                 # the sentences
-│   ├── i18n.mbt                      # the language switch
-│   ├── export_words.mbt              # the exported document's words, in both languages
-│   ├── metrics.mbt                   # the measures, in both languages
-│   ├── session.mbt                   # explorations, timelines, exports
-│   ├── database.mbt                  # SQLite
-│   ├── *_test.mbt                    # 447 tests
-│   └── *_wbtest.mbt                  # 16 tests
-├── frontend/                         # the single-page app (js)
-│   ├── app.mbt                       # the TEA loop and the messages
-│   ├── i18n.mbt                      # the words the client owns
-│   ├── loop_state.mbt                # the loop's state, and why a step may do nothing
-│   ├── society.mbt                   # the society panel
-│   ├── session.mbt                   # the explorations panel
-│   ├── entries.mbt                   # the workspace panel
-│   ├── causal.mbt                    # the causal panel
-│   ├── page.mbt                      # the page, and how it is decoded
-│   ├── logo.mbt                      # the ring
-│   ├── views.mbt                     # the views
-│   └── frontend_test.mbt             # 173 tests
-├── cmd/
-│   ├── server/main.mbt               # the web server
-│   ├── mcp/main.mbt                  # the agent's server
-│   └── web/main.mbt                  # the browser bundle
-├── models/                           # example machines
-│   ├── product-iteration.json
-│   └── product-iteration.yaml
-├── research/                         # example tables, corpora and vocabularies
-│   ├── product-iteration.yaml
-│   ├── society.yaml
-│   ├── corpus-arxiv.yaml
-│   ├── corpus-local.yaml
-│   └── notes/                        # the corpus the local example names
-│       └── failed-launch.md
-├── tools/
-│   ├── integration-test.ps1          # 447 checks against a running server
-│   ├── mutate-backend.ps1            # 148 mutations of the backend
-│   ├── mutate-frontend.ps1           # 65 mutations of the frontend
-│   ├── mutate-loop.ps1               # 16 mutations of the loop
-│   ├── check-mutation-anchors.ps1    # 229 anchors, and whether any is dead
-│   ├── check-readme.ps1              # the claims this document states, against the tree
-│   ├── check-readme.sh               # the same gate, in bash
-│   ├── check-docs.ps1                # the other documents' claims, against the tree
-│   └── check-docs.sh                 # the same gate, in bash
-├── .githooks/                        # the pre-commit hook, and the note beside it
-│   ├── pre-commit                    # the hook itself
-│   └── README.md                     # what it runs, and how to install it
-├── AGENT.md                         # how to drive MAKED from another agent
-├── AGENTS.md                        # how to work on MAKED
-├── LOGO.jpeg                        # an alternate mark of the same five domains
-├── maked.png                        # the logo, at the size the README shows it
-├── maked_Logo.png                   # the same mark, at full resolution
-├── moon.mod  moon.pkg
-├── build.ps1                         # build the bundle, check, test, build the server
-├── ci.sh                             # 18 gates
-└── Dockerfile  docker-compose.yml
-```
+`moon fmt --check`, the two `moon check` targets, the backend and the frontend
+suites, and `typos` on the prose are the baseline. The rest run on top of that,
+because a green suite says nothing about a claim written in prose:
 
-## Usage Tips
+| Detector | Catches |
+|---|---|
+| `tools/check-readme.sh` and `tools/check-readme.ps1` | a number, a listing or a path this file states and the tree does not have |
+| `tools/check-docs.sh` and `tools/check-docs.ps1` | the same, for the architecture documents, their graphs and their evidence tables |
+| `tools/check-mutation-anchors.ps1` | an anchor that names a line the code has left behind — a guard that cannot fail, and a survivor that means nothing |
+| `tools/mutate-backend.ps1`, `tools/mutate-frontend.ps1`, `tools/mutate-loop.ps1` | a behaviour the tests do not pin: every mutation has to be killed, and one that survives has to be accounted for |
+| `tools/integration-test.ps1` | a claim about the running server, checked against a server that is really running |
+| `tools/dep-check.sh` | a pin that has moved under the version that names it |
 
-### Start the loop anywhere
-
-The loop may start at any domain; the starting domain is one request away:
-
-```bash
-curl -X POST http://127.0.0.1:8080/api/loop/reset/knowledge
-```
-
-The five domains are `model`, `data`, `experience`, `attack` and `knowledge`. Each domain's
-state machine initialises independently — only the pointer moves.
-
-### Ask before you move
-
-`GET /api/loop/status` carries the slots that are open from where the loop stands, and
-`GET /api/loop/continuations` tells you what the machine says could happen next and how
-far away it is. The same information in one place, with the reason each slot cannot move,
-is what the agent gets from `maked_options`.
-
-### Read the run as numbers
-
-Every session carries five measures: `New ground`, `Settling`, `Slots used`, `Domains visited`
-and `Positions covered`. They are reported together with the comparison of the last window of
-steps against the first, so a measure can be checked rather than believed.
-
-### Keep the table and the machine together
-
-A machine of your own has slots of your own, and the built-in table names slots it does not
-have. MAKED says so at start-up — but the panel stays quiet until you give it a table that
-fits. Keep the two files next to each other, and set both variables.
-
-## Development Status
+The two document gates are twins: the same invariant written twice, once in
+bash and once in PowerShell, because the CI runner is ubuntu and carries bash,
+and a gate written only in PowerShell is a gate that does not run where the
+build runs. Both print the same lines and they go red together.
 
 **Current release**: v0.1.8 · **Repository**: <https://github.com/riantr/MAKED>
 
@@ -805,98 +1051,37 @@ moon test --target js frontend      # the frontend
 bash ci.sh                          # everything, including the slow gates
 ```
 
-## Common Pitfalls and Best Practices
+## Used By
 
-### ✅ DO:
+- `riantr/MAKED/backend` and `riantr/MAKED/frontend` — the two packages, used as
+  a library: the loop, the API and the storage on one side, the single-page app
+  on the other.
+- `cmd/server`, `cmd/mcp` and `cmd/web` — the three executables in this module:
+  the web server, the agent's server, and the browser bundle.
+- [riantr/pyroduct](https://mooncakes.io/docs/riantr/pyroduct@0.1.35) — the
+  state machine, the group states and the collective that the ring runs on.
+- [riantr/moonbit_doubleML](https://mooncakes.io/docs/riantr/moonbit_doubleML@0.164.62) —
+  the causal estimate.
 
-1. **Give the machine and the table together.** A table whose rules name slots the running
-   machine does not have is refused at start-up, on purpose.
+Outside this repository: **none that the registry knows about.** The registry
+lists **0 dependents** for `riantr/MAKED`, and nothing is claimed here that
+cannot be named.
 
-   ```bash
-   MAKED_MODEL=models/product-iteration.json \
-   MAKED_RESEARCH=research/product-iteration.yaml \
-   moon run --release --target native cmd/server
-   ```
+## Attribution
 
-2. **Ask what the table offers before taking a move.** `maked_options` lists the slots that
-   can move and the ones that cannot, and says why. A slot with no road out of a position is
-   not a failure of the caller.
-
-3. **Let an undecided branch stay undecided.** When the table offers several successors and
-   none is preferred, take the target as an argument rather than picking one for the
-   subject.
-
-4. **Read a refusal as an answer.** A refused request comes back with the reason, in words,
-   and names the thing that was asked for.
-
-### ❌ DON'T:
-
-1. **Don't treat the ring order as evidence that anything moved.** The ring order
-   M → D → E → A → K is the order the logo draws. It is presentation, not state.
-
-2. **Don't mix the protocols on one stream.** The agent's server speaks MCP on stdout.
-   Diagnostics belong on stderr — a line of prose in the middle of a protocol stream is a
-   line the client cannot parse, and the reason MAKED refused to start is lost in the noise.
-
-3. **Don't read a file you cannot read whole.** MAKED refuses a file it cannot read rather
-   than half-reading it, and the start-up stops. Keep that: a half-read machine answers
-   every request confidently and wrongly.
-
-4. **Don't hand a table to a machine it does not fit.** A rule that names a slot the
-   machine does not have is a rule about nowhere, and reading it would mean inventing a slot
-   to hold it.
-
-## Roadmap
-
-- [x] The five-domain ring, with the drive slots taken from the transition table
-- [x] The machine as a file
-- [x] The mapping table as a file
-- [x] The corpus as a file
-- [x] The collective, and its words as a file
-- [x] Causal estimates that report what they rest on
-- [x] Explorations: replay, branch, rename, export
-- [x] The agent's server — Model Context Protocol over stdio and HTTP
-- [x] A discovery document at `GET /api/agent`, for agents that do not speak MCP
-- [x] A Chinese front end
-- [x] The measures and the exported document in two languages
-- [x] The pages in two languages, and no longer describing a program that is not this one
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new behaviour
-4. Ensure all gates pass with `bash ci.sh`
-5. Submit a pull request
-
-The contributor's guide is [AGENTS.md](AGENTS.md): what the gates check, how the mutation
-batteries work, and the pre-commit hook.
-
-The gates that matter most are the two that check the tests themselves: `moon fmt --check`
-(the formatter rewrites the source, and a mutation anchor that pointed at a line the
-formatter has since re-wrapped stops matching — the mutation then never happens and the
-suite reports a survivor that is really a claim about nothing), and
-`tools/check-mutation-anchors.ps1` (an anchor that does not occur in the file is a guard
-that cannot fail).
-
-Contributions should keep the three rules that the rest of the project rests on: a file that
-cannot be read is refused rather than half-read; a rule that names a slot the machine does
-not have is refused; and an answer that is a refusal says why, in words.
+- License: MIT (see `LICENSE`).
+- The state machine, the group states and the collective are
+  [riantr/pyroduct](https://mooncakes.io/docs/riantr/pyroduct@0.1.35), and
+  MAKED is the ring that runs on them.
+- The front end is [rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.17.0),
+  and the HTTP server the micro-framework sits on is
+  [moonback](https://mooncakes.io/docs/moonbitlang/moonback@0.8.10).
+- The causal estimate is
+  [riantr/moonbit_doubleML](https://mooncakes.io/docs/riantr/moonbit_doubleML@0.164.62).
+- The protocol the agent's server speaks is the
+  [Model Context Protocol](https://modelcontextprotocol.io), version 2026-07-28.
+- The language is the [MoonBit Language Guide](https://www.moonbitlang.com/docs/).
 
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
-
-## References
-
-- [pyroduct](https://mooncakes.io/docs/riantr/pyroduct@0.1.35) — the state machine, the
-  group states and the collective
-- [rabbita](https://mooncakes.io/docs/moonbit-community/rabbita@0.17.0) — the single-page
-  front end
-- [moonback](https://mooncakes.io/docs/moonbitlang/moonback@0.8.10) — the HTTP server the
-  micro-framework sits on
-- [moonbit_doubleML](https://mooncakes.io/docs/riantr/moonbit_doubleML@0.164.62) — the
-  causal estimate
-- [Model Context Protocol](https://modelcontextprotocol.io) — the agent's server, version
-  2026-07-28
-- [MoonBit Language Guide](https://www.moonbitlang.com/docs/)

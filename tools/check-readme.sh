@@ -2021,6 +2021,57 @@ else
     'Logo files' "$LOGO" "$LOGO_WIDTH" "$TWIN" "$TWIN_WIDTH"
 fi
 
+# --- the shape of the document ------------------------------------------------
+#
+# The README follows the shape the sibling modules publish: the logo and the
+# badges, then Features, What you get, Install, the domain sections, Running
+# it, and -- at the end -- Quick Start, Example, Gates and drift detectors,
+# Used By and Attribution.  `riantr/tesseract` is the reference, and MAKED's
+# own sections (The five domains, the API reference, the project structure,
+# the tips and the pitfalls) sit inside that shape rather than beside it.
+#
+# The check is ONE-WAY: the document has to HAVE these sections, and it is
+# free to have others.  A shape that only the person who wrote it remembers is
+# a shape the next change undoes, and the reader is the one who notices.
+#
+# The missing sections are printed as a SET, not as a count: a count says how
+# many are gone and not which, and "two sections are missing" is a worse
+# message than the two names.
+
+doc_sections() {
+  grep -E '^## ' "$README" 2>/dev/null | sed -E 's/^## //; s/[[:space:]]+$//' || true
+}
+
+REQUIRED_SECTIONS="Features
+What you get
+Install
+Running it
+Quick Start
+Example
+Gates and drift detectors
+Used By
+Attribution
+Project Structure
+License"
+
+DOC_SECTIONS=$(doc_sections)
+MISSING_SECTIONS=""
+while IFS= read -r section; do
+  [ -n "$section" ] || continue
+  if ! printf '%s\n' "$DOC_SECTIONS" | grep -qxF "$section"; then
+    MISSING_SECTIONS="$MISSING_SECTIONS $section"
+  fi
+done <<< "$REQUIRED_SECTIONS"
+MISSING_SECTIONS="${MISSING_SECTIONS# }"
+
+if [ -n "$MISSING_SECTIONS" ]; then
+  fail "$(printf '%-20s the document is missing these sections: %s' \
+    'README sections' "$MISSING_SECTIONS")"
+else
+  printf '  ok      %-20s %s\n' 'README sections' \
+    "$(printf '%s\n' "$DOC_SECTIONS" | tr '\n' ' ' | sed -e 's/ *$//')"
+fi
+
 # --- the ports the document names ----------------------------------------------
 #
 # The README tells the reader which port to open, and it says so in seven

@@ -2106,6 +2106,51 @@ if ([string]::IsNullOrEmpty($logo)) {
   Write-Output ("  ok      {0,-20} {1} ({2} px), {3} ({4} px)" -f 'Logo files', $logo, $logoWidth, $twin, $twinWidth)
 }
 
+# --- the shape of the document ------------------------------------------------
+#
+# The README follows the shape the sibling modules publish: the logo and the
+# badges, then Features, What you get, Install, the domain sections, Running
+# it, and -- at the end -- Quick Start, Example, Gates and drift detectors,
+# Used By and Attribution.  `riantr/tesseract` is the reference, and MAKED's
+# own sections (The five domains, the API reference, the project structure,
+# the tips and the pitfalls) sit inside that shape rather than beside it.
+#
+# The check is ONE-WAY: the document has to HAVE these sections, and it is
+# free to have others.  A shape that only the person who wrote it remembers is
+# a shape the next change undoes, and the reader is the one who notices.
+#
+# The missing sections are printed as a SET, not as a count: a count says how
+# many are gone and not which, and "two sections are missing" is a worse
+# message than the two names.
+
+function Get-DocSections($text) {
+  $out = @()
+  foreach ($line in ($text -split "`n")) {
+    if ($line -match '^## (.+?)[ \t\r]*$') { $out += $Matches[1] }
+  }
+  return $out
+}
+
+$requiredSections = @(
+  'Features', 'What you get', 'Install', 'Running it', 'Quick Start',
+  'Example', 'Gates and drift detectors', 'Used By', 'Attribution',
+  'Project Structure', 'License'
+)
+
+$docSections = @(Get-DocSections $readme)
+$missingSections = @()
+foreach ($section in $requiredSections) {
+  if ($docSections -cnotcontains $section) { $missingSections += $section }
+}
+
+if ($missingSections.Count -gt 0) {
+  Write-Output ("  {0,-20} the document is missing these sections: {1}" -f 'README sections', (($missingSections -join ' ')))
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  Write-Output ("  ok      {0,-20} {1}" -f 'README sections', ($docSections -join ' '))
+}
+
 # --- the ports the document names ----------------------------------------------
 #
 # The README tells the reader which port to open, and it says so in seven
