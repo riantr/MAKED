@@ -1993,6 +1993,119 @@ if ($imageLicenses.Count -eq 0) {
   Write-Output ("  ok      {0,-20} {1}" -f 'License image', $imageLicenseSet)
 }
 
+# --- the logo the README shows ------------------------------------------------
+#
+# The README opens with the logo, and the registry serves that file out of the
+# release's own tree -- so a logo that is not TRACKED is a logo that is not
+# shipped, and the docs page shows a broken image.  That was the state of the
+# artwork: it sat in the tree and was not in git, and the registry answered 404
+# for it.
+#
+# The house shape is TWO files.  `tesseract@0.1.15` publishes `tesseract.png`
+# (438 px, the README logo) and `tesseract_Logo.png` (1024 px, the same mark at
+# full resolution), and so does MAKED: `maked.png` and `maked_Logo.png`.  The
+# README names the small one; the twin is what somebody links to when they
+# want the mark at full size.
+#
+# So the rule is five things, and each one has a way of going wrong:
+#
+#   - the README names a logo, and the file is in the tree;
+#   - that file is TRACKED by git, because that is what the release ships;
+#   - it is a PNG no wider than 512 px, because a full-resolution raster in the
+#     README renders as a page-sized block of pixels -- which is what the docs
+#     page showed;
+#   - the full-resolution twin exists, and is tracked too;
+#   - the twin is WIDER than the logo, so the pair really is a pair.
+#
+# The width is read out of the PNG's own header, because a PNG says its size in
+# its first twenty-four bytes.  A file that is not a PNG has no width to read,
+# and a logo whose size cannot be read is not a logo this rule can pass.
+
+# The logo the README names: the first image reference in the document.
+function Get-DocLogo($text) {
+  $m = [regex]::Match($text, '!\[[^\]]*\]\(([^)]+)\)')
+  if ($m.Success) { return $m.Groups[1].Value }
+  return ''
+}
+
+# The width of a PNG in pixels, or nothing at all when the file is not a PNG.
+function Get-PngWidth($path) {
+  if ([string]::IsNullOrEmpty($path)) { return '' }
+  if (-not (Test-Path $path)) { return '' }
+  try {
+    $bytes = [System.IO.File]::ReadAllBytes($path)
+  } catch {
+    return ''
+  }
+  if ($bytes.Length -lt 24) { return '' }
+  $magic = ''
+  for ($i = 0; $i -lt 8; $i++) { $magic += $bytes[$i].ToString('x2') }
+  if ($magic -ne '89504e470d0a1a0a') { return '' }
+  return (([int]$bytes[16] * 16777216) + ([int]$bytes[17] * 65536) + ([int]$bytes[18] * 256) + [int]$bytes[19])
+}
+
+# The full-resolution twin of a logo: the same stem with `_Logo.png` beside it.
+function Get-LogoTwin($path) {
+  $dir = [System.IO.Path]::GetDirectoryName($path)
+  $stem = [System.IO.Path]::GetFileNameWithoutExtension($path)
+  if ([string]::IsNullOrEmpty($dir)) { return "${stem}_Logo.png" }
+  return $dir + '/' + "${stem}_Logo.png"
+}
+
+# Is the file in git's index?  The release ships what is tracked, so this is
+# the difference between a logo the reader sees and a 404.
+function Test-LogoTracked($path) {
+  if ([string]::IsNullOrEmpty($path)) { return $false }
+  & git ls-files --error-unmatch -- $path 2>$null | Out-Null
+  return ($LASTEXITCODE -eq 0)
+}
+
+$logo = Get-DocLogo $readme
+$logoWidth = Get-PngWidth $logo
+$twin = ''
+if (-not [string]::IsNullOrEmpty($logo)) { $twin = Get-LogoTwin $logo }
+$twinWidth = Get-PngWidth $twin
+
+if ([string]::IsNullOrEmpty($logo)) {
+  Write-Output ("  {0,-20} the README names no logo" -f 'Logo files')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (-not (Test-Path $logo)) {
+  Write-Output ("  {0,-20} the logo the README names is not in the tree: {1}" -f 'Logo files', $logo)
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (-not (Test-LogoTracked $logo)) {
+  Write-Output ("  {0,-20} the logo the README names is not tracked, so the release does not ship it: {1}" -f 'Logo files', $logo)
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ([string]::IsNullOrEmpty($logoWidth)) {
+  Write-Output ("  {0,-20} the logo the README names is not a PNG, so its width cannot be read: {1}" -f 'Logo files', $logo)
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ([int]$logoWidth -gt 512) {
+  Write-Output ("  {0,-20} the README logo is {1} px wide; a README-sized logo is at most 512 px, and the mark at full size belongs in {2}" -f 'Logo files', $logoWidth, $twin)
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (-not (Test-Path $twin)) {
+  Write-Output ("  {0,-20} the logo has no full-resolution twin: {1}" -f 'Logo files', $twin)
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (-not (Test-LogoTracked $twin)) {
+  Write-Output ("  {0,-20} the logo twin is not tracked, so the release does not ship it: {1}" -f 'Logo files', $twin)
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ([string]::IsNullOrEmpty($twinWidth)) {
+  Write-Output ("  {0,-20} the logo twin is not a PNG, so its width cannot be read: {1}" -f 'Logo files', $twin)
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ([int]$twinWidth -le [int]$logoWidth) {
+  Write-Output ("  {0,-20} the logo twin is {1} px wide, which is not wider than the logo itself ({2} px)" -f 'Logo files', $twinWidth, $logoWidth)
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  Write-Output ("  ok      {0,-20} {1} ({2} px), {3} ({4} px)" -f 'Logo files', $logo, $logoWidth, $twin, $twinWidth)
+}
+
 # --- the ports the document names ----------------------------------------------
 #
 # The README tells the reader which port to open, and it says so in seven

@@ -737,7 +737,9 @@ MAKED_moonbit/
 │   └── README.md                     # what it runs, and how to install it
 ├── AGENT.md                         # how to drive MAKED from another agent
 ├── AGENTS.md                        # how to work on MAKED
-├── maked.png                        # the logo
+├── LOGO.jpeg                        # an alternate mark of the same five domains
+├── maked.png                        # the logo, at the size the README shows it
+├── maked_Logo.png                   # the same mark, at full resolution
 ├── moon.mod  moon.pkg
 ├── build.ps1                         # build the bundle, check, test, build the server
 ├── ci.sh                             # 18 gates

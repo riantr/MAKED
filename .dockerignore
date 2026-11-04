@@ -46,3 +46,9 @@ architecture/migration-dependency.dot
 build.ps1
 ci.sh
 tools
+
+# The mark. The logo files are the front page's mark and nothing in the image
+# needs them -- the browser app draws the ring as SVG (frontend/logo.mbt) --
+# and the full-resolution one is a megabyte of PNG.
+*.png
+*.jpeg

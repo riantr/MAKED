@@ -1921,6 +1921,106 @@ else
   printf '  ok      %-20s %s\n' 'License image' "$IMAGE_LICENSE_SET"
 fi
 
+# --- the logo the README shows ------------------------------------------------
+#
+# The README opens with the logo, and the registry serves that file out of the
+# release's own tree -- so a logo that is not TRACKED is a logo that is not
+# shipped, and the docs page shows a broken image.  That was the state of the
+# artwork: it sat in the tree and was not in git, and the registry answered 404
+# for it.
+#
+# The house shape is TWO files.  `tesseract@0.1.15` publishes `tesseract.png`
+# (438 px, the README logo) and `tesseract_Logo.png` (1024 px, the same mark at
+# full resolution), and so does MAKED: `maked.png` and `maked_Logo.png`.  The
+# README names the small one; the twin is what somebody links to when they
+# want the mark at full size.
+#
+# So the rule is five things, and each one has a way of going wrong:
+#
+#   - the README names a logo, and the file is in the tree;
+#   - that file is TRACKED by git, because that is what the release ships;
+#   - it is a PNG no wider than 512 px, because a full-resolution raster in the
+#     README renders as a page-sized block of pixels -- which is what the docs
+#     page showed;
+#   - the full-resolution twin exists, and is tracked too;
+#   - the twin is WIDER than the logo, so the pair really is a pair.
+#
+# The width is read out of the PNG's own header, because a PNG says its size in
+# its first twenty-four bytes.  A file that is not a PNG has no width to read,
+# and a logo whose size cannot be read is not a logo this rule can pass.
+
+# The logo the README names: the first image reference in the document.
+doc_logo() {
+  grep -oE '!\[[^]]*\]\([^)]+\)' "$README" 2>/dev/null \
+    | head -1 | sed -E 's/.*\(([^)]+)\).*/\1/' || true
+}
+
+# The width of a PNG in pixels, or nothing at all when the file is not a PNG.
+png_width() {
+  local file="$1" magic
+  [ -f "$file" ] || return 0
+  magic=$(od -An -tx1 -N8 "$file" 2>/dev/null | tr -d ' \n')
+  [ "$magic" = "89504e470d0a1a0a" ] || return 0
+  od -An -tu1 -j16 -N4 "$file" 2>/dev/null \
+    | awk '{printf "%d", $1*16777216 + $2*65536 + $3*256 + $4}'
+}
+
+# The full-resolution twin of a logo: the same stem with `_Logo.png` beside it.
+logo_twin() {
+  local path="$1" dir stem
+  dir=$(dirname "$path")
+  stem=$(basename "$path")
+  stem="${stem%.*}"
+  if [ "$dir" = "." ]; then
+    printf '%s_Logo.png' "$stem"
+  else
+    printf '%s/%s_Logo.png' "$dir" "$stem"
+  fi
+}
+
+# Is the file in git's index?  The release ships what is tracked, so this is
+# the difference between a logo the reader sees and a 404.
+logo_tracked() {
+  git ls-files --error-unmatch -- "$1" >/dev/null 2>&1
+}
+
+LOGO=$(doc_logo)
+LOGO_WIDTH=""
+TWIN=""
+TWIN_WIDTH=""
+if [ -n "$LOGO" ]; then
+  LOGO_WIDTH=$(png_width "$LOGO")
+  TWIN=$(logo_twin "$LOGO")
+  TWIN_WIDTH=$(png_width "$TWIN")
+fi
+
+if [ -z "$LOGO" ]; then
+  fail "$(printf '%-20s the README names no logo' 'Logo files')"
+elif [ ! -f "$LOGO" ]; then
+  fail "$(printf '%-20s the logo the README names is not in the tree: %s' 'Logo files' "$LOGO")"
+elif ! logo_tracked "$LOGO"; then
+  fail "$(printf '%-20s the logo the README names is not tracked, so the release does not ship it: %s' \
+    'Logo files' "$LOGO")"
+elif [ -z "$LOGO_WIDTH" ]; then
+  fail "$(printf '%-20s the logo the README names is not a PNG, so its width cannot be read: %s' \
+    'Logo files' "$LOGO")"
+elif [ "$LOGO_WIDTH" -gt 512 ]; then
+  fail "$(printf '%-20s the README logo is %s px wide; a README-sized logo is at most 512 px, and the mark at full size belongs in %s' \
+    'Logo files' "$LOGO_WIDTH" "$TWIN")"
+elif [ ! -f "$TWIN" ]; then
+  fail "$(printf '%-20s the logo has no full-resolution twin: %s' 'Logo files' "$TWIN")"
+elif ! logo_tracked "$TWIN"; then
+  fail "$(printf '%-20s the logo twin is not tracked, so the release does not ship it: %s' 'Logo files' "$TWIN")"
+elif [ -z "$TWIN_WIDTH" ]; then
+  fail "$(printf '%-20s the logo twin is not a PNG, so its width cannot be read: %s' 'Logo files' "$TWIN")"
+elif [ "$TWIN_WIDTH" -le "$LOGO_WIDTH" ]; then
+  fail "$(printf '%-20s the logo twin is %s px wide, which is not wider than the logo itself (%s px)' \
+    'Logo files' "$TWIN_WIDTH" "$LOGO_WIDTH")"
+else
+  printf '  ok      %-20s %s (%s px), %s (%s px)\n' \
+    'Logo files' "$LOGO" "$LOGO_WIDTH" "$TWIN" "$TWIN_WIDTH"
+fi
+
 # --- the ports the document names ----------------------------------------------
 #
 # The README tells the reader which port to open, and it says so in seven
