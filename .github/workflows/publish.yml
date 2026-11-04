@@ -480,6 +480,6 @@ jobs:
             org.opencontainers.image.description=MAKED on MoonBit: a five-domain loop you can put your own work into
             org.opencontainers.image.version=${{ needs.publish.outputs.version }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.licenses=MIT
           cache-from: type=gha
           cache-to: type=gha,mode=max

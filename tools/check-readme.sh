@@ -1886,6 +1886,41 @@ else
   fail "$(printf '%-20s the LICENSE file does not name %s' 'License file' "$MODULE_LICENSE")"
 fi
 
+# --- the license the container image carries -----------------------------------
+#
+# The project's license is stated in four places: the manifest, the README,
+# the LICENSE file, and the label on the container image the release pushes.
+# The first three are held together above. The fourth was not held at all,
+# and when the project changed to MIT the image kept saying Apache-2.0 --
+# so the published image told the registry one thing and the manifest told
+# the reader another.
+#
+# The label is read from the release workflow, because that is the thing
+# that decides what the published image says about itself. A label that is
+# missing is a FAIL and not a pass: an image with no license label says
+# nothing about its license, and "says nothing" is not "says MIT".
+
+code_image_licenses() {
+  tr -d '\r' < .github/workflows/publish.yml 2>/dev/null \
+    | sed -nE 's/^[[:blank:]]*org\.opencontainers\.image\.licenses[[:blank:]]*=[[:blank:]]*([^[:space:]#]+)[[:blank:]]*$/\1/p' \
+    | LC_ALL=C sort -u || true
+}
+
+IMAGE_LICENSES=$(code_image_licenses)
+IMAGE_LICENSE_SET=$(printf '%s\n' "$IMAGE_LICENSES" | tr '\n' ' ' | sed -e 's/ *$//')
+
+if [ -z "$IMAGE_LICENSES" ]; then
+  fail "$(printf '%-20s the container image carries no license label' 'License image')"
+elif [ -z "$MODULE_LICENSE" ]; then
+  fail "$(printf '%-20s the manifest does not declare a license, so the image cannot agree with it' \
+    'License image')"
+elif [ "$IMAGE_LICENSE_SET" != "$MODULE_LICENSE" ]; then
+  fail "$(printf '%-20s the manifest says %s, the image says %s' \
+    'License image' "$MODULE_LICENSE" "$IMAGE_LICENSE_SET")"
+else
+  printf '  ok      %-20s %s\n' 'License image' "$IMAGE_LICENSE_SET"
+fi
+
 # --- the ports the document names ----------------------------------------------
 #
 # The README tells the reader which port to open, and it says so in seven

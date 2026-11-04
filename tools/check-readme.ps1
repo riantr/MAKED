@@ -1947,6 +1947,52 @@ if (-not (Test-Path (Join-Path $PWD 'LICENSE'))) {
   $failures++
 }
 
+# --- the license the container image carries -----------------------------------
+#
+# The project's license is stated in four places: the manifest, the README,
+# the LICENSE file, and the label on the container image the release pushes.
+# The first three are held together above. The fourth was not held at all,
+# and when the project changed to MIT the image kept saying Apache-2.0 --
+# so the published image told the registry one thing and the manifest told
+# the reader another.
+#
+# The label is read from the release workflow, because that is the thing
+# that decides what the published image says about itself. A label that is
+# missing is a FAIL and not a pass: an image with no license label says
+# nothing about its license, and "says nothing" is not "says MIT".
+
+function Get-ImageLicenses {
+  $out = @()
+  $path = Join-Path $PWD '.github/workflows/publish.yml'
+  if (Test-Path $path) {
+    $text = [System.IO.File]::ReadAllText($path, $enc)
+    foreach ($line in ($text -split "`r?`n")) {
+      if ($line -match '^\s*org\.opencontainers\.image\.licenses\s*=\s*(\S+)\s*$') {
+        $out += $Matches[1]
+      }
+    }
+  }
+  Sort-Set $out
+}
+
+$imageLicenses = @(Get-ImageLicenses)
+$imageLicenseSet = ($imageLicenses -join ' ')
+if ($imageLicenses.Count -eq 0) {
+  Write-Output ("  {0,-20} the container image carries no license label" -f 'License image')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ([string]::IsNullOrEmpty($moduleLicense)) {
+  Write-Output ("  {0,-20} the manifest does not declare a license, so the image cannot agree with it" -f 'License image')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($imageLicenseSet -cne $moduleLicense) {
+  Write-Output ("  {0,-20} the manifest says {1}, the image says {2}" -f 'License image', $moduleLicense, $imageLicenseSet)
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  Write-Output ("  ok      {0,-20} {1}" -f 'License image', $imageLicenseSet)
+}
+
 # --- the ports the document names ----------------------------------------------
 #
 # The README tells the reader which port to open, and it says so in seven
