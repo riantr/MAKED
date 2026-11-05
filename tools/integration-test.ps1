@@ -1706,6 +1706,45 @@ try {
         Assert-Field "and how many documents the corpus holds" $causal "total" 16
         Assert-True "and that nothing was left unread" `
           ((Field $causal "capped") -eq $false)
+
+        # The same estimate, asked for in the other language.
+        #
+        # The corpus has not changed, so the numbers have not changed: what
+        # the language changes is the sentence beside each number. The
+        # overlap reading and the sensitivity reading are the sentences that
+        # say what the numbers mean, and a panel that shows one of them in
+        # English under a Chinese heading has handed the reader a conclusion
+        # it cannot read -- and a reader who cannot read it cannot argue with
+        # it either.
+        #
+        # The Chinese is written as a range rather than as the characters
+        # themselves: this file carries no byte order mark, so PowerShell
+        # reads it as the machine's own code page and a Chinese literal in it
+        # would not be the Chinese it looks like.
+        $causalZh = Get-Json "/api/research/causal?lang=zh"
+        $bodyZh = Field $causalZh "causal"
+        Assert-True "the estimate is made in Chinese too" `
+          ((Field $bodyZh "refused") -eq "")
+        Assert-True "and the treatment is named in it" `
+          ([regex]::IsMatch([string](Field $bodyZh "treatment"), '[\u4e00-\u9fff]'))
+        Assert-True "and the outcome is named in it" `
+          ([regex]::IsMatch([string](Field $bodyZh "outcome"), '[\u4e00-\u9fff]'))
+        Assert-True "and the controlled variables are named in it" `
+          ([regex]::IsMatch([string]((Field $bodyZh "confounders")[0]), '[\u4e00-\u9fff]'))
+        Assert-True "and the overlap reading is written in it" `
+          ([regex]::IsMatch([string](Field (Field $bodyZh "overlap") "reading"), '[\u4e00-\u9fff]'))
+        Assert-True "and the sensitivity reading is written in it" `
+          ([regex]::IsMatch([string](Field (Field $bodyZh "sensitivity") "reading"), '[\u4e00-\u9fff]'))
+        # The numbers are the same in both languages: the corpus is the same
+        # corpus, and a language switch that moved a number would be a very
+        # different bug than a language switch that moved a word.
+        Assert-True "and the numbers are the same in both languages" `
+          ((Field $bodyZh "theta") -eq (Field $body "theta"))
+        # And the English answer is still English. A request that asked for
+        # Chinese and got Chinese everywhere would mean the switch does
+        # nothing at all rather than doing what it says.
+        Assert-True "and the English answer is still English" `
+          (-not [regex]::IsMatch([string](Field (Field $body "overlap") "reading"), '[\u4e00-\u9fff]'))
       }
     } finally {
       if ($null -ne $causalServer -and -not $causalServer.HasExited) {

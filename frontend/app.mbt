@@ -428,6 +428,22 @@ pub fn society_request(lang : UiLang) -> String {
 }
 
 ///|
+/// The request that asks the server for the causal estimate.
+///
+/// The language travels with the request, because the estimate is not only
+/// numbers: the overlap reading, the sensitivity reading and the names of
+/// the controlled variables are sentences, and a panel that shows those
+/// sentences in English under Chinese headings has handed a reader a
+/// conclusion it cannot read.
+///
+/// Public for the same reason `society_request` is: the request is the only
+/// thing the server ever sees, and a test that cannot read it can only trust
+/// that the click arrives.
+pub fn causal_request(lang : UiLang) -> String {
+  "/api/research/causal" + lang_query(lang)
+}
+
+///|
 /// The link that takes an exploration away.
 ///
 /// The link carries the format and the language, because the document the
@@ -946,7 +962,7 @@ pub fn update(
     EstimateCausalClicked =>
       (
         model,
-        @http.get("/api/research/causal").expect_json(
+        @http.get(causal_request(model.lang)).expect_json(
           emit.map(fn(result) { CausalLoaded(result) }),
         ),
       )

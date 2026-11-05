@@ -4109,6 +4109,71 @@ else
   printf '  ok      %-20s %s\n' 'No language route' \
     "$(printf '%s\n' "$DOC_NO_LANGUAGE_ROUTES" | tr '\n' ' ' | sed -e 's/ *$//')"
 fi
+# --- the language of the causal estimate -----------------------------------------
+#
+# The route read the language and threw it away.  `GET /api/research/causal`
+# called `lang_of(req)` and used the answer for a notice about a corpus it could
+# not read; the estimate itself was written in English, because the estimator had
+# no language to write in.  Nothing watched it: the gate above derives a
+# language-aware route from the presence of `lang_of(req)` in the handler, so the
+# route counted as language-aware while its answer stayed English -- and every
+# suite went on saying that every claim in the documents matches the tree.
+#
+# The claim is a CHAIN, and the chain is what is checked.  Four links carry the
+# language from the reader to the sentence:
+#
+#   1. the request the browser builds carries the language
+#   2. the click asks for the reader's language, not a fixed one
+#   3. the route hands the language it read to the estimator
+#   4. the route hands the language to the writer that makes the JSON
+#
+# and the document asks for the language on that route, which is the part the
+# reader reads.
+#
+# A chain that only one environment walks is not covered by the tests: the
+# backend tests call the estimator with a language and the browser tests check
+# the request, but nothing walked the links together.
+#
+# What happens INSIDE the estimator is not this rule's business: the backend
+# tests assert the Chinese sentences, and they run on every platform.  What
+# this rule watches is the chain -- the places where the language can be
+# dropped on the way from the reader to the sentence.
+#
+# The missing links are printed as a SET, not as a count: a count says how many
+# are gone and not which, and "one link is missing" is a worse message than the
+# name of it.
+
+CAUSAL_LANGUAGE_MISSING=""
+
+if ! grep -qF '"/api/research/causal" + lang_query(lang)' frontend/app.mbt; then
+  CAUSAL_LANGUAGE_MISSING="$CAUSAL_LANGUAGE_MISSING the-request-does-not-carry-the-language"
+fi
+
+if ! grep -qF 'causal_request(model.lang)' frontend/app.mbt; then
+  CAUSAL_LANGUAGE_MISSING="$CAUSAL_LANGUAGE_MISSING the-click-does-not-ask-for-the-readers-language"
+fi
+
+if ! grep -qF 'estimate_causal_effect(read.documents, lang)' backend/api.mbt; then
+  CAUSAL_LANGUAGE_MISSING="$CAUSAL_LANGUAGE_MISSING the-route-does-not-pass-the-language-to-the-estimator"
+fi
+
+if ! grep -qF 'causal_result.to_json(lang)' backend/api.mbt; then
+  CAUSAL_LANGUAGE_MISSING="$CAUSAL_LANGUAGE_MISSING the-route-does-not-pass-the-language-to-the-json"
+fi
+
+if ! grep -qF '/api/research/causal?lang=zh' "$README"; then
+  CAUSAL_LANGUAGE_MISSING="$CAUSAL_LANGUAGE_MISSING the-document-does-not-ask-for-the-language"
+fi
+
+CAUSAL_LANGUAGE_MISSING="${CAUSAL_LANGUAGE_MISSING# }"
+
+if [ -n "$CAUSAL_LANGUAGE_MISSING" ]; then
+  fail "$(printf '%-20s the causal estimate does not answer in the language asked for; these links are missing: %s' \
+    'Causal language' "$CAUSAL_LANGUAGE_MISSING")"
+else
+  printf '  ok      %-20s %s\n' 'Causal language' \
+    'the request, the click, the route and the document all carry the language'
+fi
 # --- the ring's letters --------------------------------------------------------
 #
 # The ring has a letter for each domain -- M for Model, D for Data -- and the

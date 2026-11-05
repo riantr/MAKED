@@ -2624,6 +2624,24 @@ test "the request for the collective carries the language" {
 }
 
 ///|
+/// The request for the causal estimate carries the language.
+///
+/// The estimate is not only numbers. The overlap reading, the sensitivity
+/// reading and the names of the controlled variables are sentences, and a
+/// request that left the language off would hand a reader who had turned the
+/// page into Chinese an English conclusion under Chinese headings.
+test "the request for the causal estimate carries the language" {
+  assert_eq(
+    @frontend.causal_request(@frontend.UiLang::chinese()),
+    "/api/research/causal?lang=zh",
+  )
+  assert_eq(
+    @frontend.causal_request(@frontend.UiLang::english()),
+    "/api/research/causal?lang=en",
+  )
+}
+
+///|
 /// The link that takes an exploration away carries the language.
 ///
 /// The document the server sends is in the language the request asked for, so

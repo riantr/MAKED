@@ -234,11 +234,107 @@ fn ten_corpus() -> Array[@backend.Document] {
 ///|
 /// The estimate, or a failure saying why there was none.
 fn estimated(docs : Array[@backend.Document]) -> @backend.CausalResult raise {
-  match @backend.estimate_causal_effect(docs) {
+  estimated_in(docs, @backend.Lang::english())
+}
+
+///|
+/// The estimate in the language that was asked for, or a failure saying why
+/// there was none.
+///
+/// The language is a parameter of the estimate rather than of the sentence
+/// that carries it, so the same corpus gives the same numbers in either
+/// language and only the words beside them change.
+fn estimated_in(
+  docs : Array[@backend.Document],
+  lang : @backend.Lang,
+) -> @backend.CausalResult raise {
+  match @backend.estimate_causal_effect(docs, lang) {
     @backend.Estimated(result) => result
     @backend.Refused(refusal) =>
       fail("the estimate was refused: " + refusal.reason)
   }
+}
+
+///|
+/// The names of the estimate are in the language that was asked for.
+///
+/// The treatment, the outcome and the four controlled variables are the names
+/// the reader reads, and they are names rather than four anonymous columns
+/// on purpose. A name in the wrong language is a name the reader cannot use.
+test "the names of the estimate are in the language that was asked for" {
+  let chinese = estimated_in(ten_corpus(), @backend.Lang::chinese())
+  assert_eq(chinese.treatment, "声称有新意")
+  assert_eq(chinese.outcome, "影响力评分")
+  assert_eq(chinese.confounders[0], "标题长度")
+  assert_eq(chinese.confounders[3], "类别数量")
+  let english = estimated_in(ten_corpus(), @backend.Lang::english())
+  assert_eq(english.treatment, "claims to be new")
+  assert_eq(english.outcome, "impact score")
+  assert_eq(english.confounders[0], "title length")
+  assert_eq(english.confounders[3], "category count")
+}
+
+///|
+/// The readings of the estimate are in the language that was asked for.
+///
+/// The overlap reading and the sensitivity reading are the sentences that
+/// say what the numbers mean, and they are the sentences a reader has to be
+/// able to read: a panel that shows one of them in English under a Chinese
+/// heading has handed the reader a conclusion it cannot argue with.
+test "the readings of the estimate are in the language that was asked for" {
+  let chinese = estimated_in(ten_corpus(), @backend.Lang::chinese())
+  let english = estimated_in(ten_corpus(), @backend.Lang::english())
+  // The Chinese reading is a different sentence, not the English one.
+  assert_true(chinese.overlap.reading != english.overlap.reading)
+  assert_true(chinese.sensitivity.reading != english.sensitivity.reading)
+  // And it is written in Chinese rather than translated: the Chinese sentence
+  // carries Chinese punctuation, which the English one does not.
+  assert_true(
+    chinese.overlap.reading.contains("。") ||
+    chinese.overlap.reading.contains("："),
+  )
+  assert_false(
+    english.overlap.reading.contains("。") ||
+    english.overlap.reading.contains("："),
+  )
+}
+
+///|
+/// A refusal is in the language that was asked for.
+///
+/// A refusal is the part of the answer that says what went wrong, so a
+/// refusal that only speaks English is the one sentence a reader who asked
+/// in Chinese cannot read.
+test "a refusal is in the language that was asked for" {
+  let docs : Array[@backend.Document] = []
+  for i in 0..<5 {
+    docs.push(doc("d_\{i}", "Title \{i}", "Summary \{i}", 1, 1))
+  }
+  match @backend.estimate_causal_effect(docs, @backend.Lang::chinese()) {
+    @backend.Refused(refusal) => {
+      assert_true(
+        refusal.reason.contains("。") || refusal.reason.contains("："),
+      )
+      assert_false(refusal.reason.contains("Only"))
+    }
+    @backend.Estimated(_) => fail("a five-document corpus was estimated")
+  }
+}
+
+///|
+/// The name of a controlled variable is in the language that was asked for.
+///
+/// The identifier is English in both languages, because the feature lookup
+/// matches on it; the label is what the reader sees.
+test "the name of a controlled variable is in the language that was asked for" {
+  assert_eq(
+    @backend.confounder_label("title length", @backend.Lang::chinese()),
+    "标题长度",
+  )
+  assert_eq(
+    @backend.confounder_label("title length", @backend.Lang::english()),
+    "title length",
+  )
 }
 
 ///|
@@ -251,7 +347,7 @@ test "a corpus too small to estimate is refused, not answered with a zero" {
   for i in 0..<5 {
     docs.push(doc("d_\{i}", "Title \{i}", "Summary \{i}", 1, 1))
   }
-  match @backend.estimate_causal_effect(docs) {
+  match @backend.estimate_causal_effect(docs, @backend.Lang::english()) {
     @backend.Refused(refusal) => assert_true(refusal.reason.contains("10"))
     @backend.Estimated(_) => fail("a five-document corpus was estimated")
   }
@@ -267,7 +363,7 @@ test "the refusal says how many documents the corpus held" {
   for i in 0..<7 {
     docs.push(doc("d_\{i}", "Title \{i}", "Summary \{i}", 1, 1))
   }
-  match @backend.estimate_causal_effect(docs) {
+  match @backend.estimate_causal_effect(docs, @backend.Lang::english()) {
     @backend.Refused(refusal) => assert_true(refusal.reason.contains("7"))
     @backend.Estimated(_) => fail("a seven-document corpus was estimated")
   }
@@ -291,7 +387,7 @@ test "a corpus where nothing claims to be new is refused" {
       ),
     )
   }
-  match @backend.estimate_causal_effect(docs) {
+  match @backend.estimate_causal_effect(docs, @backend.Lang::english()) {
     @backend.Refused(refusal) => assert_true(refusal.reason.contains("None"))
     @backend.Estimated(_) =>
       fail("a corpus with no treated documents was estimated")
@@ -307,7 +403,7 @@ test "a corpus where everything claims to be new is refused" {
       doc("d_\{i}", "A novel method \{i}", "We propose a new method.", 2, 2),
     )
   }
-  match @backend.estimate_causal_effect(docs) {
+  match @backend.estimate_causal_effect(docs, @backend.Lang::english()) {
     @backend.Refused(refusal) =>
       assert_true(refusal.reason.contains("Every one"))
     @backend.Estimated(_) =>
@@ -338,7 +434,11 @@ fn row_named(
 /// with a confidence interval would put a number in the reader's hands that
 /// means nothing at all.
 test "a corpus whose two groups do not overlap is refused" {
-  match @backend.estimate_causal_effect(separated_corpus()) {
+  match
+    @backend.estimate_causal_effect(
+      separated_corpus(),
+      @backend.Lang::english(),
+    ) {
     @backend.Refused(refusal) =>
       assert_true(refusal.reason.contains("do not overlap"))
     @backend.Estimated(_) => fail("a corpus with no overlap was estimated")
@@ -352,7 +452,11 @@ test "a corpus whose two groups do not overlap is refused" {
 /// check. The balance says *which* variables do not overlap, and a refusal
 /// without it asks the reader to take the reason on faith.
 test "a refusal carries the balance that is the evidence for it" {
-  match @backend.estimate_causal_effect(separated_corpus()) {
+  match
+    @backend.estimate_causal_effect(
+      separated_corpus(),
+      @backend.Lang::english(),
+    ) {
     @backend.Refused(refusal) => {
       assert_eq(refusal.balance.length(), 4)
       for row in refusal.balance {
@@ -361,7 +465,9 @@ test "a refusal carries the balance that is the evidence for it" {
       // The balance has to reach the reader, not just the server. A refusal
       // that holds the evidence and does not send it asks the reader to
       // take the reason on faith.
-      let json = @backend.CausalOutcome::Refused(refusal).to_json()
+      let json = @backend.CausalOutcome::Refused(refusal).to_json(
+        @backend.Lang::english(),
+      )
       match json {
         Object(fields) =>
           match fields.get("balance") {
@@ -383,7 +489,11 @@ test "a refusal carries the balance that is the evidence for it" {
 /// standardized difference is not a number -- and reporting it as zero
 /// would say the groups are alike, which is the opposite of the truth.
 test "a variable the two groups do not overlap on is flagged, not reported as a difference of zero" {
-  match @backend.estimate_causal_effect(separated_corpus()) {
+  match
+    @backend.estimate_causal_effect(
+      separated_corpus(),
+      @backend.Lang::english(),
+    ) {
     @backend.Refused(refusal) => {
       // The row is looked up by its name rather than counted at, because a
       // balance with fewer rows than the test expects would otherwise be
@@ -407,8 +517,8 @@ test "a variable the two groups do not overlap on is flagged, not reported as a 
 /// A theta of zero next to no data is a finding nobody made.
 test "a refusal carries no theta" {
   let docs : Array[@backend.Document] = []
-  let outcome = @backend.estimate_causal_effect(docs)
-  let json = outcome.to_json()
+  let outcome = @backend.estimate_causal_effect(docs, @backend.Lang::english())
+  let json = outcome.to_json(@backend.Lang::english())
   match json {
     Object(fields) => {
       assert_true(fields.get("theta") is Some(Json::Null))

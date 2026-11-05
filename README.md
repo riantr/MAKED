@@ -446,6 +446,7 @@ GET  /api/sessions/1?lang=zh
 GET  /api/pages?lang=zh
 GET  /api/pages/model?lang=zh
 GET  /api/bootstrap?lang=zh
+GET  /api/research/causal?lang=zh
 ```
 
 The Chinese is the table's own rather than MAKED's translation of it: a
@@ -475,6 +476,13 @@ The measures are the same numbers in both languages — the measures read the
 run, and the run does not change with the language — and the sentences
 beside them are not. A reader who cannot read the sentence cannot trust the
 number next to it.
+
+The causal estimate answers in the language asked for as well: the treatment it
+names, the outcome it scores, the variables it controls for, the reading of the
+overlap and the reading of the sensitivity are all written in the language the
+request named — and so is a refusal, because a refusal is a sentence too. The
+numbers are the same in both languages; the corpus does not change with the
+language.
 
 The agent's server takes the same switch as an argument: `maked_status`,
 `maked_options`, `maked_step`, `maked_society`, `maked_sessions` and
@@ -615,7 +623,7 @@ MAKED_moonbit/
 │   ├── metrics.mbt                   # the measures, in both languages
 │   ├── session.mbt                   # explorations, timelines, exports
 │   ├── database.mbt                  # SQLite
-│   ├── *_test.mbt                    # 447 tests
+│   ├── *_test.mbt                    # 451 tests
 │   └── *_wbtest.mbt                  # 16 tests
 ├── frontend/                         # the single-page app (js)
 │   ├── app.mbt                       # the TEA loop and the messages
@@ -628,7 +636,7 @@ MAKED_moonbit/
 │   ├── page.mbt                      # the page, and how it is decoded
 │   ├── logo.mbt                      # the ring
 │   ├── views.mbt                     # the views
-│   └── frontend_test.mbt             # 173 tests
+│   └── frontend_test.mbt             # 174 tests
 ├── cmd/
 │   ├── server/main.mbt               # the web server
 │   ├── mcp/main.mbt                  # the agent's server
@@ -644,7 +652,7 @@ MAKED_moonbit/
 │   └── notes/                        # the corpus the local example names
 │       └── failed-launch.md
 ├── tools/
-│   ├── integration-test.ps1          # 447 checks against a running server
+│   ├── integration-test.ps1          # 455 checks against a running server
 │   ├── mutate-backend.ps1            # 148 mutations of the backend
 │   ├── mutate-frontend.ps1           # 65 mutations of the frontend
 │   ├── mutate-loop.ps1               # 16 mutations of the loop
@@ -1032,9 +1040,9 @@ build runs. Both print the same lines and they go red together.
 
 | What | How many | How it is checked |
 |---|---|---|
-| Backend tests | 463 | `moon test --target native backend` |
-| Frontend tests | 173 | `moon test --target js frontend` |
-| Integration checks | 447 | `tools/integration-test.ps1` — against a server that is really running |
+| Backend tests | 467 | `moon test --target native backend` |
+| Frontend tests | 174 | `moon test --target js frontend` |
+| Integration checks | 455 | `tools/integration-test.ps1` — against a server that is really running |
 | Backend mutations | 148 | `tools/mutate-backend.ps1` |
 | Frontend mutations | 65 | `tools/mutate-frontend.ps1` |
 | Loop mutations | 16 | `tools/mutate-loop.ps1` |

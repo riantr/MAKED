@@ -4166,6 +4166,69 @@ if ($codeLanguageRoutes.Count -eq 0) {
 } else {
   Write-Output ("  ok      {0,-20} {1}" -f 'No language route', ($docNoLanguageRoutes -join ' '))
 }
+# --- the language of the causal estimate -----------------------------------------
+#
+# The route read the language and threw it away.  `GET /api/research/causal`
+# called `lang_of(req)` and used the answer for a notice about a corpus it could
+# not read; the estimate itself was written in English, because the estimator had
+# no language to write in.  Nothing watched it: the gate above derives a
+# language-aware route from the presence of `lang_of(req)` in the handler, so the
+# route counted as language-aware while its answer stayed English -- and every
+# suite went on saying that every claim in the documents matches the tree.
+#
+# The claim is a CHAIN, and the chain is what is checked.  Four links carry the
+# language from the reader to the sentence:
+#
+#   1. the request the browser builds carries the language
+#   2. the click asks for the reader's language, not a fixed one
+#   3. the route hands the language it read to the estimator
+#   4. the route hands the language to the writer that makes the JSON
+#
+# and the document asks for the language on that route, which is the part the
+# reader reads.
+#
+# A chain that only one environment walks is not covered by the tests: the
+# backend tests call the estimator with a language and the browser tests check
+# the request, but nothing walked the links together.
+#
+# What happens INSIDE the estimator is not this rule's business: the backend
+# tests assert the Chinese sentences, and they run on every platform.  What
+# this rule watches is the chain -- the places where the language can be
+# dropped on the way from the reader to the sentence.
+#
+# The missing links are printed as a SET, not as a count: a count says how many
+# are gone and not which, and "one link is missing" is a worse message than the
+# name of it.
+
+$causalLanguageMissing = @()
+
+$frontendText = [System.IO.File]::ReadAllText((Join-Path $PWD 'frontend/app.mbt'), $enc)
+if (-not $frontendText.Contains('"/api/research/causal" + lang_query(lang)')) {
+  $causalLanguageMissing += 'the-request-does-not-carry-the-language'
+}
+if (-not $frontendText.Contains('causal_request(model.lang)')) {
+  $causalLanguageMissing += 'the-click-does-not-ask-for-the-readers-language'
+}
+
+$apiText = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/api.mbt'), $enc)
+if (-not $apiText.Contains('estimate_causal_effect(read.documents, lang)')) {
+  $causalLanguageMissing += 'the-route-does-not-pass-the-language-to-the-estimator'
+}
+if (-not $apiText.Contains('causal_result.to_json(lang)')) {
+  $causalLanguageMissing += 'the-route-does-not-pass-the-language-to-the-json'
+}
+
+if (-not $readme.Contains('/api/research/causal?lang=zh')) {
+  $causalLanguageMissing += 'the-document-does-not-ask-for-the-language'
+}
+
+if ($causalLanguageMissing.Count -gt 0) {
+  Write-Output ("  {0,-20} the causal estimate does not answer in the language asked for; these links are missing: {1}" -f 'Causal language', ($causalLanguageMissing -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Causal language', 'the request, the click, the route and the document all carry the language')
+}
 # --- the ring's letters --------------------------------------------------------
 #
 # The ring has a letter for each domain -- M for Model, D for Data -- and the

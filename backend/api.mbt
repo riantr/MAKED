@@ -1139,7 +1139,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
           read.total,
           "",
           "",
-          estimate_causal_effect(read.documents),
+          estimate_causal_effect(read.documents, lang),
         )
       Err(reason) => {
         let no_documents : Array[Document] = []
@@ -1155,7 +1155,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       }
     }
     let body : Json = {
-      "causal": causal_result.to_json(),
+      "causal": causal_result.to_json(lang),
       "documents_analyzed": documents.length(),
       // How many the corpus holds. An estimate over the first twenty of two
       // hundred documents is an estimate over twenty documents, and saying so

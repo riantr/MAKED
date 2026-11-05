@@ -35,8 +35,32 @@
 ///
 /// Named rather than anonymous, because "we controlled for four things" is
 /// not an answer a reader can check.
+///
+/// These names are **identifiers**, not display strings: `feature_of` matches
+/// on them to find each number's source, so they cannot be translated without
+/// the feature lookup going with them. The name the reader sees is
+/// `confounder_label`, which is the same fact in the language asked for.
 pub fn confounders() -> Array[String] {
   ["title length", "abstract length", "author count", "category count"]
+}
+
+///|
+/// The name of a controlled variable, in the language asked for.
+///
+/// The identifier is the English one and the label is what the reader sees,
+/// and the two are kept apart on purpose: the identifier is what the feature
+/// lookup matches on, so translating it would translate the lookup with it.
+///
+/// A name with no Chinese falls back to the English one, which is the rule
+/// `Lang::pick` holds everywhere else.
+pub fn confounder_label(name : String, lang : Lang) -> String {
+  match name {
+    "title length" => lang.pick("title length", "标题长度")
+    "abstract length" => lang.pick("abstract length", "摘要长度")
+    "author count" => lang.pick("author count", "作者数量")
+    "category count" => lang.pick("category count", "类别数量")
+    _ => lang.pick(name, name)
+  }
 }
 
 ///|
@@ -44,8 +68,8 @@ pub fn confounders() -> Array[String] {
 ///
 /// The words are the ones a paper uses to say it is novel. A treatment
 /// defined by keywords is a crude instrument, and the panel says so.
-pub fn treatment_name() -> String {
-  "claims to be new"
+pub fn treatment_name(lang : Lang) -> String {
+  lang.pick("claims to be new", "声称有新意")
 }
 
 ///|
@@ -54,8 +78,8 @@ pub fn treatment_name() -> String {
 /// MAKED cannot count citations in a reader's own notes, so it scores a
 /// document on its length, its authorship and its breadth. The name says
 /// what it is.
-pub fn outcome_name() -> String {
-  "impact score"
+pub fn outcome_name(lang : Lang) -> String {
+  lang.pick("impact score", "影响力评分")
 }
 
 ///|
@@ -492,10 +516,12 @@ fn balance_of(
   d : Array[Double],
   n : Int32,
   p : Int32,
+  lang : Lang,
 ) -> Array[BalanceRow] {
   let rows : Array[BalanceRow] = []
   for j in 0..<p {
     let name = confounders()[j]
+    let label = confounder_label(name, lang)
     let mut sum_t = 0.0
     let mut sum_u = 0.0
     let mut sum_t2 = 0.0
@@ -518,7 +544,7 @@ fn balance_of(
       // A group with nobody in it has no mean. The row says so rather than
       // reporting a number nobody can interpret.
       rows.push({
-        name,
+        name: label,
         treated_mean: 0.0,
         untreated_mean: 0.0,
         standardized_difference: 0.0,
@@ -555,7 +581,7 @@ fn balance_of(
     let separated = pooled <= 1.0e-12 && gap.abs() > 1.0e-12
     let standardized = if pooled > 1.0e-12 { gap / pooled } else { 0.0 }
     rows.push({
-      name,
+      name: label,
       treated_mean: mean_t,
       untreated_mean: mean_u,
       standardized_difference: standardized,
@@ -584,7 +610,11 @@ fn balance_of(
 /// every untreated one like an untreated one, with nothing in between. The
 /// estimate is then not identified, and the fit's enormous standard error
 /// is the arithmetic saying so. This says so in words.
-fn overlap_of(model : @dml.DoubleMLPLR, d : Array[Double]) -> Overlap {
+fn overlap_of(
+  model : @dml.DoubleMLPLR,
+  d : Array[Double],
+  lang : Lang,
+) -> Overlap {
   let n = d.length()
   let m_hat = model.predictions_m()
   let mut ss = 0.0
@@ -605,10 +635,19 @@ fn overlap_of(model : @dml.DoubleMLPLR, d : Array[Double]) -> Overlap {
   // it is a hundred billion times smaller than the variance of a coin
   // toss, and the estimate built on it has a standard error to match.
   let overlaps = variance > 1.0e-8
-  let reading = if overlaps {
-    "The two groups overlap: there are documents that could have gone either way."
-  } else {
-    "The two groups do not overlap. Every treated document is unlike every untreated one, so the corpus cannot say what an untreated document that looked like a treated one would have scored, and this estimate is not identified."
+  let reading = match lang {
+    English =>
+      if overlaps {
+        "The two groups overlap: there are documents that could have gone either way."
+      } else {
+        "The two groups do not overlap. Every treated document is unlike every untreated one, so the corpus cannot say what an untreated document that looked like a treated one would have scored, and this estimate is not identified."
+      }
+    Chinese =>
+      if overlaps {
+        "两组之间存在重叠：有些文档既可能被当作处理组，也可能被当作对照组。"
+      } else {
+        "两组之间没有重叠。每一个处理组文档都与每一个对照组文档不同，因此语料无法说明一个「长得像处理组」的对照组文档本会得到多少分，这个估计无法被识别。"
+      }
   }
   {
     overlaps,
@@ -636,9 +675,10 @@ fn sensitivity_of(
   theta : Double,
   ci_lower : Double,
   ci_upper : Double,
+  lang : Lang,
 ) -> Sensitivity {
   let sens = model.sensitivity_analysis(cf_y=0.05, cf_d=0.05) catch {
-    _ => return Sensitivity::unknown()
+    _ => return Sensitivity::unknown(lang)
   }
   let rv = sens.rv
   // The worst case: the estimate could move by as much as the maximum
@@ -660,28 +700,47 @@ fn sensitivity_of(
     // An estimate of exactly zero has no sign to keep.
     false
   }
-  let reading = if rv >= 1.0e30 {
-    "The estimate is exactly zero, so no confounder can change its sign."
-  } else if rv > 1.0 {
-    "An unobserved confounder would have to be " +
-    rv.to_string() +
-    " times stronger than the ones already controlled for before it could flip this estimate."
-  } else {
-    "A confounder only " +
-    rv.to_string() +
-    " times as strong as the ones already controlled for would be enough to flip this estimate."
+  let reading = match lang {
+    English =>
+      if rv >= 1.0e30 {
+        "The estimate is exactly zero, so no confounder can change its sign."
+      } else if rv > 1.0 {
+        "An unobserved confounder would have to be " +
+        rv.to_string() +
+        " times stronger than the ones already controlled for before it could flip this estimate."
+      } else {
+        "A confounder only " +
+        rv.to_string() +
+        " times as strong as the ones already controlled for would be enough to flip this estimate."
+      }
+    Chinese =>
+      if rv >= 1.0e30 {
+        "估计值恰好为零，因此没有任何混杂因素能改变它的符号。"
+      } else if rv > 1.0 {
+        "一个未被观测到的混杂因素，必须比已经控制住的那些强" +
+        rv.to_string() +
+        "倍，才可能翻转这个估计。"
+      } else {
+        "一个只要比已经控制住的那些强" +
+        rv.to_string() +
+        "倍的混杂因素，就足以翻转这个估计。"
+      }
   }
   { robustness_value: rv, lower, upper, reading, robust, }
 }
 
 ///|
 /// The sensitivity of an estimate that could not be made.
-pub fn Sensitivity::unknown() -> Sensitivity {
+pub fn Sensitivity::unknown(lang : Lang) -> Sensitivity {
   {
     robustness_value: 0.0,
     lower: 0.0,
     upper: 0.0,
-    reading: "No estimate was made, so there is nothing to be sensitive to.",
+    reading: match lang {
+      English => "No estimate was made, so there is nothing to be sensitive to."
+      Chinese =>
+        "没有做出估计，因此也就没有可以对它做敏感性分析的东西。"
+    },
     robust: false,
   }
 }
@@ -696,13 +755,23 @@ pub fn Sensitivity::unknown() -> Sensitivity {
 /// document is treated or none is, is a corpus that cannot support an
 /// estimate, and an estimate that is not supported is a number that reads
 /// as a finding.
-pub fn estimate_causal_effect(documents : Array[Document]) -> CausalOutcome {
+pub fn estimate_causal_effect(
+  documents : Array[Document],
+  lang : Lang,
+) -> CausalOutcome {
   let n = documents.length()
   if n < 10 {
     return Refused({
-      reason: "Only " +
-      n.to_string() +
-      " documents; a causal estimate needs at least 10 to mean anything.",
+      reason: match lang {
+        English =>
+          "Only " +
+          n.to_string() +
+          " documents; a causal estimate needs at least 10 to mean anything."
+        Chinese =>
+          "只有" +
+          n.to_string() +
+          "篇文档；因果估计至少需要10篇才有意义。"
+      },
       balance: [],
     })
   }
@@ -728,9 +797,16 @@ pub fn estimate_causal_effect(documents : Array[Document]) -> CausalOutcome {
     match row.unreadable {
       Some(name) =>
         return Refused({
-          reason: "The controlled variable \"" +
-          name +
-          "\" has no feature to read, so there is nothing to control for.",
+          reason: match lang {
+            English =>
+              "The controlled variable \"" +
+              name +
+              "\" has no feature to read, so there is nothing to control for."
+            Chinese =>
+              "受控变量「" +
+              confounder_label(name, lang) +
+              "」没有可以读取的特征，因此没有可以控制的东西。"
+          },
           balance: [],
         })
       None => ()
@@ -753,17 +829,29 @@ pub fn estimate_causal_effect(documents : Array[Document]) -> CausalOutcome {
   // everybody and a group of nobody is not a balance.
   if n_treated == 0 {
     return Refused({
-      reason: "None of the " +
-      n.to_string() +
-      " documents claims to be new, so there is no contrast to estimate.",
+      reason: match lang {
+        English =>
+          "None of the " +
+          n.to_string() +
+          " documents claims to be new, so there is no contrast to estimate."
+        Chinese =>
+          n.to_string() +
+          "篇文档中没有一篇声称有新意，因此没有可供估计的对照。"
+      },
       balance: [],
     })
   }
   if n_treated == n {
     return Refused({
-      reason: "Every one of the " +
-      n.to_string() +
-      " documents claims to be new, so there is no contrast to estimate.",
+      reason: match lang {
+        English =>
+          "Every one of the " +
+          n.to_string() +
+          " documents claims to be new, so there is no contrast to estimate."
+        Chinese =>
+          n.to_string() +
+          "篇文档全都声称有新意，因此没有可供估计的对照。"
+      },
       balance: [],
     })
   }
@@ -790,8 +878,8 @@ pub fn estimate_causal_effect(documents : Array[Document]) -> CausalOutcome {
   let se = model.se()
   let (ci_lower, ci_upper) = model.confint()
 
-  let balance = balance_of(x_flat, d, n, p)
-  let overlap = overlap_of(model, d)
+  let balance = balance_of(x_flat, d, n, p, lang)
+  let overlap = overlap_of(model, d, lang)
 
   // A corpus whose two groups do not overlap cannot support an estimate.
   // The fit still returns one, and the fit's standard error is enormous --
@@ -806,7 +894,7 @@ pub fn estimate_causal_effect(documents : Array[Document]) -> CausalOutcome {
     return Refused({ reason: overlap.reading, balance, })
   }
 
-  let sensitivity = sensitivity_of(model, theta, ci_lower, ci_upper)
+  let sensitivity = sensitivity_of(model, theta, ci_lower, ci_upper, lang)
 
   Estimated({
     theta,
@@ -816,9 +904,9 @@ pub fn estimate_causal_effect(documents : Array[Document]) -> CausalOutcome {
     n_obs: n,
     n_treated,
     n_features: p,
-    treatment: treatment_name(),
-    outcome: outcome_name(),
-    confounders: confounders(),
+    treatment: treatment_name(lang),
+    outcome: outcome_name(lang),
+    confounders: confounders().map(fn(name) { confounder_label(name, lang) }),
     balance,
     overlap,
     sensitivity,
@@ -830,7 +918,11 @@ pub fn estimate_causal_effect(documents : Array[Document]) -> CausalOutcome {
 ///
 /// A refusal is a refusal: it says why in words, and it does not carry a
 /// theta, because a theta of zero next to no data is a finding nobody made.
-pub fn CausalOutcome::to_json(self : CausalOutcome) -> Json {
+///
+/// The language is asked for here, at the boundary, because this is where the
+/// result becomes the reader's: the numbers are the same in both languages
+/// and the sentences beside them are not.
+pub fn CausalOutcome::to_json(self : CausalOutcome, lang : Lang) -> Json {
   match self {
     Estimated(result) => {
       let body = result.to_json()
@@ -846,7 +938,10 @@ pub fn CausalOutcome::to_json(self : CausalOutcome) -> Json {
     }
     Refused(refusal) =>
       {
-        "refused": "the estimate was not made",
+        "refused": match lang {
+          English => "the estimate was not made"
+          Chinese => "没有做出估计"
+        },
         "reason": refusal.reason,
         "theta": Json::null(),
         "se": Json::null(),
@@ -855,11 +950,13 @@ pub fn CausalOutcome::to_json(self : CausalOutcome) -> Json {
         "n_obs": 0,
         "n_treated": 0,
         "n_features": 0,
-        "treatment": treatment_name(),
-        "outcome": outcome_name(),
-        "confounders": confounders(),
+        "treatment": treatment_name(lang),
+        "outcome": outcome_name(lang),
+        "confounders": confounders().map(fn(name) {
+          confounder_label(name, lang)
+        }),
         "balance": [..refusal.balance.map(fn(row) { row.to_json() })],
-        "sensitivity": Sensitivity::unknown().to_json(),
+        "sensitivity": Sensitivity::unknown(lang).to_json(),
       }
   }
 }
