@@ -1993,6 +1993,140 @@ if ($imageLicenses.Count -eq 0) {
   Write-Output ("  ok      {0,-20} {1}" -f 'License image', $imageLicenseSet)
 }
 
+# --- the dependency index the CI refreshes -------------------------------------
+#
+# `moon update` refreshes the registry index: it makes the versions the
+# registry has NOW visible to the toolchain.  A job that resolves against a
+# stale index is a job that builds against a version of the registry that no
+# longer exists, and it does so quietly -- the build succeeds and the number in
+# the manifest is not the number anybody can fetch.
+#
+# Every job that installs the MoonBit toolchain refreshes the index.  The
+# container job is not in this rule: it has no toolchain, so there is nothing
+# for it to refresh, and a rule that asked it to would be asking for a
+# ceremony.
+#
+# The missing facts are printed as a SET -- the jobs, named one by one -- and
+# an empty set is a FAIL.  "A job" is not a thing a reader can go and look at.
+
+# The CI jobs that install the toolchain and do NOT refresh the index.
+function Get-CiStaleJobs {
+  $out = @()
+  $path = Join-Path $PWD '.github/workflows/ci.yml'
+  if (-not (Test-Path $path)) { return $out }
+  $text = [System.IO.File]::ReadAllText($path, $enc)
+  $inJobs = $false
+  $job = ''
+  $toolchain = $false
+  $refreshed = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -cmatch '^jobs:') { $inJobs = $true; continue }
+    if ($inJobs -and $line -cmatch '^  ([A-Za-z0-9_-]+):') {
+      if ($job -ne '' -and $toolchain -and -not $refreshed) { $out += $job }
+      $job = $Matches[1]
+      $toolchain = $false
+      $refreshed = $false
+      continue
+    }
+    if ($job -eq '') { continue }
+    if ($line -cmatch 'cli\.moonbitlang\.com/install') { $toolchain = $true }
+    if ($line -cmatch '^[\s]*moon update[\s]*$') { $refreshed = $true }
+  }
+  if ($job -ne '' -and $toolchain -and -not $refreshed) { $out += $job }
+  Sort-Set $out
+}
+
+$ciStaleJobs = @(Get-CiStaleJobs)
+if ($ciStaleJobs.Count -gt 0) {
+  Write-Output ("  {0,-20} these CI jobs install the toolchain but do not refresh the dependency index: {1}" -f 'Dependency refresh', ($ciStaleJobs -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Dependency refresh', 'every job with the toolchain refreshes the index')
+}
+
+# --- the release's dependency check ---------------------------------------------
+#
+# A release is the one thing that puts a build in front of users, and a build
+# that ships a dependency the registry has already moved past is a build
+# nobody chose.  The ordinary CI keeps the dependency check as a WARNING -- a
+# push should not go red because somebody published a new version of a
+# dependency an hour ago -- and the release makes it a FAILURE.
+#
+# Nothing held that apart.  The check existed, it reported what it found, and
+# it always exited 0 -- so a release could ship a dependency the registry had
+# already moved past, and the run said nothing about it.
+#
+# The rule is two things:
+#
+#   - the release workflow runs the check in its STRICT mode;
+#   - the strict mode really fails: a dependency that has moved ends the run.
+#
+# The second one is the half that matters.  A `--strict` flag the script
+# ignores is a flag that says nothing, and the release would go on shipping
+# exactly what the warning found.
+#
+# The missing facts are printed as a SET, not as a count.
+
+# Does the release workflow run the check in its strict mode?
+function Test-ReleaseDepStrict {
+  $path = Join-Path $PWD '.github/workflows/publish.yml'
+  if (-not (Test-Path $path)) { return $false }
+  $text = [System.IO.File]::ReadAllText($path, $enc)
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -cmatch 'dep-check\.sh.*--strict') { return $true }
+  }
+  return $false
+}
+
+# Does the strict mode fail the run?  The block is read with its own if/fi
+# depth, because the exit that matters is the one under the strict guard and
+# not some other exit in the file.
+#
+# The guard is found by its SHAPE and not by its spelling: the line is read
+# with its whitespace taken out, and the guard is the line that reads
+# if["$STRICT"-eq1];then.  A rule that matched on a regular expression with a
+# whitespace class in it would be a rule whose two twins could disagree -- one
+# of them reads "tab" and the other reads the letter "t" -- and a pair of twins
+# that can disagree is not a pair of twins.
+function Test-DepStrictFails {
+  $path = Join-Path $PWD 'tools/dep-check.sh'
+  if (-not (Test-Path $path)) { return $false }
+  $text = [System.IO.File]::ReadAllText($path, $enc)
+  $inside = $false
+  $depth = 0
+  $found = $false
+  foreach ($line in ($text -split "`r?`n")) {
+    $compact = ($line -replace '\s', '')
+    if ($compact.Contains('if["$STRICT"-eq1];then')) { $inside = $true; $depth = 1; continue }
+    if (-not $inside) { continue }
+    if ($line -cmatch '^[\s]*fi[\s]*$') {
+      $depth = $depth - 1
+      if ($depth -eq 0) { $inside = $false }
+      continue
+    }
+    if ($line -cmatch '^[\s]*if[\s]') { $depth = $depth + 1 }
+    if ($line -cmatch 'exit 1') { $found = $true }
+  }
+  return $found
+}
+
+$releaseDepMissing = @()
+if (-not (Test-ReleaseDepStrict)) {
+  $releaseDepMissing += 'the-release-does-not-run-the-check-in-its-strict-mode'
+}
+if (-not (Test-DepStrictFails)) {
+  $releaseDepMissing += 'the-strict-mode-does-not-fail-the-run'
+}
+$releaseDepSet = ($releaseDepMissing -join ' ')
+if ($releaseDepMissing.Count -gt 0) {
+  Write-Output ("  {0,-20} a release must ship the dependencies it names; these are missing: {1}" -f 'Release dependencies', $releaseDepSet)
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Release dependencies', 'the release fails when a dependency has moved')
+}
+
 # --- the logo the README shows ------------------------------------------------
 #
 # The README opens with the logo, and the registry serves that file out of the

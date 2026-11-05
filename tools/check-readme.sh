@@ -1921,6 +1921,126 @@ else
   printf '  ok      %-20s %s\n' 'License image' "$IMAGE_LICENSE_SET"
 fi
 
+# --- the dependency index the CI refreshes -------------------------------------
+#
+# `moon update` refreshes the registry index: it makes the versions the
+# registry has NOW visible to the toolchain.  A job that resolves against a
+# stale index is a job that builds against a version of the registry that no
+# longer exists, and it does so quietly -- the build succeeds and the number in
+# the manifest is not the number anybody can fetch.
+#
+# Every job that installs the MoonBit toolchain refreshes the index.  The
+# container job is not in this rule: it has no toolchain, so there is nothing
+# for it to refresh, and a rule that asked it to would be asking for a
+# ceremony.
+#
+# The missing facts are printed as a SET -- the jobs, named one by one -- and
+# an empty set is a FAIL.  "A job" is not a thing a reader can go and look at.
+
+# The CI jobs that install the toolchain and do NOT refresh the index.
+code_ci_stale_jobs() {
+  awk '
+    /^jobs:/ { in_jobs = 1; next }
+    in_jobs && /^  [A-Za-z0-9_-]+:/ {
+      if (job != "" && toolchain && ! refreshed) print job
+      job = $0
+      sub(/^  /, "", job)
+      sub(/:.*$/, "", job)
+      toolchain = 0; refreshed = 0
+      next
+    }
+    job != "" {
+      if ($0 ~ /cli\.moonbitlang\.com\/install/) toolchain = 1
+      if ($0 ~ /^[[:space:]]*moon update[[:space:]]*$/) refreshed = 1
+    }
+    END { if (job != "" && toolchain && ! refreshed) print job }
+  ' .github/workflows/ci.yml 2>/dev/null | LC_ALL=C sort -u
+}
+
+CI_STALE_JOBS=$(code_ci_stale_jobs)
+if [ -n "$CI_STALE_JOBS" ]; then
+  fail "$(printf '%-20s these CI jobs install the toolchain but do not refresh the dependency index: %s' \
+    'Dependency refresh' "$(printf '%s' "$CI_STALE_JOBS" | tr '\n' ' ' | sed -e 's/ *$//')")"
+else
+  printf '  ok      %-20s %s\n' 'Dependency refresh' \
+    'every job with the toolchain refreshes the index'
+fi
+
+# --- the release's dependency check ---------------------------------------------
+#
+# A release is the one thing that puts a build in front of users, and a build
+# that ships a dependency the registry has already moved past is a build
+# nobody chose.  The ordinary CI keeps the dependency check as a WARNING -- a
+# push should not go red because somebody published a new version of a
+# dependency an hour ago -- and the release makes it a FAILURE.
+#
+# Nothing held that apart.  The check existed, it reported what it found, and
+# it always exited 0 -- so a release could ship a dependency the registry had
+# already moved past, and the run said nothing about it.
+#
+# The rule is two things:
+#
+#   - the release workflow runs the check in its STRICT mode;
+#   - the strict mode really fails: a dependency that has moved ends the run.
+#
+# The second one is the half that matters.  A `--strict` flag the script
+# ignores is a flag that says nothing, and the release would go on shipping
+# exactly what the warning found.
+#
+# The missing facts are printed as a SET, not as a count.
+
+# Does the release workflow run the check in its strict mode?
+code_release_dep_strict() {
+  grep -qE 'dep-check\.sh.*--strict' .github/workflows/publish.yml 2>/dev/null
+}
+
+# Does the strict mode fail the run?  The block is read with its own if/fi
+# depth, because the exit that matters is the one under the strict guard and
+# not some other exit in the file.
+#
+# The guard is found by its SHAPE and not by its spelling: the line is read
+# with its whitespace taken out, and the guard is the line that reads
+# if["$STRICT"-eq1];then.  A rule that matched on a regular expression with a
+# whitespace class in it would be a rule whose two twins could disagree -- one
+# of them reads "tab" and the other reads the letter "t" -- and a pair of twins
+# that can disagree is not a pair of twins.
+code_dep_strict_fails() {
+  awk '
+    {
+      compact = $0
+      gsub(/[[:space:]]/, "", compact)
+      if (index(compact, "if[\"$STRICT\"-eq1];then") > 0) { inside = 1; depth = 1; next }
+    }
+    inside {
+      if ($0 ~ /^[[:space:]]*fi[[:space:]]*$/) {
+        depth = depth - 1
+        if (depth == 0) { inside = 0 }
+        next
+      }
+      if ($0 ~ /^[[:space:]]*if[[:space:]]/) { depth = depth + 1 }
+      if ($0 ~ /exit 1/) { found = 1 }
+    }
+    END { exit(found ? 0 : 1) }
+  ' tools/dep-check.sh
+}
+
+RELEASE_DEP_MISSING=""
+if ! code_release_dep_strict; then
+  RELEASE_DEP_MISSING="$RELEASE_DEP_MISSING the-release-does-not-run-the-check-in-its-strict-mode"
+fi
+if ! code_dep_strict_fails; then
+  RELEASE_DEP_MISSING="$RELEASE_DEP_MISSING the-strict-mode-does-not-fail-the-run"
+fi
+RELEASE_DEP_MISSING="${RELEASE_DEP_MISSING# }"
+
+if [ -n "$RELEASE_DEP_MISSING" ]; then
+  fail "$(printf '%-20s a release must ship the dependencies it names; these are missing: %s' \
+    'Release dependencies' "$RELEASE_DEP_MISSING")"
+else
+  printf '  ok      %-20s %s\n' 'Release dependencies' \
+    'the release fails when a dependency has moved'
+fi
+
 # --- the logo the README shows ------------------------------------------------
 #
 # The README opens with the logo, and the registry serves that file out of the

@@ -255,6 +255,21 @@ suite was run again with them, and this file was written afterwards. A release
 measured against an older pin is a release measured against something nobody
 ships.
 
+That check now runs **inside the release**, and there it is a failure rather
+than a warning. `tools/dep-check.sh --strict` asks the registry for the current
+version of every dependency in `moon.mod`, and the release stops if one has
+moved — or if one could not be read at all, because "could not be queried" is
+not "is current", and a release that cannot check its dependencies should not
+ship. On a push the same script stays a warning: a push should not go red
+because somebody published a new version of a dependency an hour ago.
+
+Every job that installs the toolchain refreshes the registry index with
+`moon update` before it resolves anything, so the versions it builds against
+are the ones the registry has now. Refreshing the index is not the same thing
+as moving the pin: `moon update` leaves `moon.mod` where it is, and the
+upgrade is `moon add --upgrade <package>@<version>` — a change to the tree,
+which goes through the gates like any other.
+
 ### What changed in 0.1.8
 
 Five changes, and **none of them breaks the published surface**:
@@ -679,7 +694,6 @@ MAKED_moonbit/
 │   └── README.md                     # what it runs, and how to install it
 ├── AGENT.md                         # how to drive MAKED from another agent
 ├── AGENTS.md                        # how to work on MAKED
-├── LOGO.jpeg                        # an alternate mark of the same five domains
 ├── maked.png                        # the logo, at the size the README shows it
 ├── maked_Logo.png                   # the same mark, at full resolution
 ├── moon.mod  moon.pkg
@@ -1040,7 +1054,7 @@ because a green suite says nothing about a claim written in prose:
 | `tools/check-mutation-anchors.ps1` | an anchor that names a line the code has left behind — a guard that cannot fail, and a survivor that means nothing |
 | `tools/mutate-backend.ps1`, `tools/mutate-frontend.ps1`, `tools/mutate-loop.ps1` | a behaviour the tests do not pin: every mutation has to be killed, and one that survives has to be accounted for |
 | `tools/integration-test.ps1` | a claim about the running server, checked against a server that is really running |
-| `tools/dep-check.sh` | a pin that has moved under the version that names it |
+| `tools/dep-check.sh` | a pin that has moved under the version that names it — a warning on a push, a failure on a release |
 
 The two document gates are twins: the same invariant written twice, once in
 bash and once in PowerShell, because the CI runner is ubuntu and carries bash,

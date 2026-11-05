@@ -108,6 +108,26 @@ jobs:
           # to do here but refresh the index.
           moon update
 
+      # The dependencies are checked before anything is published.
+      #
+      # A release is the one thing that puts a build in front of users, and a
+      # build that ships a dependency the registry has already moved past is a
+      # build nobody chose. The ordinary CI keeps this as a warning -- a push
+      # should not go red because somebody published a new version an hour ago
+      # -- and the release makes it a failure, because a release is a promise
+      # about what is in it.
+      #
+      # It fails on a dependency that has moved AND on one whose version could
+      # not be read: "could not be queried" is not "is current", and a release
+      # that cannot check its dependencies should not ship.
+      #
+      # The fix is in the output above the error: `moon add --upgrade
+      # <package>@<version>`, then the gates again with the new dependency.
+      # `moon update` on its own is not the fix -- it refreshes the index and
+      # leaves the pinned version where it was.
+      - name: Check the dependencies are current
+        run: bash tools/dep-check.sh --strict
+
       - name: Check package
         run: |
           echo "::group::moon check --target native"
