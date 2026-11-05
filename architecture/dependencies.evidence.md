@@ -17,7 +17,7 @@
 | Dependency | Version | Source |
 |-----------|---------|--------|
 | moonbit-community/rabbita | 0.17.0 | `moon.mod:48` |
-| moonbit-community/sqlite3 | 0.2.3 | `moon.mod:49` |
+| moonbit-community/sqlite3 | 0.2.4 | `moon.mod:49` |
 | moonbit-community/yaml | 0.0.8 | `moon.mod:50` |
 | moonbitlang/async | 0.22.7 | `moon.mod:51` |
 | moonbitlang/moonback | 0.8.10 | `moon.mod:52` |

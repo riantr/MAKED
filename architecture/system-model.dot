@@ -76,7 +76,7 @@ digraph maked_components {
     node [shape=component, fillcolor="#e8e8e8"]
 
     moonback [label="moonback@0.8.10\nHTTP server + router\nmoonback/middlewares/unstable_static"]
-    sqlite3  [label="sqlite3@0.2.3\nSQLite FFI"]
+    sqlite3  [label="sqlite3@0.2.4\nSQLite FFI"]
     yaml     [label="yaml@0.0.8\nThe machine files"]
     async    [label="async@0.22.7\nasync/fs, async/http,\nasync/io, async/stdio"]
     rabbita  [label="rabbita@0.17.0\nrabbita/cmd, rabbita/html,\nrabbita/http, rabbita/nav,\nrabbita/sub, rabbita/svg,\nrabbita/url"]

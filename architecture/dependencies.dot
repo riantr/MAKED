@@ -74,7 +74,7 @@ digraph maked_dependencies {
 
     moonback [label="moonbitlang/moonback@0.8.10\nHTTP server + router"]
     moonback_static [label="moonbitlang/moonback/middlewares/unstable_static\nStatic file middleware"]
-    sqlite3 [label="moonbit-community/sqlite3@0.2.3\nSQLite FFI"]
+    sqlite3 [label="moonbit-community/sqlite3@0.2.4\nSQLite FFI"]
     yaml [label="moonbit-community/yaml@0.0.8\nThe machine files"]
     async [label="moonbitlang/async@0.22.7\nThe async runtime"]
     async_fs [label="moonbitlang/async/fs\nFilesystem ops"]

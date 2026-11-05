@@ -34,7 +34,7 @@ communicate only through the JSON API contract at runtime.
 ```
 moonbitlang/moonback@0.8.10         ← HTTP server framework
 moonbitlang/async@0.22.7            ← Async runtime (fs, http, process)
-moonbit-community/sqlite3@0.2.3     ← SQLite FFI bindings
+moonbit-community/sqlite3@0.2.4     ← SQLite FFI bindings
 moonbit-community/rabbita@0.17.0    ← Elm-style SPA framework
 moonbit-community/yaml@0.0.8        ← The mapping table's syntax
 moonbitlang/pdflite@0.4.1           ← Markdown export

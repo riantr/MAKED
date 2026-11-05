@@ -79,7 +79,7 @@ correction lives beside them rather than in them.
 | Dependency | Version | Used by | Source |
 |-----------|---------|---------|--------|
 | moonbit-community/rabbita | 0.17.0 | frontend, cmd/web | `moon.mod:48` |
-| moonbit-community/sqlite3 | 0.2.3 | backend | `moon.mod:49` |
+| moonbit-community/sqlite3 | 0.2.4 | backend | `moon.mod:49` |
 | moonbit-community/yaml | 0.0.8 | backend | `moon.mod:50` |
 | moonbitlang/async | 0.22.7 | backend, cmd/server, cmd/mcp | `moon.mod:51` |
 | moonbitlang/moonback | 0.8.10 | backend, cmd/server | `moon.mod:52` |

@@ -46,7 +46,7 @@ description = "MAKED on MoonBit: rabbita SPA frontend + a Flask-style micro-fram
 
 import {
   "moonbit-community/rabbita@0.17.0",
-  "moonbit-community/sqlite3@0.2.3",
+  "moonbit-community/sqlite3@0.2.4",
   "moonbit-community/yaml@0.0.8",
   "moonbitlang/async@0.22.7",
   "moonbitlang/moonback@0.8.10",
