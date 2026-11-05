@@ -646,6 +646,35 @@ try {
   $blank = Post-Json "/api/entries" @{ domain = "M"; title = "   " }
   Assert-Status "a record with a blank title is refused" 400 $blank
 
+  # A refusal is a sentence the reader reads, and the reader asked for a
+  # language.
+  #
+  # The refusal is the one answer a person who has just typed something wrong
+  # is guaranteed to read, and the one answer that says what to change -- so
+  # it is written in the language the request named. The route read the
+  # language for its success notice and dropped it for its refusal, which
+  # meant the same endpoint spoke two languages at once: Chinese when it
+  # accepted, English when it refused. A reader who fixed one mistake and
+  # made another was told the second one in a language they had not chosen.
+  $zhRefused = Post-Json "/api/entries?lang=zh" @{ domain = "Z"; title = "wrong domain" }
+  Assert-Status "a record in a domain that is not one of the five is refused in Chinese too" 400 $zhRefused
+  $zhRefusal = $zhRefused.Body | ConvertFrom-Json
+  Assert-Field "and the Chinese refusal says the same thing" $zhRefusal "error" "invalid_entry"
+  $zhReason = [string](Field $zhRefusal "reason")
+  Assert-True "and the Chinese refusal is written in Chinese" `
+    ([regex]::IsMatch($zhReason, '[\u4e00-\u9fff]')) `
+    ("the refusal did not read as Chinese: {0}" -f (Limit $zhReason))
+  # And the English answer is still English: a request that asked for Chinese
+  # and got Chinese everywhere would mean the switch does nothing at all
+  # rather than doing what it says.
+  $enReason = [string](Field $refusal "reason")
+  Assert-True "and the English refusal is still English" `
+    (-not [regex]::IsMatch($enReason, '[\u4e00-\u9fff]')) `
+    ("the English refusal had Chinese in it: {0}" -f (Limit $enReason))
+  Assert-True "and the two refusals are not one sentence" `
+    ("$enReason" -ne "$zhReason") `
+    ("both said '{0}'" -f (Limit $enReason))
+
   # A record can be corrected in place. It could be created and removed but
   # never changed, which meant a typo could only be answered by writing the
   # record again -- as a different record, with a different id and a
@@ -1333,6 +1362,16 @@ try {
   $refused = Invoke-Api -Method PUT -Path "/api/research/config" -Body $badTable
   Assert-Status "a table naming a slot the model does not have is refused" 400 $refused
   Assert-Contains "and the reason says which slot" $refused.Body "not-a-slot"
+  # The refusal is a sentence the reader reads, and the table is edited by
+  # hand -- so the person editing it is the one who has to read what went
+  # wrong.  The reason is in the language the request named.
+  $zhRefused = Invoke-Api -Method PUT -Path "/api/research/config?lang=zh" -Body $badTable
+  Assert-Status "the same table is refused in Chinese too" 400 $zhRefused
+  $zhReason = [string](Field ($zhRefused.Body | ConvertFrom-Json) "reason")
+  Assert-True "and the Chinese refusal is written in Chinese" `
+    ([regex]::IsMatch($zhReason, '[\u4e00-\u9fff]')) `
+    ("the refusal did not read as Chinese: {0}" -f (Limit $zhReason))
+  Assert-Contains "and it still says which slot" $zhReason "not-a-slot"
   # The table that was running keeps running.
   $afterRefusal = Get-Json "/api/research/config"
   Assert-True "and the running table is unchanged" `
@@ -1536,6 +1575,16 @@ try {
         Assert-Status "a corpus with no path is refused" 400 $bad
         Assert-True "and the reason is given" `
           (((ConvertFrom-Json $bad.Body).reason) -like "*path*")
+        # The same refusal, in the language the request named: the corpus is
+        # pointed at by hand, so the person who pointed it is the one who has
+        # to read what went wrong.
+        $zhBad = Put-Json "/api/research/corpus?lang=zh" `
+          @{ format = "maked.corpus.v1"; source = @{ kind = "local" } }
+        Assert-Status "the same corpus is refused in Chinese too" 400 $zhBad
+        $zhReason = [string](Field ($zhBad.Body | ConvertFrom-Json) "reason")
+        Assert-True "and the Chinese refusal is written in Chinese" `
+          ([regex]::IsMatch($zhReason, '[\u4e00-\u9fff]')) `
+          ("the refusal did not read as Chinese: {0}" -f (Limit $zhReason))
         $after = Get-Json "/api/research/corpus"
         Assert-True "and the corpus that was running still runs" `
           ((Field $after "corpus").source.kind -eq "local")

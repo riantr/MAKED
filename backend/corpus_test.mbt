@@ -41,7 +41,12 @@ fn corpus_from(text : String) -> @backend.CorpusConfig raise {
   let json = @json.parse(text) catch {
     err => fail("the payload is not JSON: " + err.to_string())
   }
-  match @backend.CorpusConfig::from_json("corpus.yaml", json) {
+  match
+    @backend.CorpusConfig::from_json(
+      "corpus.yaml",
+      json,
+      @backend.Lang::english(),
+    ) {
     @backend.Accepted(config) => config
     @backend.Rejected(reason) => fail("the corpus was refused: " + reason)
   }
@@ -50,14 +55,64 @@ fn corpus_from(text : String) -> @backend.CorpusConfig raise {
 ///|
 /// The reason a payload was refused, or a failure saying it was not.
 fn refusal_of(text : String) -> String raise {
+  refusal_in(text, @backend.Lang::english())
+}
+
+///|
+/// The same refusal, in the language asked for.
+///
+/// The reason is a sentence the reader reads, and the corpus is pointed at by
+/// hand -- so the person who pointed it is the one who has to read what went
+/// wrong.  The English is the English it was: the language is a dimension
+/// beside the wording, not a replacement of it.
+fn refusal_in(text : String, lang : @backend.Lang) -> String raise {
   let json = @json.parse(text) catch {
     err => fail("the payload is not JSON: " + err.to_string())
   }
-  match @backend.CorpusConfig::from_json("corpus.yaml", json) {
+  match @backend.CorpusConfig::from_json("corpus.yaml", json, lang) {
     @backend.Accepted(_) =>
       fail("the corpus was accepted, and should not have been")
     @backend.Rejected(reason) => reason
   }
+}
+
+///|
+/// A refusal is in the language that was asked for.
+///
+/// Each kind of source is asked for the one thing it cannot work without, and
+/// the refusal says which thing -- in the language the reader asked for.
+test "a refusal of a corpus is in the language that was asked for" {
+  let english = refusal_of(corpus_payload("web", "", "", "", 10))
+  let chinese = refusal_in(
+    corpus_payload("web", "", "", "", 10),
+    @backend.Lang::chinese(),
+  )
+  assert_true(english.contains("arxiv"))
+  assert_true(chinese.contains("arxiv"))
+  assert_true(chinese.contains("语料来源"))
+  assert_true(chinese != english)
+  assert_true(chinese.has_suffix("。"))
+
+  // The arxiv source with no query: the refusal names what is missing.
+  let english_query = refusal_of(corpus_payload("arxiv", "", "", "", 10))
+  let chinese_query = refusal_in(
+    corpus_payload("arxiv", "", "", "", 10),
+    @backend.Lang::chinese(),
+  )
+  assert_true(english_query.contains("query"))
+  assert_true(chinese_query.contains("检索式"))
+  assert_true(chinese_query != english_query)
+
+  // The limit is a number in both languages, and it is the number the rule
+  // holds.
+  let english_limit = refusal_of(corpus_payload("arxiv", "all:snns", "", "", 0))
+  let chinese_limit = refusal_in(
+    corpus_payload("arxiv", "all:snns", "", "", 0),
+    @backend.Lang::chinese(),
+  )
+  assert_true(english_limit.contains("max_results"))
+  assert_true(chinese_limit.contains("max_results"))
+  assert_true(chinese_limit != english_limit)
 }
 
 ///|
@@ -141,8 +196,16 @@ test "the same corpus in JSON and in YAML is the same corpus" {
     Some(value) => value
     None => fail("the YAML was refused")
   }
-  let from_json = @backend.CorpusConfig::from_json("corpus.json", as_json)
-  let from_yaml = @backend.CorpusConfig::from_json("corpus.yaml", as_yaml)
+  let from_json = @backend.CorpusConfig::from_json(
+    "corpus.json",
+    as_json,
+    @backend.Lang::english(),
+  )
+  let from_yaml = @backend.CorpusConfig::from_json(
+    "corpus.yaml",
+    as_yaml,
+    @backend.Lang::english(),
+  )
   match (from_json, from_yaml) {
     (@backend.Accepted(a), @backend.Accepted(b)) => {
       assert_eq(a.to_json(), b.to_json())

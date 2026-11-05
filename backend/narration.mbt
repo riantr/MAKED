@@ -660,7 +660,12 @@ fn join_list(parts : Array[String]) -> String {
 /// the last item is joined with 和 rather than with "and": a Chinese list
 /// reads "甲、乙和丙", and putting a Latin comma in it is a small thing
 /// that makes the whole sentence look translated.
-fn join_list_zh(parts : Array[String]) -> String {
+///
+/// `pub` because the rule belongs to the language rather than to the
+/// sentences: the refusal reasons name a list of things the reader can choose
+/// from, and a list written in Chinese there needs the same mark. One rule,
+/// one place -- a second copy of the enumeration comma is a second rule.
+pub fn join_list_zh(parts : Array[String]) -> String {
   if parts.length() == 0 {
     return ""
   }

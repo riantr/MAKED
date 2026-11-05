@@ -4174,6 +4174,108 @@ else
   printf '  ok      %-20s %s\n' 'Causal language' \
     'the request, the click, the route and the document all carry the language'
 fi
+# --- the language of a refusal --------------------------------------------------
+#
+# The route read the language and used it for the NOTICE and threw it away for
+# the REFUSAL.  `PUT /api/research/config` answered in Chinese when the table
+# was accepted and in English when the table was refused -- and a refusal is
+# the answer a person who has just typed something wrong is guaranteed to
+# read, and the one that says what to change.
+#
+# The claim is a CHAIN again, and it is the same chain: the route hands the
+# language it read to the thing that writes the reason.
+#
+#   1. every call the request routes make to the three validators carries the
+#      language
+#   2. the document asks for the language on those routes
+#
+# The validators themselves are the backend tests' business: they assert the
+# Chinese sentences, and they run on every platform.
+#
+# The missing links are printed as a SET, not as a count.
+
+# The calls the request routes make to the three validators, with their
+# arguments.  The call is read with BALANCED parentheses, because the
+# arguments carry nested calls of their own (`current_model()`) and a regex
+# cannot count them.
+#
+# The file is flattened into one line first, because a call can span several
+# lines -- the table's call does -- and a scan that reads one line at a time
+# would see the call as unterminated.
+code_validator_calls() {
+  tr '\n' ' ' < backend/api.mbt | awk '
+    {
+      line = $0
+      while (match(line, /(Entry::from_json|ResearchConfig::from_json|CorpusConfig::from_json)\(/)) {
+        name = substr(line, RSTART, RLENGTH - 1)
+        rest = substr(line, RSTART + RLENGTH)
+        depth = 1
+        buf = ""
+        i = 1
+        while (i <= length(rest) && depth > 0) {
+          ch = substr(rest, i, 1)
+          if (ch == "(") depth = depth + 1
+          else if (ch == ")") depth = depth - 1
+          buf = buf ch
+          i = i + 1
+        }
+        args = substr(buf, 1, length(buf) - 1)
+        print name "\t" args
+        line = substr(rest, i)
+      }
+    }
+  '
+}
+
+VALIDATOR_CALLS=$(code_validator_calls)
+
+REFUSAL_MISSING=""
+while IFS=$'\t' read -r call_name call_args; do
+  [ -n "$call_name" ] || continue
+  # The language is the standalone word, and the comparison is CASE-SENSITIVE:
+  # `Lang::english()` is not a language, and a case-insensitive match would say
+  # it was.  grep is case-sensitive by default, and the two twins have to
+  # agree.
+  if ! printf '%s' "$call_args" | grep -qE '(^|[^A-Za-z0-9_])lang([^A-Za-z0-9_]|$)'; then
+    REFUSAL_MISSING="$REFUSAL_MISSING $call_name"
+  fi
+done <<< "$VALIDATOR_CALLS"
+REFUSAL_MISSING="${REFUSAL_MISSING# }"
+
+if [ -z "$VALIDATOR_CALLS" ]; then
+  fail "$(printf '%-20s no call to a validator could be derived from the routes' 'Refusal language')"
+elif [ -n "$REFUSAL_MISSING" ]; then
+  fail "$(printf '%-20s these routes refuse in a language of their own: %s' \
+    'Refusal language' "$REFUSAL_MISSING")"
+else
+  REFUSAL_DOC_MISSING=""
+  # The document's language-asking routes, read the way the house reads them:
+  # the path alone, because the query is the parameter the house asks for and
+  # not part of the route's name.
+  DOC_LANGUAGE_PATHS=""
+  while IFS= read -r asked; do
+    [ -n "$asked" ] || continue
+    DOC_LANGUAGE_PATHS="$DOC_LANGUAGE_PATHS${asked%%\?*}"$'\n'
+  done <<< "$DOC_LANGUAGE_ROUTES"
+
+  for refusal_route in \
+    'POST /api/entries' \
+    'PUT /api/entries/1' \
+    'PUT /api/research/config' \
+    'PUT /api/research/corpus'; do
+    if ! printf '%s' "$DOC_LANGUAGE_PATHS" | grep -qxF "$refusal_route"; then
+      REFUSAL_DOC_MISSING="$REFUSAL_DOC_MISSING $refusal_route"
+    fi
+  done
+  REFUSAL_DOC_MISSING="${REFUSAL_DOC_MISSING# }"
+  if [ -n "$REFUSAL_DOC_MISSING" ]; then
+    fail "$(printf '%-20s the document does not ask for a language on these routes: %s' \
+      'Refusal language' "$REFUSAL_DOC_MISSING")"
+  else
+    printf '  ok      %-20s %s\n' 'Refusal language' \
+      'the entries, the table and the corpus refuse in the language asked for'
+  fi
+fi
 # --- the ring's letters --------------------------------------------------------
 #
 # The ring has a letter for each domain -- M for Model, D for Data -- and the

@@ -4229,6 +4229,96 @@ if ($causalLanguageMissing.Count -gt 0) {
 } else {
   Write-Output ("  ok      {0,-20} {1}" -f 'Causal language', 'the request, the click, the route and the document all carry the language')
 }
+# --- the language of a refusal --------------------------------------------------
+#
+# The route read the language and used it for the NOTICE and threw it away for
+# the REFUSAL.  `PUT /api/research/config` answered in Chinese when the table
+# was accepted and in English when the table was refused -- and a refusal is
+# the answer a person who has just typed something wrong is guaranteed to
+# read, and the one that says what to change.
+#
+# The claim is a CHAIN again, and it is the same chain: the route hands the
+# language it read to the thing that writes the reason.
+#
+#   1. every call the request routes make to the three validators carries the
+#      language
+#   2. the document asks for the language on those routes
+#
+# The validators themselves are the backend tests' business: they assert the
+# Chinese sentences, and they run on every platform.
+#
+# The missing links are printed as a SET, not as a count.
+
+# The calls the request routes make to the three validators, with their
+# arguments.  The call is read with BALANCED parentheses, because the
+# arguments carry nested calls of their own (`current_model()`) and a regex
+# cannot count them.
+function Get-ValidatorCalls {
+  $out = @()
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/api.mbt'), $enc)
+  $names = @('Entry::from_json', 'ResearchConfig::from_json', 'CorpusConfig::from_json')
+  foreach ($name in $names) {
+    $at = 0
+    while (($at = $text.IndexOf($name + '(', $at)) -ge 0) {
+      $open = $at + $name.Length
+      $depth = 1
+      $i = $open + 1
+      while ($i -lt $text.Length -and $depth -gt 0) {
+        $ch = $text[$i]
+        if ($ch -eq '(') { $depth++ } elseif ($ch -eq ')') { $depth-- }
+        $i++
+      }
+      $args = $text.Substring($open + 1, $i - $open - 2)
+      $out += , @($name, $args)
+      $at = $i
+    }
+  }
+  return $out
+}
+
+$validatorCalls = @(Get-ValidatorCalls)
+$refusalMissing = @()
+foreach ($call in $validatorCalls) {
+  # The language is the standalone word, and the comparison is CASE-SENSITIVE:
+  # `Lang::english()` is not a language, and a case-insensitive match would
+  # say it was.  The bash twin's grep is case-sensitive by default, and the two
+  # have to agree.
+  if ($call[1] -cnotmatch '(^|[^A-Za-z0-9_])lang([^A-Za-z0-9_]|$)') {
+    $refusalMissing += $call[0]
+  }
+}
+
+if ($validatorCalls.Count -eq 0) {
+  Write-Output ("  {0,-20} no call to a validator could be derived from the routes" -f 'Refusal language')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($refusalMissing.Count -gt 0) {
+  Write-Output ("  {0,-20} these routes refuse in a language of their own: {1}" -f 'Refusal language', (($refusalMissing | Select-Object -Unique) -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  $refusalDocMissing = @()
+  # The document's language-asking routes, read the way the house reads them:
+  # the path alone, because the query is the parameter the house asks for and
+  # not part of the route's name.
+  $docLanguagePaths = @($docLanguageRoutes | ForEach-Object { ($_ -split '\?')[0] })
+  foreach ($refusalRoute in @(
+      'POST /api/entries',
+      'PUT /api/entries/1',
+      'PUT /api/research/config',
+      'PUT /api/research/corpus')) {
+    if ($docLanguagePaths -notcontains $refusalRoute) {
+      $refusalDocMissing += $refusalRoute
+    }
+  }
+  if ($refusalDocMissing.Count -gt 0) {
+    Write-Output ("  {0,-20} the document does not ask for a language on these routes: {1}" -f 'Refusal language', ($refusalDocMissing -join ' '))
+    Write-Output "*** FAIL ***"
+    $failures++
+  } else {
+    Write-Output ("  ok      {0,-20} {1}" -f 'Refusal language', 'the entries, the table and the corpus refuse in the language asked for')
+  }
+}
 # --- the ring's letters --------------------------------------------------------
 #
 # The ring has a letter for each domain -- M for Model, D for Data -- and the

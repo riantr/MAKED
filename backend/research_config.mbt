@@ -208,40 +208,80 @@ pub fn ResearchConfig::first_unfitting_slot(
 /// The format is asked for, the same way the model file asks for its own: a
 /// file from a later version is refused rather than read as if it were this
 /// one.
+///
+/// The reason a table was refused is a sentence the reader reads -- it says
+/// which rule is wrong and why -- so it is written in the language asked for.
+/// A table is edited by hand, and the person editing it is the one who has to
+/// read what went wrong.
 pub fn ResearchConfig::from_json(
   model : Model,
   path : String,
   json : Json,
+  lang : Lang,
 ) -> ResearchRead {
   let format = json_string(json, "format")
   if format != RESEARCH_FORMAT {
     return Rejected(
-      "format must be \"" + RESEARCH_FORMAT + "\"; got \"" + format + "\"",
+      match lang {
+        English =>
+          "format must be \"" + RESEARCH_FORMAT + "\"; got \"" + format + "\""
+        Chinese =>
+          "格式必须是「" +
+          RESEARCH_FORMAT +
+          "」；收到的是「" +
+          format +
+          "」。"
+      },
     )
   }
   let mapping = match json_field(json, "mapping") {
     Some(Array(items)) => items
-    _ => return Rejected("mapping must be a list of rules")
+    _ =>
+      return Rejected(
+        match lang {
+          English => "mapping must be a list of rules"
+          Chinese => "映射必须是一张规则表。"
+        },
+      )
   }
   if mapping.length() == 0 {
-    return Rejected("mapping must hold at least one rule")
+    return Rejected(
+      match lang {
+        English => "mapping must hold at least one rule"
+        Chinese => "映射里至少要有一条规则。"
+      },
+    )
   }
   let rules : Array[MappingRule] = []
   for index in 0..<mapping.length() {
     let item = mapping[index]
     let slot_raw = json_string(item, "slot")
     if slot_raw == "" {
-      return Rejected("rule " + index.to_string() + " has no slot")
+      return Rejected(
+        match lang {
+          English => "rule " + index.to_string() + " has no slot"
+          Chinese => "第 " + index.to_string() + " 条规则没有写槽。"
+        },
+      )
     }
     let slot = match model.slot_from_name(slot_raw) {
       Some(id) => id
       None =>
         return Rejected(
-          "rule " +
-          index.to_string() +
-          " names the slot \"" +
-          slot_raw +
-          "\", which this model does not have",
+          match lang {
+            English =>
+              "rule " +
+              index.to_string() +
+              " names the slot \"" +
+              slot_raw +
+              "\", which this model does not have"
+            Chinese =>
+              "第 " +
+              index.to_string() +
+              " 条规则写的是槽「" +
+              slot_raw +
+              "」，而这台机器没有这个槽。"
+          },
         )
     }
     let keywords : Array[String] = []
@@ -253,7 +293,16 @@ pub fn ResearchConfig::from_json(
     }
     if keywords.length() == 0 {
       return Rejected(
-        "rule " + index.to_string() + " has no keywords, so it can never fire",
+        match lang {
+          English =>
+            "rule " +
+            index.to_string() +
+            " has no keywords, so it can never fire"
+          Chinese =>
+            "第 " +
+            index.to_string() +
+            " 条规则没有关键词，因此永远不会触发。"
+        },
       )
     }
     let mut label = json_string(item, "label")
@@ -266,12 +315,23 @@ pub fn ResearchConfig::from_json(
     Some(Object(fields)) => fields
     _ =>
       return Rejected(
-        "fallback must say the slot a document that matches no rule drives",
+        match lang {
+          English =>
+            "fallback must say the slot a document that matches no rule drives"
+          Chinese =>
+            "兜底规则必须写明：一条没有命中任何规则的文档该推动哪个槽。"
+        },
       )
   }
   let fallback_raw = match fallback.get("slot") {
     Some(String(value)) => value
-    _ => return Rejected("fallback must name a slot")
+    _ =>
+      return Rejected(
+        match lang {
+          English => "fallback must name a slot"
+          Chinese => "兜底规则必须写出一个槽。"
+        },
+      )
   }
   let fallback_slot = if fallback_raw == "" {
     ""
@@ -280,9 +340,16 @@ pub fn ResearchConfig::from_json(
       Some(id) => id
       None =>
         return Rejected(
-          "fallback names the slot \"" +
-          fallback_raw +
-          "\", which this model does not have",
+          match lang {
+            English =>
+              "fallback names the slot \"" +
+              fallback_raw +
+              "\", which this model does not have"
+            Chinese =>
+              "兜底规则写的是槽「" +
+              fallback_raw +
+              "」，而这台机器没有这个槽。"
+          },
         )
     }
   }
@@ -390,7 +457,7 @@ pub async fn read_research_file_for(
     Some(json) => json
     None => return None
   }
-  match ResearchConfig::from_json(model, path, json) {
+  match ResearchConfig::from_json(model, path, json, Lang::english()) {
     Accepted(config) => Some(config)
     Rejected(reason) => {
       eprintln(

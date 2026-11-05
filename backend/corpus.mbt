@@ -176,20 +176,50 @@ pub fn CorpusConfig::builtin() -> CorpusConfig {
 /// source without a query, a feed without an address, a local source without
 /// a path -- because a corpus that names a source it cannot read is a corpus
 /// that silently reads nothing.
-pub fn CorpusConfig::from_json(path : String, json : Json) -> CorpusRead {
+///
+/// The reason a corpus was refused is a sentence the reader reads -- it says
+/// which field is missing and why it matters -- so it is written in the
+/// language asked for. A corpus is pointed at by hand, and the person
+/// pointing it is the one who has to read what went wrong.
+pub fn CorpusConfig::from_json(
+  path : String,
+  json : Json,
+  lang : Lang,
+) -> CorpusRead {
   let format = json_string(json, "format")
   if format != CORPUS_FORMAT {
     return Rejected(
-      "format must be \"" + CORPUS_FORMAT + "\"; got \"" + format + "\"",
+      match lang {
+        English =>
+          "format must be \"" + CORPUS_FORMAT + "\"; got \"" + format + "\""
+        Chinese =>
+          "格式必须是「" +
+          CORPUS_FORMAT +
+          "」；收到的是「" +
+          format +
+          "」。"
+      },
     )
   }
   let source = match json_field(json, "source") {
     Some(Object(fields)) => fields
-    _ => return Rejected("source must say where the documents come from")
+    _ =>
+      return Rejected(
+        match lang {
+          English => "source must say where the documents come from"
+          Chinese => "语料来源必须说明文档从哪里来。"
+        },
+      )
   }
   let kind_text = match source.get("kind") {
     Some(String(value)) => value
-    _ => return Rejected("source must name a kind: arxiv, rss or local")
+    _ =>
+      return Rejected(
+        match lang {
+          English => "source must name a kind: arxiv, rss or local"
+          Chinese => "语料来源必须写明种类：arxiv、rss 或 local。"
+        },
+      )
   }
   let kind = match kind_text {
     "arxiv" => Arxiv
@@ -197,7 +227,14 @@ pub fn CorpusConfig::from_json(path : String, json : Json) -> CorpusRead {
     "local" => Local
     _ =>
       return Rejected(
-        "source kind must be arxiv, rss or local; got \"" + kind_text + "\"",
+        match lang {
+          English =>
+            "source kind must be arxiv, rss or local; got \"" + kind_text + "\""
+          Chinese =>
+            "语料来源的种类必须是 arxiv、rss 或 local；收到的是「" +
+            kind_text +
+            "」。"
+        },
       )
   }
   let query = match source.get("query") {
@@ -213,11 +250,32 @@ pub fn CorpusConfig::from_json(path : String, json : Json) -> CorpusRead {
     _ => ""
   }
   match kind {
-    Arxiv => if query == "" { return Rejected("an arxiv source needs a query") }
-    Rss => if url == "" { return Rejected("an rss source needs a url") }
+    Arxiv =>
+      if query == "" {
+        return Rejected(
+          match lang {
+            English => "an arxiv source needs a query"
+            Chinese => "arxiv 语料需要一个检索式。"
+          },
+        )
+      }
+    Rss =>
+      if url == "" {
+        return Rejected(
+          match lang {
+            English => "an rss source needs a url"
+            Chinese => "rss 语料需要一个地址。"
+          },
+        )
+      }
     Local =>
       if local_path == "" {
-        return Rejected("a local source needs a path")
+        return Rejected(
+          match lang {
+            English => "a local source needs a path"
+            Chinese => "本地语料需要一个路径。"
+          },
+        )
       }
   }
   let max_results = match source.get("max_results") {
@@ -225,7 +283,12 @@ pub fn CorpusConfig::from_json(path : String, json : Json) -> CorpusRead {
     _ => 20
   }
   if max_results <= 0 {
-    return Rejected("max_results must be at least 1")
+    return Rejected(
+      match lang {
+        English => "max_results must be at least 1"
+        Chinese => "max_results 至少是 1。"
+      },
+    )
   }
   Accepted({ kind, query, url, source_path: local_path, max_results, path, })
 }
@@ -312,7 +375,7 @@ pub async fn read_corpus_file(path : String) -> CorpusConfig? {
     Some(json) => json
     None => return None
   }
-  match CorpusConfig::from_json(path, json) {
+  match CorpusConfig::from_json(path, json, Lang::english()) {
     Accepted(config) => Some(config)
     Rejected(reason) => {
       eprintln(

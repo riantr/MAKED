@@ -39,7 +39,13 @@ fn built_in_model() -> @backend.Model {
 /// A table that names a slot the model does not have is refused.
 test "a table that names a slot the model does not have is refused" {
   let model = built_in_model()
-  match @backend.ResearchConfig::from_json(model, "", one_rule_table("ship")) {
+  match
+    @backend.ResearchConfig::from_json(
+      model,
+      "",
+      one_rule_table("ship"),
+      @backend.Lang::english(),
+    ) {
     @backend.Rejected(reason) => assert_true(reason.contains("ship"))
     @backend.Accepted(_) =>
       fail("a table that names a slot the model does not have was accepted")
@@ -58,7 +64,13 @@ test "a rule with no keywords is refused" {
     "mapping": [{ "keywords": no_keywords, "label": "Nothing", "slot": "act" }],
     "fallback": { "label": "Anything else", "slot": "act" },
   }
-  match @backend.ResearchConfig::from_json(model, "", json) {
+  match
+    @backend.ResearchConfig::from_json(
+      model,
+      "",
+      json,
+      @backend.Lang::english(),
+    ) {
     @backend.Rejected(reason) => assert_true(reason.contains("keywords"))
     @backend.Accepted(_) => fail("a rule with no keywords was accepted")
   }
@@ -74,7 +86,13 @@ test "a table with no rules is refused" {
     "mapping": [],
     "fallback": { "label": "Anything else", "slot": "act" },
   }
-  match @backend.ResearchConfig::from_json(model, "", json) {
+  match
+    @backend.ResearchConfig::from_json(
+      model,
+      "",
+      json,
+      @backend.Lang::english(),
+    ) {
     @backend.Rejected(reason) =>
       assert_true(reason.contains("at least one rule"))
     @backend.Accepted(_) => fail("a table with no rules was accepted")
@@ -93,14 +111,91 @@ test "a table in another format is refused" {
     ],
     "fallback": { "label": "Anything else", "slot": "act" },
   }
-  match @backend.ResearchConfig::from_json(model, "", json) {
+  match
+    @backend.ResearchConfig::from_json(
+      model,
+      "",
+      json,
+      @backend.Lang::english(),
+    ) {
     @backend.Rejected(reason) => assert_true(reason.contains("format"))
     @backend.Accepted(_) => fail("a table in another format was accepted")
   }
 }
 
 ///|
-/// The same table, in the two syntaxes, is the same table.
+/// A refusal is a sentence the reader reads, and the reader asked for a
+/// language.
+///
+/// A table is edited by hand, and the person editing it is the one who has to
+/// read what went wrong -- which rule is wrong, which field is missing, and
+/// why it matters. So the reason is written in the language asked for.
+///
+/// The English is the English it was: the language is a dimension beside the
+/// wording, not a replacement of it.
+test "a refusal of a table is in the language that was asked for" {
+  let model = built_in_model()
+  let no_rules : Json = {
+    "format": "maked.research.v1",
+    "mapping": [],
+    "fallback": { "label": "Anything else", "slot": "act" },
+  }
+  let english = match
+    @backend.ResearchConfig::from_json(
+      model,
+      "",
+      no_rules,
+      @backend.Lang::english(),
+    ) {
+    @backend.Rejected(reason) => reason
+    @backend.Accepted(_) => fail("a table with no rules was accepted")
+  }
+  let chinese = match
+    @backend.ResearchConfig::from_json(
+      model,
+      "",
+      no_rules,
+      @backend.Lang::chinese(),
+    ) {
+    @backend.Rejected(reason) => reason
+    @backend.Accepted(_) => fail("a table with no rules was accepted")
+  }
+  assert_true(english.contains("at least one rule"))
+  assert_true(chinese.contains("至少"))
+  assert_true(chinese != english)
+  // The Chinese sentence ends the way a Chinese sentence ends.
+  assert_true(chinese.has_suffix("。"))
+
+  // The rule that names a slot the model does not have says WHICH rule and
+  // WHICH slot -- in both languages.
+  let english_slot = match
+    @backend.ResearchConfig::from_json(
+      model,
+      "",
+      one_rule_table("ship"),
+      @backend.Lang::english(),
+    ) {
+    @backend.Rejected(reason) => reason
+    @backend.Accepted(_) => fail("a table naming a slot was accepted")
+  }
+  let chinese_slot = match
+    @backend.ResearchConfig::from_json(
+      model,
+      "",
+      one_rule_table("ship"),
+      @backend.Lang::chinese(),
+    ) {
+    @backend.Rejected(reason) => reason
+    @backend.Accepted(_) => fail("a table naming a slot was accepted")
+  }
+  assert_true(english_slot.contains("ship"))
+  assert_true(chinese_slot.contains("ship"))
+  assert_true(chinese_slot.contains("没有这个槽"))
+  assert_true(chinese_slot != english_slot)
+}
+
+///|
+/// The same table in the two syntaxes, is the same table.
 ///
 /// The file's name decides how it is read, and a table written as YAML and
 /// read as JSON is a table that half-reads -- so the two must agree.
@@ -111,6 +206,7 @@ test "the same table in the two syntaxes is the same table" {
       model,
       "table.json",
       one_rule_table("act"),
+      @backend.Lang::english(),
     ) {
     @backend.Accepted(config) => config
     @backend.Rejected(reason) => fail("the JSON table was refused: " + reason)
@@ -121,7 +217,12 @@ test "the same table in the two syntaxes is the same table" {
     None => fail("the YAML table was not read")
   }
   let from_yaml = match
-    @backend.ResearchConfig::from_json(model, "table.yaml", json) {
+    @backend.ResearchConfig::from_json(
+      model,
+      "table.yaml",
+      json,
+      @backend.Lang::english(),
+    ) {
     @backend.Accepted(config) => config
     @backend.Rejected(reason) => fail("the YAML table was refused: " + reason)
   }
@@ -137,7 +238,12 @@ test "the same table in the two syntaxes is the same table" {
 async test "a table written back is the table that was read" {
   let model = built_in_model()
   let original = match
-    @backend.ResearchConfig::from_json(model, "", one_rule_table("act")) {
+    @backend.ResearchConfig::from_json(
+      model,
+      "",
+      one_rule_table("act"),
+      @backend.Lang::english(),
+    ) {
     @backend.Accepted(config) => config
     @backend.Rejected(reason) => fail("the table was refused: " + reason)
   }
@@ -222,7 +328,12 @@ test "a keyword is matched whatever its case" {
 test "the table that runs is the table that was installed" {
   let model = built_in_model()
   let table = match
-    @backend.ResearchConfig::from_json(model, "", one_rule_table("hold")) {
+    @backend.ResearchConfig::from_json(
+      model,
+      "",
+      one_rule_table("hold"),
+      @backend.Lang::english(),
+    ) {
     @backend.Accepted(config) => config
     @backend.Rejected(reason) => fail("the table was refused: " + reason)
   }
@@ -248,7 +359,13 @@ test "a table with no fallback leaves unknown documents alone" {
     ],
     "fallback": { "label": "Nothing the table knows", "slot": "" },
   }
-  let config = match @backend.ResearchConfig::from_json(model, "", json) {
+  let config = match
+    @backend.ResearchConfig::from_json(
+      model,
+      "",
+      json,
+      @backend.Lang::english(),
+    ) {
     @backend.Accepted(config) => config
     @backend.Rejected(reason) => fail("the table was refused: " + reason)
   }

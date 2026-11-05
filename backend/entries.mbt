@@ -62,40 +62,78 @@ pub(all) enum EntryDraft {
 /// looks like a layout bug rather than a typo; and the domain letter is
 /// matched case-insensitively, because `m` and `M` meaning the same thing and
 /// being stored differently would split one domain's records in two.
+///
+/// The reason a record was refused is a sentence the reader reads, so it is
+/// written in the language the reader asked for. A refusal is the one answer
+/// a person who just typed something wrong is guaranteed to read, and it is
+/// the one answer that says what to change.
 pub fn Entry::validate(
   domain : String,
   title : String,
   body : String,
+  lang : Lang,
 ) -> EntryDraft {
   let domain = normalise_domain(domain)
   let title = title.trim().to_owned()
   let body = body.trim().to_owned()
   if !entry_domains().contains(domain) {
     return Rejected(
-      "domain must be one of " +
-      join_letters(entry_domains()) +
-      "; got \"" +
-      domain +
-      "\"",
+      match lang {
+        English =>
+          "domain must be one of " +
+          join_letters(entry_domains()) +
+          "; got \"" +
+          domain +
+          "\""
+        Chinese =>
+          "域必须是 " +
+          join_list_zh(entry_domains()) +
+          " 之一；收到的是「" +
+          domain +
+          "」。"
+      },
     )
   }
   if title.is_empty() {
-    return Rejected("title must not be empty")
+    return Rejected(
+      match lang {
+        English => "title must not be empty"
+        Chinese => "标题不能为空。"
+      },
+    )
   }
   if title.length() > MAX_ENTRY_TITLE {
     return Rejected(
-      "title is " +
-      title.length().to_string() +
-      " characters; the limit is " +
-      MAX_ENTRY_TITLE.to_string(),
+      match lang {
+        English =>
+          "title is " +
+          title.length().to_string() +
+          " characters; the limit is " +
+          MAX_ENTRY_TITLE.to_string()
+        Chinese =>
+          "标题有 " +
+          title.length().to_string() +
+          " 个字符；上限是 " +
+          MAX_ENTRY_TITLE.to_string() +
+          "。"
+      },
     )
   }
   if body.length() > MAX_ENTRY_BODY {
     return Rejected(
-      "body is " +
-      body.length().to_string() +
-      " characters; the limit is " +
-      MAX_ENTRY_BODY.to_string(),
+      match lang {
+        English =>
+          "body is " +
+          body.length().to_string() +
+          " characters; the limit is " +
+          MAX_ENTRY_BODY.to_string()
+        Chinese =>
+          "正文有 " +
+          body.length().to_string() +
+          " 个字符；上限是 " +
+          MAX_ENTRY_BODY.to_string() +
+          "。"
+      },
     )
   }
   Accepted(domain, title, body)
@@ -143,11 +181,15 @@ fn join_letters(letters : Array[String]) -> String {
 /// `validate` then rejects with a message about that field. That is deliberate:
 /// a missing key and an empty value are the same mistake to the person who made
 /// it, and distinguishing them would only produce two messages for one problem.
-pub fn Entry::from_json(json : Json) -> EntryDraft {
+///
+/// The language is passed on to `validate`, because the reason it produces is
+/// a sentence the reader reads.
+pub fn Entry::from_json(json : Json, lang : Lang) -> EntryDraft {
   Entry::validate(
     json_string(json, "domain"),
     json_string(json, "title"),
     json_string(json, "body"),
+    lang,
   )
 }
 

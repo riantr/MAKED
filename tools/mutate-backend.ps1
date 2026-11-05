@@ -303,8 +303,8 @@ $mutations = @(
   @{
     name = 'an arxiv source with no query is accepted'
     file = 'backend/corpus.mbt'
-    old  = '    Arxiv => if query == "" { return Rejected("an arxiv source needs a query") }'
-    new  = '    Arxiv => if false { return Rejected("an arxiv source needs a query") }'
+    old  = '      if query == "" {'
+    new  = '      if false {'
   },
   # The corpus that runs is the corpus that was read. A server that read a
   # file and then read arxiv anyway would answer every request confidently

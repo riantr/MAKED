@@ -39,7 +39,17 @@ fn fields_of(draft : @backend.EntryDraft) -> (String, String, String) {
 /// safe to have written them twice.
 test "every advertised domain letter is also an accepted one" {
   for letter in @backend.entry_domains() {
-    assert_eq(reason_of(@backend.Entry::validate(letter, "a title", "")), "")
+    assert_eq(
+      reason_of(
+        @backend.Entry::validate(
+          letter,
+          "a title",
+          "",
+          @backend.Lang::english(),
+        ),
+      ),
+      "",
+    )
   }
   assert_eq(@backend.entry_domains().length(), 5)
 }
@@ -48,7 +58,9 @@ test "every advertised domain letter is also an accepted one" {
 /// And nothing else is accepted -- otherwise a caller could store a domain that
 /// the listing endpoint will never show a heading for.
 test "a domain outside the ring is refused" {
-  let reason = reason_of(@backend.Entry::validate("Z", "a title", ""))
+  let reason = reason_of(
+    @backend.Entry::validate("Z", "a title", "", @backend.Lang::english()),
+  )
   assert_true(reason.contains("domain must be one of"))
   // The message has to name the valid set, or the user is left guessing.
   assert_true(reason.contains("M, D, E, A, K"))
@@ -58,26 +70,34 @@ test "a domain outside the ring is refused" {
 /// `m` and `M` are the same domain. Storing them differently would split one
 /// domain's records in two, so the letter is normalised on the way in.
 test "a lowercase domain letter is accepted and stored uppercase" {
-  let (domain, _, _) = fields_of(@backend.Entry::validate(" m ", "t", ""))
+  let (domain, _, _) = fields_of(
+    @backend.Entry::validate(" m ", "t", "", @backend.Lang::english()),
+  )
   assert_eq(domain, "M")
 }
 
 ///|
 test "surrounding whitespace is stripped from the title" {
-  let (_, title, _) = fields_of(@backend.Entry::validate("D", "  spaced  ", ""))
+  let (_, title, _) = fields_of(
+    @backend.Entry::validate("D", "  spaced  ", "", @backend.Lang::english()),
+  )
   assert_eq(title, "spaced")
 }
 
 ///|
 test "a title that is only whitespace is refused, not stored blank" {
-  let reason = reason_of(@backend.Entry::validate("D", "   ", "body"))
+  let reason = reason_of(
+    @backend.Entry::validate("D", "   ", "body", @backend.Lang::english()),
+  )
   assert_eq(reason, "title must not be empty")
 }
 
 ///|
 /// An empty body is legitimate: a record can be a title and nothing else yet.
 test "an empty body is allowed" {
-  let (_, title, body) = fields_of(@backend.Entry::validate("D", "t", "   "))
+  let (_, title, body) = fields_of(
+    @backend.Entry::validate("D", "t", "   ", @backend.Lang::english()),
+  )
   assert_eq(title, "t")
   assert_eq(body, "")
 }
@@ -85,7 +105,9 @@ test "an empty body is allowed" {
 ///|
 test "an over-long title is refused and the message states the limit" {
   let long = "x".repeat(@backend.MAX_ENTRY_TITLE + 1)
-  let reason = reason_of(@backend.Entry::validate("D", long, ""))
+  let reason = reason_of(
+    @backend.Entry::validate("D", long, "", @backend.Lang::english()),
+  )
   assert_true(reason.contains("the limit is"))
   assert_true(reason.contains(@backend.MAX_ENTRY_TITLE.to_string()))
 }
@@ -93,14 +115,21 @@ test "an over-long title is refused and the message states the limit" {
 ///|
 test "a title exactly at the limit is accepted" {
   let exact = "x".repeat(@backend.MAX_ENTRY_TITLE)
-  assert_eq(reason_of(@backend.Entry::validate("D", exact, "")), "")
+  assert_eq(
+    reason_of(
+      @backend.Entry::validate("D", exact, "", @backend.Lang::english()),
+    ),
+    "",
+  )
 }
 
 ///|
 test "an over-long body is refused" {
   let long = "x".repeat(@backend.MAX_ENTRY_BODY + 1)
   assert_true(
-    reason_of(@backend.Entry::validate("D", "t", long)).contains("the limit is"),
+    reason_of(
+      @backend.Entry::validate("D", "t", long, @backend.Lang::english()),
+    ).contains("the limit is"),
   )
 }
 
@@ -110,7 +139,7 @@ test "an over-long body is refused" {
 test "a payload with no title is refused the same way as an empty one" {
   let json : Json = { "domain": "M", "body": "something" }
   assert_eq(
-    reason_of(@backend.Entry::from_json(json)),
+    reason_of(@backend.Entry::from_json(json, @backend.Lang::english())),
     "title must not be empty",
   )
 }
@@ -119,7 +148,7 @@ test "a payload with no title is refused the same way as an empty one" {
 test "a payload whose title is the wrong type is refused" {
   let json : Json = { "domain": "M", "title": 42, "body": "" }
   assert_eq(
-    reason_of(@backend.Entry::from_json(json)),
+    reason_of(@backend.Entry::from_json(json, @backend.Lang::english())),
     "title must not be empty",
   )
 }
@@ -128,14 +157,18 @@ test "a payload whose title is the wrong type is refused" {
 test "a payload with no domain names the valid set" {
   let json : Json = { "title": "something" }
   assert_true(
-    reason_of(@backend.Entry::from_json(json)).contains("domain must be one of"),
+    reason_of(@backend.Entry::from_json(json, @backend.Lang::english())).contains(
+      "domain must be one of",
+    ),
   )
 }
 
 ///|
 test "a well-formed payload is accepted with its fields intact" {
   let json : Json = { "domain": "k", "title": "the failure", "body": "notes" }
-  let (domain, title, body) = fields_of(@backend.Entry::from_json(json))
+  let (domain, title, body) = fields_of(
+    @backend.Entry::from_json(json, @backend.Lang::english()),
+  )
   assert_eq(domain, "K")
   assert_eq(title, "the failure")
   assert_eq(body, "notes")
@@ -277,16 +310,19 @@ async test "a correction is checked the same way a new record is" {
   // The server checks before it writes, so the row is only ever changed by a
   // payload that passed the same check as a new record.
   match
-    @backend.Entry::from_json({
-      "domain": "Z",
-      "title": "wrong domain",
-      "body": "",
-    }) {
+    @backend.Entry::from_json(
+      { "domain": "Z", "title": "wrong domain", "body": "" },
+      @backend.Lang::english(),
+    ) {
     @backend.EntryDraft::Rejected(reason) =>
       assert_true(reason.contains("domain must be one of"))
     @backend.EntryDraft::Accepted(_, _, _) => assert_true(false)
   }
-  match @backend.Entry::from_json({ "domain": "M", "title": "", "body": "" }) {
+  match
+    @backend.Entry::from_json(
+      { "domain": "M", "title": "", "body": "" },
+      @backend.Lang::english(),
+    ) {
     @backend.EntryDraft::Rejected(reason) =>
       assert_eq(reason, "title must not be empty")
     @backend.EntryDraft::Accepted(_, _, _) => assert_true(false)
@@ -295,4 +331,55 @@ async test "a correction is checked the same way a new record is" {
   assert_eq(db.all_entries()[0].title, "my model")
   db.close()
   drop_db("test_entries_update_checked.db")
+}
+
+///|
+/// A refusal is a sentence the reader reads, and the reader asked for a
+/// language.
+///
+/// The reason a record was refused is the one answer a person who has just
+/// typed something wrong is guaranteed to read, and it is the one answer that
+/// says what to change -- so it is written in the language they asked for.
+/// The English is the English it was: the language is a dimension beside the
+/// wording, not a replacement of it.
+///
+/// The Chinese is written in Chinese rather than translated: it names the
+/// field and the limit, and it does not keep the English's shape.
+test "a refusal is in the language that was asked for" {
+  let english_domain = reason_of(
+    @backend.Entry::validate("Z", "a title", "", @backend.Lang::english()),
+  )
+  let chinese_domain = reason_of(
+    @backend.Entry::validate("Z", "a title", "", @backend.Lang::chinese()),
+  )
+  assert_true(english_domain.contains("domain must be one of"))
+  assert_true(chinese_domain.contains("域必须是"))
+  // The two are not one sentence with a prefix.
+  assert_true(chinese_domain != english_domain)
+  // The Chinese sentence names the field and the value that was refused.
+  assert_true(chinese_domain.contains("Z"))
+
+  let english_title = reason_of(
+    @backend.Entry::validate("D", "   ", "body", @backend.Lang::english()),
+  )
+  let chinese_title = reason_of(
+    @backend.Entry::validate("D", "   ", "body", @backend.Lang::chinese()),
+  )
+  assert_eq(english_title, "title must not be empty")
+  assert_true(chinese_title.contains("标题"))
+  assert_true(chinese_title != english_title)
+
+  // The limit is a number in both languages, and it is the number the rule
+  // holds -- a refusal that names the wrong limit is worse than no refusal.
+  let long_title = "x".repeat(201)
+  let english_limit = reason_of(
+    @backend.Entry::validate("D", long_title, "", @backend.Lang::english()),
+  )
+  let chinese_limit = reason_of(
+    @backend.Entry::validate("D", long_title, "", @backend.Lang::chinese()),
+  )
+  assert_true(english_limit.contains("the limit is"))
+  assert_true(chinese_limit.contains("上限是"))
+  assert_true(chinese_limit.contains(@backend.MAX_ENTRY_TITLE.to_string()))
+  assert_true(chinese_limit != english_limit)
 }

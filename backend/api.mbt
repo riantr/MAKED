@@ -201,8 +201,9 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     Response::json(body).with_header("Cache-Control", "no-store")
   })
   app.post("/api/entries", req => {
+    let lang = lang_of(req)
     let payload = req.json().unwrap_or(Json::empty_object())
-    match Entry::from_json(payload) {
+    match Entry::from_json(payload, lang) {
       Rejected(reason) => {
         let body : Json = { "error": "invalid_entry", "reason": reason }
         Response::json(body, status=400)
@@ -256,6 +257,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   // it now stands, so the client can put the reader's own words back on the
   // screen instead of guessing what was stored.
   app.put("/api/entries/:id", req => {
+    let lang = lang_of(req)
     let id = match req.param("id") {
       Some(raw) => @string.parse_int(raw) catch { _ => -1 }
       None => -1
@@ -273,7 +275,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       Response::json(body, status=400)
     } else {
       let payload = req.json().unwrap_or(Json::empty_object())
-      match Entry::from_json(payload) {
+      match Entry::from_json(payload, lang) {
         Rejected(reason) => {
           let body : Json = { "error": "invalid_entry", "reason": reason }
           Response::json(body, status=400)
@@ -1051,6 +1053,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
         current_model(),
         current_research().path,
         payload,
+        lang,
       ) {
       Accepted(config) => {
         let saved = write_research_file(config) catch { _ => false }
@@ -1095,7 +1098,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   app.put("/api/research/corpus", req => {
     let lang = lang_of(req)
     let payload = req.json().unwrap_or(Json::empty_object())
-    match CorpusConfig::from_json(current_corpus().path, payload) {
+    match CorpusConfig::from_json(current_corpus().path, payload, lang) {
       Accepted(corpus) => {
         let saved = write_corpus_file(corpus) catch { _ => false }
         install_corpus(corpus)
