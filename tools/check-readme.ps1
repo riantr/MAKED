@@ -1720,34 +1720,129 @@ if ($codeAssets.Count -eq 0) {
 
 # --- what the release carries -------------------------------------------------
 #
-# The README says the agent's server is not in the published release
-# artifacts: the release carries the web server and the browser bundle, and
-# the agent's server is built from the repository.  The release workflow is
-# what decides whether that server is shipped, so the workflow and the
-# document have to say the same thing.
+# The release carries the web server, the browser bundle and the agent's
+# server, and the document says so.  The release workflow is what decides
+# whether the agent's server is shipped, so the workflow and the document
+# have to say the same thing -- and the workflow has THREE facts to say, not
+# one: it has to BUILD the agent's server, and it has to put it in the
+# archive on EVERY platform it builds for.  A workflow that builds it and
+# does not ship it spends three minutes compiling a binary nobody
+# receives; a workflow that ships it on one platform and not on the others
+# ships a release that is right on a third of the platforms.
 #
-# The guide (AGENT.md) states the same claim and the docs pair watches that
-# copy.  A claim stated in two places is a claim in two places, and the copy
-# the other suite happens to read is not the copy this suite reads.
+# The paths the workflow copies are what the archive has.  A path it only
+# MENTIONS is not a path the archive has: the executable is made executable
+# with a chmod, and a chmod names a file the archive does not have.
 #
 # The document's side is the negation, not the phrase.  A sentence that says
 # the server IS in the release carries the same words as one that says it is
 # not, and only the negation tells the two apart; a rule that looked for the
-# phrase alone would read a document that says the opposite as a document that
-# says nothing, and let the claim through.
+# phrase alone would read a document that says the opposite as a document
+# that says nothing, and let the claim through.  So the count of the
+# un-negated phrase is the total minus the negated one, and a document that
+# says neither is a document that does not say.
+function Get-PublishedCopies {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD '.github/workflows/publish.yml'), $enc)
+  $out = @()
+  foreach ($m in [regex]::Matches($text, '(?m)(^|\s)(cp|Copy-Item)\s[^\r\n|]*stage[/\\]maked[/\\][A-Za-z0-9_.-]+')) {
+    $path = [regex]::Match($m.Value, 'stage[/\\]maked[/\\][A-Za-z0-9_.-]+').Value
+    $out += ($path -replace '\\', '/')
+  }
+  Sort-Set $out
+}
 $releasePublishText = [System.IO.File]::ReadAllText((Join-Path $PWD '.github/workflows/publish.yml'), $enc)
-$releaseBuildsMcp = ([regex]::Matches($releasePublishText, 'cmd/mcp')).Count
+$releaseBuildsMcp = ([regex]::Matches($releasePublishText, 'moon build [^\r\n]*cmd/mcp')).Count
+$publishCopies = Get-PublishedCopies
+$unixStagesMcp = ($publishCopies -ccontains 'stage/maked/mcp')
+$windowsStagesMcp = ($publishCopies -ccontains 'stage/maked/mcp.exe')
+$releaseClaimTotal = ([regex]::Matches($readme, 'in the published release artifacts')).Count
 $releaseClaimNot = ([regex]::Matches($readme, 'not[^.\r\n]{0,8}in the published release artifacts')).Count
-if ($releaseBuildsMcp -gt 0 -and $releaseClaimNot -gt 0) {
-  Write-Output ("  {0,-20} the document says the agent server is not released, and the release workflow builds it" -f 'Release claim')
+$releaseClaimYes = $releaseClaimTotal - $releaseClaimNot
+
+# The platforms the agent's server is missing from, as a SET: a count says
+# how many are gone and not which.
+$missingStaged = @()
+if (-not $unixStagesMcp) { $missingStaged += 'stage/maked/mcp' }
+if (-not $windowsStagesMcp) { $missingStaged += 'stage/maked/mcp.exe' }
+$releaseStagesMcp = 0
+if ($unixStagesMcp -or $windowsStagesMcp) { $releaseStagesMcp = 1 }
+
+if ($releaseBuildsMcp -eq 0 -and $releaseStagesMcp -eq 1) {
+  Write-Output ("  {0,-20} the release puts the agent server in the archive but does not build it" -f 'Release claim')
   Write-Output "*** FAIL ***"
   $failures++
-} elseif ($releaseBuildsMcp -eq 0 -and $releaseClaimNot -eq 0) {
-  Write-Output ("  {0,-20} the release workflow does not build the agent server, and the document does not say so" -f 'Release claim')
+} elseif ($releaseBuildsMcp -gt 0 -and $missingStaged.Count -gt 0) {
+  Write-Output ("  {0,-20} the release does not put the agent server in the archive on every platform; these are missing: {1}" -f 'Release claim', ($missingStaged -join ' '))
   Write-Output "*** FAIL ***"
   $failures++
+} elseif ($releaseBuildsMcp -gt 0) {
+  if ($releaseClaimYes -gt 0) {
+    Write-Output ("  ok      {0,-20} {1}" -f 'Release claim', 'the release carries the agent server')
+  } elseif ($releaseClaimNot -gt 0) {
+    Write-Output ("  {0,-20} the document says the agent server is not released, and the release workflow builds it" -f 'Release claim')
+    Write-Output "*** FAIL ***"
+    $failures++
+  } else {
+    Write-Output ("  {0,-20} the document does not say whether the agent server is in the release" -f 'Release claim')
+    Write-Output "*** FAIL ***"
+    $failures++
+  }
 } else {
-  Write-Output ("  ok      {0,-20} {1}" -f 'Release claim', 'not in the release')
+  if ($releaseClaimNot -gt 0) {
+    Write-Output ("  ok      {0,-20} {1}" -f 'Release claim', 'the agent server is not in the release')
+  } elseif ($releaseClaimYes -gt 0) {
+    Write-Output ("  {0,-20} the document says the agent server is released, and the release workflow does not build it" -f 'Release claim')
+    Write-Output "*** FAIL ***"
+    $failures++
+  } else {
+    Write-Output ("  {0,-20} the release does not build the agent server, and the document does not say so" -f 'Release claim')
+    Write-Output "*** FAIL ***"
+    $failures++
+  }
+}
+# --- the executables the CI compiles -------------------------------------------
+#
+# The module has three executables and the CI has to compile every one of
+# them.  A job that builds the web server and never builds the agent's
+# server cannot tell a broken agent's server from a working one -- and this
+# file's table of the six jobs says the native job builds both, so the claim
+# and the tree have to agree.
+#
+# The module's side is the tree itself: a directory under cmd/ whose package
+# says it is an executable.  The CI's side is what the workflow builds.  The
+# two are compared as sets, and both sets are printed when they differ: a
+# count says how many are wrong and not which.
+$codeExecutables = @()
+foreach ($dir in (Get-ChildItem -Path (Join-Path $PWD 'cmd') -Directory)) {
+  $pkg = Join-Path $dir.FullName 'moon.pkg'
+  if (Test-Path $pkg) {
+    $pkgText = [System.IO.File]::ReadAllText($pkg, $enc)
+    if ($pkgText -cmatch 'pkgtype\(kind: "executable"\)') {
+      $codeExecutables += ('cmd/' + $dir.Name)
+    }
+  }
+}
+$codeExecutables = Sort-Set $codeExecutables
+$ciText = [System.IO.File]::ReadAllText((Join-Path $PWD '.github/workflows/ci.yml'), $enc)
+$ciBuilt = @()
+foreach ($m in [regex]::Matches($ciText, 'moon build [^\r\n]*cmd/[a-z]+')) {
+  $ciBuilt += ([regex]::Match($m.Value, 'cmd/[a-z]+$')).Value
+}
+$ciBuilt = Sort-Set $ciBuilt
+if ($codeExecutables.Count -eq 0) {
+  Write-Output ("  {0,-20} no executable could be derived from the module" -f 'CI executables')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($ciBuilt.Count -eq 0) {
+  Write-Output ("  {0,-20} no build could be derived from the workflow" -f 'CI executables')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif (Test-SameMembers $codeExecutables $ciBuilt) {
+  Write-Output ("  ok      {0,-20} {1}" -f 'CI executables', ($codeExecutables -join ' '))
+} else {
+  Write-Output ("  {0,-20} the module has [{1}], the CI builds [{2}]" -f 'CI executables', ($codeExecutables -join ' '), ($ciBuilt -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
 }
 
 # --- the container image ------------------------------------------------------

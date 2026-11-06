@@ -56,9 +56,8 @@ Two things about this protocol version are worth knowing before you wire it up:
 Over HTTP there are two more: the `MCP-Protocol-Version: 2026-07-28` header,
 and an `Mcp-Method: <method>` header naming the method the body carries.
 
-> The agent's server is **not** in the published release artifacts yet — those
-> carry the web server and the browser bundle. It is built from this
-> repository.
+> The agent's server **is** in the published release artifacts: the archive
+> carries the web server, the browser bundle and the agent's server.
 
 ## The seven tools
 

@@ -333,6 +333,7 @@ jobs:
         run: |
           moon build --release --target js cmd/web
           moon build --release --target native cmd/server
+          moon build --release --target native cmd/mcp
 
       # Where the build actually put things. The packaging step finds the
       # executable with `find` rather than a fixed path, so this is not needed
@@ -347,7 +348,7 @@ jobs:
         shell: bash
         run: |
           echo "::group::build output"
-          find _build -maxdepth 6 -type f \( -name 'server' -o -name 'server.exe' -o -name 'web.js' \) | head -20
+          find _build -maxdepth 6 -type f \( -name 'server' -o -name 'server.exe' -o -name 'mcp' -o -name 'mcp.exe' -o -name 'web.js' \) | head -20
           echo "::endgroup::"
 
       - name: Package (unix)
@@ -371,6 +372,18 @@ jobs:
           fi
           echo "server executable: $server_bin"
           cp "$server_bin" stage/maked/server
+          # The agent's server ships too. It is the second executable in the
+          # module, and a reader who unpacks the archive and finds only the
+          # web one cannot drive MAKED from their own agent without a
+          # toolchain -- which is the whole reason the archive exists.
+          mcp_bin="$(find _build/native -type f \( -name 'mcp' -o -name 'mcp.exe' \) | head -1)"
+          if [ -z "$mcp_bin" ]; then
+            echo "::error::no native agent executable found under _build/native"
+            find _build -maxdepth 6 -type f -name 'mcp*' | head -20
+            exit 1
+          fi
+          echo "agent executable: $mcp_bin"
+          cp "$mcp_bin" stage/maked/mcp
           cp frontend/dist/index.html frontend/dist/styles.css stage/maked/frontend/dist/
           cp _build/js/release/build/cmd/web/web.js stage/maked/frontend/dist/main.js
           cp packaging/RUN.txt stage/maked/RUN.txt
@@ -388,6 +401,7 @@ jobs:
           cp research/*.yaml stage/maked/research/
           cp research/notes/*.md stage/maked/research/notes/
           chmod +x stage/maked/server
+          chmod +x stage/maked/mcp
           tar -czf "maked-${version}-${{ matrix.target }}.tar.gz" -C stage maked
 
       - name: Package (windows)
@@ -404,6 +418,17 @@ jobs:
           }
           Write-Host "server executable: $($server.FullName)"
           Copy-Item $server.FullName stage\maked\server.exe
+          # The agent's server ships too -- the second executable in the
+          # module, and the one a reader drives MAKED with from their own
+          # agent.
+          $mcp = Get-ChildItem -Path _build\native -Recurse -File -Filter mcp.exe | Select-Object -First 1
+          if (-not $mcp) {
+            Write-Error "no native agent executable found under _build/native"
+            Get-ChildItem -Path _build -Recurse -File -Filter 'mcp*' | Select-Object -First 20
+            exit 1
+          }
+          Write-Host "agent executable: $($mcp.FullName)"
+          Copy-Item $mcp.FullName stage\maked\mcp.exe
           Copy-Item frontend\dist\index.html, frontend\dist\styles.css stage\maked\frontend\dist\
           Copy-Item _build\js\release\build\cmd\web\web.js stage\maked\frontend\dist\main.js
           Copy-Item packaging\RUN.txt stage\maked\RUN.txt

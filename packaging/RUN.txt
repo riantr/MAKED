@@ -1,8 +1,8 @@
 MAKED
 =====
 
-This archive holds a prebuilt MAKED: one executable and the browser files it
-serves. Nothing else is needed -- no MoonBit toolchain, no compiler, no
+This archive holds a prebuilt MAKED: two executables and the browser files the
+web one serves. Nothing else is needed -- no MoonBit toolchain, no compiler, no
 package manager.
 
 Run it from this directory:
@@ -11,9 +11,18 @@ Run it from this directory:
 
 Then open <http://127.0.0.1:8080/>.
 
+The second executable is the agent's server. It speaks the Model Context
+Protocol, which is how another agent drives MAKED: the agent that spawns it
+speaks to it over stdio, and the agent that connects to one already running
+speaks to it over HTTP.
+
+    ./mcp                 (Windows: mcp.exe)
+
 The database is created next to the executable on first run, seeded with the
 site's own pages. Your own records live in the same file, so keep a copy of
-it if you want to keep them.
+it if you want to keep them. Both executables work on that same file, so a
+step taken through the agent's server is a step you can look at afterwards in
+the browser.
 
 Useful settings, all optional:
 
@@ -21,9 +30,14 @@ Useful settings, all optional:
     MAKED_HOST       the address to listen on       (default 127.0.0.1)
     MAKED_DB         where the database lives        (default maked.db)
     MAKED_DIST       where the browser files live    (default frontend/dist)
+    MAKED_MCP_PORT   the port the agent's server speaks HTTP on (default unset)
 
 MAKED_HOST is the one to reach for when the server has to be reachable from
 another machine: the default, 127.0.0.1, means this computer only.
+
+MAKED_MCP_PORT is the one that chooses how the agent's server talks. Left
+unset it speaks stdio, which is what an agent that spawns it expects; set it
+and it speaks HTTP on that port instead.
 
 MAKED runs on four files as well, and each is named by a variable of its own.
 All four are optional: leave one unset and MAKED runs on the built-in one.

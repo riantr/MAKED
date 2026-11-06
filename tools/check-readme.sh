@@ -1691,31 +1691,111 @@ fi
 
 # --- what the release carries -------------------------------------------------
 #
-# The README says the agent's server is not in the published release
-# artifacts: the release carries the web server and the browser bundle, and
-# the agent's server is built from the repository.  The release workflow is
-# what decides whether that server is shipped, so the workflow and the
-# document have to say the same thing.
+# The release carries the web server, the browser bundle and the agent's
+# server, and the document says so.  The release workflow is what decides
+# whether the agent's server is shipped, so the workflow and the document
+# have to say the same thing -- and the workflow has THREE facts to say, not
+# one: it has to BUILD the agent's server, and it has to put it in the
+# archive on EVERY platform it builds for.  A workflow that builds it and
+# does not ship it spends three minutes compiling a binary nobody
+# receives; a workflow that ships it on one platform and not on the others
+# ships a release that is right on a third of the platforms.
 #
-# The guide (AGENT.md) states the same claim and the docs pair watches that
-# copy.  A claim stated in two places is a claim in two places, and the copy
-# the other suite happens to read is not the copy this suite reads.
+# The paths the workflow copies are what the archive has.  A path it only
+# MENTIONS is not a path the archive has: the executable is made executable
+# with a chmod, and a chmod names a file the archive does not have.
 #
 # The document's side is the negation, not the phrase.  A sentence that says
 # the server IS in the release carries the same words as one that says it is
 # not, and only the negation tells the two apart; a rule that looked for the
-# phrase alone would read a document that says the opposite as a document that
-# says nothing, and let the claim through.
-RELEASE_BUILDS_MCP=$(grep -cE 'cmd/mcp' .github/workflows/publish.yml || true)
+# phrase alone would read a document that says the opposite as a document
+# that says nothing, and let the claim through.  So the count of the
+# un-negated phrase is the total minus the negated one, and a document that
+# says neither is a document that does not say.
+code_published_copies() {
+  grep -ohE '(^|[[:space:]])(cp|Copy-Item)[[:space:]][^|]*stage[/\\]maked[/\\][A-Za-z0-9_.-]+' \
+    .github/workflows/publish.yml 2>/dev/null \
+    | grep -oE 'stage[/\\]maked[/\\][A-Za-z0-9_.-]+' \
+    | tr '\\' '/' | LC_ALL=C sort -u || true
+}
+RELEASE_BUILDS_MCP=$(grep -cE 'moon build .*cmd/mcp' .github/workflows/publish.yml || true)
+PUBLISH_COPIES=$(code_published_copies)
+UNIX_STAGES_MCP=$(printf '%s\n' "$PUBLISH_COPIES" | grep -cxF 'stage/maked/mcp' || true)
+WINDOWS_STAGES_MCP=$(printf '%s\n' "$PUBLISH_COPIES" | grep -cxF 'stage/maked/mcp.exe' || true)
+RELEASE_CLAIM_TOTAL=$(grep -oE 'in the published release artifacts' "$README" | grep -c . || true)
 RELEASE_CLAIM_NOT=$(grep -oE 'not[^.]{0,8}in the published release artifacts' "$README" | grep -c . || true)
-if [ "$RELEASE_BUILDS_MCP" -gt 0 ] && [ "$RELEASE_CLAIM_NOT" -gt 0 ]; then
-  fail "$(printf '%-20s the document says the agent server is not released, and the release workflow builds it' \
+RELEASE_CLAIM_YES=$((RELEASE_CLAIM_TOTAL - RELEASE_CLAIM_NOT))
+
+# The platforms the agent's server is missing from, as a SET: a count says
+# how many are gone and not which.
+MISSING_STAGED=""
+if [ "$UNIX_STAGES_MCP" -eq 0 ]; then
+  MISSING_STAGED="$MISSING_STAGED stage/maked/mcp"
+fi
+if [ "$WINDOWS_STAGES_MCP" -eq 0 ]; then
+  MISSING_STAGED="$MISSING_STAGED stage/maked/mcp.exe"
+fi
+MISSING_STAGED="${MISSING_STAGED# }"
+RELEASE_STAGES_MCP=0
+if [ "$UNIX_STAGES_MCP" -gt 0 ] || [ "$WINDOWS_STAGES_MCP" -gt 0 ]; then
+  RELEASE_STAGES_MCP=1
+fi
+
+if [ "$RELEASE_BUILDS_MCP" -eq 0 ] && [ "$RELEASE_STAGES_MCP" -eq 1 ]; then
+  fail "$(printf '%-20s the release puts the agent server in the archive but does not build it' \
     'Release claim')"
-elif [ "$RELEASE_BUILDS_MCP" -eq 0 ] && [ "$RELEASE_CLAIM_NOT" -eq 0 ]; then
-  fail "$(printf '%-20s the release workflow does not build the agent server, and the document does not say so' \
-    'Release claim')"
+elif [ "$RELEASE_BUILDS_MCP" -gt 0 ] && [ -n "$MISSING_STAGED" ]; then
+  fail "$(printf '%-20s the release does not put the agent server in the archive on every platform; these are missing: %s' \
+    'Release claim' "$MISSING_STAGED")"
+elif [ "$RELEASE_BUILDS_MCP" -gt 0 ]; then
+  if [ "$RELEASE_CLAIM_YES" -gt 0 ]; then
+    printf '  ok      %-20s %s\n' 'Release claim' 'the release carries the agent server'
+  elif [ "$RELEASE_CLAIM_NOT" -gt 0 ]; then
+    fail "$(printf '%-20s the document says the agent server is not released, and the release workflow builds it' \
+      'Release claim')"
+  else
+    fail "$(printf '%-20s the document does not say whether the agent server is in the release' \
+      'Release claim')"
+  fi
 else
-  printf '  ok      %-20s %s\n' 'Release claim' 'not in the release'
+  if [ "$RELEASE_CLAIM_NOT" -gt 0 ]; then
+    printf '  ok      %-20s %s\n' 'Release claim' 'the agent server is not in the release'
+  elif [ "$RELEASE_CLAIM_YES" -gt 0 ]; then
+    fail "$(printf '%-20s the document says the agent server is released, and the release workflow does not build it' \
+      'Release claim')"
+  else
+    fail "$(printf '%-20s the release does not build the agent server, and the document does not say so' \
+      'Release claim')"
+  fi
+fi
+# --- the executables the CI compiles -------------------------------------------
+#
+# The module has three executables and the CI has to compile every one of
+# them.  A job that builds the web server and never builds the agent's
+# server cannot tell a broken agent's server from a working one -- and this
+# file's table of the six jobs says the native job builds both, so the claim
+# and the tree have to agree.
+#
+# The module's side is the tree itself: a directory under cmd/ whose package
+# says it is an executable.  The CI's side is what the workflow builds.  The
+# two are compared as sets, and both sets are printed when they differ: a
+# count says how many are wrong and not which.
+CODE_EXECUTABLES=$(grep -l 'pkgtype(kind: "executable")' cmd/*/moon.pkg 2>/dev/null \
+  | sed -E 's|/moon\.pkg$||' | LC_ALL=C sort -u || true)
+CI_BUILT=$(grep -oE 'moon build [^|]*cmd/[a-z]+' .github/workflows/ci.yml \
+  | sed -E 's/.*(cmd\/[a-z]+)$/\1/' | LC_ALL=C sort -u || true)
+if [ -z "$CODE_EXECUTABLES" ]; then
+  fail "$(printf '%-20s no executable could be derived from the module' 'CI executables')"
+elif [ -z "$CI_BUILT" ]; then
+  fail "$(printf '%-20s no build could be derived from the workflow' 'CI executables')"
+elif same_members "$CODE_EXECUTABLES" "$CI_BUILT"; then
+  printf '  ok      %-20s %s\n' 'CI executables' \
+    "$(printf '%s\n' "$CODE_EXECUTABLES" | tr '\n' ' ' | sed -e 's/ *$//')"
+else
+  fail "$(printf '%-20s the module has [%s], the CI builds [%s]' \
+    'CI executables' \
+    "$(printf '%s\n' "$CODE_EXECUTABLES" | tr '\n' ' ' | sed -e 's/ *$//')" \
+    "$(printf '%s\n' "$CI_BUILT" | tr '\n' ' ' | sed -e 's/ *$//')")"
 fi
 
 # --- the container image ------------------------------------------------------

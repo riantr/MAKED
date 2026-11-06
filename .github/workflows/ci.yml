@@ -161,6 +161,13 @@ jobs:
       - name: Build backend (native)
         run: moon build --target native cmd/server
 
+      # The agent's server is an executable in this module, so it is compiled
+      # here like any other. A job that builds one executable and leaves the
+      # other one unbuilt is a job that cannot tell a broken agent's server
+      # from a working one.
+      - name: Build the agent's server (native)
+        run: moon build --target native cmd/mcp
+
   build-js:
     name: Build (js)
     runs-on: ubuntu-latest

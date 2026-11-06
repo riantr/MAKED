@@ -219,7 +219,8 @@ beside the executable:
 | Windows x64 | `maked-<version>-windows-x64.zip` |
 
 Unpack it, run the executable in that directory, and open <http://127.0.0.1:8080/>.
-`RUN.txt` inside the archive says the same thing. Downloads:
+The agent's server is in the same directory, for an agent that drives MAKED instead of a
+person. `RUN.txt` inside the archive says the same thing. Downloads:
 <https://github.com/riantr/MAKED/releases>
 
 ### What the release was checked on
@@ -860,9 +861,9 @@ moon build --release --target native cmd/mcp
 The agent's server speaks stdio by default; set `MAKED_MCP_PORT` and it speaks HTTP
 instead, on the port you name.
 
-> The agent's server is **not** in the published release artifacts yet — those carry the
-> web server and the browser bundle. It is built from this repository, and it will join the
-> release when it is worth shipping.
+> The agent's server **is** in the published release artifacts: the archive carries the web
+> server, the browser bundle and the agent's server. Unpack it and an agent can drive MAKED
+> over MCP without a toolchain.
 
 Two things about this protocol version are worth knowing before you wire it up:
 

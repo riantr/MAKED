@@ -1403,27 +1403,77 @@ Test-Subset 'endpoint tools' (Get-DocEndpointTools) $codeTools
 # wrong tool passes both of them.
 Test-Sets 'endpoint mapping' $codeEndpointMappings $docEndpointMappings
 
-# The agent's server is not in the published release, and the document says
-# so. One of the two is a lie the moment the other changes, so the two are
-# checked against each other: the release workflow is what decides whether
-# the server is shipped, and the document has to say the same thing.
+# The release carries the agent's server, and the document says so. One of
+# the two is a lie the moment the other changes, so the two are checked
+# against each other: the release workflow is what decides whether the
+# server is shipped, and the document has to say the same thing.
+#
+# The workflow has THREE facts to say, not one: it has to BUILD the agent's
+# server, and it has to put it in the archive on EVERY platform it builds
+# for. A workflow that builds it and does not ship it spends three minutes
+# compiling a binary nobody receives; a workflow that ships it on one
+# platform and not on the others ships a release that is right on a third of
+# the platforms.
+#
+# The paths the workflow copies are what the archive has. A path it only
+# MENTIONS is not a path the archive has: the executable is made executable
+# with a chmod, and a chmod names a file the archive does not have.
 #
 # The document's side is the negation, not the phrase. A sentence that says
 # the server IS in the release carries the same words as one that says it is
 # not, and only the negation tells the two apart; a rule that looked for the
 # phrase alone would read a document that says the opposite as a document that
-# says nothing, and let the claim through.
+# says nothing, and let the claim through. So the count of the un-negated
+# phrase is the total minus the negated one, and a document that says
+# neither is a document that does not say.
+function Get-PublishedCopies {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD '.github/workflows/publish.yml'), $enc)
+  $out = @()
+  foreach ($m in [regex]::Matches($text, '(?m)(^|\s)(cp|Copy-Item)\s[^\r\n|]*stage[/\\]maked[/\\][A-Za-z0-9_.-]+')) {
+    $path = [regex]::Match($m.Value, 'stage[/\\]maked[/\\][A-Za-z0-9_.-]+').Value
+    $out += ($path -replace '\\', '/')
+  }
+  Sort-Set $out
+}
 $publishText = [System.IO.File]::ReadAllText((Join-Path $PWD '.github/workflows/publish.yml'), $enc)
 $agentText = [System.IO.File]::ReadAllText((Join-Path $PWD $agentDoc), $enc)
 $runText = [System.IO.File]::ReadAllText((Join-Path $PWD $runNote), $enc)
-$publishMcp = ([regex]::Matches($publishText, 'cmd/mcp')).Count
+$publishBuildsMcp = ([regex]::Matches($publishText, 'moon build [^\r\n]*cmd/mcp')).Count
+$publishCopies = Get-PublishedCopies
+$unixStagesMcp = ($publishCopies -ccontains 'stage/maked/mcp')
+$windowsStagesMcp = ($publishCopies -ccontains 'stage/maked/mcp.exe')
+$docClaimTotal = ([regex]::Matches($agentText, 'in the published release artifacts')).Count
 $docNotShipped = ([regex]::Matches($agentText, 'not[^.\r\n]{0,8}in the published release artifacts')).Count
-if ($publishMcp -gt 0 -and $docNotShipped -gt 0) {
-  Write-Fail ("{0,-22} the document says the agent server is not released, and the release workflow builds it" -f 'release claim')
-} elseif ($publishMcp -eq 0 -and $docNotShipped -eq 0) {
-  Write-Fail ("{0,-22} the release workflow does not build the agent server, and the document does not say so" -f 'release claim')
+$docShipped = $docClaimTotal - $docNotShipped
+
+# The platforms the agent's server is missing from, as a SET: a count says
+# how many are gone and not which.
+$missingStaged = @()
+if (-not $unixStagesMcp) { $missingStaged += 'stage/maked/mcp' }
+if (-not $windowsStagesMcp) { $missingStaged += 'stage/maked/mcp.exe' }
+$publishStagesMcp = 0
+if ($unixStagesMcp -or $windowsStagesMcp) { $publishStagesMcp = 1 }
+
+if ($publishBuildsMcp -eq 0 -and $publishStagesMcp -eq 1) {
+  Write-Fail ("{0,-22} the release puts the agent server in the archive but does not build it" -f 'release claim')
+} elseif ($publishBuildsMcp -gt 0 -and $missingStaged.Count -gt 0) {
+  Write-Fail ("{0,-22} the release does not put the agent server in the archive on every platform; these are missing: {1}" -f 'release claim', ($missingStaged -join ' '))
+} elseif ($publishBuildsMcp -gt 0) {
+  if ($docShipped -gt 0) {
+    Write-Ok 'release claim' 'the release carries the agent server'
+  } elseif ($docNotShipped -gt 0) {
+    Write-Fail ("{0,-22} the document says the agent server is not released, and the release workflow builds it" -f 'release claim')
+  } else {
+    Write-Fail ("{0,-22} the document does not say whether the agent server is in the release" -f 'release claim')
+  }
 } else {
-  Write-Ok 'release claim' 'not in the release'
+  if ($docNotShipped -gt 0) {
+    Write-Ok 'release claim' 'the agent server is not in the release'
+  } elseif ($docShipped -gt 0) {
+    Write-Fail ("{0,-22} the document says the agent server is released, and the release workflow does not build it" -f 'release claim')
+  } else {
+    Write-Fail ("{0,-22} the release does not build the agent server, and the document does not say so" -f 'release claim')
+  }
 }
 
 # The port the agent's server speaks HTTP on is named by a variable, and the
@@ -1947,6 +1997,30 @@ function Get-CodeSettings {
   Sort-Set $out
 }
 
+# The settings the ARCHIVE's executables read, with their defaults.
+#
+# The archive holds two executables now, and the note has to cover both: a
+# note that lists the web server's settings and says nothing about the
+# agent's server's is a note that names half of what is unpacked.  The
+# agent's server reads the same database as the web server and one setting
+# of its own.
+#
+# A setting with no default in the code is written `unset`, the same word
+# the README's table uses for it, so the two documents say the same thing
+# about the same variable.
+function Get-CodeArchiveSettings {
+  $out = @()
+  foreach ($file in @('cmd/server/main.mbt', 'cmd/mcp/main.mbt')) {
+    $text = [System.IO.File]::ReadAllText((Join-Path $PWD $file), $enc)
+    foreach ($m in [regex]::Matches($text, 'env_or\("(MAKED_[A-Z_]+)", "([^"]*)"\)')) {
+      $default = $m.Groups[2].Value
+      if ($default -eq '') { $default = 'unset' }
+      $out += ("{0} {1}" -f $m.Groups[1].Value, $default)
+    }
+  }
+  Sort-Set $out
+}
+
 # The same settings as the note gives them. The line has to END with the
 # default, so a sentence that mentions a variable in passing is not read as
 # a setting.
@@ -1982,18 +2056,28 @@ function Get-DocRunFiles($settings) {
 }
 
 $codeSettings = Get-CodeSettings
+$codeArchiveSettings = Get-CodeArchiveSettings
 $docSettings = Get-DocSettings
 
-Test-Sets 'run note settings' $codeSettings $docSettings
+Test-Sets 'run note settings' $codeArchiveSettings $docSettings
 
-Test-Sets 'run note files' $codeFileVars (Get-DocRunFiles $codeSettings)
+Test-Sets 'run note files' $codeFileVars (Get-DocRunFiles $codeArchiveSettings)
 
-# The executable the note tells the reader to run is the one the release
-# workflow packages.
-if ($publishText.Contains('stage/maked/server') -and $runText.Contains('server.exe') -and $runText.Contains('./server')) {
-  Write-Ok 'run note executable' './server'
+# The executables the note tells the reader to run are the ones the release
+# workflow packages. There are two of them now: the web server and the
+# agent's server, and a note that names one and the archive carries the
+# other is a note that points at half of what was unpacked.
+#
+# The paths the workflow COPIES are the paths the archive has.  A path it only
+# mentions is not a path the archive has: the executable is made executable
+# with a chmod, and a chmod names a file the archive does not have.
+if (($publishCopies -ccontains 'stage/maked/server') -and ($publishCopies -ccontains 'stage/maked/server.exe') -and
+    ($publishCopies -ccontains 'stage/maked/mcp') -and ($publishCopies -ccontains 'stage/maked/mcp.exe') -and
+    $runText.Contains('server.exe') -and $runText.Contains('./server') -and
+    $runText.Contains('mcp.exe') -and $runText.Contains('./mcp')) {
+  Write-Ok 'run note executable' './server ./mcp'
 } else {
-  Write-Fail ("{0,-22} the note and the release workflow disagree about the executable" -f 'run note executable')
+  Write-Fail ("{0,-22} the note and the release workflow disagree about the executables" -f 'run note executable')
 }
 
 # --- the release archive, as the note describes it ----------------------------

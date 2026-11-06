@@ -1484,26 +1484,84 @@ check_subset "endpoint tools" "$DOC_ENDPOINT_TOOLS" "$CODE_TOOLS"
 # wrong tool passes both of them.
 check_sets "endpoint mapping" "$CODE_ENDPOINT_MAPPINGS" "$DOC_ENDPOINT_MAPPINGS"
 
-# The agent's server is not in the published release, and the document says
-# so. One of the two is a lie the moment the other changes, so the two are
-# checked against each other: the release workflow is what decides whether
-# the server is shipped, and the document has to say the same thing.
+# The release carries the agent's server, and the document says so. One of
+# the two is a lie the moment the other changes, so the two are checked
+# against each other: the release workflow is what decides whether the
+# server is shipped, and the document has to say the same thing.
+#
+# The workflow has THREE facts to say, not one: it has to BUILD the agent's
+# server, and it has to put it in the archive on EVERY platform it builds
+# for. A workflow that builds it and does not ship it spends three minutes
+# compiling a binary nobody receives; a workflow that ships it on one
+# platform and not on the others ships a release that is right on a third of
+# the platforms.
+#
+# The paths the workflow copies are what the archive has. A path it only
+# MENTIONS is not a path the archive has: the executable is made executable
+# with a chmod, and a chmod names a file the archive does not have.
 #
 # The document's side is the negation, not the phrase. A sentence that says
 # the server IS in the release carries the same words as one that says it is
 # not, and only the negation tells the two apart; a rule that looked for the
 # phrase alone would read a document that says the opposite as a document that
-# says nothing, and let the claim through.
-PUBLISH_MCP=$(grep -cE 'cmd/mcp' .github/workflows/publish.yml || true)
+# says nothing, and let the claim through. So the count of the un-negated
+# phrase is the total minus the negated one, and a document that says
+# neither is a document that does not say.
+code_published_copies() {
+  grep -ohE '(^|[[:space:]])(cp|Copy-Item)[[:space:]][^|]*stage[/\\]maked[/\\][A-Za-z0-9_.-]+' \
+    .github/workflows/publish.yml 2>/dev/null \
+    | grep -oE 'stage[/\\]maked[/\\][A-Za-z0-9_.-]+' \
+    | tr '\\' '/' | LC_ALL=C sort -u || true
+}
+PUBLISH_BUILDS_MCP=$(grep -cE 'moon build .*cmd/mcp' .github/workflows/publish.yml || true)
+PUBLISH_COPIES=$(code_published_copies)
+UNIX_STAGES_MCP=$(printf '%s\n' "$PUBLISH_COPIES" | grep -cxF 'stage/maked/mcp' || true)
+WINDOWS_STAGES_MCP=$(printf '%s\n' "$PUBLISH_COPIES" | grep -cxF 'stage/maked/mcp.exe' || true)
+DOC_CLAIM_TOTAL=$(grep -oE 'in the published release artifacts' "$AGENT_DOC" | grep -c . || true)
 DOC_NOT_SHIPPED=$(grep -oE 'not[^.]{0,8}in the published release artifacts' "$AGENT_DOC" | grep -c . || true)
-if [ "$PUBLISH_MCP" -gt 0 ] && [ "$DOC_NOT_SHIPPED" -gt 0 ]; then
-  fail "$(printf '%-22s the document says the agent server is not released, and the release workflow builds it' \
+DOC_SHIPPED=$((DOC_CLAIM_TOTAL - DOC_NOT_SHIPPED))
+
+# The platforms the agent's server is missing from, as a SET: a count says
+# how many are gone and not which.
+MISSING_STAGED=""
+if [ "$UNIX_STAGES_MCP" -eq 0 ]; then
+  MISSING_STAGED="$MISSING_STAGED stage/maked/mcp"
+fi
+if [ "$WINDOWS_STAGES_MCP" -eq 0 ]; then
+  MISSING_STAGED="$MISSING_STAGED stage/maked/mcp.exe"
+fi
+MISSING_STAGED="${MISSING_STAGED# }"
+PUBLISH_STAGES_MCP=0
+if [ "$UNIX_STAGES_MCP" -gt 0 ] || [ "$WINDOWS_STAGES_MCP" -gt 0 ]; then
+  PUBLISH_STAGES_MCP=1
+fi
+
+if [ "$PUBLISH_BUILDS_MCP" -eq 0 ] && [ "$PUBLISH_STAGES_MCP" -eq 1 ]; then
+  fail "$(printf '%-22s the release puts the agent server in the archive but does not build it' \
     'release claim')"
-elif [ "$PUBLISH_MCP" -eq 0 ] && [ "$DOC_NOT_SHIPPED" -eq 0 ]; then
-  fail "$(printf '%-22s the release workflow does not build the agent server, and the document does not say so' \
-    'release claim')"
+elif [ "$PUBLISH_BUILDS_MCP" -gt 0 ] && [ -n "$MISSING_STAGED" ]; then
+  fail "$(printf '%-22s the release does not put the agent server in the archive on every platform; these are missing: %s' \
+    'release claim' "$MISSING_STAGED")"
+elif [ "$PUBLISH_BUILDS_MCP" -gt 0 ]; then
+  if [ "$DOC_SHIPPED" -gt 0 ]; then
+    ok "release claim" "the release carries the agent server"
+  elif [ "$DOC_NOT_SHIPPED" -gt 0 ]; then
+    fail "$(printf '%-22s the document says the agent server is not released, and the release workflow builds it' \
+      'release claim')"
+  else
+    fail "$(printf '%-22s the document does not say whether the agent server is in the release' \
+      'release claim')"
+  fi
 else
-  ok "release claim" "not in the release"
+  if [ "$DOC_NOT_SHIPPED" -gt 0 ]; then
+    ok "release claim" "the agent server is not in the release"
+  elif [ "$DOC_SHIPPED" -gt 0 ]; then
+    fail "$(printf '%-22s the document says the agent server is released, and the release workflow does not build it' \
+      'release claim')"
+  else
+    fail "$(printf '%-22s the release does not build the agent server, and the document does not say so' \
+      'release claim')"
+  fi
 fi
 
 # The port the agent's server speaks HTTP on is named by a variable, and the
@@ -2053,6 +2111,23 @@ code_settings() {
     | sed -E 's/env_or\("([A-Z_]+)", "([^"]*)"\)/\1 \2/' | LC_ALL=C sort -u || true
 }
 
+# The settings the ARCHIVE's executables read, with their defaults.
+#
+# The archive holds two executables now, and the note has to cover both: a
+# note that lists the web server's settings and says nothing about the
+# agent's server's is a note that names half of what is unpacked.  The
+# agent's server reads the same database as the web server and one setting
+# of its own.
+#
+# A setting with no default in the code is written `unset`, the same word
+# the README's table uses for it, so the two documents say the same thing
+# about the same variable.
+code_archive_settings() {
+  grep -ohE 'env_or\("MAKED_[A-Z_]+", "[^"]*"\)' cmd/server/main.mbt cmd/mcp/main.mbt \
+    | sed -E -e 's/env_or\("([A-Z_]+)", ""\)/\1 unset/' \
+          -e 's/env_or\("([A-Z_]+)", "([^"]*)"\)/\1 \2/' | LC_ALL=C sort -u || true
+}
+
 # The same settings as the note gives them. The line has to END with the
 # default, so a sentence that mentions a variable in passing is not read as
 # a setting.
@@ -2077,20 +2152,28 @@ doc_run_files() {
 }
 
 CODE_SETTINGS=$(code_settings)
+CODE_ARCHIVE_SETTINGS=$(code_archive_settings)
 DOC_SETTINGS=$(doc_settings)
 
-check_sets "run note settings" "$CODE_SETTINGS" "$DOC_SETTINGS"
+check_sets "run note settings" "$CODE_ARCHIVE_SETTINGS" "$DOC_SETTINGS"
 
-check_sets "run note files" "$CODE_FILE_VARS" "$(doc_run_files "$CODE_SETTINGS")"
+check_sets "run note files" "$CODE_FILE_VARS" "$(doc_run_files "$CODE_ARCHIVE_SETTINGS")"
 
-# The executable the note tells the reader to run is the one the release
-# workflow packages.
-if grep -qF 'stage/maked/server' .github/workflows/publish.yml \
+# The executables the note tells the reader to run are the ones the release
+# workflow packages. There are two of them now: the web server and the
+# agent's server, and a note that names one and the archive carries the
+# other is a note that points at half of what was unpacked.
+if printf '%s\n' "$PUBLISH_COPIES" | grep -qxF 'stage/maked/server' \
+   && printf '%s\n' "$PUBLISH_COPIES" | grep -qxF 'stage/maked/server.exe' \
+   && printf '%s\n' "$PUBLISH_COPIES" | grep -qxF 'stage/maked/mcp' \
+   && printf '%s\n' "$PUBLISH_COPIES" | grep -qxF 'stage/maked/mcp.exe' \
    && grep -qF 'server.exe' "$RUN_NOTE" \
-   && grep -qF './server' "$RUN_NOTE"; then
-  ok "run note executable" "./server"
+   && grep -qF './server' "$RUN_NOTE" \
+   && grep -qF 'mcp.exe' "$RUN_NOTE" \
+   && grep -qF './mcp' "$RUN_NOTE"; then
+  ok "run note executable" "./server ./mcp"
 else
-  fail "$(printf '%-22s the note and the release workflow disagree about the executable' \
+  fail "$(printf '%-22s the note and the release workflow disagree about the executables' \
     'run note executable')"
 fi
 
