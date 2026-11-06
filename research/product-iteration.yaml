@@ -24,37 +24,66 @@
 format: maked.research.v1
 mapping:
   - label: A question worth asking
+    label_zh: 一个值得问的问题
     keywords:
       - question
       - why
       - unclear
       - ask
+    keywords_zh:
+      - 问题
+      - 为什么
+      - 不清楚
+      - 询问
     slot: ask
     notes: The document opens a question rather than answering one.
+    notes_zh: 这份文档提出的是问题，而不是答案。
   - label: A scope worth setting
+    label_zh: 一个值得划定的范围
     keywords:
       - scope
       - plan
       - requirement
       - boundary
+    keywords_zh:
+      - 范围
+      - 计划
+      - 需求
+      - 边界
     slot: scope
     notes: The document says what will and will not be done.
+    notes_zh: 这份文档说明要做什么、不做什么。
   - label: A thing being built
+    label_zh: 正在做出来的东西
     keywords:
       - build
       - implement
       - code
       - prototype
+    keywords_zh:
+      - 构建
+      - 实现
+      - 代码
+      - 原型
     slot: build
     notes: The document is about making the thing.
+    notes_zh: 这份文档讲的是把它做出来。
   - label: A thing going out
+    label_zh: 要交出去的东西
     keywords:
       - ship
       - release
       - deploy
       - launch
+    keywords_zh:
+      - 发布
+      - 部署
+      - 上线
+      - 交付
     slot: ship
     notes: The document is about putting it in front of people.
+    notes_zh: 这份文档讲的是把它交到人手里。
 fallback:
   label: Anything else
+  label_zh: 其他
   slot: scope

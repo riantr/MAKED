@@ -483,6 +483,13 @@ The collective (`/api/society`) answers in Chinese as well: its position
 names, its glosses and its phases are pyroduct's own, because the
 vocabulary file — the reader's own words — is written in English.
 
+The mapping table answers in Chinese as well, and in a different way from the
+rest: the table is the reader's own file, so the Chinese in it is the reader's
+own too. A rule may carry a Chinese name, a Chinese note and the Chinese words
+that make it fire; the words a rule matches are not the reader's language — the
+corpus is the reader's own and may hold either — but the name of the rule that
+fired is, and that is the one the reader reads.
+
 The measures and the export answer in Chinese as well, and the export is
 the one that matters most: it is the thing the reader takes away, and it is
 written twice rather than translated, because the shape of an English report
@@ -652,7 +659,7 @@ MAKED_moonbit/
 │   ├── metrics.mbt                   # the measures, in both languages
 │   ├── session.mbt                   # explorations, timelines, exports
 │   ├── database.mbt                  # SQLite
-│   ├── *_test.mbt                    # 456 tests
+│   ├── *_test.mbt                    # 461 tests
 │   └── *_wbtest.mbt                  # 16 tests
 ├── frontend/                         # the single-page app (js)
 │   ├── app.mbt                       # the TEA loop and the messages
@@ -681,7 +688,7 @@ MAKED_moonbit/
 │   └── notes/                        # the corpus the local example names
 │       └── failed-launch.md
 ├── tools/
-│   ├── integration-test.ps1          # 465 checks against a running server
+│   ├── integration-test.ps1          # 467 checks against a running server
 │   ├── mutate-backend.ps1            # 148 mutations of the backend
 │   ├── mutate-frontend.ps1           # 65 mutations of the frontend
 │   ├── mutate-loop.ps1               # 16 mutations of the loop
@@ -973,19 +980,36 @@ same machine, name for name, in either syntax.
 format: maked.research.v1
 mapping:
   - label: A question worth asking
+    label_zh: 一个值得问的问题
     keywords:
       - question
       - why
       - unclear
+    keywords_zh:
+      - 问题
+      - 为什么
+      - 不清楚
     slot: ask
     notes: The document opens a question rather than answering one.
+    notes_zh: 这份文档提出的是问题，而不是答案。
 fallback:
   label: Anything else
+  label_zh: 其他
   slot: ask
 ```
 
 The order is the priority: the table is read from the top and the first rule that matches
 wins. A rule that names a slot the running machine does not have is refused at start-up.
+
+A rule can carry Chinese as well as English: `label_zh` is the rule's name in Chinese,
+`notes_zh` is its note, and `keywords_zh` are the words that make it fire on a Chinese
+document. The words a rule matches are not the reader's language — the corpus is the
+reader's own and may hold either — but the name of the rule is, so `?lang=zh` shows the
+rule in Chinese while the table still reads everything it is given. A rule with no
+Chinese name is shown in English, exactly as a name of the machine's is: a table written
+only in English still runs, it just answers in English. The table that ships,
+`research/product-iteration.yaml`, is written that way: every rule of it has a Chinese
+name, a Chinese note and Chinese words.
 
 ### A corpus of your own
 
@@ -1108,9 +1132,9 @@ build runs. Both print the same lines and they go red together.
 
 | What | How many | How it is checked |
 |---|---|---|
-| Backend tests | 472 | `moon test --target native backend` |
+| Backend tests | 477 | `moon test --target native backend` |
 | Frontend tests | 174 | `moon test --target js frontend` |
-| Integration checks | 465 | `tools/integration-test.ps1` — against a server that is really running |
+| Integration checks | 467 | `tools/integration-test.ps1` — against a server that is really running |
 | Backend mutations | 148 | `tools/mutate-backend.ps1` |
 | Frontend mutations | 65 | `tools/mutate-frontend.ps1` |
 | Loop mutations | 16 | `tools/mutate-loop.ps1` |

@@ -4499,8 +4499,12 @@ fi
 #
 # The move names are the one set with spaces in it, so they are hyphenated
 # here: one item per name, and an item a reader can find in the file.
-
-EXAMPLE_LANGUAGE_MISSING=$(
+#
+# The walk can FAIL, and a walk that failed says nothing: an empty set of
+# missing names reads as "nothing is missing", which is exactly the answer a
+# broken walk gives for free.  So the walk's own exit status is the answer
+# too, and a walk that failed is a rule that failed.
+EXAMPLE_LANGUAGE_RAW=$(
   awk '
     function check_object() {
       if (section == "domains") {
@@ -4541,16 +4545,115 @@ EXAMPLE_LANGUAGE_MISSING=$(
       next
     }
     /^    \},?$/ { if (in_object) { check_object(); in_object = 0 } next }
-  ' models/product-iteration.json | sed -e 's/ /-/g' | tr '\n' ' '
+  ' models/product-iteration.json
 )
-EXAMPLE_LANGUAGE_MISSING="${EXAMPLE_LANGUAGE_MISSING# }"
+EXAMPLE_LANGUAGE_STATUS=$?
+EXAMPLE_LANGUAGE_MISSING=""
+if [ "$EXAMPLE_LANGUAGE_STATUS" -eq 0 ]; then
+  EXAMPLE_LANGUAGE_MISSING=$(printf '%s' "$EXAMPLE_LANGUAGE_RAW" | sed -e 's/ /-/g' | tr '\n' ' ')
+  EXAMPLE_LANGUAGE_MISSING="${EXAMPLE_LANGUAGE_MISSING# }"
+fi
 
-if [ -n "$EXAMPLE_LANGUAGE_MISSING" ]; then
+if [ "$EXAMPLE_LANGUAGE_STATUS" -ne 0 ]; then
+  fail "$(printf '%-20s the example machine could not be read, so whether it speaks the readers language is unknown' \
+    'Example language')"
+elif [ -n "$EXAMPLE_LANGUAGE_MISSING" ]; then
   fail "$(printf '%-20s the example machine does not speak the readers language; these names have no Chinese: %s' \
     'Example language' "$EXAMPLE_LANGUAGE_MISSING")"
 else
   printf '  ok      %-20s %s\n' 'Example language' \
     'the example machine has a Chinese name for every name it has'
+fi
+# --- the example table speaks the reader's language ----------------------------
+#
+# The machine that ships has a Chinese twin for every name it has, and so does
+# the mapping table that ships.  Two gaps make a table that a Chinese reader
+# cannot use: a rule with no Chinese NAME is a rule the reader cannot read,
+# and a rule with no Chinese WORDS is a rule that cannot fire on a Chinese
+# document at all -- the corpus is the reader's own, and the reader's own
+# documents are in the reader's language.
+#
+# The table is YAML, so the walk is line-oriented: the rules are the entries
+# under `mapping:` and the fallback is the one under `fallback:`.  What is
+# reported is the SET of names that have no Chinese, so that a gap says which
+# rule it is rather than how many there are.
+#
+# The walk can FAIL, and a walk that failed says nothing: an empty set of
+# missing names reads as "nothing is missing", which is exactly the answer a
+# broken walk gives for free.  So the walk's own exit status is the answer
+# too, and a walk that failed is a rule that failed.
+code_example_table_missing() {
+  local raw status
+  raw=$(awk '
+    function value_of(line, start) {
+      local v
+      v = substr(line, start)
+      gsub(/^[ \t]+/, "", v)
+      gsub(/[ \t]+$/, "", v)
+      if (v == "\"\"") return ""
+      if (v == "\047\047") return ""
+      return v
+    }
+    function flush_rule() {
+      if (rule == "") return
+      if (!has_label_zh) missing = missing " rule." rule ".label_zh"
+      if (!has_notes_zh) missing = missing " rule." rule ".notes_zh"
+      if (!has_keywords_zh) missing = missing " rule." rule ".keywords_zh"
+      rule = ""
+      has_label_zh = 0
+      has_notes_zh = 0
+      has_keywords_zh = 0
+    }
+    BEGIN {
+      rule = ""
+      has_label_zh = 0
+      has_notes_zh = 0
+      has_keywords_zh = 0
+      in_keywords_zh = 0
+      fallback_zh = 0
+      missing = ""
+    }
+    /^mapping:/ { in_mapping = 1; next }
+    /^fallback:/ { flush_rule(); in_mapping = 0; in_fallback = 1; next }
+    in_mapping && /^  - label: / {
+      flush_rule()
+      rule = $0
+      sub(/^  - label: /, "", rule)
+      next
+    }
+    in_mapping && /^    label_zh:/ { has_label_zh = (value_of($0, 15) != ""); next }
+    in_mapping && /^    notes_zh:/ { has_notes_zh = (value_of($0, 15) != ""); next }
+    in_mapping && /^    keywords_zh:/ { in_keywords_zh = 1; next }
+    in_mapping && /^    [a-z_]+:/ { in_keywords_zh = 0; next }
+    in_mapping && in_keywords_zh && /^      - / { has_keywords_zh = 1; next }
+    in_fallback && /^  label_zh:/ {
+      if (value_of($0, 13) != "") fallback_zh = 1
+      next
+    }
+    END {
+      flush_rule()
+      if (!fallback_zh) missing = missing " fallback.label_zh"
+      print missing
+    }
+  ' research/product-iteration.yaml)
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    return 1
+  fi
+  printf '%s\n' "$raw" | tr -s ' ' | sed -e 's/^ //' -e 's/ $//' \
+    | sed -e 's/ /-/g'
+}
+EXAMPLE_TABLE_MISSING=$(code_example_table_missing)
+EXAMPLE_TABLE_STATUS=$?
+if [ "$EXAMPLE_TABLE_STATUS" -ne 0 ]; then
+  fail "$(printf '%-20s the example table could not be read, so whether it speaks the readers language is unknown' \
+    'Research language')"
+elif [ -n "$EXAMPLE_TABLE_MISSING" ]; then
+  fail "$(printf '%-20s the example table does not speak the readers language; these names have no Chinese: %s' \
+    'Research language' "$EXAMPLE_TABLE_MISSING")"
+else
+  printf '  ok      %-20s %s\n' 'Research language' \
+    'the example table has a Chinese name for every name it has'
 fi
 # --- the ring's letters --------------------------------------------------------
 #

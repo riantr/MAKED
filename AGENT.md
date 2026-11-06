@@ -118,6 +118,13 @@ A file that cannot be read stops MAKED before it serves anything, and the
 reason is on stderr. A rule that names a slot the running machine does not
 have is refused at start-up: it is a rule about nowhere.
 
+A rule of the mapping table may carry Chinese as well as English:
+`label_zh`, `notes_zh` and `keywords_zh`. The words a rule matches are not the
+reader's language — the corpus is the reader's own and may hold either — but
+the name of the rule that fired is, so a request that asks for Chinese is
+answered with the Chinese name of the rule. A rule with no Chinese name is
+shown in English, exactly as a name of the machine's is.
+
 ## Working *on* MAKED rather than driving it
 
 If your job is to change MAKED — not to run it — read [AGENTS.md](AGENTS.md)

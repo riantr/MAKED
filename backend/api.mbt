@@ -897,8 +897,9 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
       // The table says which slot a document drives and what the rule is
       // called. It is the reader's table, so the slot is read as the
       // model's id and the rest of the server only ever sees the model's
-      // vocabulary.
-      let (slot, label) = document_to_slot(config, d)
+      // vocabulary. The rule's name is the reader's own words, so it is
+      // read in the language the request asked for.
+      let (slot, label) = document_to_slot_in(config, d, lang)
       let item : Json = {
         "document_id": d.id,
         "rule": label,
@@ -957,7 +958,9 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
     let results : Array[Json] = []
     let mut driven = 0
     for document in documents {
-      let (slot, label) = document_to_slot(config, document)
+      // The rule's name is the reader's own words, so it is read in the
+      // language the request asked for. The slot it drives is the machine's.
+      let (slot, label) = document_to_slot_in(config, document, lang)
       // A table may name a slot the running model does not have -- the
       // built-in table is the built-in model's, and a model file has slots
       // of its own. Such a document is not driven, and it is said so: a
@@ -970,11 +973,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
           "rule": label,
           "slot_english": slot,
           "driven": false,
-          "reason": if slot == "" {
-            "the table leaves documents it does not recognise alone"
-          } else {
-            "the model has no slot called \"" + slot + "\""
-          },
+          "reason": research_not_driven_reason(slot, lang),
         }
         results.push(skipped)
         continue
@@ -1750,6 +1749,25 @@ pub fn corpus_empty_notice(corpus : String, lang : Lang) -> String {
   match lang {
     English => "The corpus (" + corpus + ") held no documents."
     Chinese => "语料库 (" + corpus + ") 里没有文档。"
+  }
+}
+
+///|
+/// Why a document was not driven by the table.
+///
+/// The reason is a sentence the reader reads, and the reader asked in a
+/// language, so the reason is written in that language.
+pub fn research_not_driven_reason(slot : String, lang : Lang) -> String {
+  if slot == "" {
+    match lang {
+      English => "the table leaves documents it does not recognise alone"
+      Chinese => "映射表把不认识的文档放在一边不管。"
+    }
+  } else {
+    match lang {
+      English => "the model has no slot called \"" + slot + "\""
+      Chinese => "这台机器没有叫「" + slot + "」的槽。"
+    }
   }
 }
 

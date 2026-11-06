@@ -27,6 +27,20 @@ pub fn document_to_slot(
 }
 
 ///|
+/// The same, with the rule named in the language asked for.
+///
+/// The slot is the machine's either way, and the slot is an id: what the
+/// reader reads is the name of the rule, and that is written in the reader's
+/// language.
+pub fn document_to_slot_in(
+  config : ResearchConfig,
+  document : Document,
+  lang : Lang,
+) -> (String, String) {
+  config.slot_for_text_in(document.title + " " + document.summary, lang)
+}
+
+///|
 /// Lowercase ASCII characters only (for keyword matching).
 ///
 /// The characters are walked one at a time: indexing a string gives the

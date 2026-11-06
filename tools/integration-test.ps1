@@ -1392,6 +1392,30 @@ try {
     $copy = Join-Path $tempDir ("maked_integration_table_{0}.yaml" -f $TablePort)
     Copy-Item $TableFile $copy -Force
 
+    # The corpus is the reader's own documents, and this one is in Chinese.
+    # A table whose words are all English reads nothing at all when the
+    # documents are Chinese, so the honest way to check that the table speaks
+    # the reader's language is to give it a document in that language.
+    #
+    # The note is written as UTF-8 without a byte order mark, and the Chinese
+    # is written as escapes: this file carries no byte order mark, so
+    # PowerShell reads it as the machine's own code page and a Chinese
+    # literal in it would not be the Chinese it looks like.
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    $chineseNotes = Join-Path $tempDir ("maked_integration_chinese_notes_{0}" -f $TablePort)
+    New-Item -ItemType Directory -Path $chineseNotes -Force | Out-Null
+    $chineseNote = [System.Text.RegularExpressions.Regex]::Unescape("\u8FD9\u4E00\u7248\u7684\u5B9E\u73B0")
+    [System.IO.File]::WriteAllText(
+      (Join-Path $chineseNotes "build.md"),
+      $chineseNote,
+      $utf8)
+    $chineseCorpus = Join-Path $tempDir ("maked_integration_chinese_corpus_{0}.yaml" -f $TablePort)
+    $chineseNotesPath = $chineseNotes -replace '\\', '/'
+    [System.IO.File]::WriteAllText(
+      $chineseCorpus,
+      ("format: maked.corpus.v1`nsource:`n  kind: local`n  path: {0}`n  max_results: 20`n" -f $chineseNotesPath),
+      $utf8)
+
     $tableArgs = @{
       FilePath               = $exe
       PassThru               = $true
@@ -1403,11 +1427,13 @@ try {
     }
     $savedModel = $env:MAKED_MODEL
     $savedResearch = $env:MAKED_RESEARCH
+    $savedCorpus = $env:MAKED_CORPUS
     $savedPort = $env:MAKED_PORT
     $savedDb = $env:MAKED_DB
     $savedBase = $script:base
     $env:MAKED_MODEL = $ModelFile
     $env:MAKED_RESEARCH = $copy
+    $env:MAKED_CORPUS = $chineseCorpus
     $env:MAKED_PORT = "$TablePort"
     $env:MAKED_DB = (Join-Path $tempDir ("maked_integration_table_{0}.db" -f $TablePort))
     $script:base = "http://127.0.0.1:$TablePort"
@@ -1426,6 +1452,22 @@ try {
           ((Field $own "config").mapping[0].label -eq "A question worth asking")
         Assert-Field "and the file it came from is remembered" $own "path" $copy
         Assert-Field "and it can be written back" $own "writable" $true
+
+        # The rule that fired is named in the reader's language. The corpus
+        # is the reader's own and holds one Chinese note, so the rule that
+        # fired is the one whose Chinese words match it -- the rule that
+        # says a thing is being built. The slot it drives is the machine's
+        # either way; the name of the rule is the reader's.
+        $zhTriggers = Field (Get-Json "/api/research/documents?lang=zh") "triggers"
+        $zhRule = [string](Field $zhTriggers[0] "rule")
+        Assert-True "the rule that fired is named in Chinese" `
+          ([regex]::IsMatch($zhRule, '[\u4e00-\u9fff]')) `
+          ("the rule did not read as Chinese: {0}" -f (Limit $zhRule))
+        $enTriggers = Field (Get-Json "/api/research/documents") "triggers"
+        $enRule = [string](Field $enTriggers[0] "rule")
+        Assert-True "and the same rule is named in English for an English reader" `
+          ($enRule -eq "A thing being built") `
+          ("the rule was not the English one: {0}" -f (Limit $enRule))
 
         # A table of the reader's own replaces it, and the one that runs is
         # the one that was just put.
@@ -1457,6 +1499,7 @@ try {
       }
       $env:MAKED_MODEL = $savedModel
       $env:MAKED_RESEARCH = $savedResearch
+      $env:MAKED_CORPUS = $savedCorpus
       $env:MAKED_PORT = $savedPort
       $env:MAKED_DB = $savedDb
       $script:base = $savedBase

@@ -102,13 +102,17 @@ test "a table of the reader's own decides for itself" {
     rules: [
       {
         keywords: ["reproduce", "replication"],
+        keywords_zh: ["复现", "重复"],
         slot: "hold",
         label: "A reproduction",
+        label_zh: "一次复现",
         notes: "",
+        notes_zh: "",
       },
     ],
     fallback_slot: "act",
     fallback_label: "Anything else",
+    fallback_label_zh: "其他",
     path: "",
   }
   let (slot, label) = @backend.document_to_slot(
@@ -126,13 +130,17 @@ test "a table falls back to what it says" {
     rules: [
       {
         keywords: ["reproduce"],
+        keywords_zh: ["复现"],
         slot: "hold",
         label: "A reproduction",
+        label_zh: "一次复现",
         notes: "",
+        notes_zh: "",
       },
     ],
     fallback_slot: "act",
     fallback_label: "Anything else",
+    fallback_label_zh: "其他",
     path: "",
   }
   let (slot, _) = @backend.document_to_slot(

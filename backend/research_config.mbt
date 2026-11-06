@@ -43,13 +43,26 @@ pub(all) struct MappingRule {
   /// contains any one of them. They are kept in lower case, because the
   /// document is lower-cased before it is matched.
   keywords : Array[String]
+  /// The words that make this rule fire, in Chinese.
+  ///
+  /// They are matched whatever the reader asked for: a table whose words are
+  /// all English reads nothing at all when the documents are Chinese, and the
+  /// corpus is the operator's choice, not the table's. A rule with no Chinese
+  /// words still fires on the English ones.
+  keywords_zh : Array[String]
   /// The slot the rule drives, by the model's slot id.
   slot : String
   /// What the rule is called, in the reader's words.
   label : String
+  /// The same name, in Chinese. The reader is the one who reads it, so the
+  /// reader's language chooses which of the two names is shown -- and the
+  /// other one is still there, in the file, for the other reader.
+  label_zh : String
   /// The reader's own note about the rule. It is data rather than a
   /// comment in the file, so it survives a write-back.
   notes : String
+  /// The same note, in Chinese.
+  notes_zh : String
 }
 
 ///|
@@ -70,6 +83,8 @@ pub(all) struct ResearchConfig {
   fallback_slot : String
   /// The name of the fallback, in the reader's words.
   fallback_label : String
+  /// The same name, in Chinese.
+  fallback_label_zh : String
   /// Where the configuration was read from. Empty when it is the built-in
   /// one, and that is the difference between a table that can be written
   /// back and one that cannot.
@@ -107,33 +122,48 @@ fn builtin_rules() -> Array[MappingRule] {
   [
     {
       keywords: ["state-of-the-art", "outperform", "sota"],
+      keywords_zh: ["最先进", "优于", "超过"],
       slot: "feedback",
       label: "A claim of superiority",
+      label_zh: "一种领先的说法",
       notes: "",
+      notes_zh: "",
     },
     {
       keywords: ["limitation", "fail", "challenge", "struggle"],
+      keywords_zh: ["局限", "失败", "挑战"],
       slot: "feedback",
       label: "A reported failure",
+      label_zh: "一次被报告的失败",
       notes: "",
+      notes_zh: "",
     },
     {
       keywords: ["novel", "propose", "new method", "introduce"],
+      keywords_zh: ["提出", "新方法", "介绍"],
       slot: "act",
       label: "A new method",
+      label_zh: "一种新方法",
       notes: "",
+      notes_zh: "",
     },
     {
       keywords: ["survey", "review", "overview", "tutorial"],
+      keywords_zh: ["综述", "回顾", "概览"],
       slot: "hold",
       label: "A survey of the field",
+      label_zh: "对这个领域的一次综述",
       notes: "",
+      notes_zh: "",
     },
     {
       keywords: ["benchmark", "dataset", "evaluation"],
+      keywords_zh: ["基准", "数据集", "评估"],
       slot: "occasion",
       label: "An evaluation or a dataset",
+      label_zh: "一次评测或一个数据集",
       notes: "",
+      notes_zh: "",
     },
   ]
 }
@@ -145,8 +175,33 @@ pub fn ResearchConfig::builtin() -> ResearchConfig {
     rules: builtin_rules(),
     fallback_slot: "antecedent",
     fallback_label: "Anything else",
+    fallback_label_zh: "其他",
     path: "",
   }
+}
+
+///|
+/// Whether this rule fires on a piece of text.
+///
+/// The English words are matched against the lower-cased text and the Chinese
+/// words against the text as it is: Chinese has no case, so lower-casing it
+/// would change nothing at all.
+pub fn MappingRule::matches(
+  self : MappingRule,
+  lower : String,
+  text : String,
+) -> Bool {
+  for word in self.keywords {
+    if lower.contains(word) {
+      return true
+    }
+  }
+  for word in self.keywords_zh {
+    if text.contains(word) {
+      return true
+    }
+  }
+  false
 }
 
 ///|
@@ -162,15 +217,29 @@ pub fn ResearchConfig::slot_for_text(
   self : ResearchConfig,
   text : String,
 ) -> (String, String) {
+  self.slot_for_text_in(text, Lang::english())
+}
+
+///|
+/// The same, with the rule named in the language asked for.
+///
+/// The words the rule matches are the same in both languages, because the
+/// corpus is the operator's choice and it may hold either: a table that only
+/// matched the reader's language would read half of it. What the language
+/// chooses is the NAME of the rule -- the reader's own words for it -- which
+/// is the one thing the reader has to read.
+pub fn ResearchConfig::slot_for_text_in(
+  self : ResearchConfig,
+  text : String,
+  lang : Lang,
+) -> (String, String) {
   let lower = text.to_lowercase_ascii()
   for rule in self.rules {
-    for word in rule.keywords {
-      if lower.contains(word) {
-        return (rule.slot, rule.label)
-      }
+    if rule.matches(lower, text) {
+      return (rule.slot, lang.pick(rule.label, rule.label_zh))
     }
   }
-  (self.fallback_slot, self.fallback_label)
+  (self.fallback_slot, lang.pick(self.fallback_label, self.fallback_label_zh))
 }
 
 ///|
@@ -309,7 +378,31 @@ pub fn ResearchConfig::from_json(
     if label == "" {
       label = model.slot_designation(slot)
     }
-    rules.push({ keywords, slot, label, notes: json_string(item, "notes"), })
+    // The Chinese words are matched whatever the reader asked for, so a table
+    // with none of them is still a table: it simply reads nothing when the
+    // documents are Chinese.
+    let keywords_zh : Array[String] = []
+    for word in json_strings(item, "keywords_zh") {
+      let trimmed = word.trim().to_owned()
+      if trimmed != "" {
+        keywords_zh.push(trimmed)
+      }
+    }
+    // A rule with no Chinese name is shown in English, exactly as a name of
+    // the machine's is: a table written only in English still runs, it just
+    // answers in English.  The name of the slot it drives is not the name of
+    // the rule, so borrowing it would be a different name pretending to be
+    // this one.
+    let label_zh = json_string(item, "label_zh")
+    rules.push({
+      keywords,
+      keywords_zh,
+      slot,
+      label,
+      label_zh,
+      notes: json_string(item, "notes"),
+      notes_zh: json_string(item, "notes_zh"),
+    })
   }
   let fallback = match json_field(json, "fallback") {
     Some(Object(fields)) => fields
@@ -365,7 +458,12 @@ pub fn ResearchConfig::from_json(
       model.slot_designation(fallback_slot)
     }
   }
-  Accepted({ rules, fallback_slot, fallback_label, path, })
+  let mut fallback_label_zh = ""
+  match fallback.get("label_zh") {
+    Some(String(value)) => fallback_label_zh = value
+    _ => ()
+  }
+  Accepted({ rules, fallback_slot, fallback_label, fallback_label_zh, path, })
 }
 
 ///|
@@ -378,15 +476,22 @@ pub fn ResearchConfig::to_json(self : ResearchConfig) -> Json {
   for rule in self.rules {
     rules.push({
       "keywords": rule.keywords,
+      "keywords_zh": rule.keywords_zh,
       "label": rule.label,
+      "label_zh": rule.label_zh,
       "notes": rule.notes,
+      "notes_zh": rule.notes_zh,
       "slot": rule.slot,
     })
   }
   {
     "format": RESEARCH_FORMAT,
     "mapping": rules,
-    "fallback": { "label": self.fallback_label, "slot": self.fallback_slot },
+    "fallback": {
+      "label": self.fallback_label,
+      "label_zh": self.fallback_label_zh,
+      "slot": self.fallback_slot,
+    },
   }
 }
 

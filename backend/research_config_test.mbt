@@ -372,3 +372,163 @@ test "a table with no fallback leaves unknown documents alone" {
   let (slot, _) = config.slot_for_text("Something the table has never seen")
   assert_eq(slot, "")
 }
+
+///|
+/// The machine that ships with the repository, read from its file.
+async fn shipped_iteration_model() -> @backend.Model {
+  let path = "models/product-iteration.json"
+  let text = @fs.read_file(path).text() catch {
+    err =>
+      fail("the shipped machine could not be read: " + @debug.to_string(err))
+  }
+  let json = match @backend.parse_model_text(path, text) {
+    Some(parsed) => parsed
+    None => fail("the shipped machine was not read at all: " + path)
+  }
+  match @backend.Model::from_json(json) {
+    Some(model) => model
+    None => fail("the shipped machine was refused: " + path)
+  }
+}
+
+///|
+/// The mapping table that ships with the repository, read from its file.
+async fn shipped_iteration_table() -> @backend.ResearchConfig {
+  let path = "research/product-iteration.yaml"
+  let text = @fs.read_file(path).text() catch {
+    err => fail("the shipped table could not be read: " + @debug.to_string(err))
+  }
+  let json = match @backend.parse_data_text("research", path, text) {
+    Some(parsed) => parsed
+    None => fail("the shipped table was not read at all: " + path)
+  }
+  match
+    @backend.ResearchConfig::from_json(
+      shipped_iteration_model(),
+      path,
+      json,
+      @backend.Lang::english(),
+    ) {
+    @backend.Accepted(config) => config
+    @backend.Rejected(reason) =>
+      fail("the shipped table was refused: " + reason)
+  }
+}
+
+///|
+/// A document with the given words in it.
+fn note_with(title : String, summary : String) -> @backend.Document {
+  {
+    id: "1",
+    title,
+    summary,
+    authors: [],
+    categories: [],
+    published: "2024-01-01",
+    link: "",
+  }
+}
+
+///|
+/// The shipped table reads a document written in Chinese.
+///
+/// The table's words used to be English only, so a Chinese document matched
+/// no rule at all and the corpus was read by nothing. The table is the
+/// reader's own, and the reader's documents are in the reader's language.
+async test "the shipped table reads a document written in Chinese" {
+  let table = shipped_iteration_table()
+  let (slot, label) = @backend.document_to_slot_in(
+    table,
+    note_with("这一版的实现", "我们先做了原型，再谈别的。"),
+    @backend.Lang::chinese(),
+  )
+  assert_eq(slot, "build")
+  assert_eq(label, "正在做出来的东西")
+}
+
+///|
+/// The rule is named in the reader's language.
+///
+/// The same document, read by two readers: the slot it drives is the
+/// machine's and is the same either way, and the name of the rule is the
+/// reader's own words and is not.
+async test "the rule that fired is named in the reader's language" {
+  let table = shipped_iteration_table()
+  let document = note_with(
+    "这一版的实现", "我们先做了原型，再谈别的。",
+  )
+  let (english_slot, english_label) = @backend.document_to_slot_in(
+    table,
+    document,
+    @backend.Lang::english(),
+  )
+  let (chinese_slot, chinese_label) = @backend.document_to_slot_in(
+    table,
+    document,
+    @backend.Lang::chinese(),
+  )
+  assert_eq(english_slot, chinese_slot)
+  assert_eq(english_slot, "build")
+  assert_eq(english_label, "A thing being built")
+  assert_eq(chinese_label, "正在做出来的东西")
+}
+
+///|
+/// A Chinese reader still reads a document written in English.
+///
+/// The corpus is the operator's choice and it may hold either language, so
+/// the words a rule matches are not the reader's language: what the
+/// language chooses is the name of the rule, and nothing else.
+async test "a Chinese reader still reads a document written in English" {
+  let table = shipped_iteration_table()
+  let (slot, label) = @backend.document_to_slot_in(
+    table,
+    note_with("The implementation", "We built the prototype first."),
+    @backend.Lang::chinese(),
+  )
+  assert_eq(slot, "build")
+  assert_eq(label, "正在做出来的东西")
+}
+
+///|
+/// The shipped table names every rule in both languages.
+///
+/// A rule with no Chinese name is a rule a Chinese reader cannot read, and
+/// a rule with no Chinese words is a rule that cannot fire on a Chinese
+/// document: both are gaps in the table that ships, and both are named here
+/// so that a gap says which rule it is.
+async test "the shipped table names every rule in both languages" {
+  let table = shipped_iteration_table()
+  for rule in table.rules {
+    assert_true(rule.label_zh != "")
+    assert_true(rule.notes_zh != "")
+    assert_true(rule.keywords_zh.length() > 0)
+  }
+  assert_true(table.fallback_label_zh != "")
+}
+
+///|
+/// The Chinese names of the table survive a trip through JSON.
+///
+/// A table is written back when the reader edits it in the browser, and a
+/// write-back that dropped the Chinese would quietly take the table back to
+/// one language.
+async test "the Chinese names of the table survive a trip through JSON" {
+  let table = shipped_iteration_table()
+  let json = table.to_json()
+  let read_back = match
+    @backend.ResearchConfig::from_json(
+      shipped_iteration_model(),
+      "research/product-iteration.yaml",
+      json,
+      @backend.Lang::english(),
+    ) {
+    @backend.Accepted(config) => config
+    @backend.Rejected(reason) => fail("the table was refused: " + reason)
+  }
+  assert_eq(read_back.to_json(), table.to_json())
+  for i in 0..<table.rules.length() {
+    assert_eq(read_back.rules[i].label_zh, table.rules[i].label_zh)
+    assert_eq(read_back.rules[i].keywords_zh, table.rules[i].keywords_zh)
+  }
+}

@@ -4571,18 +4571,35 @@ if ($validatorCalls.Count -eq 0) {
 #
 # The move names are the one set with spaces in it, so they are hyphenated
 # here: one item per name, and an item a reader can find in the file.
+#
+# The walk can FAIL, and a walk that failed says nothing: an empty set of
+# missing names reads as "nothing is missing", which is exactly the answer a
+# broken walk gives for free. So the walk's own outcome is the answer too,
+# and a walk that failed is a rule that failed.
 
 $exampleLanguageMissing = @()
 $exampleSection = ''
 $inExampleObject = $false
 $exampleFields = @{}
 $exampleIdent = ''
+$exampleLanguageRead = $true
+$exampleLines = $null
 
 function Test-HasChinese($fields, $key) {
   return $fields.ContainsKey($key) -and $fields[$key] -ne ''
 }
 
-foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $PWD 'models/product-iteration.json'), $enc)) {
+try {
+  $exampleLines = [System.IO.File]::ReadAllLines((Join-Path $PWD 'models/product-iteration.json'), $enc)
+} catch {
+  $exampleLines = $null
+}
+if ($null -eq $exampleLines) {
+  $exampleLanguageRead = $false
+  $exampleLines = @()
+}
+
+foreach ($line in $exampleLines) {
   if ($line -cmatch '^  "([a-z_]+)": \[') {
     $exampleSection = $Matches[1]
     continue
@@ -4633,12 +4650,120 @@ foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $PWD 'models/product
 }
 $exampleLanguageMissing = @($exampleLanguageMissing | ForEach-Object { $_ -replace ' ', '-' })
 
-if ($exampleLanguageMissing.Count -gt 0) {
+if (-not $exampleLanguageRead) {
+  Write-Output ("  {0,-20} the example machine could not be read, so whether it speaks the readers language is unknown" -f 'Example language')
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($exampleLanguageMissing.Count -gt 0) {
   Write-Output ("  {0,-20} the example machine does not speak the readers language; these names have no Chinese: {1}" -f 'Example language', ($exampleLanguageMissing -join ' '))
   Write-Output "*** FAIL ***"
   $failures++
 } else {
   Write-Output ("  ok      {0,-20} {1}" -f 'Example language', 'the example machine has a Chinese name for every name it has')
+}
+# --- the example table speaks the reader's language ----------------------------
+#
+# The machine that ships has a Chinese twin for every name it has, and so does
+# the mapping table that ships. Two gaps make a table that a Chinese reader
+# cannot use: a rule with no Chinese NAME is a rule the reader cannot read,
+# and a rule with no Chinese WORDS is a rule that cannot fire on a Chinese
+# document at all -- the corpus is the reader's own, and the reader's own
+# documents are in the reader's language.
+#
+# The table is YAML, so the walk is line-oriented: the rules are the entries
+# under `mapping:` and the fallback is the one under `fallback:`. What is
+# reported is the SET of names that have no Chinese, so that a gap says which
+# rule it is rather than how many there are.
+#
+# The walk can FAIL, and a walk that failed says nothing: an empty set of
+# missing names reads as "nothing is missing", which is exactly the answer a
+# broken walk gives for free. So the walk's own outcome is the answer too,
+# and a walk that failed is a rule that failed.
+function Get-TableValue($raw) {
+  $v = $raw.Trim()
+  if ($v -eq '""' -or $v -eq "''") { return '' }
+  $v
+}
+
+function Get-ExampleTableMissing($lines) {
+  $missing = @()
+  $rule = ''
+  $hasLabelZh = $false
+  $hasNotesZh = $false
+  $hasKeywordsZh = $false
+  $inMapping = $false
+  $inFallback = $false
+  $inKeywordsZh = $false
+  $fallbackZh = $false
+  foreach ($line in $lines) {
+    if ($line -cmatch '^mapping:') { $inMapping = $true; continue }
+    if ($line -cmatch '^fallback:') {
+      if ($rule -ne '') {
+        if (-not $hasLabelZh) { $missing += "rule.$rule.label_zh" }
+        if (-not $hasNotesZh) { $missing += "rule.$rule.notes_zh" }
+        if (-not $hasKeywordsZh) { $missing += "rule.$rule.keywords_zh" }
+        $rule = ''
+      }
+      $inMapping = $false
+      $inFallback = $true
+      continue
+    }
+    if ($inMapping -and $line -cmatch '^  - label: (.*)$') {
+      if ($rule -ne '') {
+        if (-not $hasLabelZh) { $missing += "rule.$rule.label_zh" }
+        if (-not $hasNotesZh) { $missing += "rule.$rule.notes_zh" }
+        if (-not $hasKeywordsZh) { $missing += "rule.$rule.keywords_zh" }
+      }
+      $rule = $Matches[1]
+      $hasLabelZh = $false
+      $hasNotesZh = $false
+      $hasKeywordsZh = $false
+      continue
+    }
+    if ($inMapping -and $line -cmatch '^    label_zh:(.*)$') {
+      $hasLabelZh = ((Get-TableValue $Matches[1]) -ne '')
+      continue
+    }
+    if ($inMapping -and $line -cmatch '^    notes_zh:(.*)$') {
+      $hasNotesZh = ((Get-TableValue $Matches[1]) -ne '')
+      continue
+    }
+    if ($inMapping -and $line -cmatch '^    keywords_zh:') { $inKeywordsZh = $true; continue }
+    if ($inMapping -and $line -cmatch '^    [a-z_]+:') { $inKeywordsZh = $false; continue }
+    if ($inMapping -and $inKeywordsZh -and $line -cmatch '^      - ') { $hasKeywordsZh = $true; continue }
+    if ($inFallback -and $line -cmatch '^  label_zh:(.*)$') {
+      if ((Get-TableValue $Matches[1]) -ne '') { $fallbackZh = $true }
+      continue
+    }
+  }
+  if ($rule -ne '') {
+    if (-not $hasLabelZh) { $missing += "rule.$rule.label_zh" }
+    if (-not $hasNotesZh) { $missing += "rule.$rule.notes_zh" }
+    if (-not $hasKeywordsZh) { $missing += "rule.$rule.keywords_zh" }
+  }
+  if (-not $fallbackZh) { $missing += 'fallback.label_zh' }
+  $missing
+}
+
+$exampleTableLines = $null
+try {
+  $exampleTableLines = [System.IO.File]::ReadAllLines((Join-Path $PWD 'research/product-iteration.yaml'), $enc)
+} catch {
+  $exampleTableLines = $null
+}
+if ($null -eq $exampleTableLines) {
+  Write-Output ("  {0,-20} the example table could not be read, so whether it speaks the readers language is unknown" -f 'Research language')
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  $exampleTableMissing = @(Get-ExampleTableMissing $exampleTableLines | ForEach-Object { $_ -replace ' ', '-' })
+  if ($exampleTableMissing.Count -gt 0) {
+    Write-Output ("  {0,-20} the example table does not speak the readers language; these names have no Chinese: {1}" -f 'Research language', ($exampleTableMissing -join ' '))
+    Write-Output "*** FAIL ***"
+    $failures++
+  } else {
+    Write-Output ("  ok      {0,-20} {1}" -f 'Research language', 'the example table has a Chinese name for every name it has')
+  }
 }
 # --- the ring's letters --------------------------------------------------------
 #
