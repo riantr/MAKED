@@ -55,15 +55,15 @@ pub const METRIC_WINDOW : Int32 = 5
 ///
 /// A measure whose denominator is a number somebody typed in is a measure
 /// that is wrong the moment the machine changes shape.
-pub fn domain_count() -> Int32 {
-  current_model().domains.length()
+pub fn domain_count(model : Model) -> Int32 {
+  model.domains.length()
 }
 
 ///|
 /// The model's domain letters, in ring order.
-pub fn domain_letters() -> Array[String] {
+pub fn domain_letters(model : Model) -> Array[String] {
   let letters = []
-  for domain in current_model().domains {
+  for domain in model.domains {
     letters.push(domain.letter)
   }
   letters
@@ -113,7 +113,22 @@ pub(all) struct MetricReport {
 /// by having no measures in it -- the same way the run summary is empty for
 /// an empty run, so a client can leave the block out rather than print
 /// zeroes at someone.
+///
+/// The machine is named, because a run belongs to the machine it was taken on:
+/// the size of the state space is that machine's, and a measure that counted
+/// the running machine's domains would be measuring a run the reader never
+/// took.
 pub fn measure(path : Array[SessionStep], lang : Lang) -> MetricReport {
+  measure_with(current_model(), path, lang)
+}
+
+///|
+/// The measures of a run, against the machine the run was taken on.
+pub fn measure_with(
+  model : Model,
+  path : Array[SessionStep],
+  lang : Lang,
+) -> MetricReport {
   let n = path.length()
   let window = METRIC_WINDOW
   if n == 0 {
@@ -125,9 +140,9 @@ pub fn measure(path : Array[SessionStep], lang : Lang) -> MetricReport {
   let metrics : Array[Metric] = [
     new_ground_metric(recent, fresh, start, lang),
     settling_metric(recent, fresh, start, lang),
-    slot_spread_metric(recent, lang),
-    domain_spread_metric(recent, lang),
-    position_drift_metric(path, lang),
+    slot_spread_metric(model, recent, lang),
+    domain_spread_metric(model, recent, lang),
+    position_drift_metric(model, path, lang),
   ]
   {
     window,
@@ -390,8 +405,11 @@ fn moved_outcome(outcome_kind : String) -> Bool {
 /// This is the path diversity. A run that always drives the same slot is
 /// walking one line through the table, and the step counter cannot see the
 /// difference.
-fn slot_spread_metric(recent : Array[SessionStep], lang : Lang) -> Metric {
-  let model = current_model()
+fn slot_spread_metric(
+  model : Model,
+  recent : Array[SessionStep],
+  lang : Lang,
+) -> Metric {
   let names : Array[String] = []
   for step in recent {
     // The English is the designation the step recorded, because that is what
@@ -407,7 +425,7 @@ fn slot_spread_metric(recent : Array[SessionStep], lang : Lang) -> Metric {
   }
   let counts = tally(names)
   let distinct = counts.length()
-  let total = current_model().slots.length()
+  let total = model.slots.length()
   let (top, top_count) = most_used(counts)
   let w = recent.length()
   let sentence = match lang {
@@ -475,7 +493,11 @@ fn slot_spread_metric(recent : Array[SessionStep], lang : Lang) -> Metric {
 
 ///|
 /// Domain spread: how many of the five domains the window visited.
-fn domain_spread_metric(recent : Array[SessionStep], lang : Lang) -> Metric {
+fn domain_spread_metric(
+  model : Model,
+  recent : Array[SessionStep],
+  lang : Lang,
+) -> Metric {
   let letters : Array[String] = []
   for step in recent {
     letters.push(step.domain)
@@ -487,12 +509,12 @@ fn domain_spread_metric(recent : Array[SessionStep], lang : Lang) -> Metric {
       " visited " +
       distinct.to_string() +
       " of the " +
-      domain_count().to_string() +
+      domain_count(model).to_string() +
       " domains."
     Chinese =>
       last_steps_clause(recent.length(), Chinese) +
       "走过" +
-      domain_count().to_string() +
+      domain_count(model).to_string() +
       "个域中的" +
       count_word_zh(distinct) +
       "个。"
@@ -501,7 +523,7 @@ fn domain_spread_metric(recent : Array[SessionStep], lang : Lang) -> Metric {
     key: "domain_spread",
     label: lang.pick("Domains visited", "走过的域"),
     value: distinct,
-    of: domain_count(),
+    of: domain_count(model),
     sentence,
   }
 }
@@ -513,12 +535,15 @@ fn domain_spread_metric(recent : Array[SessionStep], lang : Lang) -> Metric {
 /// The denominator is read out of the model rather than written down here:
 /// the size of the state space is the machine's business, and a number
 /// copied into MAKED would be wrong the day the table grew.
-fn position_drift_metric(path : Array[SessionStep], lang : Lang) -> Metric {
-  let model = current_model()
+fn position_drift_metric(
+  model : Model,
+  path : Array[SessionStep],
+  lang : Lang,
+) -> Metric {
   let total = model.positions.length()
   let all : Array[String] = []
   let per_domain : Array[(String, Int32)] = []
-  for letter in domain_letters() {
+  for letter in domain_letters(model) {
     let positions : Array[String] = []
     for step in path {
       if step.domain == letter {

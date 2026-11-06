@@ -4765,6 +4765,131 @@ if ($null -eq $exampleTableLines) {
     Write-Output ("  ok      {0,-20} {1}" -f 'Research language', 'the example table has a Chinese name for every name it has')
   }
 }
+# --- the machine can be changed while the server runs -------------------------
+#
+# The machine used to be chosen once, at start-up, by MAKED_MODEL, and nothing
+# said otherwise: a reader who wanted a different machine had to stop the
+# server, change the variable and start it again -- and every run they had
+# already taken was read back through whichever machine happened to be running,
+# which is a run described in the words of another machine.
+#
+# The claim is a CHAIN, and the chain is what is checked.  Eight links carry
+# the promise from the reader's request to the step that is read back:
+#
+#   1. the machines on offer are listed
+#   2. the machine is changed by a route
+#   3. the change installs the machine
+#   4. a file that cannot be read as a machine is refused
+#   5. a session row carries the machine it was run on
+#   6. every run is read back through its own machine
+#   7. the document names the switch
+#   8. the document says an exploration keeps its machine
+#
+# Every tree link is derived from the CODE that does the work -- the route that
+# is registered, the install that happens, the columns the INSERT names, the
+# body of the function that reads the run back -- and not from a mention of a
+# path.  A path the workflow only mentions is not a path the server has.
+#
+# The derivation can FAIL, and a derivation that failed says nothing: an empty
+# set of columns reads as "the row carries no machine", which is exactly the
+# answer a broken walk gives for free.  So the walk's own exit status is the
+# answer too, and a walk that failed is a rule that failed.
+#
+# The missing links are printed as a SET, not as a count: a count says how many
+# are gone and not which, and the name of a missing link is the whole of what
+# the reader has to act on.
+
+# The columns the session row is written with.  The INSERT is the command that
+# puts the machine in the row, so its column list is the fact -- not the
+# SELECT beside it, and not the struct the row is read into.
+function Get-SessionInsertColumns {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/database.mbt'), $enc)
+  $flat = ($text -replace "`r`n", ' ') -replace "`n", ' '
+  $flat = $flat -replace "`r", ''
+  $m = [regex]::Match($flat, 'INSERT INTO sessions[^)]*\)')
+  if (-not $m.Success) { return $null }
+  $inner = [regex]::Match($m.Value, '\(([^)]*)\)')
+  if (-not $inner.Success) { return $null }
+  $out = @()
+  foreach ($piece in $inner.Groups[1].Value.Split(',')) {
+    $out += $piece.Trim()
+  }
+  $out
+}
+
+# The functions that read a run back, and the machine each of them takes the
+# run's words from.  The walk is FUNCTION-SCOPED on purpose: a rule that only
+# asked whether the name `model_of_session` appeared anywhere in the file
+# would go on saying that every run is read through its own machine after one
+# of the three had been changed to read through the running one.
+function Get-SessionMachineReads {
+  $out = @()
+  $lines = [System.IO.File]::ReadAllLines((Join-Path $PWD 'backend/session.mbt'), $enc)
+  $name = ''
+  $body = ''
+  foreach ($line in $lines) {
+    if ($line -cmatch '^(pub )?(async )?fn ') {
+      if ($name -ne '' -and $body -cmatch 'model_of_session\(session\)') { $out += $name }
+      $name = ($line -replace '^.*fn ', '') -replace '\(.*', ''
+      $body = ''
+      continue
+    }
+    if ($name -ne '') { $body += "`n" + $line }
+  }
+  if ($name -ne '' -and $body -cmatch 'model_of_session\(session\)') { $out += $name }
+  $out
+}
+
+$machineSwitchMissing = @()
+
+$apiText = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/api.mbt'), $enc)
+if (-not $apiText.Contains('app.get("/api/models"')) {
+  $machineSwitchMissing += 'the-machines-are-not-listed'
+}
+if (-not $apiText.Contains('app.put("/api/model"')) {
+  $machineSwitchMissing += 'the-machine-is-not-changed'
+}
+if (-not $apiText.Contains('install_model(machine, path)')) {
+  $machineSwitchMissing += 'the-change-does-not-install-the-machine'
+}
+if (-not $apiText.Contains('"error": "unreadable_model"')) {
+  $machineSwitchMissing += 'the-change-does-not-refuse-what-it-cannot-read'
+}
+
+$sessionColumns = Get-SessionInsertColumns
+if ($null -eq $sessionColumns) {
+  $machineSwitchMissing += 'the-session-row-could-not-be-read'
+} elseif (-not ($sessionColumns -contains 'model')) {
+  $machineSwitchMissing += 'the-session-row-does-not-carry-the-machine'
+}
+
+$sessionMachineReads = @(Get-SessionMachineReads)
+foreach ($reader in @('export_json', 'export_markdown', 'session_state_json')) {
+  if (-not ($sessionMachineReads -contains $reader)) {
+    $machineSwitchMissing += "the-$reader-is-not-read-through-its-own-machine"
+  }
+}
+
+# The document's own words.  The README is wrapped, so it is read as one line
+# before it is searched: a sentence that breaks across two lines is still one
+# sentence, and a gate that cannot see it is a gate that watches nothing.
+$readmeFlat = ($readme -replace "`r`n", ' ') -replace "`n", ' '
+$readmeFlat = $readmeFlat -replace "`r", ''
+$readmeFlat = [regex]::Replace($readmeFlat, ' {2,}', ' ')
+if (-not $readmeFlat.Contains('`PUT /api/model`')) {
+  $machineSwitchMissing += 'the-document-does-not-name-the-switch'
+}
+if (-not [regex]::IsMatch($readmeFlat, '(carries|keeps|holds) the machine it was run on')) {
+  $machineSwitchMissing += 'the-document-does-not-say-an-exploration-keeps-its-machine'
+}
+
+if ($machineSwitchMissing.Count -gt 0) {
+  Write-Output ("  {0,-20} the machine switch does not match the tree; these links are missing: {1}" -f 'Machine switch', ($machineSwitchMissing -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Machine switch', 'the machine can be changed while the server runs, and every exploration keeps the machine it was run on')
+}
 # --- the ring's letters --------------------------------------------------------
 #
 # The ring has a letter for each domain -- M for Model, D for Data -- and the

@@ -50,7 +50,8 @@ digraph maked_deployment {
         h_bootstrap [label="GET /api/bootstrap", fillcolor="#d4e6f1"]
         h_page [label="GET|PUT /api/pages/:slug", fillcolor="#d4e6f1"]
         h_domains [label="GET /api/domains", fillcolor="#d4e6f1"]
-        h_model [label="GET /api/model", fillcolor="#d4e6f1"]
+        h_model [label="GET|PUT /api/model", fillcolor="#d4e6f1"]
+        h_models [label="GET /api/models", fillcolor="#d4e6f1"]
         h_entries [label="GET|POST /api/entries", fillcolor="#fce5cd"]
         h_sessions [label="GET|POST /api/sessions", fillcolor="#fce5cd"]
         h_loop [label="GET|POST /api/loop/*", fillcolor="#fce5cd"]
@@ -117,6 +118,7 @@ digraph maked_deployment {
   mw_routes -> h_page
   mw_routes -> h_domains
   mw_routes -> h_model
+  mw_routes -> h_models
   mw_routes -> h_entries
   mw_routes -> h_sessions
   mw_routes -> h_loop

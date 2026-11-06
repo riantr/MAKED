@@ -71,6 +71,19 @@ pub(all) struct Session {
   start_cursor : String
   /// "structured" or "free".
   mode : String
+  /// The machine this session was run on, as the machine says itself.
+  ///
+  /// It is the machine as data and not the name of it, because the steps are
+  /// re-derived against it: a replay asks the machine for the positions the
+  /// steps went through, and a session that asked the *running* machine would
+  /// re-derive the wrong ones and report them as the right ones.
+  ///
+  /// Empty for a session written before the machine was stored with it. Such a
+  /// session is read against the machine in force now, which is what happened
+  /// to every session while the machine could only be changed by restarting.
+  model : String
+  /// The file the machine came from, or "" when it is the built-in one.
+  model_path : String
   created_at : String
   updated_at : String
 }
@@ -273,6 +286,35 @@ fn string_array_json(names : Array[String]) -> Json {
 }
 
 ///|
+/// The machine a session was run on.
+///
+/// The machine is read back out of the session's own copy of it, because the
+/// steps are the machine's and a replay has to ask the machine they were
+/// taken on. A session written before the machine was stored with it has no
+/// copy, and it is read against the machine in force now -- which is what
+/// happened to every session while the machine could only be changed by
+/// restarting the server.
+pub fn model_of_session(session : Session) -> Model {
+  if session.model == "" {
+    return current_model()
+  }
+  let json = @json.parse(session.model) catch { _ => return current_model() }
+  match Model::from_json(json) {
+    Some(model) => model
+    None => current_model()
+  }
+}
+
+///|
+/// The machine as the text that is stored with a session.
+///
+/// The text is the model's own JSON, so the machine that is stored is the
+/// machine that ran, and reading it back gives the same machine again.
+pub fn model_text_of(model : Model) -> String {
+  model.to_json().stringify()
+}
+
+///|
 pub fn Session::to_json(self : Session) -> Json {
   {
     "id": self.id,
@@ -282,6 +324,11 @@ pub fn Session::to_json(self : Session) -> Json {
     "head_step_id": self.head_step_id,
     "start_cursor": self.start_cursor,
     "mode": self.mode,
+    // The machine the session was run on. The reader has to be able to see
+    // it: a session is a run of one machine, and two sessions on two machines
+    // are two different things with the same name.
+    "model": model_of_session(self).name,
+    "model_path": self.model_path,
     "created_at": self.created_at,
     "updated_at": self.updated_at,
   }
@@ -299,12 +346,17 @@ pub fn Session::to_json(self : Session) -> Json {
 /// written in, and a name is a word in one language; the ids it also records
 /// are the thing the word was about, and those are what a re-rendering asks
 /// the model about.
+///
+/// The model is the one the step was taken on, and it is named rather than
+/// assumed: the running machine may be another one by the time this step is
+/// read, and a step read through a machine it was not taken on says things
+/// about positions the machine it was taken on does not have.
 pub fn SessionStep::to_json(
   self : SessionStep,
+  model : Model,
   index : Int32,
   lang : Lang,
 ) -> Json {
-  let model = current_model()
   {
     "id": self.id,
     "index": index,
@@ -331,7 +383,7 @@ pub fn SessionStep::to_json(
     // The reason, in one sentence, written here rather than in the client:
     // a second copy of that rule in the browser would be a second thing to
     // keep in step with this one.
-    "why": why_line_in(self, lang),
+    "why": why_line_in(model, self, lang),
     // What the step did, in a sentence: the position it left, the position
     // it reached, the slot it went through, and where the cursor went next.
     // The label and the detail above are the same fact in the machine's
@@ -677,26 +729,52 @@ pub fn record_step(
 /// before one exists would otherwise have nowhere to go. Creating the session
 /// here rather than at start-up means the very first step is recorded
 /// instead of being silently dropped.
+///
+/// The session has to be one of the machine in force: the steps recorded into
+/// a session are that session's machine's steps, and a session of another
+/// machine would collect steps that do not belong to it. So a session from
+/// another machine is not adopted, and a new one is opened instead.
 pub fn ensure_session(db : Database) -> Int64 raise {
   let active = active_session_id()
   if active != 0L {
     match db.session_by_id(active) {
-      Some(_) => return active
+      Some(session) => if belongs_to_machine_in_force(session) { return active }
       None => ()
     }
   }
   let sessions = db.all_sessions()
-  if sessions.length() == 0 {
-    let fresh = db.insert_session(
-      "First exploration", 0L, 0L, "M", "structured",
-    )
-    set_active_session_id(fresh.id)
-    fresh.id
-  } else {
-    let latest = sessions[0]
-    set_active_session_id(latest.id)
-    latest.id
+  // The newest session on the machine in force, if there is one.
+  for session in sessions {
+    if belongs_to_machine_in_force(session) {
+      set_active_session_id(session.id)
+      return session.id
+    }
   }
+  let fresh = db.insert_session(
+    "First exploration",
+    0L,
+    0L,
+    model_start_cursor(current_model()),
+    "structured",
+    model_text_of(current_model()),
+    current_model_path(),
+  )
+  set_active_session_id(fresh.id)
+  fresh.id
+}
+
+///|
+/// Whether a session belongs to the machine in force.
+///
+/// A session written before the machine was stored with it belongs to
+/// whichever machine is in force: it is read against that machine, and that
+/// is what happened to every session while the machine could only be changed
+/// by restarting the server.
+fn belongs_to_machine_in_force(session : Session) -> Bool {
+  if session.model == "" {
+    return true
+  }
+  session.model == model_text_of(current_model())
 }
 
 ///|
@@ -713,11 +791,33 @@ pub fn activate_session(db : Database, id : Int64) -> SessionOutcome raise {
   }
   let all = db.steps_of_session(id)
   let path = chain_to_step(all, session.head_step_id)
-  set_loop_state(
-    replay_steps(current_model(), path, session.start_cursor, session.mode),
-  )
+  // The session's machine comes back with it, for the reason the replay needs
+  // it: the steps are re-derived against that machine, and a step taken
+  // afterwards has to be taken on the machine the steps before it were.
+  let model = machine_of_session_in_force(session)
+  set_loop_state(replay_steps(model, path, session.start_cursor, session.mode))
   set_active_session_id(id)
   Done(session)
+}
+
+///|
+/// Make the machine a session was run on the one in force, and give it back.
+///
+/// A session's steps belong to the machine they were taken on, and the loop
+/// state is rebuilt from those steps. A loop state about one machine while
+/// another is in force is a loop the next step cannot be taken on, so the
+/// machine comes back with the session.
+///
+/// A session written before the machine was stored with it has no machine of
+/// its own, and nothing is installed for it: it is read against the machine
+/// in force, which is what happened to every session while the machine could
+/// only be changed by restarting the server.
+fn machine_of_session_in_force(session : Session) -> Model {
+  let model = model_of_session(session)
+  if session.model != "" {
+    install_model(model, session.model_path)
+  }
+  model
 }
 
 ///|
@@ -761,8 +861,9 @@ pub fn rewind_session(
   }
   db.set_session_head(id, at_step_id)
   let shorter = chain_to_step(all, at_step_id)
+  let model = machine_of_session_in_force(session)
   set_loop_state(
-    replay_steps(current_model(), shorter, session.start_cursor, session.mode),
+    replay_steps(model, shorter, session.start_cursor, session.mode),
   )
   Done(reload_session(db, id))
 }
@@ -793,12 +894,17 @@ pub fn branch_session(
     return MissingStep
   }
   let chain = chain_to_step(all, at_step_id)
+  // The branch runs on the parent's machine: the steps it starts with are the
+  // parent's steps, and they are that machine's.
+  let model = machine_of_session_in_force(source)
   let branch = db.insert_session(
     name,
     source_id,
     at_step_id,
     source.start_cursor,
     source.mode,
+    source.model,
+    source.model_path,
   )
   // The chain is linear, so the parent of each copied step is the copy of the
   // one before it. The first step's parent is 0, which is the root.
@@ -829,9 +935,7 @@ pub fn branch_session(
     parent = copied.id
   }
   db.set_session_head(branch.id, parent)
-  set_loop_state(
-    replay_steps(current_model(), chain, branch.start_cursor, branch.mode),
-  )
+  set_loop_state(replay_steps(model, chain, branch.start_cursor, branch.mode))
   set_active_session_id(branch.id)
   Done(reload_session(db, branch.id))
 }
@@ -849,12 +953,12 @@ fn contains_id(steps : Array[SessionStep], id : Int64) -> Bool {
 
 ///|
 /// The path of a session as JSON, 1-based, oldest first.
-fn path_json(path : Array[SessionStep], lang : Lang) -> Json {
+fn path_json(model : Model, path : Array[SessionStep], lang : Lang) -> Json {
   let items = []
   let mut index = 0
   for step in path {
     index += 1
-    items.push(step.to_json(index, lang))
+    items.push(step.to_json(model, index, lang))
   }
   [..items]
 }
@@ -862,13 +966,14 @@ fn path_json(path : Array[SessionStep], lang : Lang) -> Json {
 ///|
 /// The branches of a session that are not on its path, as JSON.
 fn others_json(
+  model : Model,
   all : Array[SessionStep],
   others : Array[SessionStep],
   lang : Lang,
 ) -> Json {
   let items = []
   for step in others {
-    items.push(step.to_json(depth_of(all, step), lang))
+    items.push(step.to_json(model, depth_of(all, step), lang))
   }
   [..items]
 }
@@ -906,20 +1011,23 @@ pub fn session_state_json(db : Database, lang : Lang) -> Json raise {
       let all = db.steps_of_session(session.id)
       let path = chain_to_step(all, session.head_step_id)
       let others = off_path_steps(all, path)
+      // The machine the session was run on, which is not necessarily the one
+      // in force now: the reader may have changed the machine since.
+      let model = model_of_session(session)
       {
         "sessions": sessions,
         "active_session_id": session_id,
         "session": session.to_json(),
-        "path": path_json(path, lang),
-        "other_steps": others_json(all, others, lang),
+        "path": path_json(model, path, lang),
+        "other_steps": others_json(model, all, others, lang),
         // What the last few steps add up to. The timeline says what each step
         // did; this says what the run of them did, which is the question a
         // person has after the fifth click.
-        "summary": summary_of(path, lang),
+        "summary": summary_with(model, path, lang),
         // And whether the run is still finding ground, or going round in
         // circles. The summary says what happened; these say what it is
         // worth, which is the question after the twentieth click.
-        "metrics": measure(path, lang).to_json(),
+        "metrics": measure_with(model, path, lang).to_json(),
       }
     }
   }
@@ -932,7 +1040,20 @@ pub fn session_state_json(db : Database, lang : Lang) -> Json raise {
 /// the sentence stays about something a reader can hold in their head. The
 /// group state is the one the last step left behind, which is the one the
 /// loop is in now.
+///
+/// The machine is named rather than assumed: a run belongs to the machine it
+/// was taken on, and the phases it is described in are that machine's.
 pub fn summary_of(path : Array[SessionStep], lang : Lang) -> String {
+  summary_with(current_model(), path, lang)
+}
+
+///|
+/// The account of a run, read against the machine the run was taken on.
+pub fn summary_with(
+  model : Model,
+  path : Array[SessionStep],
+  lang : Lang,
+) -> String {
   let start = if path.length() > 5 { path.length() - 5 } else { 0 }
   let recent : Array[SessionStep] = []
   let mut i = start
@@ -940,7 +1061,6 @@ pub fn summary_of(path : Array[SessionStep], lang : Lang) -> String {
     recent.push(path[i])
     i += 1
   }
-  let model = current_model()
   let facts : Array[StepFacts] = recent.map(fn(step) { facts_of(model, step) })
   let group = match recent.last() {
     Some(step) => step.group_state
@@ -1043,6 +1163,11 @@ pub fn sessions_array_json(db : Database) -> Json raise {
       "head_step_id": session.head_step_id,
       "start_cursor": session.start_cursor,
       "mode": session.mode,
+      // The machine the session was run on. Two explorations on two machines
+      // are two different things, and the reader has to be able to tell them
+      // apart in the list.
+      "model": model_of_session(session).name,
+      "model_path": session.model_path,
       "created_at": session.created_at,
       "updated_at": session.updated_at,
       "steps": path.length(),
@@ -1073,9 +1198,13 @@ pub fn sessions_payload(db : Database) -> Json raise {
 /// The slot list is stored under the URL-safe names ("occasion", "act"), so
 /// that a step can be addressed by it. A reader knows the slots by their
 /// designations ("Situation", "Action"), which are the words on the buttons.
-fn slot_designation_of(english_name : String, lang : Lang) -> String {
+fn slot_designation_of(
+  model : Model,
+  english_name : String,
+  lang : Lang,
+) -> String {
   match slot_from_english(english_name) {
-    Some(slot) => current_model().slot_designation_in(slot, lang)
+    Some(slot) => model.slot_designation_in(slot, lang)
     None => english_name
   }
 }
@@ -1086,7 +1215,7 @@ fn slot_designation_of(english_name : String, lang : Lang) -> String {
 /// Built from the snapshot the step carries, so it describes the moment the
 /// step was taken rather than the table as it stands now.
 pub fn why_line(step : SessionStep) -> String {
-  why_line_in(step, English)
+  why_line_in(current_model(), step, English)
 }
 
 ///|
@@ -1095,7 +1224,7 @@ pub fn why_line(step : SessionStep) -> String {
 /// Written in Chinese rather than translated: the English sentence is a list
 /// of clauses joined by semicolons, and Chinese joins a list of clauses with
 /// a comma and a full stop rather than with a semicolon.
-fn why_line_in(step : SessionStep, lang : Lang) -> String {
+fn why_line_in(model : Model, step : SessionStep, lang : Lang) -> String {
   let available = split_slots(step.available)
   let blocked = split_slots(step.blocked)
   let parts : Array[String] = []
@@ -1113,7 +1242,8 @@ fn why_line_in(step : SessionStep, lang : Lang) -> String {
         // the code's name for it. The reader knows it as "Situation", and a line
         // that said "occasion" would be a line about the implementation.
         parts.push(
-          "its own drive slot was " + slot_designation_of(step.drive, lang),
+          "its own drive slot was " +
+          slot_designation_of(model, step.drive, lang),
         )
       } else {
         parts.push("it had no drive slot at all")
@@ -1134,7 +1264,8 @@ fn why_line_in(step : SessionStep, lang : Lang) -> String {
       }
       if step.drive != "" {
         parts.push(
-          "它自己的驱动槽是" + slot_designation_of(step.drive, lang),
+          "它自己的驱动槽是" +
+          slot_designation_of(model, step.drive, lang),
         )
       } else {
         parts.push("它根本没有驱动槽")
@@ -1162,7 +1293,10 @@ pub fn export_markdown(
   let all = db.steps_of_session(session.id)
   let path = chain_to_step(all, session.head_step_id)
   let others = off_path_steps(all, path)
-  let model = current_model()
+  // The machine the session was run on. The document is about that run, and
+  // a document that described a run of one machine in the words of another
+  // would be describing a run nobody took.
+  let model = model_of_session(session)
   let w = export_words(lang)
   let mut out = w.title + session.name + "\n\n"
   out = out + w.session_id + session.id.to_string() + "\n"
@@ -1183,7 +1317,7 @@ pub fn export_markdown(
   }
   // What the last few steps add up to. A document that opens with a
   // timeline and no account of it is a list; this is the account.
-  let summary = summary_of(path, lang)
+  let summary = summary_with(model, path, lang)
   if summary != "" {
     out = out + "\n" + w.run_heading + "\n\n" + summary + "\n"
   }
@@ -1191,7 +1325,7 @@ pub fn export_markdown(
   // comparison of its beginning with its end. A document that lists the
   // steps without saying whether the run was getting anywhere is the
   // timeline again, and the timeline is the part nobody wants.
-  let metrics = measure(path, lang)
+  let metrics = measure_with(model, path, lang)
   if metrics.metrics.length() > 0 {
     out = out + "\n" + w.doing_heading + "\n\n"
     for metric in metrics.metrics {
@@ -1234,7 +1368,7 @@ pub fn export_markdown(
       position_name_in(model, step.position_after, lang) +
       "\n"
     out = out + w.detail + step_detail_in(model, step, lang) + "\n"
-    out = out + w.why + why_line_in(step, lang) + "\n"
+    out = out + w.why + why_line_in(model, step, lang) + "\n"
     out = out +
       w.cursor +
       step.cursor_after +
@@ -1300,20 +1434,23 @@ pub fn export_json(db : Database, session : Session, lang : Lang) -> Json raise 
   let all = db.steps_of_session(session.id)
   let path = chain_to_step(all, session.head_step_id)
   let others = off_path_steps(all, path)
+  // The machine the session was run on, for the same reason the Markdown
+  // export reads the run against it.
+  let model = model_of_session(session)
   let path_json = []
   let mut index = 0
   for step in path {
     index += 1
-    path_json.push(step.to_json(index, lang))
+    path_json.push(step.to_json(model, index, lang))
   }
   let others_json = []
   for step in others {
-    others_json.push(step.to_json(depth_of(all, step), lang))
+    others_json.push(step.to_json(model, depth_of(all, step), lang))
   }
   // The account of the run, kept in a name of its own so that the document
   // and the live state say the same thing by the same route.
-  let run_summary = summary_of(path, lang)
-  let run_metrics = measure(path, lang)
+  let run_summary = summary_with(model, path, lang)
+  let run_metrics = measure_with(model, path, lang)
   {
     "format": "maked.session.v1",
     "session": session.to_json(),

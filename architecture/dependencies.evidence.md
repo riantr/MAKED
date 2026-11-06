@@ -59,8 +59,8 @@ so on the way to the screen.
 | Safeguard | What it prevents | Test that catches removal | Source |
 |-----------|-----------------|--------------------------|--------|
 | `exec()` always steps | DDL silently skipped | "migrate is idempotent and exec really executes" | `backend/database.mbt:41-66`, test:208-222 |
-| `seed()` resets before each bind | Stale bindings carry over | "seeding two pages in one call does not repeat the first" | `backend/database.mbt:275`, test:128-194 |
-| `page_by_slug()` resets (defensive) | Future reuse bug | Mutation test (equivalent mutant) | `backend/database.mbt:343` |
+| `seed()` resets before each bind | Stale bindings carry over | "seeding two pages in one call does not repeat the first" | `backend/database.mbt:297`, test:128-194 |
+| `page_by_slug()` resets (defensive) | Future reuse bug | Mutation test (equivalent mutant) | `backend/database.mbt:365` |
 | `finalize()` error propagation | Poisoned finalize masks step error | "seeded pages round-trip through SQLite" | `backend/database.mbt:52-65`, test:40-48 |
 
 ### frontend/app.mbt → rabbita TEA contract

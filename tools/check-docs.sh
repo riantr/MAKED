@@ -2177,6 +2177,130 @@ else
     'run note executable')"
 fi
 
+# --- the machine can be changed while the server runs -------------------------
+#
+# AGENT.md and packaging/RUN.txt both tell the reader that the machine can be
+# changed while the server runs, and that an exploration keeps the machine it
+# was run on.  A claim stated in two documents is a claim in two places, and
+# nothing held the second place to the first: the note that ships inside the
+# archive could have lost its paragraph, and an agent reading AGENT.md could
+# have been pointed at a switch the server does not have.
+#
+# The links are the two documents' own words, and the tree facts those words
+# have to be true of.  The tree links are the SAME links the readme gate
+# watches, and they are derived here again: the two gates are twins of the
+# TREE, not of each other, and a fact one of them can derive and the other
+# cannot is a fact one of them is guessing at.
+#
+# The missing links are printed as a SET, not as a count: a count says how many
+# are gone and not which, and the name of a missing link is the whole of what
+# the reader has to act on.
+
+# The columns the session row is written with.  The INSERT is the command that
+# puts the machine in the row, so its column list is the fact -- not the
+# SELECT beside it, and not the struct the row is read into.
+#
+# The walk can FAIL, and a walk that failed says nothing, so the function's
+# own exit status is the answer too: the raw text is taken first, and the
+# status is taken before the text is split, because a pipeline hands back the
+# status of its LAST command and the split would hide a failed search.
+code_machine_switch_columns() {
+  local raw status
+  raw=$(tr '\n' ' ' < backend/database.mbt \
+    | grep -oE 'INSERT INTO sessions[^)]*\)')
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    return 1
+  fi
+  printf '%s' "$raw" | sed -E 's/.*\(([^)]*)\)/\1/' | tr ',' '\n' \
+    | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
+# The functions that read a run back, and the machine each of them takes the
+# run's words from.  The walk is FUNCTION-SCOPED on purpose: a rule that only
+# asked whether the name `model_of_session` appeared anywhere in the file
+# would go on saying that every run is read through its own machine after one
+# of the three had been changed to read through the running one.
+code_machine_switch_reads() {
+  awk '
+    function flush() {
+      if (name != "" && body ~ /model_of_session\(session\)/) print name
+      name = ""; body = ""
+    }
+    {
+      if ($0 ~ /^(pub )?(async )?fn /) {
+        flush()
+        name = $0
+        sub(/^.*fn /, "", name)
+        sub(/\(.*/, "", name)
+        body = ""
+        next
+      }
+      if (name != "") body = body "\n" $0
+    }
+    END { flush() }
+  ' backend/session.mbt | LC_ALL=C sort -u
+}
+
+MACHINE_SWITCH_MISSING=""
+
+if ! grep -qF 'app.get("/api/models"' backend/api.mbt; then
+  MACHINE_SWITCH_MISSING="$MACHINE_SWITCH_MISSING the-machines-are-not-listed"
+fi
+
+if ! grep -qF 'app.put("/api/model"' backend/api.mbt; then
+  MACHINE_SWITCH_MISSING="$MACHINE_SWITCH_MISSING the-machine-is-not-changed"
+fi
+
+if ! grep -qF 'install_model(machine, path)' backend/api.mbt; then
+  MACHINE_SWITCH_MISSING="$MACHINE_SWITCH_MISSING the-change-does-not-install-the-machine"
+fi
+
+if ! grep -qF '"error": "unreadable_model"' backend/api.mbt; then
+  MACHINE_SWITCH_MISSING="$MACHINE_SWITCH_MISSING the-change-does-not-refuse-what-it-cannot-read"
+fi
+
+MACHINE_SWITCH_COLUMNS=$(code_machine_switch_columns)
+MACHINE_SWITCH_COLUMNS_STATUS=$?
+if [ "$MACHINE_SWITCH_COLUMNS_STATUS" -ne 0 ]; then
+  MACHINE_SWITCH_MISSING="$MACHINE_SWITCH_MISSING the-session-row-could-not-be-read"
+elif ! printf '%s\n' "$MACHINE_SWITCH_COLUMNS" | grep -qx 'model'; then
+  MACHINE_SWITCH_MISSING="$MACHINE_SWITCH_MISSING the-session-row-does-not-carry-the-machine"
+fi
+
+MACHINE_SWITCH_READS=$(code_machine_switch_reads)
+for reader in export_json export_markdown session_state_json; do
+  if ! printf '%s\n' "$MACHINE_SWITCH_READS" | grep -qx "$reader"; then
+    MACHINE_SWITCH_MISSING="$MACHINE_SWITCH_MISSING the-$reader-is-not-read-through-its-own-machine"
+  fi
+done
+
+if ! grep -qF '`PUT /api/model`' "$AGENT_DOC"; then
+  MACHINE_SWITCH_MISSING="$MACHINE_SWITCH_MISSING the-agent-guide-does-not-name-the-switch"
+fi
+
+if ! grep -qE '(carries|keeps|holds) the machine it was run on' "$AGENT_DOC"; then
+  MACHINE_SWITCH_MISSING="$MACHINE_SWITCH_MISSING the-agent-guide-does-not-say-an-exploration-keeps-its-machine"
+fi
+
+if ! grep -qF 'PUT /api/model' "$RUN_NOTE"; then
+  MACHINE_SWITCH_MISSING="$MACHINE_SWITCH_MISSING the-run-note-does-not-name-the-switch"
+fi
+
+if ! grep -qE '(carries|keeps|holds) the machine it was run on' "$RUN_NOTE"; then
+  MACHINE_SWITCH_MISSING="$MACHINE_SWITCH_MISSING the-run-note-does-not-say-an-exploration-keeps-its-machine"
+fi
+
+MACHINE_SWITCH_MISSING="${MACHINE_SWITCH_MISSING# }"
+
+if [ -n "$MACHINE_SWITCH_MISSING" ]; then
+  fail "$(printf '%-22s the machine switch does not match the tree; these links are missing: %s' \
+    'Machine switch' "$MACHINE_SWITCH_MISSING")"
+else
+  ok 'Machine switch' \
+    'the agent guide and the run note both say the machine can be changed while the server runs'
+fi
+
 # --- the release archive, as the note describes it ----------------------------
 #
 # The note that ships inside the archive is the first thing a reader of a

@@ -40,12 +40,25 @@ pub fn restore_session(db : Database) -> Unit raise {
   let sessions = db.all_sessions()
   if sessions.length() == 0 {
     let fresh = db.insert_session(
-      "First exploration", 0L, 0L, "M", "structured",
+      "First exploration",
+      0L,
+      0L,
+      model_start_cursor(current_model()),
+      "structured",
+      model_text_of(current_model()),
+      current_model_path(),
     )
     set_active_session_id(fresh.id)
     return
   }
   let latest = sessions[0]
+  // The machine the server was started on is the one in force, and a session
+  // from another machine is not restored onto it: those steps are that
+  // machine's, and the reader who wants them opens the session -- and opening
+  // a session brings its machine back with it.
+  if !belongs_to_machine_in_force(latest) {
+    return
+  }
   match activate_session(db, latest.id) {
     Done(_) => ()
     MissingSession => set_active_session_id(latest.id)

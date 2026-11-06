@@ -331,8 +331,10 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
           name,
           0L,
           0L,
-          "M",
+          model_start_cursor(current_model()),
           mode_name(get_loop_mode()),
+          model_text_of(current_model()),
+          current_model_path(),
         )
         set_active_session_id(session.id)
         // A new session is a new walk, not a continuation of the old one: it
@@ -647,6 +649,34 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   // rather than off a package, and a file nobody can get at is not a file
   // anybody can edit.
   app.get("/api/model", _req => Response::json(current_model().to_json()))
+  // GET /api/models
+  //
+  // The machines the server can offer: the built-in one, and the machine
+  // files that sit beside the running one -- `models` when the running
+  // machine has no folder of its own.
+  //
+  // The list says which of them is running now, and it says what each file's
+  // machine is called. A file that cannot be read as a machine is listed with
+  // the reason rather than left out: a file the reader cannot use is a file
+  // the reader has to go and look at, and a list that hid it would look like
+  // a server that had forgotten it.
+  app.get("/api/models", _req => Response::json(models_json()))
+  // PUT /api/model
+  //
+  // The machine changes while the server runs.
+  //
+  // The file is read before anything changes: a file that cannot be read as a
+  // machine is refused with the reason, and the machine in force keeps
+  // running. Half a machine is worse than the one that was there.
+  //
+  // The exploration does not change with it. A session's steps belong to the
+  // machine they were taken on, so a new session is opened on the new machine
+  // and the old one stays where it is -- still readable, and still read
+  // through the machine it was run on.
+  app.put("/api/model", req => {
+    let payload = req.json().unwrap_or(Json::empty_object())
+    switch_model(db, json_string(payload, "path"))
+  })
   // GET /api/agent
   //
   // The discovery document: what MAKED is, the seven tools an agent can
@@ -1865,4 +1895,119 @@ fn domains_json(lang : Lang) -> Json {
     items.push(item)
   }
   [..items]
+}
+
+///|
+/// The machines the server can offer, as the API reports them.
+///
+/// The built-in one is first, because it is the one that is there when
+/// nothing else is, and the files after it in path order.
+pub async fn models_json() -> Json {
+  let directory = model_directory()
+  let running = current_model_path()
+  let items : Array[Json] = []
+  items.push(model_entry_json("", Model::pyroduct(), running == "", ""))
+  for path in model_files_in(directory) {
+    let here = normalised_path(path) == normalised_path(running)
+    match read_model_file(path) {
+      Some(machine) => items.push(model_entry_json(path, machine, here, ""))
+      None =>
+        items.push({
+          "path": path,
+          "name": "",
+          "current": here,
+          "readable": false,
+          "builtin": false,
+          "reason": "the file could not be read as a machine this version understands",
+        })
+    }
+  }
+  { "directory": directory, "current": running, "models": [..items] }
+}
+
+///|
+/// One machine in the list, as the API reports it.
+///
+/// The path is empty for the built-in machine, and the built-in flag says so
+/// as well: an empty path is the one path that names no file, and a reader
+/// should not have to know that to understand it.
+fn model_entry_json(
+  path : String,
+  machine : Model,
+  current : Bool,
+  reason : String,
+) -> Json {
+  {
+    "path": path,
+    "name": machine.name,
+    "current": current,
+    "readable": reason == "",
+    "builtin": path == "",
+    "reason": reason,
+  }
+}
+
+///|
+/// Change the machine the server runs, and open a session on it.
+///
+/// The file is read before anything changes: a file that cannot be read as a
+/// machine is refused with the reason, and the machine in force keeps
+/// running. Half a machine is worse than the one that was there.
+///
+/// The exploration does not change with it. A session's steps belong to the
+/// machine they were taken on, so a new session is opened on the new machine
+/// and the old one stays where it is -- still readable, and still read
+/// through the machine it was run on.
+///
+/// The path is empty for the built-in machine, which is the way back to it.
+pub async fn switch_model(db : Database, path : String) -> Response {
+  let machine = if path == "" {
+    Model::pyroduct()
+  } else {
+    match read_model_file(path) {
+      Some(read_machine) => read_machine
+      None => {
+        let body : Json = {
+          "error": "unreadable_model",
+          "path": path,
+          "reason": "the file could not be read as a machine this version understands",
+        }
+        return Response::json(body, status=400)
+      }
+    }
+  }
+  // The machine changes, and the loop starts again on it: the loop's state
+  // holds one position per domain, and the new machine's domains are not the
+  // ones the state was built for.
+  install_model(machine, path)
+  // A new exploration on the new machine. The one that was running belongs to
+  // the machine it was taken on, and it keeps its steps.
+  let session = db.insert_session(
+    machine.name,
+    0L,
+    0L,
+    model_start_cursor(machine),
+    mode_name(get_loop_mode()),
+    model_text_of(machine),
+    path,
+  )
+  set_active_session_id(session.id)
+  set_loop_state(LoopState::new().with_mode(get_loop_mode()))
+  // The mapping table is the built-in machine's, and a machine file has slots
+  // of its own. A table that names a slot the new machine does not have is a
+  // rule about nowhere, so the slot is named in the answer rather than the
+  // reader being left to find out that every document is skipped.
+  let body : Json = {
+    "model": machine.to_json(),
+    "name": machine.name,
+    "path": path,
+    "session": session.to_json(),
+    // The slot the running table names and the new machine does not have, or
+    // "" when the table fits the machine.
+    "research_slot": match current_research().first_unfitting_slot(machine) {
+      Some(slot) => slot
+      None => ""
+    },
+  }
+  Response::json(body)
 }

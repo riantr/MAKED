@@ -1224,12 +1224,12 @@ fn renamed_built_in() -> @backend.Model {
 test "the model that is installed is the model that runs" {
   let built_in = @backend.current_model()
   let renamed = renamed_built_in()
-  @backend.install_model(renamed)
+  @backend.install_model(renamed, "")
   let installed = @backend.current_model()
   // The built-in one goes back before anything is asserted, so the window in
   // which the installed model is not the built-in one is as short as it can
   // be.
-  @backend.install_model(built_in)
+  @backend.install_model(built_in, "")
   assert_eq(installed.name, "Renamed")
   // And the built-in model is back, answering as it did.
   assert_eq(@backend.current_model().name, built_in.name)

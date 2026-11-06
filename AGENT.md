@@ -102,6 +102,27 @@ The loop, the timeline and the research endpoints take `?lang=zh` as well:
 need it — the model carries both vocabularies, so a client can choose for
 itself.
 
+## Changing the machine
+
+The machine is a file, and it can be changed while the server runs.
+`GET /api/models` lists the machines on offer — the built-in one, and the
+machine files that sit beside the running one — and `PUT /api/model` switches
+to one of them:
+
+```
+PUT /api/model
+{"path": "models/product-iteration.yaml"}
+```
+
+A file that cannot be read as a machine is refused with the reason, and the
+machine in force keeps running. An empty path is the built-in machine, which
+is the way back to it.
+
+Every exploration carries the machine it was run on and is read through that
+machine, so a run of one machine is never described in the words of another.
+A change opens a new exploration on the new machine and leaves the old one
+where it is; opening that old exploration brings its machine back with it.
+
 ## The four files
 
 Everything a person would want to change is a file, and the environment

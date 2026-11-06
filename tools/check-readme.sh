@@ -4655,6 +4655,141 @@ else
   printf '  ok      %-20s %s\n' 'Research language' \
     'the example table has a Chinese name for every name it has'
 fi
+# --- the machine can be changed while the server runs -------------------------
+#
+# The machine used to be chosen once, at start-up, by MAKED_MODEL, and nothing
+# said otherwise: a reader who wanted a different machine had to stop the
+# server, change the variable and start it again -- and every run they had
+# already taken was read back through whichever machine happened to be running,
+# which is a run described in the words of another machine.
+#
+# The claim is a CHAIN, and the chain is what is checked.  Eight links carry
+# the promise from the reader's request to the step that is read back:
+#
+#   1. the machines on offer are listed
+#   2. the machine is changed by a route
+#   3. the change installs the machine
+#   4. a file that cannot be read as a machine is refused
+#   5. a session row carries the machine it was run on
+#   6. every run is read back through its own machine
+#   7. the document names the switch
+#   8. the document says an exploration keeps its machine
+#
+# Every tree link is derived from the CODE that does the work -- the route that
+# is registered, the install that happens, the columns the INSERT names, the
+# body of the function that reads the run back -- and not from a mention of a
+# path.  A path the workflow only mentions is not a path the server has.
+#
+# The derivation can FAIL, and a derivation that failed says nothing: an empty
+# set of columns reads as "the row carries no machine", which is exactly the
+# answer a broken walk gives for free.  So the walk's own exit status is the
+# answer too, and a walk that failed is a rule that failed.
+#
+# The missing links are printed as a SET, not as a count: a count says how many
+# are gone and not which, and the name of a missing link is the whole of what
+# the reader has to act on.
+
+# The columns the session row is written with.  The INSERT is the command that
+# puts the machine in the row, so its column list is the fact -- not the
+# SELECT beside it, and not the struct the row is read into.
+#
+# The walk can FAIL, and a walk that failed says nothing, so the function's
+# own exit status is the answer too: the raw text is taken first, and the
+# status is taken before the text is split, because a pipeline hands back the
+# status of its LAST command and the split would hide a failed search.
+code_session_insert_columns() {
+  local raw status
+  raw=$(tr '\n' ' ' < backend/database.mbt \
+    | grep -oE 'INSERT INTO sessions[^)]*\)')
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    return 1
+  fi
+  printf '%s' "$raw" | sed -E 's/.*\(([^)]*)\)/\1/' | tr ',' '\n' \
+    | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
+# The functions that read a run back, and the machine each of them takes the
+# run's words from.  The walk is FUNCTION-SCOPED on purpose: a rule that only
+# asked whether the name `model_of_session` appeared anywhere in the file
+# would go on saying that every run is read through its own machine after one
+# of the three had been changed to read through the running one.
+code_session_machine_reads() {
+  awk '
+    function flush() {
+      if (name != "" && body ~ /model_of_session\(session\)/) print name
+      name = ""; body = ""
+    }
+    {
+      if ($0 ~ /^(pub )?(async )?fn /) {
+        flush()
+        name = $0
+        sub(/^.*fn /, "", name)
+        sub(/\(.*/, "", name)
+        body = ""
+        next
+      }
+      if (name != "") body = body "\n" $0
+    }
+    END { flush() }
+  ' backend/session.mbt | LC_ALL=C sort -u
+}
+
+MACHINE_SWITCH_MISSING=""
+
+if ! grep -qF 'app.get("/api/models"' backend/api.mbt; then
+  MACHINE_SWITCH_MISSING="$MACHINE_SWITCH_MISSING the-machines-are-not-listed"
+fi
+
+if ! grep -qF 'app.put("/api/model"' backend/api.mbt; then
+  MACHINE_SWITCH_MISSING="$MACHINE_SWITCH_MISSING the-machine-is-not-changed"
+fi
+
+if ! grep -qF 'install_model(machine, path)' backend/api.mbt; then
+  MACHINE_SWITCH_MISSING="$MACHINE_SWITCH_MISSING the-change-does-not-install-the-machine"
+fi
+
+if ! grep -qF '"error": "unreadable_model"' backend/api.mbt; then
+  MACHINE_SWITCH_MISSING="$MACHINE_SWITCH_MISSING the-change-does-not-refuse-what-it-cannot-read"
+fi
+
+SESSION_INSERT_COLUMNS=$(code_session_insert_columns)
+SESSION_INSERT_STATUS=$?
+if [ "$SESSION_INSERT_STATUS" -ne 0 ]; then
+  MACHINE_SWITCH_MISSING="$MACHINE_SWITCH_MISSING the-session-row-could-not-be-read"
+elif ! printf '%s\n' "$SESSION_INSERT_COLUMNS" | grep -qx 'model'; then
+  MACHINE_SWITCH_MISSING="$MACHINE_SWITCH_MISSING the-session-row-does-not-carry-the-machine"
+fi
+
+SESSION_MACHINE_READS=$(code_session_machine_reads)
+for reader in export_json export_markdown session_state_json; do
+  if ! printf '%s\n' "$SESSION_MACHINE_READS" | grep -qx "$reader"; then
+    MACHINE_SWITCH_MISSING="$MACHINE_SWITCH_MISSING the-$reader-is-not-read-through-its-own-machine"
+  fi
+done
+
+# The document's own words.  The README is wrapped, so it is read as one line
+# before it is searched: a sentence that breaks across two lines is still one
+# sentence, and a gate that cannot see it is a gate that watches nothing.
+README_FLAT=$(tr '\n' ' ' < "$README" | tr -s ' ')
+if ! printf '%s' "$README_FLAT" | grep -qF '`PUT /api/model`'; then
+  MACHINE_SWITCH_MISSING="$MACHINE_SWITCH_MISSING the-document-does-not-name-the-switch"
+fi
+
+if ! printf '%s' "$README_FLAT" \
+  | grep -qE '(carries|keeps|holds) the machine it was run on'; then
+  MACHINE_SWITCH_MISSING="$MACHINE_SWITCH_MISSING the-document-does-not-say-an-exploration-keeps-its-machine"
+fi
+
+MACHINE_SWITCH_MISSING="${MACHINE_SWITCH_MISSING# }"
+
+if [ -n "$MACHINE_SWITCH_MISSING" ]; then
+  fail "$(printf '%-20s the machine switch does not match the tree; these links are missing: %s' \
+    'Machine switch' "$MACHINE_SWITCH_MISSING")"
+else
+  printf '  ok      %-20s %s\n' 'Machine switch' \
+    'the machine can be changed while the server runs, and every exploration keeps the machine it was run on'
+fi
 # --- the ring's letters --------------------------------------------------------
 #
 # The ring has a letter for each domain -- M for Model, D for Data -- and the

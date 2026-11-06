@@ -36,7 +36,7 @@ env vars (MAKED_PORT, MAKED_HOST, MAKED_DB, MAKED_DIST)
     → seed([home_page, not_found_page])
     → App::new()
     → add_middleware(logging_middleware)
-    → build_api(app, db, db_path) — registers 39 routes
+    → build_api(app, db, db_path) — registers 41 routes
   → app.to_module() — adapts to moonback Module
   → moonback.App(root) with static + spa_fallback middleware
   → moonback.listen(port)

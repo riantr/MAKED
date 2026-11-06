@@ -124,6 +124,8 @@ fn Database::migrate(self : Database) -> Unit raise {
       #|  head_step_id   INTEGER NOT NULL DEFAULT 0,
       #|  start_cursor   TEXT NOT NULL DEFAULT 'M',
       #|  mode           TEXT NOT NULL DEFAULT 'structured',
+      #|  model          TEXT NOT NULL DEFAULT '',
+      #|  model_path     TEXT NOT NULL DEFAULT '',
       #|  created_at     TEXT NOT NULL DEFAULT '',
       #|  updated_at     TEXT NOT NULL DEFAULT ''
       #|)
@@ -174,6 +176,26 @@ fn Database::migrate(self : Database) -> Unit raise {
   if !self.has_column("session_steps", "outcome_kind") {
     self.exec(
       "ALTER TABLE session_steps ADD COLUMN outcome_kind TEXT NOT NULL DEFAULT ''",
+    )
+  }
+  // The columns that carry the machine a session was run on.
+  //
+  // The same shape as the column above and for the same reason: a database
+  // written by an older version keeps its old shape unless it is altered, and
+  // `ALTER TABLE ... ADD COLUMN` fails loudly when the column is already
+  // there. So each column is checked first and added only where it is
+  // missing.
+  //
+  // The old rows keep an empty machine. A session written before the machine
+  // was stored with it has no machine of its own, and it is read against the
+  // machine in force -- which is what happened to every session while the
+  // machine could only be changed by restarting the server.
+  if !self.has_column("sessions", "model") {
+    self.exec("ALTER TABLE sessions ADD COLUMN model TEXT NOT NULL DEFAULT ''")
+  }
+  if !self.has_column("sessions", "model_path") {
+    self.exec(
+      "ALTER TABLE sessions ADD COLUMN model_path TEXT NOT NULL DEFAULT ''",
     )
   }
   // The columns that carry a page's second language.
@@ -531,7 +553,7 @@ pub fn Database::update_page(
 }
 
 ///|
-const SESSION_COLUMNS : String = "id, name, parent_id, forked_step_id, head_step_id, start_cursor, mode, created_at, updated_at"
+const SESSION_COLUMNS : String = "id, name, parent_id, forked_step_id, head_step_id, start_cursor, mode, model, model_path, created_at, updated_at"
 
 ///|
 fn read_session(stmt : @sqlite3.Statement) -> Session raise {
@@ -543,8 +565,10 @@ fn read_session(stmt : @sqlite3.Statement) -> Session raise {
     head_step_id: stmt.column(index=4),
     start_cursor: stmt.column(index=5),
     mode: stmt.column(index=6),
-    created_at: stmt.column(index=7),
-    updated_at: stmt.column(index=8),
+    model: stmt.column(index=7),
+    model_path: stmt.column(index=8),
+    created_at: stmt.column(index=9),
+    updated_at: stmt.column(index=10),
   }
 }
 
@@ -595,12 +619,14 @@ pub fn Database::insert_session(
   forked_step_id : Int64,
   start_cursor : String,
   mode : String,
+  model : String,
+  model_path : String,
 ) -> Session raise {
   let insert = self.connection.prepare(
     (
       #|INSERT INTO sessions
-      #|  (name, parent_id, forked_step_id, head_step_id, start_cursor, mode, created_at, updated_at)
-      #|VALUES (?, ?, ?, 0, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+      #|  (name, parent_id, forked_step_id, head_step_id, start_cursor, mode, model, model_path, created_at, updated_at)
+      #|VALUES (?, ?, ?, 0, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
     ),
   )
   insert.reset(clear_bindings=true)
@@ -609,6 +635,8 @@ pub fn Database::insert_session(
   insert.bind(index=3, forked_step_id)
   insert.bind(index=4, start_cursor)
   insert.bind(index=5, mode)
+  insert.bind(index=6, model)
+  insert.bind(index=7, model_path)
   ignore(insert.step())
   insert.finalize()
   let id_stmt = self.connection.prepare("SELECT last_insert_rowid()")
@@ -629,6 +657,8 @@ pub fn Database::insert_session(
     head_step_id: 0L,
     start_cursor,
     mode,
+    model,
+    model_path,
     created_at: stamp,
     updated_at: stamp,
   }

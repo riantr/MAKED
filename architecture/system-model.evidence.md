@@ -27,7 +27,7 @@ literal is. Confidence is **high** unless noted otherwise.
 | `App::adapt` bridges to moonback's `@moonback.Handler` | `backend/app.mbt:109-112` | high |
 | Catch-all GET `/*rest` returns JSON 404 | `backend/app.mbt:146` | high |
 | Route conflicts use `fail` (not `raise`) | `backend/app.mbt:141` | high |
-| 39 API routes: pages, entries, sessions, loop, research, society, agent | `backend/api.mbt:19-1209` | high |
+| 41 API routes: pages, entries, sessions, loop, research, society, agent | `backend/api.mbt:19-1209` | high |
 | Database wraps sqlite3.Connection | `backend/database.mbt:26` | high |
 | Schema: `pages` table with 17 columns | `backend/database.mbt:76-88`, `backend/database.mbt:220-244` | high |
 | Schema: 5 more columns for a reader's correction of a page | `backend/database.mbt:220-244` | high |

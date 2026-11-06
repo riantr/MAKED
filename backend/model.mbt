@@ -404,6 +404,127 @@ pub fn model_path_from_env() -> String? {
 }
 
 ///|
+/// The folder the machine files are looked for in.
+///
+/// It is the folder the running machine came from, because that is where the
+/// machine's own siblings are: a reader who has put a second machine next to
+/// the first one wants to be able to switch to it. The built-in machine has
+/// no folder of its own, and `models` is where the examples are.
+///
+/// There is no variable for it on purpose. The machine is already named by a
+/// file, and the folder that file is in says where the other machines are; a
+/// second variable naming the same place would be a second way to be wrong.
+pub fn model_directory() -> String {
+  let folder = folder_of(current_model_path())
+  if folder == "" {
+    return "models"
+  }
+  folder
+}
+
+///|
+/// The folder a path is in, or "" when the path names no folder.
+///
+/// "models/product-iteration.json" is "models"; a name with no folder in it
+/// is the current one. The separator is the one this platform uses, because a
+/// path that reads one way on the machine it was made and another way when it
+/// is shown is a path the reader cannot copy.
+fn folder_of(path : String) -> String {
+  let normalised = path.replace_all(old="\\", new="/")
+  let pieces : Array[String] = []
+  for piece in normalised.split("/") {
+    pieces.push(piece.to_owned())
+  }
+  if pieces.length() < 2 {
+    return ""
+  }
+  let mut out = ""
+  let mut i = 0
+  while i < pieces.length() - 1 {
+    if i > 0 {
+      out = out + "/"
+    }
+    out = out + pieces[i]
+    i += 1
+  }
+  out
+}
+
+///|
+/// The machine files in a directory, in path order.
+///
+/// Only the three spellings a machine file can have are listed -- `.json`,
+/// `.yaml` and `.yml` -- because a folder holds more than machines and the
+/// reader asked for the machines. The order is the names put in order,
+/// because a list whose order comes from the filesystem is a list that comes
+/// back in a different order tomorrow.
+///
+/// An empty list when the folder cannot be read: a folder that is not there
+/// is a server with no machines to offer, not a server that has to refuse to
+/// answer.
+pub async fn model_files_in(directory : String) -> Array[String] {
+  let names = @fs.readdir(directory) catch { _ => [] }
+  let out : Array[String] = []
+  for name in names {
+    if is_model_file_name(name) {
+      out.push(join_path(directory, name))
+    }
+  }
+  out.sort()
+  out
+}
+
+///|
+/// Whether a file name is one a machine file can have.
+///
+/// The three extensions a machine can be written in, and nothing else. A
+/// folder also holds notes and tables, and a machine named `.txt` is a
+/// machine this version does not know how to read.
+fn is_model_file_name(name : String) -> Bool {
+  let lower = name.to_lower()
+  lower.has_suffix(".json") ||
+  lower.has_suffix(".yaml") ||
+  lower.has_suffix(".yml")
+}
+
+///|
+/// The file the running machine came from, or "" when it is the built-in one.
+///
+/// It is kept beside the machine rather than read from the environment,
+/// because the environment says what the server started on and this says what
+/// it is running on now -- and once a reader has changed the machine, those
+/// are two different files.
+let g_model_path : Array[String] = [""]
+
+///|
+pub fn current_model_path() -> String {
+  g_model_path[0]
+}
+
+///|
+/// The letter of the domain a run starts on.
+///
+/// The first domain of the machine, because that is where the loop stands
+/// when it starts: "M" for the built-in machine, which is its first domain,
+/// and something else for a machine whose ring starts elsewhere.
+pub fn model_start_cursor(model : Model) -> String {
+  if model.domains.length() == 0 {
+    return "M"
+  }
+  model.domains[0].letter
+}
+
+///|
+/// A path with one separator, so that two spellings of one path compare.
+///
+/// "models\\product-iteration.json" and "models/product-iteration.json" are
+/// the same file, and a list that showed one of them as the running machine
+/// and the other as not would be a list about spelling.
+pub fn normalised_path(path : String) -> String {
+  path.replace_all(old="\\", new="/")
+}
+
+///|
 /// Read a model from a file.
 ///
 /// None when the file cannot be read, is not JSON (or YAML), is not a model
@@ -463,13 +584,19 @@ pub fn parse_model_text(path : String, text : String) -> Json? {
 ///|
 /// Install a model as the one MAKED runs.
 ///
+/// The path is the file the machine came from, or "" when it is the built-in
+/// one. It is kept with the machine, because a reader with two machines and
+/// a server that will not say which one it is running is a reader who cannot
+/// change back.
+///
 /// The loop is reset as well, and it has to be: the loop's state holds one
 /// position per domain, and the domains of the model that is being installed
 /// are not the domains the state was built for. A loop carrying the old
 /// model's domains would offer the reader a position the new model does not
 /// have.
-pub fn install_model(model : Model) -> Unit {
+pub fn install_model(model : Model, path : String) -> Unit {
   g_model[0] = model
+  g_model_path[0] = path
   ignore(reset_loop())
 }
 

@@ -39,9 +39,9 @@ SQLite) and a JavaScript frontend (rabbita SPA).
    start-up the client makes 2 requests -- the bootstrap, then the loop
    status -- and after that the routing is client-side, over the History API.
 
-6. **Well-tested invariants**: 651 tests across backend and frontend, focused
+6. **Well-tested invariants**: 659 tests across backend and frontend, focused
    on silent-failure modes (SQLite statement lifecycle, ring geometry, JSON
-   decoding total functions), plus 229 mutation anchors and 467 integration
+   decoding total functions), plus 229 mutation anchors and 484 integration
    checks against a server that is really running.
 
 ## Gaps and unknowns

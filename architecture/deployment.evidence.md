@@ -33,17 +33,17 @@
 |-------|--------|------------|
 | The one outbound call is the corpus fetch | `backend/corpus_sources.mbt:974` (`@http.get(url)`) | high |
 | SQLite accessed via FFI, not network | `backend/database.mbt:27` (`sqlite3.Connection::open`) | high |
-| Static files read via async/fs | `backend/maked_app.mbt:99` (`@fs.read_file`) | high |
+| Static files read via async/fs | `backend/maked_app.mbt:112` (`@fs.read_file`) | high |
 
 ## Deployment gaps (evidence of absence)
 
 | Gap | Evidence | Confidence |
 |-----|----------|------------|
 | No systemd unit | `find` for *.service returns nothing | high |
-| No structured logging | The request log is one `eprintln` line per request (`backend/maked_app.mbt:65`) | high |
+| No structured logging | The request log is one `eprintln` line per request (`backend/maked_app.mbt:78`) | high |
 | No exported metrics | No prometheus, open telemetry, or stats imports, and no `/metrics` endpoint | high |
 | No backup strategy | No cron, no WAL config, no backup code | high |
-| The run's metrics are computed, not exported | `backend/metrics.mbt:116` (`measure`), reported in the session payload (`backend/session.mbt:919`) | high |
+| The run's metrics are computed, not exported | `backend/metrics.mbt:121-126` (`measure`), reported in the session payload (`backend/session.mbt:919`) | high |
 
 ## What is no longer a gap
 

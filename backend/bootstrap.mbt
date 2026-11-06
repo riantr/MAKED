@@ -206,7 +206,14 @@ pub async fn read_startup_files(plan : StartupPlan) -> StartupFiles {
 /// installed first, because the table is checked against it.
 pub fn install_startup(files : StartupFiles) -> Bool {
   match files.model {
-    Some(read_machine) => install_model(read_machine)
+    Some(read_machine) =>
+      install_model(
+        read_machine,
+        match files.model_path {
+          Some(path) => path
+          None => ""
+        },
+      )
     None => ()
   }
   match files.research {

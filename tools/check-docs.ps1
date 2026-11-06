@@ -2080,6 +2080,115 @@ if (($publishCopies -ccontains 'stage/maked/server') -and ($publishCopies -ccont
   Write-Fail ("{0,-22} the note and the release workflow disagree about the executables" -f 'run note executable')
 }
 
+# --- the machine can be changed while the server runs -------------------------
+#
+# AGENT.md and packaging/RUN.txt both tell the reader that the machine can be
+# changed while the server runs, and that an exploration keeps the machine it
+# was run on.  A claim stated in two documents is a claim in two places, and
+# nothing held the second place to the first: the note that ships inside the
+# archive could have lost its paragraph, and an agent reading AGENT.md could
+# have been pointed at a switch the server does not have.
+#
+# The links are the two documents' own words, and the tree facts those words
+# have to be true of.  The tree links are the SAME links the readme gate
+# watches, and they are derived here again: the two gates are twins of the
+# TREE, not of each other, and a fact one of them can derive and the other
+# cannot is a fact one of them is guessing at.
+#
+# The missing links are printed as a SET, not as a count: a count says how many
+# are gone and not which, and the name of a missing link is the whole of what
+# the reader has to act on.
+
+# The columns the session row is written with.  The INSERT is the command that
+# puts the machine in the row, so its column list is the fact -- not the
+# SELECT beside it, and not the struct the row is read into.
+function Get-MachineSwitchColumns {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/database.mbt'), $enc)
+  $flat = ($text -replace "`r`n", ' ') -replace "`n", ' '
+  $flat = $flat -replace "`r", ''
+  $m = [regex]::Match($flat, 'INSERT INTO sessions[^)]*\)')
+  if (-not $m.Success) { return $null }
+  $inner = [regex]::Match($m.Value, '\(([^)]*)\)')
+  if (-not $inner.Success) { return $null }
+  $out = @()
+  foreach ($piece in $inner.Groups[1].Value.Split(',')) {
+    $out += $piece.Trim()
+  }
+  $out
+}
+
+# The functions that read a run back, and the machine each of them takes the
+# run's words from.  The walk is FUNCTION-SCOPED on purpose: a rule that only
+# asked whether the name `model_of_session` appeared anywhere in the file
+# would go on saying that every run is read through its own machine after one
+# of the three had been changed to read through the running one.
+function Get-MachineSwitchReads {
+  $out = @()
+  $lines = [System.IO.File]::ReadAllLines((Join-Path $PWD 'backend/session.mbt'), $enc)
+  $name = ''
+  $body = ''
+  foreach ($line in $lines) {
+    if ($line -cmatch '^(pub )?(async )?fn ') {
+      if ($name -ne '' -and $body -cmatch 'model_of_session\(session\)') { $out += $name }
+      $name = ($line -replace '^.*fn ', '') -replace '\(.*', ''
+      $body = ''
+      continue
+    }
+    if ($name -ne '') { $body += "`n" + $line }
+  }
+  if ($name -ne '' -and $body -cmatch 'model_of_session\(session\)') { $out += $name }
+  $out
+}
+
+$machineSwitchMissing = @()
+
+$apiText = [System.IO.File]::ReadAllText((Join-Path $PWD 'backend/api.mbt'), $enc)
+if (-not $apiText.Contains('app.get("/api/models"')) {
+  $machineSwitchMissing += 'the-machines-are-not-listed'
+}
+if (-not $apiText.Contains('app.put("/api/model"')) {
+  $machineSwitchMissing += 'the-machine-is-not-changed'
+}
+if (-not $apiText.Contains('install_model(machine, path)')) {
+  $machineSwitchMissing += 'the-change-does-not-install-the-machine'
+}
+if (-not $apiText.Contains('"error": "unreadable_model"')) {
+  $machineSwitchMissing += 'the-change-does-not-refuse-what-it-cannot-read'
+}
+
+$machineSwitchColumns = Get-MachineSwitchColumns
+if ($null -eq $machineSwitchColumns) {
+  $machineSwitchMissing += 'the-session-row-could-not-be-read'
+} elseif (-not ($machineSwitchColumns -contains 'model')) {
+  $machineSwitchMissing += 'the-session-row-does-not-carry-the-machine'
+}
+
+$machineSwitchReads = @(Get-MachineSwitchReads)
+foreach ($reader in @('export_json', 'export_markdown', 'session_state_json')) {
+  if (-not ($machineSwitchReads -contains $reader)) {
+    $machineSwitchMissing += "the-$reader-is-not-read-through-its-own-machine"
+  }
+}
+
+if (-not $agentText.Contains('`PUT /api/model`')) {
+  $machineSwitchMissing += 'the-agent-guide-does-not-name-the-switch'
+}
+if (-not [regex]::IsMatch($agentText, '(carries|keeps|holds) the machine it was run on')) {
+  $machineSwitchMissing += 'the-agent-guide-does-not-say-an-exploration-keeps-its-machine'
+}
+if (-not $runText.Contains('PUT /api/model')) {
+  $machineSwitchMissing += 'the-run-note-does-not-name-the-switch'
+}
+if (-not [regex]::IsMatch($runText, '(carries|keeps|holds) the machine it was run on')) {
+  $machineSwitchMissing += 'the-run-note-does-not-say-an-exploration-keeps-its-machine'
+}
+
+if ($machineSwitchMissing.Count -gt 0) {
+  Write-Fail ("{0,-22} the machine switch does not match the tree; these links are missing: {1}" -f 'Machine switch', ($machineSwitchMissing -join ' '))
+} else {
+  Write-Ok 'Machine switch' 'the agent guide and the run note both say the machine can be changed while the server runs'
+}
+
 # --- the release archive, as the note describes it ----------------------------
 #
 # The note that ships inside the archive is the first thing a reader of a

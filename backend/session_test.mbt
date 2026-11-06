@@ -85,7 +85,15 @@ fn fresh_session(
   name : String,
 ) -> @backend.Session raise {
   ignore(@backend.reset_loop())
-  let session = db.insert_session(name, 0L, 0L, "M", "structured")
+  let session = db.insert_session(
+    name,
+    0L,
+    0L,
+    "M",
+    "structured",
+    @backend.model_text_of(@backend.current_model()),
+    @backend.current_model_path(),
+  )
   @backend.set_active_session_id(session.id)
   session
 }
@@ -386,7 +394,13 @@ async test "a payload names the session it acted on, not only the active one" {
   // A second session, so that "the active one" and "the renamed one" are
   // two different sessions and the difference can be seen at all.
   let background = db.insert_session(
-    "The background one", 0L, 0L, "M", "structured",
+    "The background one",
+    0L,
+    0L,
+    "M",
+    "structured",
+    @backend.model_text_of(@backend.current_model()),
+    @backend.current_model_path(),
   )
   assert_true(db.rename_session(background.id, "Renamed"))
   let renamed = reload(db, background.id)
@@ -772,7 +786,15 @@ async test "a database written before the kind was stored is given the column" {
   let check = @sqlite3.Connection::open(path)
   assert_eq(table_column_count(check, "session_steps"), 21)
   check.close()
-  let session = db.insert_session("Migrated", 0L, 0L, "M", "structured")
+  let session = db.insert_session(
+    "Migrated",
+    0L,
+    0L,
+    "M",
+    "structured",
+    @backend.model_text_of(@backend.current_model()),
+    @backend.current_model_path(),
+  )
   @backend.set_active_session_id(session.id)
   // And a step can be written into the old database, which it could not be
   // if the column were missing.

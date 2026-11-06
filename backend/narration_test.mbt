@@ -349,7 +349,11 @@ async test "the step record carries the sentence and the state carries the summa
   assert_eq(steps.length(), 3)
   // The step's own JSON carries the sentence, so a reader of the timeline
   // gets it without asking for anything else.
-  let step_json = steps[0].to_json(1, @backend.Lang::english())
+  let step_json = steps[0].to_json(
+    @backend.current_model(),
+    1,
+    @backend.Lang::english(),
+  )
   match json_field(step_json, "narration") {
     Some(Json::String(sentence)) => assert_true(sentence != "")
     _ => fail("the step should carry a sentence")

@@ -74,10 +74,11 @@ Protocol over stdio or HTTP.
   the correction is in the language you wrote it in, and it is still there
   after the server restarts.
 
-* **The machine is a file**
+* **The machine is a file, and you can change it while the server runs**
 
   A model file (JSON or YAML) with its own domains, positions, slots and rules;
-  `MAKED_MODEL` names it.
+  `MAKED_MODEL` names it, and `PUT /api/model` swaps the running machine for
+  another one without a restart.
 
 * **The mapping table is a file**
 
@@ -431,6 +432,8 @@ moon run --release --target native cmd/server
 | `POST` | `/api/loop/reset` | back to Model with an empty history |
 | `POST` | `/api/loop/reset/:domain` | back to a chosen domain |
 | `GET` | `/api/model` | the machine as data |
+| `GET` | `/api/models` | the machines the server can offer: the built-in one and the files beside the running one |
+| `PUT` | `/api/model` | change the machine the server runs, without restarting it |
 | `GET` | `/api/agent` | the discovery document: the seven tools, the instructions, and the HTTP endpoints |
 | `GET` | `/api/research/documents` | the documents the corpus holds |
 | `POST` | `/api/research/drive` | drive a document through the loop |
@@ -593,6 +596,33 @@ rather than the server. The integration suite checks that it names the same seve
 A `.yaml` or `.yml` file is read as YAML; every other file is read as JSON. The extension
 decides, because a file written in one and read as the other is a file that half-reads.
 
+### Changing the machine while the server runs
+
+`GET /api/models` lists the machines the server can offer: the built-in one, and the machine
+files that sit beside the running one — `models/` by default, or the folder `MAKED_MODEL`
+names. Drop your own machine file in that folder and it is on the list.
+
+`PUT /api/model` switches to one of them:
+
+```
+curl -X PUT http://127.0.0.1:8080/api/model \
+  -H 'Content-Type: application/json' \
+  -d '{"path": "models/product-iteration.yaml"}'
+```
+
+The file is read before anything changes. A file that cannot be read as a machine is refused
+with the reason, and the machine in force keeps running — half a machine is worse than the
+one that was there.
+
+The exploration does not change with the machine. A session's steps belong to the machine they
+were taken on, so every session carries the machine it was run on and is read through that
+machine: a run of one machine is never described in the words of another. A change opens a new
+exploration on the new machine and leaves the old one where it is, and opening that old
+exploration brings its machine back with it.
+
+The change lasts as long as the server runs. `MAKED_MODEL` still decides what the next
+start-up runs on.
+
 ### Environment Variables
 
 | Variable | Default | Meaning |
@@ -659,7 +689,7 @@ MAKED_moonbit/
 │   ├── metrics.mbt                   # the measures, in both languages
 │   ├── session.mbt                   # explorations, timelines, exports
 │   ├── database.mbt                  # SQLite
-│   ├── *_test.mbt                    # 461 tests
+│   ├── *_test.mbt                    # 469 tests
 │   └── *_wbtest.mbt                  # 16 tests
 ├── frontend/                         # the single-page app (js)
 │   ├── app.mbt                       # the TEA loop and the messages
@@ -688,7 +718,7 @@ MAKED_moonbit/
 │   └── notes/                        # the corpus the local example names
 │       └── failed-launch.md
 ├── tools/
-│   ├── integration-test.ps1          # 467 checks against a running server
+│   ├── integration-test.ps1          # 484 checks against a running server
 │   ├── mutate-backend.ps1            # 148 mutations of the backend
 │   ├── mutate-frontend.ps1           # 65 mutations of the frontend
 │   ├── mutate-loop.ps1               # 16 mutations of the loop
@@ -1132,9 +1162,9 @@ build runs. Both print the same lines and they go red together.
 
 | What | How many | How it is checked |
 |---|---|---|
-| Backend tests | 477 | `moon test --target native backend` |
+| Backend tests | 485 | `moon test --target native backend` |
 | Frontend tests | 174 | `moon test --target js frontend` |
-| Integration checks | 467 | `tools/integration-test.ps1` — against a server that is really running |
+| Integration checks | 484 | `tools/integration-test.ps1` — against a server that is really running |
 | Backend mutations | 148 | `tools/mutate-backend.ps1` |
 | Frontend mutations | 65 | `tools/mutate-frontend.ps1` |
 | Loop mutations | 16 | `tools/mutate-loop.ps1` |

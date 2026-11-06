@@ -1333,6 +1333,115 @@ try {
   Write-Host "-- the same model, written in YAML"
   Test-OwnModel (Join-Path $repo "models/product-iteration.yaml") "YAML" ($Port + 2)
 
+  # ── changing the machine while the server runs ─────────────────────────────────
+  # The machine was the one thing a reader could not change without stopping the
+  # server: MAKED_MODEL was read once, at start-up, and the only way to run on
+  # another machine was to start another server.
+  #
+  # The check needs a server of its own, because the machine is global to a
+  # process: a change would move the machine under the checks that follow. It
+  # starts on a model file, so the machines on offer are the ones sitting
+  # beside it.
+  function Test-MachineSwitch {
+    param([string]$ModelFile, [int]$ModelPort)
+
+    $switchArgs = @{
+      FilePath               = $exe
+      PassThru               = $true
+      RedirectStandardOutput = (Join-Path $tempDir ("maked_integration_switch_{0}_out.log" -f $ModelPort))
+      RedirectStandardError  = (Join-Path $tempDir ("maked_integration_switch_{0}_err.log" -f $ModelPort))
+    }
+    if ($IsWindows -or $PSVersionTable.PSVersion.Major -lt 6) {
+      $switchArgs["WindowStyle"] = "Hidden"
+    }
+    $savedModel = $env:MAKED_MODEL
+    $savedPort = $env:MAKED_PORT
+    $savedDb = $env:MAKED_DB
+    $savedBase = $script:base
+    $env:MAKED_MODEL = $ModelFile
+    $env:MAKED_PORT = "$ModelPort"
+    $env:MAKED_DB = (Join-Path $tempDir ("maked_integration_switch_{0}.db" -f $ModelPort))
+    $script:base = "http://127.0.0.1:$ModelPort"
+    $switchServer = Start-Process @switchArgs
+    try {
+      $ready = $false
+      for ($i = 0; $i -lt 60; $i++) {
+        Start-Sleep -Milliseconds 250
+        $probe = Invoke-Api -Method GET -Path "/api/status" -TimeoutSec 2
+        if ($probe.Status -eq 200) { $ready = $true; break }
+      }
+      Assert-True "the server starts on the model file" $ready
+      if (-not $ready) { return }
+
+      # The machines on offer: the built-in one and the files beside the
+      # running one.
+      $offered = Get-Json "/api/models"
+      Assert-True "the machines on offer are listed" (@($offered.models).Count -eq 3)
+      $running = @($offered.models | Where-Object { $_.current }) | Select-Object -First 1
+      Assert-Field "and the running machine is one of them" $running "name" "Product iteration"
+
+      # A step, so that the exploration on this machine has something in it.
+      $step = Post-Json "/api/loop/step"
+      Assert-Status "a step is taken on the machine the server started on" 200 $step
+      $sessions = Get-Json "/api/sessions"
+      $oldId = Field $sessions "active_session_id"
+      $oldSession = @($sessions.sessions | Where-Object { $_.id -eq $oldId })[0]
+      Assert-Field "and the exploration names the machine it was run on" $oldSession "model" "Product iteration"
+
+      # The change itself. An empty path is the built-in machine, which is the
+      # way back to it.
+      $switched = Put-Json "/api/model" @{ path = "" }
+      Assert-Status "the machine can be changed while the server runs" 200 $switched
+      $now = Get-Json "/api/model"
+      Assert-Field "and the machine in force is the built-in one" $now "name" "MAKED (pyroduct)"
+      $status = Get-Json "/api/loop/status"
+      Assert-Field "and the loop stands in the built-in machine's first domain" $status "current_domain" "M"
+      # The exploration that was running belongs to the machine it was taken
+      # on, so the change opens a new one and leaves the old one alone.
+      $sessions = Get-Json "/api/sessions"
+      $newId = Field $sessions "active_session_id"
+      Assert-True "and the change opened a new exploration" ($newId -ne $oldId)
+      $newSession = @($sessions.sessions | Where-Object { $_.id -eq $newId })[0]
+      Assert-Field "and the new exploration names the machine it was run on" $newSession "model" "MAKED (pyroduct)"
+      $oldSession = @($sessions.sessions | Where-Object { $_.id -eq $oldId })[0]
+      Assert-Field "and the old one still names the machine it was run on" $oldSession "model" "Product iteration"
+
+      # And back to the file.
+      $back = Put-Json "/api/model" @{ path = $ModelFile }
+      Assert-Status "and back to the file the server started on" 200 $back
+      $now = Get-Json "/api/model"
+      Assert-Field "and the machine in force is the file's machine again" $now "name" "Product iteration"
+      $status = Get-Json "/api/loop/status"
+      Assert-Field "and the loop stands in that model's first domain again" $status "current_domain" "I"
+
+      # A file that is not a machine is refused, and nothing changes.
+      $broken = Join-Path $tempDir "maked_integration_broken_model.json"
+      Set-Content -Path $broken -Value "this is not a machine" -Encoding UTF8
+      $refused = Put-Json "/api/model" @{ path = $broken }
+      Assert-Status "a file that is not a machine is refused" 400 $refused
+      $now = Get-Json "/api/model"
+      Assert-Field "and the machine in force keeps running" $now "name" "Product iteration"
+      Remove-Item -Path $broken -Force -ErrorAction SilentlyContinue
+
+      # And the old exploration is still the old one.
+      $sessions = Get-Json "/api/sessions"
+      $oldSession = @($sessions.sessions | Where-Object { $_.id -eq $oldId })[0]
+      Assert-Field "and the old exploration still names the machine it was run on" $oldSession "model" "Product iteration"
+    } finally {
+      if ($null -ne $switchServer -and -not $switchServer.HasExited) {
+        Stop-Process -Id $switchServer.Id -Force -ErrorAction SilentlyContinue
+      }
+      $env:MAKED_MODEL = $savedModel
+      $env:MAKED_PORT = $savedPort
+      $env:MAKED_DB = $savedDb
+      $script:base = $savedBase
+    }
+  }
+
+  Write-Host ""
+  Write-Host "-- changing the machine while the server runs"
+  Test-MachineSwitch (Join-Path $repo "models/product-iteration.json") ($Port + 3)
+
   # ── the mapping table ─────────────────────────────────────────────────────
   # The table that says what a document means is data, and the check is that
   # the server hands it over, takes a new one, and writes it back.
