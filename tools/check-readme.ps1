@@ -4453,6 +4453,98 @@ if ($validatorCalls.Count -eq 0) {
     Write-Output ("  ok      {0,-20} {1}" -f 'Refusal language', 'the entries, the table and the corpus refuse in the language asked for')
   }
 }
+# --- the example machine speaks the reader's language ------------------------
+#
+# The machine that ships with the repository is the one a reader copies, and
+# it is the only machine most readers will ever see.  It said "Idea" and
+# "Raw idea" and "Ask", and a reader who asked in Chinese got all of it back
+# in English -- because a name with no Chinese is shown in English, and the
+# example machine had no Chinese for any of its names.  The format has always
+# supported the twin (`title_zh`, `label_zh`, `gloss_zh`, `designation_zh`,
+# `role_zh`, and a table of move names); the example just never used it.
+#
+# The rule walks the machine the way it is written -- one field per line, one
+# object per section -- and asks every name it finds whether the Chinese
+# twin is there.  The names that are missing are printed as a SET, not as a
+# count: a count says how many are gone and not which, and the name of a
+# missing twin is the whole of what a reader has to act on.
+#
+# The two files that ship are held to each other by a test
+# (`backend/model_test.mbt`), so this rule only has to look at one of them:
+# a machine whose two copies differ is a failure of that test, not of this
+# one.
+#
+# The move names are the one set with spaces in it, so they are hyphenated
+# here: one item per name, and an item a reader can find in the file.
+
+$exampleLanguageMissing = @()
+$exampleSection = ''
+$inExampleObject = $false
+$exampleFields = @{}
+$exampleIdent = ''
+
+function Test-HasChinese($fields, $key) {
+  return $fields.ContainsKey($key) -and $fields[$key] -ne ''
+}
+
+foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $PWD 'models/product-iteration.json'), $enc)) {
+  if ($line -cmatch '^  "([a-z_]+)": \[') {
+    $exampleSection = $Matches[1]
+    continue
+  }
+  if ($line -cmatch '^    \{$') {
+    $inExampleObject = $true
+    $exampleFields = @{}
+    $exampleIdent = ''
+    continue
+  }
+  if ($inExampleObject -and $line -cmatch '^      "([a-z_]+)": "(.*)",?$') {
+    $exampleKey = $Matches[1]
+    $exampleValue = $Matches[2]
+    $exampleFields[$exampleKey] = $exampleValue
+    if ($exampleKey -eq 'id' -or $exampleKey -eq 'kind' -or $exampleKey -eq 'en') {
+      $exampleIdent = $exampleValue
+    }
+    continue
+  }
+  if ($line -cmatch '^    \},?$') {
+    if ($inExampleObject) {
+      switch ($exampleSection) {
+        'domains' {
+          if (-not (Test-HasChinese $exampleFields 'title_zh')) { $exampleLanguageMissing += "domain.$exampleIdent.title" }
+          if (-not (Test-HasChinese $exampleFields 'role_zh')) { $exampleLanguageMissing += "domain.$exampleIdent.role" }
+        }
+        'positions' {
+          if (-not (Test-HasChinese $exampleFields 'label_zh')) { $exampleLanguageMissing += "position.$exampleIdent.label" }
+          if (-not (Test-HasChinese $exampleFields 'gloss_zh')) { $exampleLanguageMissing += "position.$exampleIdent.gloss" }
+        }
+        'slots' {
+          if (-not (Test-HasChinese $exampleFields 'designation_zh')) { $exampleLanguageMissing += "slot.$exampleIdent.designation" }
+          if (-not (Test-HasChinese $exampleFields 'gloss_zh')) { $exampleLanguageMissing += "slot.$exampleIdent.gloss" }
+        }
+        'outcomes' {
+          if (-not (Test-HasChinese $exampleFields 'label_zh')) { $exampleLanguageMissing += "outcome.$exampleIdent.label" }
+        }
+        'edges' {
+          if (-not (Test-HasChinese $exampleFields 'zh')) { $exampleLanguageMissing += "edge.$exampleIdent" }
+        }
+      }
+      $exampleFields = @{}
+      $exampleIdent = ''
+      $inExampleObject = $false
+    }
+    continue
+  }
+}
+$exampleLanguageMissing = @($exampleLanguageMissing | ForEach-Object { $_ -replace ' ', '-' })
+
+if ($exampleLanguageMissing.Count -gt 0) {
+  Write-Output ("  {0,-20} the example machine does not speak the readers language; these names have no Chinese: {1}" -f 'Example language', ($exampleLanguageMissing -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  Write-Output ("  ok      {0,-20} {1}" -f 'Example language', 'the example machine has a Chinese name for every name it has')
+}
 # --- the ring's letters --------------------------------------------------------
 #
 # The ring has a letter for each domain -- M for Model, D for Data -- and the

@@ -6,87 +6,182 @@
       "id": "idea",
       "letter": "I",
       "title": "Idea",
+      "title_zh": "想法",
       "role": "the idea",
+      "role_zh": "这个想法",
       "anchor": "raw"
     },
     {
       "id": "making",
       "letter": "W",
       "title": "Making",
+      "title_zh": "制作中",
       "role": "the making",
+      "role_zh": "这份在做的东西",
       "anchor": "wip"
     },
     {
       "id": "shipped",
       "letter": "S",
       "title": "Shipped",
+      "title_zh": "已交付",
       "role": "the shipping",
+      "role_zh": "这份交付出去的东西",
       "anchor": "out"
     }
   ],
   "outcomes": [
     {
       "kind": "moved",
-      "label": "Advanced"
+      "label": "Advanced",
+      "label_zh": "前进"
     },
     {
       "kind": "held",
-      "label": "Kept"
+      "label": "Kept",
+      "label_zh": "守住"
     },
     {
       "kind": "same",
-      "label": "Settled"
+      "label": "Settled",
+      "label_zh": "落定"
     },
     {
       "kind": "open",
-      "label": "Undecided"
+      "label": "Undecided",
+      "label_zh": "未定"
     },
     {
       "kind": "block",
-      "label": "No way"
+      "label": "No way",
+      "label_zh": "无路"
+    }
+  ],
+  "edges": [
+    {
+      "en": "A customer said no",
+      "zh": "客户说不行"
+    },
+    {
+      "en": "A customer said yes",
+      "zh": "客户说行"
+    },
+    {
+      "en": "It was built",
+      "zh": "它做出来了"
+    },
+    {
+      "en": "It was cut down again",
+      "zh": "又砍了一刀"
+    },
+    {
+      "en": "It was cut down to fit",
+      "zh": "砍到放得下了"
+    },
+    {
+      "en": "It was fixed",
+      "zh": "它修好了"
+    },
+    {
+      "en": "It was narrowed",
+      "zh": "它收窄了"
+    },
+    {
+      "en": "It was rebuilt",
+      "zh": "它重做了"
+    },
+    {
+      "en": "It was released",
+      "zh": "它发布了"
+    },
+    {
+      "en": "It was shipped again",
+      "zh": "它又交付了一次"
+    },
+    {
+      "en": "It was tried",
+      "zh": "它试过了"
+    },
+    {
+      "en": "Nobody wanted it",
+      "zh": "没人要它"
+    },
+    {
+      "en": "Somebody wants it again",
+      "zh": "又有人要它了"
+    },
+    {
+      "en": "They asked for a smaller thing",
+      "zh": "他们要更小的东西"
+    },
+    {
+      "en": "They asked for it to work",
+      "zh": "他们要它能用"
+    },
+    {
+      "en": "They asked for something else",
+      "zh": "他们要别的东西"
+    },
+    {
+      "en": "They did not want it after all",
+      "zh": "他们到底不想要"
     }
   ],
   "positions": [
     {
       "id": "raw",
       "label": "Raw idea",
+      "label_zh": "原始想法",
       "gloss": "Nobody has built it yet.",
+      "gloss_zh": "还没有人动手做它。",
       "domain": "idea"
     },
     {
       "id": "talked",
       "label": "Talked about",
+      "label_zh": "谈过了",
       "gloss": "Someone has heard it.",
+      "gloss_zh": "有人听过了。",
       "domain": "idea"
     },
     {
       "id": "scoped",
       "label": "Scoped",
+      "label_zh": "定了范围",
       "gloss": "It has a shape and a name, and it fits.",
+      "gloss_zh": "它有了形状和名字，也放得下了。",
       "domain": "idea"
     },
     {
       "id": "wip",
       "label": "Work in progress",
+      "label_zh": "做了一半",
       "gloss": "It exists, mostly.",
+      "gloss_zh": "它大体上存在。",
       "domain": "making"
     },
     {
       "id": "tested",
       "label": "Tested",
+      "label_zh": "试过了",
       "gloss": "It has been tried, and the trying found something.",
+      "gloss_zh": "它被试过，试出了点东西。",
       "domain": "making"
     },
     {
       "id": "out",
       "label": "Out",
+      "label_zh": "已推出",
       "gloss": "It is in front of people.",
+      "gloss_zh": "它已经在人们面前了。",
       "domain": "shipped"
     },
     {
       "id": "retired",
       "label": "Retired",
+      "label_zh": "已收回",
       "gloss": "It was taken back.",
+      "gloss_zh": "它被收回来了。",
       "domain": "shipped"
     }
   ],
@@ -94,22 +189,30 @@
     {
       "id": "ask",
       "designation": "Ask",
-      "gloss": "Talk to somebody who would use it."
+      "designation_zh": "询问",
+      "gloss": "Talk to somebody who would use it.",
+      "gloss_zh": "去和一个会用到它的人聊。"
     },
     {
       "id": "scope",
       "designation": "Scope",
-      "gloss": "Cut it down until it fits."
+      "designation_zh": "界定",
+      "gloss": "Cut it down until it fits.",
+      "gloss_zh": "砍到它放得下为止。"
     },
     {
       "id": "build",
       "designation": "Build",
-      "gloss": "Make the thing."
+      "designation_zh": "构建",
+      "gloss": "Make the thing.",
+      "gloss_zh": "把它做出来。"
     },
     {
       "id": "ship",
       "designation": "Ship",
-      "gloss": "Put it in front of people."
+      "designation_zh": "交付",
+      "gloss": "Put it in front of people.",
+      "gloss_zh": "把它放到人们面前。"
     }
   ],
   "rules": [

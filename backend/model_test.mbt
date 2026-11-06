@@ -437,6 +437,195 @@ test "a machine written in YAML is the machine written in JSON" {
 }
 
 ///|
+/// A machine that ships with the repository, read from its file, or the test
+/// fails.
+///
+/// The file is read from the repository root, which is where the test driver
+/// runs, and the name of the file is in the failure: a shipped file that
+/// cannot be read is a shipped file that does not work.
+async fn shipped_model_or_fail(path : String) -> @backend.Model {
+  let text = @fs.read_file(path).text() catch {
+    err =>
+      fail("the shipped machine could not be read: " + @debug.to_string(err))
+  }
+  match @backend.parse_model_text(path, text) {
+    Some(parsed) => model_or_fail(parsed)
+    None => fail("the shipped machine was not read at all: " + path)
+  }
+}
+
+///|
+/// Every name the machine has, in the language a Chinese reader sees.
+///
+/// One line per name, so that two machines can be compared without comparing
+/// their fields one by one -- and so that a comparison says *which* name
+/// differs rather than how many do.
+fn chinese_names(model : @backend.Model) -> Array[String] {
+  let names = []
+  for domain in model.domains {
+    names.push(
+      "domain " + domain.id + " = " + domain.title_zh + " / " + domain.role_zh,
+    )
+  }
+  for position in model.positions {
+    names.push(
+      "position " +
+      position.id +
+      " = " +
+      position.label_zh +
+      " / " +
+      position.gloss_zh,
+    )
+  }
+  for slot in model.slots {
+    names.push(
+      "slot " + slot.id + " = " + slot.designation_zh + " / " + slot.gloss_zh,
+    )
+  }
+  for word in model.outcomes {
+    names.push("outcome " + word.kind + " = " + word.label_zh)
+  }
+  for edge in model.edges {
+    names.push("edge " + edge.en + " = " + edge.zh)
+  }
+  names
+}
+
+///|
+/// The first line the two lists disagree on.
+///
+/// The whole list printed twice makes a reader hunt for the one line that
+/// differs, and a reader who has to hunt does not hunt. Empty when the two
+/// agree.
+fn first_difference(left : Array[String], right : Array[String]) -> String {
+  if left.length() != right.length() {
+    return "the two lists are of different lengths: " +
+      left.length().to_string() +
+      " and " +
+      right.length().to_string()
+  }
+  for i in 0..<left.length() {
+    if left[i] != right[i] {
+      return left[i] + "   /   " + right[i]
+    }
+  }
+  ""
+}
+
+///|
+/// The two machines that ship with the repository are the same machine.
+///
+/// The example ships twice -- once in JSON and once in YAML -- and that is a
+/// promise to the reader that the two syntaxes are interchangeable. A
+/// promise nobody checks decays: the two files drift apart one name at a
+/// time, and the reader who copies the one that has drifted gets a machine
+/// the repository does not have.
+///
+/// The toy fixtures above show that a *reader* can read both syntaxes. This
+/// says that the two *files that ship* agree with each other, name for name,
+/// including every Chinese twin: a file that lost its Chinese and a file
+/// that kept it are the same machine to a JSON reader and two machines to a
+/// Chinese one.
+async test "the two shipped machines are the same machine" {
+  let from_json = shipped_model_or_fail("models/product-iteration.json")
+  let from_yaml = shipped_model_or_fail("models/product-iteration.yaml")
+  // The names first, so that a failure says WHICH name differs.
+  assert_eq(
+    first_difference(chinese_names(from_yaml), chinese_names(from_json)),
+    "",
+  )
+  // And then the whole machine, down to the JSON it is written back out as:
+  // every field, not the handful somebody thought to check.
+  assert_eq(from_yaml.to_json(), from_json.to_json())
+}
+
+///|
+/// The machine that ships with the repository speaks both languages.
+///
+/// A name with no Chinese is shown in English, and that fallback is
+/// deliberate: a machine written only in English is still a machine, and
+/// refusing to run it would be worse than running it in the wrong language.
+/// But the example is *meant* to speak both languages, so every name it has
+/// has to carry its Chinese twin -- otherwise the machine answers a Chinese
+/// reader in English without ever saying so.
+///
+/// The moves are counted separately, because a move's name is not a name the
+/// machine has: it is the name of a transition, and it is looked up in the
+/// table of move names. A move the rules name that is not in the table is
+/// shown in English even when the table has a Chinese word for it.
+async test "the shipped machine speaks both languages" {
+  let model = shipped_model_or_fail("models/product-iteration.json")
+  let missing = []
+  for domain in model.domains {
+    if domain.title_zh == "" {
+      missing.push("domain " + domain.id + ".title")
+    }
+    if domain.role_zh == "" {
+      missing.push("domain " + domain.id + ".role")
+    }
+  }
+  for position in model.positions {
+    if position.label_zh == "" {
+      missing.push("position " + position.id + ".label")
+    }
+    if position.gloss_zh == "" {
+      missing.push("position " + position.id + ".gloss")
+    }
+  }
+  for slot in model.slots {
+    if slot.designation_zh == "" {
+      missing.push("slot " + slot.id + ".designation")
+    }
+    if slot.gloss_zh == "" {
+      missing.push("slot " + slot.id + ".gloss")
+    }
+  }
+  for word in model.outcomes {
+    if word.label_zh == "" {
+      missing.push("outcome " + word.kind + ".label")
+    }
+  }
+  // Every move the rules name, and whether the table has it.
+  let named = []
+  for rule in model.rules {
+    match rule.transition {
+      @backend.Moved(edge, _) => named.push(edge)
+      @backend.Held(edge, _) => named.push(edge)
+      @backend.Same(edges, _) =>
+        for edge in edges {
+          named.push(edge)
+        }
+      @backend.Open(candidates) =>
+        for candidate in candidates {
+          named.push(candidate.edge)
+        }
+      @backend.Block(_) => ()
+    }
+  }
+  let distinct = []
+  for edge in named {
+    if !distinct.contains(edge) {
+      distinct.push(edge)
+    }
+  }
+  let in_table = []
+  for edge in model.edges {
+    if edge.zh == "" {
+      missing.push("edge " + edge.en)
+    }
+    in_table.push(edge.en)
+  }
+  for edge in distinct {
+    if !in_table.contains(edge) {
+      missing.push("edge not in the table: " + edge)
+    }
+  }
+  // The names, not the number of them: a count says how much is wrong and a
+  // list says what.
+  assert_eq(missing, [])
+}
+
+///|
 /// The extension decides how a model file is read.
 ///
 /// A `.yaml` or `.yml` file is YAML and everything else is JSON. The rule is

@@ -4396,6 +4396,82 @@ else
       'the entries, the table and the corpus refuse in the language asked for'
   fi
 fi
+# --- the example machine speaks the reader's language ------------------------
+#
+# The machine that ships with the repository is the one a reader copies, and
+# it is the only machine most readers will ever see.  It said "Idea" and
+# "Raw idea" and "Ask", and a reader who asked in Chinese got all of it back
+# in English -- because a name with no Chinese is shown in English, and the
+# example machine had no Chinese for any of its names.  The format has always
+# supported the twin (`title_zh`, `label_zh`, `gloss_zh`, `designation_zh`,
+# `role_zh`, and a table of move names); the example just never used it.
+#
+# The rule walks the machine the way it is written -- one field per line, one
+# object per section -- and asks every name it finds whether the Chinese
+# twin is there.  The names that are missing are printed as a SET, not as a
+# count: a count says how many are gone and not which, and the name of a
+# missing twin is the whole of what a reader has to act on.
+#
+# The two files that ship are held to each other by a test
+# (`backend/model_test.mbt`), so this rule only has to look at one of them:
+# a machine whose two copies differ is a failure of that test, not of this
+# one.
+#
+# The move names are the one set with spaces in it, so they are hyphenated
+# here: one item per name, and an item a reader can find in the file.
+
+EXAMPLE_LANGUAGE_MISSING=$(
+  awk '
+    function check_object() {
+      if (section == "domains") {
+        if (!present["title_zh"]) print "domain." ident ".title"
+        if (!present["role_zh"]) print "domain." ident ".role"
+      } else if (section == "positions") {
+        if (!present["label_zh"]) print "position." ident ".label"
+        if (!present["gloss_zh"]) print "position." ident ".gloss"
+      } else if (section == "slots") {
+        if (!present["designation_zh"]) print "slot." ident ".designation"
+        if (!present["gloss_zh"]) print "slot." ident ".gloss"
+      } else if (section == "outcomes") {
+        if (!present["label_zh"]) print "outcome." ident ".label"
+      } else if (section == "edges") {
+        if (!present["zh"]) print "edge." ident
+      }
+      delete present
+      ident = ""
+    }
+    /^  "[a-z_]+": \[/ {
+      line = $0
+      sub(/^  "/, "", line)
+      sub(/".*/, "", line)
+      section = line
+      next
+    }
+    /^    \{$/ { in_object = 1; next }
+    in_object && /^      "[a-z_]+": ".*",?$/ {
+      line = $0
+      sub(/^      "/, "", line)
+      key = line
+      sub(/".*/, "", key)
+      value = line
+      sub(/^[^:]*: "/, "", value)
+      sub(/",?$/, "", value)
+      present[key] = value
+      if (key == "id" || key == "kind" || key == "en") ident = value
+      next
+    }
+    /^    \},?$/ { if (in_object) { check_object(); in_object = 0 } next }
+  ' models/product-iteration.json | sed -e 's/ /-/g' | tr '\n' ' '
+)
+EXAMPLE_LANGUAGE_MISSING="${EXAMPLE_LANGUAGE_MISSING# }"
+
+if [ -n "$EXAMPLE_LANGUAGE_MISSING" ]; then
+  fail "$(printf '%-20s the example machine does not speak the readers language; these names have no Chinese: %s' \
+    'Example language' "$EXAMPLE_LANGUAGE_MISSING")"
+else
+  printf '  ok      %-20s %s\n' 'Example language' \
+    'the example machine has a Chinese name for every name it has'
+fi
 # --- the ring's letters --------------------------------------------------------
 #
 # The ring has a letter for each domain -- M for Model, D for Data -- and the

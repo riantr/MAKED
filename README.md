@@ -651,7 +651,7 @@ MAKED_moonbit/
 │   ├── metrics.mbt                   # the measures, in both languages
 │   ├── session.mbt                   # explorations, timelines, exports
 │   ├── database.mbt                  # SQLite
-│   ├── *_test.mbt                    # 454 tests
+│   ├── *_test.mbt                    # 456 tests
 │   └── *_wbtest.mbt                  # 16 tests
 ├── frontend/                         # the single-page app (js)
 │   ├── app.mbt                       # the TEA loop and the messages
@@ -902,14 +902,42 @@ about nowhere.
   "format": "maked.model.v1",
   "name": "One small machine",
   "domains": [
-    { "id": "idea", "letter": "I", "title": "Idea", "role": "the idea", "anchor": "raw" }
+    {
+      "id": "idea",
+      "letter": "I",
+      "title": "Idea",
+      "title_zh": "想法",
+      "role": "the idea",
+      "role_zh": "这个想法",
+      "anchor": "raw"
+    }
   ],
   "positions": [
-    { "id": "raw", "label": "Raw idea", "gloss": "Nobody has built it yet.", "domain": "idea" },
-    { "id": "asked", "label": "A question asked", "gloss": "Somebody was asked.", "domain": "idea" }
+    {
+      "id": "raw",
+      "label": "Raw idea",
+      "label_zh": "原始想法",
+      "gloss": "Nobody has built it yet.",
+      "gloss_zh": "还没有人动手做它。",
+      "domain": "idea"
+    },
+    {
+      "id": "asked",
+      "label": "A question asked",
+      "label_zh": "问过了",
+      "gloss": "Somebody was asked.",
+      "gloss_zh": "有人问过了。",
+      "domain": "idea"
+    }
   ],
   "slots": [
-    { "id": "ask", "designation": "Ask", "gloss": "Talk to somebody who would use it." }
+    {
+      "id": "ask",
+      "designation": "Ask",
+      "designation_zh": "询问",
+      "gloss": "Talk to somebody who would use it.",
+      "gloss_zh": "去和一个会用到它的人聊。"
+    }
   ],
   "rules": [
     {
@@ -917,14 +945,26 @@ about nowhere.
       "slot": "ask",
       "outcome": { "kind": "moved", "edge": "A customer said no", "to": "asked" }
     }
+  ],
+  "edges": [
+    { "en": "A customer said no", "zh": "客户说不行" }
   ]
 }
 ```
+
+Every name can carry a Chinese twin — `title_zh`, `role_zh`, `label_zh`, `gloss_zh`,
+`designation_zh`, and a table of move names — and the server shows the twin when the
+request asks for `?lang=zh`. A name with no twin is shown in English, so a machine
+written only in English still runs; it just answers in English.
 
 The example that ships with the repository is `models/product-iteration.json`: three domains,
 seven positions, four slots. It is a complete machine, not a fragment. A rule that names a
 position or a slot the machine does not define is refused at start-up, and so is a domain
 whose anchor is not a defined position — such a domain starts nowhere.
+
+That example speaks both languages — every one of its names has a Chinese twin — and it
+also ships as `models/product-iteration.yaml`. A test holds the two to each other: the
+same machine, name for name, in either syntax.
 
 ### A mapping table of your own
 
@@ -1067,7 +1107,7 @@ build runs. Both print the same lines and they go red together.
 
 | What | How many | How it is checked |
 |---|---|---|
-| Backend tests | 470 | `moon test --target native backend` |
+| Backend tests | 472 | `moon test --target native backend` |
 | Frontend tests | 174 | `moon test --target js frontend` |
 | Integration checks | 465 | `tools/integration-test.ps1` — against a server that is really running |
 | Backend mutations | 148 | `tools/mutate-backend.ps1` |
