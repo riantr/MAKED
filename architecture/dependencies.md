@@ -39,7 +39,7 @@ moonbit-community/rabbita@0.17.0    ← Elm-style SPA framework
 moonbit-community/yaml@0.0.8        ← The mapping table's syntax
 moonbitlang/pdflite@0.4.1           ← Markdown export
 moonbitlang/x@0.5.7                 ← Utility library (transitive)
-riantr/moonbit_doubleML@0.164.62    ← The causal estimate
+riantr/moonbit_doubleML@0.164.64    ← The causal estimate
 riantr/pyroduct@0.1.35              ← The state machine and the collective
 colmugx/mcp@0.18.2                  ← The agent's server
 ```

@@ -23,7 +23,7 @@
 | moonbitlang/moonback | 0.8.10 | `moon.mod:52` |
 | moonbitlang/pdflite | 0.4.1 | `moon.mod:53` |
 | moonbitlang/x | 0.5.7 | `moon.mod:54` |
-| riantr/moonbit_doubleML | 0.164.62 | `moon.mod:55` |
+| riantr/moonbit_doubleML | 0.164.64 | `moon.mod:55` |
 | riantr/pyroduct | 0.1.35 | `moon.mod:56` |
 | colmugx/mcp | 0.18.2 | `moon.mod:57` |
 

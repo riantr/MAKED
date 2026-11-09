@@ -9,4 +9,4 @@
 /// A test reads `moon.mod` and checks the two against each other, so a
 /// release that bumps one and not the other is caught rather than shipped
 /// with two versions in it.
-pub const MAKED_VERSION : String = "0.1.8"
+pub const MAKED_VERSION : String = "0.1.9"

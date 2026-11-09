@@ -251,8 +251,8 @@ $mutations = @(
   @{
     name = 'the mapping table never fires'
     file = 'backend/research_config.mbt'
-    old  = '      if lower.contains(word) {'
-    new  = '      if false {'
+    old  = '    if lower.contains(word) {'
+    new  = '    if false {'
   },
   # A table is written back in the syntax its name asks for. A YAML file
   # written as JSON is a file that is read as YAML and half-reads, and the
@@ -699,8 +699,10 @@ $mutations = @(
     name = 'the model is read but never installed'
     file = 'backend/model.mbt'
     old  = '  g_model[0] = model
+  g_model_path[0] = path
   ignore(reset_loop())'
     new  = '  g_model[0] = current_model()
+  g_model_path[0] = path
   ignore(reset_loop())'
   },
   # --- the causal panel -------------------------------------------------
@@ -1080,8 +1082,8 @@ $mutations = @(
   @{
     name = 'the version the agent reports drifts from the module'
     file = 'backend/version.mbt'
-    old  = 'pub const MAKED_VERSION : String = "0.1.8"'
-    new  = 'pub const MAKED_VERSION : String = "0.1.9"'
+    old  = 'pub const MAKED_VERSION : String = "0.1.9"'
+    new  = 'pub const MAKED_VERSION : String = "0.1.10"'
   },
   # The discovery document. An agent that reads it has nothing else to go
   # on, so every part of it that can go missing has to be caught.
@@ -1253,14 +1255,14 @@ $mutations = @(
   @{
     name = 'the exported measures are in English'
     file = 'backend/session.mbt'
-    old  = '  let run_metrics = measure(path, lang)'
-    new  = '  let run_metrics = measure(path, Lang::english())'
+    old  = '  let run_metrics = measure_with(model, path, lang)'
+    new  = '  let run_metrics = measure_with(model, path, Lang::english())'
   },
   @{
     name = 'the exported summary is in English'
     file = 'backend/session.mbt'
-    old  = '  let run_summary = summary_of(path, lang)'
-    new  = '  let run_summary = summary_of(path, English)'
+    old  = '  let run_summary = summary_with(model, path, lang)'
+    new  = '  let run_summary = summary_with(model, path, Lang::english())'
   },
   @{
     name = 'the exported steps are in English'

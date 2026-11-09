@@ -8,7 +8,7 @@
 
 **An adversarial knowledge loop that shows its working.**
 
-Current release: **v0.1.8** — published as [`riantr/MAKED`](https://mooncakes.io/docs/riantr/MAKED@0.1.8) on mooncakes.io.
+Current release: **v0.1.9** — published as [`riantr/MAKED`](https://mooncakes.io/docs/riantr/MAKED@0.1.9) on mooncakes.io.
 
 MAKED is a five-domain ring — **Model → Data → Experience → Attack → Knowledge** — in which
 each domain is the adversarial overcoming of the one before it. The loop is driven by a
@@ -178,7 +178,7 @@ Then add the package you want to your `moon.mod`:
 ```moonbit nocheck
 ///|
 import {
-  "riantr/MAKED/backend@0.1.8" @maked,
+  "riantr/MAKED/backend@0.1.9" @maked,
 }
 ```
 
@@ -272,37 +272,45 @@ as moving the pin: `moon update` leaves `moon.mod` where it is, and the
 upgrade is `moon add --upgrade <package>@<version>` — a change to the tree,
 which goes through the gates like any other.
 
-### What changed in 0.1.8
+### What changed in 0.1.9
 
-Five changes, and **none of them breaks the published surface**:
+Six changes, and **none of them breaks the published surface**:
 
-- **The tree moved to the toolchain CI installs.** Upstream MoonBit shipped a
-  release, and the formatter began to ask for a new spelling of `derive` — an
-  attribute above the type rather than a clause on the closing brace. Fifty-
-  eight types across ten backend files wanted to move, and the Gates job went
-  red on a tree nobody had touched. The tree was reformatted with the current
-  toolchain and the thirty-nine line claims the documents make were re-anchored
-  to the lines the tree now holds.
-- **The container builds the tree it is holding.** The toolchain was
-  installed *before* the source was copied, so that layer was a cache hit and
-  the image compiled today's tree with the compiler that was current when the
-  cache was filled. It is installed after the source now, so the compiler in
-  the image is always the one that built the source in it.
-- **Eight dependencies moved to their latest published versions** — rabbita,
-  async, moonback, pdflite, x, moonbit_doubleML, pyroduct and the MCP package
-  — and the chain rule that reads moonback's middleware order was re-read
-  rather than assumed to carry over.
-- **Six guards that had stopped guarding were repointed.** An anchor is the
-  line a mutation is applied to; six of them named a shape the code had left
-  behind, so those mutations were never made and the suites reported a
-  survivor that was really a claim about nothing. Each of the six was proved by
-  breaking it on its own, and the 229 anchors are alive with none of them dead.
-- **The typos gate runs.** It had stopped this account before, and it could
-  not be run locally: the local typos is older than the version CI pins, and
-  the newer one knows two words the older one does not — `ccontains`,
-  PowerShell's case-sensitive contains operator, and `lits`, a local variable
-  holding a line's literals. Neither is a misspelling, so both are
-  whitelisted with the reason stated.
+- **The agent's server ships.** `cmd/mcp` was built by the tree and tested by
+  the suite, but the release workflow built only `cmd/web` and `cmd/server`, so
+  an agent user had to compile the MCP server themselves. It is in the release
+  assets now, and the table that names those assets says so.
+- **The reader can change the machine from the page.** `PUT /api/model` and a
+  machine panel on the index page: which machine is running, the machines the
+  server can offer, the folder a machine file of the reader's own goes in, and
+  a switch on a click — no terminal, no restart. A file the server cannot read
+  is listed with the reason and gets no button, because a button that exists
+  and cannot work reads as a broken page. The answer to a switch is a step's
+  answer plus the machine, so one click is one hop; and every exploration keeps
+  the machine it was run on, because a run of one machine is never described in
+  the words of another.
+- **The panels are styled, and a gate says so.** Of the 304 classes the views
+  draw, 124 had no rule in the stylesheet: three whole panels — the causal
+  estimate, the collective, the research list — rendered as browser defaults,
+  and so did the button the machine panel switches with. Every one has a rule
+  now, and a rule derives the class set twice, once from the views and once
+  from the stylesheet, and prints the classes that are missing by name.
+- **The words follow the reader's language.** The causal estimate carries a
+  language dimension, a refusal speaks the language it was asked in, and the
+  mapping table and the example machine have a Chinese name for every name they
+  have — held by a gate, because a label that carries only the language it was
+  written in is a label the other reader cannot use.
+- **A release fails when a dependency has moved.** The dependency check warns
+  on a push; it now fails on a release when a pin is behind the registry's
+  latest, which is the last moment the difference can still be fixed cheaply.
+  The sqlite3 pin moved to the version the registry names, and the gates for
+  this release ran against the upgraded pins — that is what "current" has to
+  mean here.
+- **The published surface has the house shape.** The logo, the license the
+  container image carries, and this README were brought to the shape this
+  account publishes in, and each of the three gained a gate that holds it
+  there: an image label, a logo and a document are all claims, and a claim
+  nobody checks is a claim that rots.
 
 ### Packages and targets
 
@@ -328,11 +336,11 @@ version it resolved; `moon.pkg` names the **package** inside a module and takes
 spelling — it is an import the toolchain cannot find:
 
 ```
-Cannot find import 'riantr/MAKED/backend@0.1.8' in my/app
+Cannot find import 'riantr/MAKED/backend@0.1.9' in my/app
 ```
 
 For the same reason there is no `@latest`: the version is parsed as semver, so
-`latest`, `^0.1.8`, `>=0.1.8` and `v0.1.8` are all rejected. A bare
+`latest`, `^0.1.9`, `>=0.1.9` and `v0.1.9` are all rejected. A bare
 `moon add riantr/MAKED` resolves the newest release and pins the concrete
 version it found — that is the "latest" this toolchain has.
 
@@ -1177,7 +1185,7 @@ views, once from the stylesheet — and prints the classes that have no rule by
 name. An id is not a class, and neither is the label that points at one, so the
 form fields are not demanded to carry rules they do not need.
 
-**Current release**: v0.1.8 · **Repository**: <https://github.com/riantr/MAKED>
+**Current release**: v0.1.9 · **Repository**: <https://github.com/riantr/MAKED>
 
 ### Test and gate counts
 
@@ -1211,7 +1219,7 @@ bash ci.sh                          # everything, including the slow gates
   the web server, the agent's server, and the browser bundle.
 - [riantr/pyroduct](https://mooncakes.io/docs/riantr/pyroduct@0.1.35) — the
   state machine, the group states and the collective that the ring runs on.
-- [riantr/moonbit_doubleML](https://mooncakes.io/docs/riantr/moonbit_doubleML@0.164.62) —
+- [riantr/moonbit_doubleML](https://mooncakes.io/docs/riantr/moonbit_doubleML@0.164.64) —
   the causal estimate.
 
 Outside this repository: **none that the registry knows about.** The registry
@@ -1228,7 +1236,7 @@ cannot be named.
   and the HTTP server the micro-framework sits on is
   [moonback](https://mooncakes.io/docs/moonbitlang/moonback@0.8.10).
 - The causal estimate is
-  [riantr/moonbit_doubleML](https://mooncakes.io/docs/riantr/moonbit_doubleML@0.164.62).
+  [riantr/moonbit_doubleML](https://mooncakes.io/docs/riantr/moonbit_doubleML@0.164.64).
 - The protocol the agent's server speaks is the
   [Model Context Protocol](https://modelcontextprotocol.io), version 2026-07-28.
 - The language is the [MoonBit Language Guide](https://www.moonbitlang.com/docs/).

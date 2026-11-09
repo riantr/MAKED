@@ -85,7 +85,7 @@ correction lives beside them rather than in them.
 | moonbitlang/moonback | 0.8.10 | backend, cmd/server | `moon.mod:52` |
 | moonbitlang/pdflite | 0.4.1 | backend | `moon.mod:53` |
 | moonbitlang/x | 0.5.7 | (transitive) | `moon.mod:54` |
-| riantr/moonbit_doubleML | 0.164.62 | backend | `moon.mod:55` |
+| riantr/moonbit_doubleML | 0.164.64 | backend | `moon.mod:55` |
 | riantr/pyroduct | 0.1.35 | backend | `moon.mod:56` |
 | colmugx/mcp | 0.18.2 | cmd/mcp | `moon.mod:57` |
 

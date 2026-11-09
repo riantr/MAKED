@@ -92,7 +92,7 @@ digraph maked_dependencies {
     pdflite [label="moonbitlang/pdflite@0.4.1\nPDF and markdown"]
     pdflite_markdown [label="moonbitlang/pdflite/markdown\nThe export"]
     xpkg [label="moonbitlang/x@0.5.7\nPaths and files"]
-    doubleml [label="riantr/moonbit_doubleML@0.164.62\nThe regression the\nloop reports"]
+    doubleml [label="riantr/moonbit_doubleML@0.164.64\nThe regression the\nloop reports"]
     pyroduct [label="riantr/pyroduct@0.1.35\nThe model MAKED runs"]
     pyroduct_group [label="riantr/pyroduct/group\nThe group layer"]
     pyroduct_society [label="riantr/pyroduct/society\nThe society layer"]

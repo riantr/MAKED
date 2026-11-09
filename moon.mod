@@ -11,7 +11,7 @@
 
 name = "riantr/MAKED"
 
-version = "0.1.8"
+version = "0.1.9"
 
 license = "MIT"
 
@@ -52,7 +52,7 @@ import {
   "moonbitlang/moonback@0.8.10",
   "moonbitlang/pdflite@0.4.1",
   "moonbitlang/x@0.5.7",
-  "riantr/moonbit_doubleML@0.164.62",
+  "riantr/moonbit_doubleML@0.164.64",
   "riantr/pyroduct@0.1.35",
   "colmugx/mcp@0.18.2",
 }
