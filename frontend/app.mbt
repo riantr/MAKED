@@ -66,6 +66,19 @@ pub(all) enum Msg {
   /// the move, not its label: the label is for the reader and can be changed
   /// in the vocabulary file, while the name is what the machine understands.
   SocietyStepClicked(String)
+  /// The machine: which one is running, and the machines on offer.
+  ///
+  /// The reader asks for the list rather than the page paying for it on every
+  /// load -- see the note on the chained requests: the start-up chain is the
+  /// shape this client is known to survive, and a panel nobody has opened is
+  /// not worth a hop.
+  MachinesReadClicked
+  MachinesLoaded(Result[Json, Error])
+  /// The reader chose a machine to run. The path is the machine's own file,
+  /// or the empty string for the built-in one.
+  MachineSwitchClicked(String)
+  /// The switch landed, or was refused with a reason.
+  MachineSwitched(Result[Json, Error])
   /// Read the corpus: whatever the server is configured to read, whether
   /// that is arxiv, a feed or the reader's own folder.
   ReadCorpusClicked
@@ -223,6 +236,23 @@ pub(all) struct Model {
   society : Json?
   /// What the society panel says after the last action.
   society_error : String
+  /// The machines the server can offer: the built-in one, and the machine
+  /// files that sit beside the running one. Empty until the reader asks,
+  /// because the list is only wanted by a reader who is changing the machine.
+  machines : Array[Json]
+  /// The folder the list was read from, so the panel can tell the reader
+  /// where to put a file of their own.
+  machine_directory : String
+  /// The file the running machine came from; empty when it is the built-in
+  /// one. This is what tells the reader which machine is running, and it is
+  /// the machine's own path rather than a name the client remembered.
+  machine_path : String
+  /// What the machine panel says after the last action. One of the two is
+  /// always empty, and between them they cover every outcome: the list is
+  /// read, a switch lands, a switch is refused with a reason, or the request
+  /// never reaches the server.
+  machine_error : String
+  machine_notice : String
   /// The user's own records, fetched with the pages so that the workspace
   /// needs no second request of its own. See the note in `app`.
   entries : Array[Entry]
@@ -329,6 +359,11 @@ pub fn initial() -> Model {
     causal_error: "",
     society: None,
     society_error: "",
+    machines: [],
+    machine_directory: "",
+    machine_path: "",
+    machine_error: "",
+    machine_notice: "",
     entries: [],
     entry_domains: default_entry_domains(),
     draft_domain: "",
@@ -425,6 +460,80 @@ pub fn society_step_request(trigger : String, lang : UiLang) -> (String, Json) {
 /// trust that the click arrives.
 pub fn society_request(lang : UiLang) -> String {
   "/api/society" + lang_query(lang)
+}
+
+///|
+/// The request that asks the server which machines it can offer.
+///
+/// The language travels with it, because each machine's name is written by the
+/// server and a Chinese reader wants the Chinese one.
+///
+/// Public for the same reason `society_request` is: the request is the only
+/// thing the server ever sees, and a test that cannot read it can only trust
+/// that the click arrives.
+pub fn machines_request(lang : UiLang) -> String {
+  "/api/models" + lang_query(lang)
+}
+
+///|
+/// The request that changes the machine the server runs.
+///
+/// The body names the machine's FILE rather than an index into a list the
+/// client is holding: a list is a copy, and a copy can be one machine out of
+/// date. The empty path is the built-in machine, which is the way back to it.
+///
+/// Public for the same reason the other request builders are -- the request is
+/// the only thing the server ever sees.
+pub fn machine_switch_request(path : String) -> (String, Json) {
+  ("/api/model", { "path": path })
+}
+
+///|
+/// The machines the server offered, out of its answer.
+///
+/// A missing or malformed list leaves the panel with no machines rather than
+/// failing the whole update: the reader asked what is on offer, and "nothing"
+/// is a true answer to that question.
+pub fn machine_list_of(json : Json) -> Array[Json] {
+  match field(json, "models") {
+    Some(Array(items)) => items
+    _ => []
+  }
+}
+
+///|
+/// The same list with the machine that is now running marked.
+///
+/// A switch changes which machine is current and nothing else about the list,
+/// so the list is updated in place rather than fetched again: a second request
+/// would be a second hop for a fact the answer already carried.
+pub fn mark_current_machine(items : Array[Json], path : String) -> Array[Json] {
+  let out : Array[Json] = []
+  for item in items {
+    let here = get_string(item, "path", "") == path
+    let rebuilt = match item {
+      Object(fields) => {
+        let merged = Map([], capacity=8)
+        for (name, value) in fields {
+          merged[name] = value
+        }
+        merged["current"] = Json::boolean(here)
+        Json::object(merged)
+      }
+      _ => item
+    }
+    out.push(rebuilt)
+  }
+  out
+}
+
+///|
+/// The name of the machine the reader asked to run, for the panel's own line.
+///
+/// The answer names the machine, so the panel can say "running X" without
+/// looking it up in a list it may no longer be holding.
+pub fn machine_name_of(json : Json) -> String {
+  get_string(json, "name", "")
 }
 
 ///|
@@ -1009,6 +1118,81 @@ pub fn update(
       ({ ..model, society: Some(json), society_error: "", }, @cmd.none)
     SocietyStepped(Err(_)) =>
       ({ ..model, society_error: c.status.move_unreached, }, @cmd.none)
+    // The machine.
+    //
+    // The machine is a file, and until now the only way to change which file
+    // the server runs was to restart it with a different variable -- which a
+    // reader of a page cannot do. The list and the switch are asked for when
+    // the reader asks for them, like the collective above.
+    MachinesReadClicked =>
+      (
+        { ..model, machine_error: "", machine_notice: "", },
+        @http.get(machines_request(model.lang)).expect_json(
+          emit.map(fn(result) { MachinesLoaded(result) }),
+        ),
+      )
+    MachinesLoaded(Ok(json)) =>
+      (
+        {
+          ..model,
+          machines: machine_list_of(json),
+          machine_directory: get_string(json, "directory", ""),
+          machine_path: get_string(json, "current", ""),
+          machine_error: "",
+        },
+        @cmd.none,
+      )
+    MachinesLoaded(Err(_)) =>
+      ({ ..model, machine_error: c.machine.machines_unavailable, }, @cmd.none)
+    // The switch itself.
+    //
+    // The body names the file rather than an index into a list the client is
+    // holding: a list is a copy, and a copy can be one machine out of date.
+    // The empty path is the built-in machine, which is the way back to it.
+    MachineSwitchClicked(path) => {
+      let (request, body) = machine_switch_request(path)
+      (
+        { ..model, machine_error: "", machine_notice: c.machine.switching, },
+        @http.put(request)
+        .with_json(body)
+        .expect_json(emit.map(fn(result) { MachineSwitched(result) })),
+      )
+    }
+    MachineSwitched(Ok(json)) => {
+      // The same rule as everywhere else on this client: the status code
+      // never arrives, so the body is where a refusal is seen. A file that
+      // cannot be read as a machine is refused with the reason, and the
+      // machine in force keeps running -- the panel has to say that, or a
+      // failed switch looks exactly like a switch that landed.
+      let reason = decode_error_reason(json)
+      if reason != "" {
+        ({ ..model, machine_error: reason, machine_notice: "", }, @cmd.none)
+      } else {
+        let path = get_string(json, "path", "")
+        (
+          {
+            // The answer is a step's answer plus the machine: the switch
+            // resets the loop and opens a new exploration, so the status, the
+            // slot vocabulary and the session state all have to move with it.
+            // Every one of them is in this one body, which is why the click
+            // costs one hop and not two.
+            ..apply_session_state_if_present(model, session_state_of(json)),
+            loop_status: Some(decode_loop_status(json)),
+            slots: decode_slots(json),
+            machine_path: path,
+            machines: mark_current_machine(model.machines, path),
+            machine_error: "",
+            machine_notice: machine_running_notice(
+              c,
+              get_string(json, "name", ""),
+            ),
+          },
+          @cmd.none,
+        )
+      }
+    }
+    MachineSwitched(Err(_)) =>
+      ({ ..model, machine_error: c.machine.switch_unreached, }, @cmd.none)
     UrlChanged(url) => ({ ..model, current: slug_of(url.path), }, @cmd.none)
     // The reader asked for the other language.
     //
@@ -1787,9 +1971,15 @@ fn view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
     let society_panel = society_view(emit, model)
     let research_panel = research_view(emit, model)
     let causal_panel = causal_view(emit, model)
+    // The machine sits under the loop, because the loop is what the machine
+    // decides: the domains, the positions and the slots the panel above draws
+    // are this machine's, and a reader who wants a different set of them
+    // starts by changing this one.
+    let machine_panel = machine_view(emit, model)
     @html.div([
       hero,
       loop_panel,
+      machine_panel,
       society_panel,
       research_panel,
       causal_panel,

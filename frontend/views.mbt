@@ -924,6 +924,123 @@ pub fn research_config_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html 
 }
 
 ///|
+/// The machine panel: which machine is running, and the machines the server
+/// can offer.
+///
+/// The machine is a file, and it decides what every other panel means -- the
+/// domains, the positions, the slots and the words for them. Until this panel
+/// existed the only way to change it was to restart the server with a
+/// different variable, which a reader of a page cannot do. So the panel shows
+/// the machines, marks the one that is running, and switches on a click.
+///
+/// The list is asked for rather than carried at start-up: the start-up chain
+/// is two hops and stays two hops. The panel says where a file of the reader's
+/// own goes, because a list of machines that gives no way to add one is a
+/// menu with nothing on it.
+///
+/// A file the server cannot read is listed with the reason rather than left
+/// out: a file that vanished from the list would look like a server that had
+/// forgotten it, and the reader would go looking in the folder anyway.
+pub fn machine_view(emit : @cmd.Emit[Msg], model : Model) -> @html.Html {
+  let c = chrome(model.lang)
+  let header = @html.div(class="maked-machine-header", [
+    @html.h3(class="maked-machine-title", c.machine.title),
+    @html.button(
+      class="maked-btn maked-btn-plain",
+      on_click=emit(MachinesReadClicked),
+      c.machine.show_machines,
+    ),
+  ])
+  let running_line = if model.machine_path == "" {
+    @html.p(
+      class="maked-machine-current",
+      c.machine.title + " · " + c.machine.builtin,
+    )
+  } else {
+    @html.p(class="maked-machine-current", model.machine_path)
+  }
+  let items : Array[@html.Html] = []
+  for item in model.machines {
+    let path = get_string(item, "path", "")
+    let name = get_string(item, "name", "")
+    let builtin = get_bool(item, "builtin", false)
+    let readable = get_bool(item, "readable", true)
+    let current = get_bool(item, "current", false)
+    let reason = get_string(item, "reason", "")
+    let label = if builtin {
+      c.machine.builtin
+    } else if name != "" {
+      name
+    } else {
+      path
+    }
+    let detail = if !readable {
+      if reason != "" {
+        reason
+      } else {
+        c.machine.unreadable
+      }
+    } else if current {
+      c.machine.running
+    } else {
+      ""
+    }
+    let marks = if current { " maked-machine-item--current" } else { "" }
+    let unreadable_class = if readable {
+      ""
+    } else {
+      " maked-machine-item--unreadable"
+    }
+    // A machine the server cannot read cannot be switched to, so its button
+    // is not drawn at all: a button that exists and cannot work is worse than
+    // no button, because it makes the reader think the click was ignored.
+    let action = if current || !readable {
+      @html.nothing
+    } else {
+      @html.button(
+        class="maked-btn maked-btn-accent maked-machine-run",
+        on_click=emit(MachineSwitchClicked(path)),
+        c.machine.run_this,
+      )
+    }
+    items.push(
+      @html.li(class="maked-machine-item\{marks}\{unreadable_class}", [
+        @html.span(class="maked-machine-name", label),
+        @html.span(class="maked-machine-path", path),
+        @html.span(class="maked-machine-note", detail),
+        action,
+      ]),
+    )
+  }
+  let list = if model.machines.length() == 0 {
+    @html.p(class="maked-machine-empty", c.machine.not_read)
+  } else {
+    @html.ul(class="maked-machine-list", items)
+  }
+  // Where a machine file of the reader's own goes. The folder comes from the
+  // server, because the folder is the one the running machine came from and
+  // the client has no way to work it out.
+  let folder_line = if model.machine_directory == "" {
+    @html.nothing
+  } else {
+    @html.p(class="maked-machine-where", [
+      @html.span(class="maked-machine-where-text", c.machine.where_to_put),
+      @html.span(class="maked-machine-folder", model.machine_directory),
+    ])
+  }
+  let status = if model.machine_error != "" {
+    @html.p(class="maked-machine-error", model.machine_error)
+  } else if model.machine_notice != "" {
+    @html.p(class="maked-machine-notice", model.machine_notice)
+  } else {
+    @html.nothing
+  }
+  @html.div(class="maked-machine", [
+    header, running_line, list, folder_line, status,
+  ])
+}
+
+///|
 /// The sessions page: the named explorations, the timeline of the one in
 /// front of the user, and the two ways out of a step -- go back, or fork.
 ///

@@ -155,7 +155,7 @@ async test "the machine can be changed while the server runs" {
   let db = open_switch_db("change")
   let path = "test_switch_machine.json"
   write_toy_model(path)
-  let response = @backend.switch_model(db, path)
+  let response = @backend.switch_model(db, path, @backend.Lang::english())
   let running = @backend.current_model()
   let running_path = @backend.current_model_path()
   restore_built_in()
@@ -175,7 +175,7 @@ async test "the answer carries the machine that is now running" {
   let db = open_switch_db("answer")
   let path = "test_switch_answer.json"
   write_toy_model(path)
-  let response = @backend.switch_model(db, path)
+  let response = @backend.switch_model(db, path, @backend.Lang::english())
   restore_built_in()
   remove_toy_model(path)
   assert_eq(response.status, 200)
@@ -205,7 +205,7 @@ async test "a file that is not a machine is refused and nothing changes" {
     err => fail("the file was not written: " + @debug.to_string(err))
   }
   let before = @backend.current_model().name
-  let response = @backend.switch_model(db, path)
+  let response = @backend.switch_model(db, path, @backend.Lang::english())
   let after = @backend.current_model().name
   @fs.remove(path) catch {
     _ => ()
@@ -227,7 +227,7 @@ async test "a session keeps the machine it was run on" {
   let built_in = @backend.current_model().name
   let path = "test_switch_keeps.json"
   write_toy_model(path)
-  ignore(@backend.switch_model(db, path))
+  ignore(@backend.switch_model(db, path, @backend.Lang::english()))
   let stored = match db.session_by_id(session.id) {
     Some(s) => s
     None => fail("the session is not in the table any more")
@@ -254,7 +254,7 @@ async test "a session of another machine is not adopted" {
   let session = fresh_session(db, "On the built-in machine")
   let path = "test_switch_adopt.json"
   write_toy_model(path)
-  ignore(@backend.switch_model(db, path))
+  ignore(@backend.switch_model(db, path, @backend.Lang::english()))
   let chosen = @backend.ensure_session(db)
   let stored = match db.session_by_id(chosen) {
     Some(s) => s
@@ -282,7 +282,7 @@ async test "an exploration taken on one machine still reads through that machine
   let before = @backend.export_markdown(db, session, @backend.Lang::english())
   let path = "test_switch_reads.json"
   write_toy_model(path)
-  ignore(@backend.switch_model(db, path))
+  ignore(@backend.switch_model(db, path, @backend.Lang::english()))
   // And the export as it reads afterwards, when the machine in force is
   // another one.
   let after = @backend.export_markdown(db, session, @backend.Lang::english())
@@ -308,7 +308,7 @@ async test "opening an exploration brings its machine back" {
   let session = fresh_session(db, "On the built-in machine")
   let path = "test_switch_opens.json"
   write_toy_model(path)
-  ignore(@backend.switch_model(db, path))
+  ignore(@backend.switch_model(db, path, @backend.Lang::english()))
   // The machine in force is now the toy one, and the old session is on the
   // built-in one.
   assert_eq(@backend.current_model().name, "Toy machine")

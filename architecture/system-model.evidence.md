@@ -54,10 +54,10 @@ correction lives beside them rather than in them.
 | Claim | Source | Confidence |
 |-------|--------|------------|
 | Elm-style TEA (Model/Update/View) via rabbita | `frontend/app.mbt:124-1860` | high |
-| Start-up chain: `GET /api/bootstrap`, then `GET /api/loop/status` | `frontend/app.mbt:1855`, `frontend/app.mbt:523` | high |
+| Start-up chain: `GET /api/bootstrap`, then `GET /api/loop/status` | `frontend/app.mbt:2045`, `frontend/app.mbt:633` | high |
 | Client-side routing via History API subscription | `frontend/app.mbt:1766` | high |
-| `slug_of` maps URL path to page slug | `frontend/app.mbt:370` | high |
-| All pages held in memory after first load | `frontend/app.mbt:499` | high |
+| `slug_of` maps URL path to page slug | `frontend/app.mbt:405` | high |
+| All pages held in memory after first load | `frontend/app.mbt:608` | high |
 | Page struct mirrors backend, decodes JSON totally | `frontend/page.mbt:18-145` | high |
 | Views: `header`, `domain_cards`, `page_view`, `not_found_view`, `loading_view`, `error_view` | `frontend/views.mbt:31-319` | high |
 | Logo: SVG ring + taijitu, HTML letter overlay | `frontend/logo.mbt:1-201` | high |
@@ -101,7 +101,7 @@ package imports is written `(transitive)`: none of ours imports it.
 |-----------|---------------|--------|
 | `backend/database_test.mbt` | 8 tests: round-trip, ring order, re-seed idempotency, CJK content, multi-row seed, missing slug, migrate idempotency, navigation | high |
 | `backend/page_correction_test.mbt` | 12 tests: the reader's words reach the page, a correction survives the next seed, one language leaves the other alone, a correction does not move the page, the refusals | high |
-| `frontend/frontend_test.mbt` | 174 tests: slug_of, navigation order, find_page, decode_pages (valid + malformed), ring geometry, ring radius, ring percentages, node colors, and the two languages of every surface | high |
+| `frontend/frontend_test.mbt` | 185 tests: slug_of, navigation order, find_page, decode_pages (valid + malformed), ring geometry, ring radius, ring percentages, node colors, and the two languages of every surface | high |
 
 ## Tools
 

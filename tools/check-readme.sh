@@ -4790,6 +4790,135 @@ else
   printf '  ok      %-20s %s\n' 'Machine switch' \
     'the machine can be changed while the server runs, and every exploration keeps the machine it was run on'
 fi
+# --- the machine has a panel on the page --------------------------------------
+#
+# The switch is a route, and a route is a thing only a terminal can reach. The
+# machine decides what every panel above the page means -- the domains, the
+# positions, the slots and the words for them -- so a reader who cannot see
+# which machine is running is reading a page whose sentences belong to a
+# machine they have not been told about. The panel is the difference between a
+# framework and a demonstration of one.
+#
+# The claim is a CHAIN again, and it has seven links:
+#
+#   1. the panel is on the page
+#   2. it asks for the list, in the reader's language
+#   3. the switch goes through one builder, so the button and the request
+#      cannot drift apart
+#   4. the answer moves the loop with the machine -- the status, the slot
+#      vocabulary and the session state all come out of one body
+#   5. a refusal is read out of that body, because the status code never
+#      reaches the browser
+#   6. every class the panel emits has a rule in the stylesheet
+#   7. the document names the panel
+#
+# Link 6 is not decoration. This repository has already shipped a panel whose
+# classes had no rules at all: the whole interactive surface rendered as
+# unstyled default buttons, and the file's own comment says that is part of why
+# "nothing happened" read as a broken page rather than a dead edge. A class the
+# view emits and the stylesheet does not know is a defect the tests cannot see,
+# because there is no test that draws a page.
+#
+# The missing links are printed as a SET, not as a count, and the set of
+# unstyled classes is printed by name for the same reason: "one class is
+# unstyled" does not tell a reader which one.
+
+# The body of the arm that answers a switch.
+#
+# The walk is ARM-SCOPED on purpose. A rule that only asked whether the name
+# `decode_loop_status` appeared anywhere in the file would go on saying that
+# the answer moves the loop after the arm had been changed to leave it behind.
+code_machine_switch_answer() {
+  awk '
+    /MachineSwitched\(Ok\(json\)\)/ { inside = 1; next }
+    inside && /MachineSwitched\(Err/ { inside = 0 }
+    inside { print }
+  ' frontend/app.mbt
+}
+
+# The classes the machine panel emits.
+#
+# Every `maked-machine` token in the view, wherever it sits: a class is written
+# after `class="`, and the two marks the list can carry are written as string
+# literals of their own, so a walk that only looked after `class="` would miss
+# the marks and the button.
+code_machine_panel_classes() {
+  grep -oE 'maked-machine[a-z-]*' frontend/views.mbt | LC_ALL=C sort -u
+}
+
+# The classes the stylesheet gives a rule to.
+doc_machine_panel_classes() {
+  grep -oE '^\.maked-machine[a-z-]*' frontend/dist/styles.css \
+    | sed -e 's/^\.//' | LC_ALL=C sort -u
+}
+
+MACHINE_PANEL_MISSING=""
+
+if ! grep -qF 'machine_view(emit, model)' frontend/app.mbt; then
+  MACHINE_PANEL_MISSING="$MACHINE_PANEL_MISSING the-panel-is-not-on-the-page"
+fi
+
+if ! grep -qF 'machines_request(model.lang)' frontend/app.mbt; then
+  MACHINE_PANEL_MISSING="$MACHINE_PANEL_MISSING the-panel-does-not-ask-for-the-list-in-the-readers-language"
+fi
+
+if ! grep -qF 'machine_switch_request(path)' frontend/app.mbt; then
+  MACHINE_PANEL_MISSING="$MACHINE_PANEL_MISSING the-switch-does-not-go-through-one-builder"
+fi
+
+MACHINE_SWITCH_ANSWER=$(code_machine_switch_answer)
+for link in \
+  'decode_loop_status(json):the-answer-does-not-move-the-loop' \
+  'decode_slots(json):the-answer-does-not-carry-the-slot-vocabulary' \
+  'session_state_of(json):the-answer-does-not-carry-the-session-state' \
+  'decode_error_reason(json):the-refusal-is-not-read-from-the-body'
+do
+  needle="${link%%:*}"
+  name="${link##*:}"
+  if ! printf '%s\n' "$MACHINE_SWITCH_ANSWER" | grep -qF "$needle"; then
+    MACHINE_PANEL_MISSING="$MACHINE_PANEL_MISSING $name"
+  fi
+done
+
+# The classes the panel emits that the stylesheet does not know. The set is
+# derived twice -- once from the view, once from the stylesheet -- so a class
+# that is renamed in one place and not the other is a difference, and the
+# difference is what is printed. The classes are named one by one, because
+# "one class is unstyled" does not tell a reader which one.
+MACHINE_PANEL_CLASSES=$(code_machine_panel_classes)
+MACHINE_PANEL_STYLES=$(doc_machine_panel_classes)
+MACHINE_UNSTYLED=""
+if [ -z "$MACHINE_PANEL_CLASSES" ]; then
+  MACHINE_PANEL_MISSING="$MACHINE_PANEL_MISSING the-machine-panel-could-not-be-read"
+elif [ -z "$MACHINE_PANEL_STYLES" ]; then
+  MACHINE_PANEL_MISSING="$MACHINE_PANEL_MISSING no-machine-class-has-a-rule"
+else
+  while IFS= read -r class_name; do
+    [ -n "$class_name" ] || continue
+    if ! printf '%s\n' "$MACHINE_PANEL_STYLES" | grep -qx "$class_name"; then
+      MACHINE_UNSTYLED="$MACHINE_UNSTYLED $class_name"
+    fi
+  done <<< "$MACHINE_PANEL_CLASSES"
+fi
+
+if ! grep -qF 'machine panel' "$README"; then
+  MACHINE_PANEL_MISSING="$MACHINE_PANEL_MISSING the-document-does-not-name-the-panel"
+fi
+
+MACHINE_PANEL_MISSING="${MACHINE_PANEL_MISSING# }"
+MACHINE_UNSTYLED="${MACHINE_UNSTYLED# }"
+MACHINE_UNSTYLED=$(printf '%s' "$MACHINE_UNSTYLED" | tr ' ' ',')
+
+if [ -n "$MACHINE_UNSTYLED" ]; then
+  fail "$(printf '%-20s the machine panel draws classes the stylesheet has no rule for: %s' \
+    'Machine panel' "$MACHINE_UNSTYLED")"
+elif [ -n "$MACHINE_PANEL_MISSING" ]; then
+  fail "$(printf '%-20s the machine panel does not match the tree; these links are missing: %s' \
+    'Machine panel' "$MACHINE_PANEL_MISSING")"
+else
+  printf '  ok      %-20s %s\n' 'Machine panel' \
+    'the page offers the machines on offer, switches to one in a single hop, and every class it draws has a rule'
+fi
 # --- the ring's letters --------------------------------------------------------
 #
 # The ring has a letter for each domain -- M for Model, D for Data -- and the

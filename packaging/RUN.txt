@@ -52,9 +52,10 @@ tables and corpora under research/, and research/notes/ is the corpus one of
 those corpora names. Point a variable at one of them to run on it.
 
 The machine can also be changed while the server runs: the machines under
-models/ are the ones on offer, and PUT /api/model switches to one of them.
-Each exploration keeps the machine it was run on, so a run of one machine is
-never described in the words of another.
+models/ are the ones on offer, and the index page's machine panel switches
+to one of them -- no terminal, no restart. PUT /api/model does the same over
+HTTP. Each exploration keeps the machine it was run on, so a run of one
+machine is never described in the words of another.
 
 There is no authentication. Anyone who can reach the port can read and delete
 every record, so do not expose it to a network you do not control.

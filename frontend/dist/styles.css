@@ -1279,3 +1279,130 @@ body {
     font-size: 12px;
     letter-spacing: 1px;
 }
+
+/* --- the machine ---------------------------------------------------------- */
+/*
+ * The machine is a file, and it decides what every other panel means: the
+ * domains, the positions, the slots and the words for them. Until this panel
+ * existed the only way to change it was to restart the server with a different
+ * variable -- so the panel is the reader's only way in, and it has to read as
+ * a menu of machines rather than as a status line.
+ *
+ * The machine that is running is marked rather than dimmed, for the same
+ * reason the loop's mode is: a reader has to be able to tell "the one you are
+ * on" from "the one you could switch to" at a glance. A file the server cannot
+ * read is drawn as visibly unreadable and carries no button at all.
+ */
+.maked-machine {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    padding: 18px 20px;
+    margin: 0 0 24px;
+}
+.maked-machine-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0 0 10px;
+}
+.maked-machine-title {
+    margin: 0;
+    font-size: 18px;
+    color: #2c3e50;
+}
+.maked-machine-current {
+    margin: 0 0 12px;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 13px;
+    color: #555;
+    overflow-wrap: anywhere;
+}
+.maked-machine-list {
+    list-style: none;
+    margin: 0 0 12px;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 10px;
+}
+.maked-machine-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fafafa;
+}
+.maked-machine-item--current {
+    border-color: #27ae60;
+    background: #f2fbf6;
+}
+.maked-machine-item--unreadable {
+    border-style: dashed;
+    border-color: #d0a0a0;
+    background: #fdf6f6;
+}
+.maked-machine-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: #333;
+}
+.maked-machine-item--unreadable .maked-machine-name { color: #999; }
+.maked-machine-path {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 12px;
+    color: #777;
+    overflow-wrap: anywhere;
+}
+.maked-machine-note {
+    font-size: 12px;
+    color: #777;
+}
+.maked-machine-item--current .maked-machine-note { color: #1e7e46; }
+.maked-machine-item--unreadable .maked-machine-note { color: #a15c5c; }
+.maked-machine-run {
+    align-self: flex-start;
+    margin-top: 4px;
+}
+.maked-machine-empty {
+    margin: 0 0 12px;
+    color: #888;
+    font-size: 14px;
+}
+.maked-machine-where {
+    margin: 0 0 10px;
+    font-size: 13px;
+    color: #666;
+}
+.maked-machine-where-text {
+    display: inline;
+}
+.maked-machine-folder {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: #eef2f7;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 12px;
+    color: #2c3e50;
+}
+.maked-machine-error {
+    margin: 0;
+    padding: 8px 10px;
+    border-left: 3px solid #c0392b;
+    background: #fdf2f1;
+    color: #8c2b20;
+    font-size: 13px;
+}
+.maked-machine-notice {
+    margin: 0;
+    padding: 8px 10px;
+    border-left: 3px solid #27ae60;
+    background: #f2fbf6;
+    color: #1e7e46;
+    font-size: 13px;
+}

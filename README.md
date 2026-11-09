@@ -77,8 +77,8 @@ Protocol over stdio or HTTP.
 * **The machine is a file, and you can change it while the server runs**
 
   A model file (JSON or YAML) with its own domains, positions, slots and rules;
-  `MAKED_MODEL` names it, and `PUT /api/model` swaps the running machine for
-  another one without a restart.
+  `MAKED_MODEL` names it, and the index page's machine panel swaps the running
+  machine for another one without a restart.
 
 * **The mapping table is a file**
 
@@ -598,10 +598,16 @@ decides, because a file written in one and read as the other is a file that half
 
 ### Changing the machine while the server runs
 
-`GET /api/models` lists the machines the server can offer: the built-in one, and the machine
-files that sit beside the running one — `models/` by default, or the folder `MAKED_MODEL`
-names. Drop your own machine file in that folder and it is on the list.
+The index page carries a **machine panel**. It says which machine is running, lists the ones the
+server can offer, and switches on a click — no terminal, no restart. The machines on offer are the
+built-in one and the machine files that sit beside the running one: `models/` by default, or the
+folder `MAKED_MODEL` names. The panel states that folder, so drop your own machine file there and
+it is on the list. A file the server cannot read is listed with the reason and gets no button: a
+button that exists and cannot work reads as a broken page.
 
+The same two things over HTTP:
+
+`GET /api/models` lists the machines the server can offer, marking the one that is running.
 `PUT /api/model` switches to one of them:
 
 ```
@@ -613,6 +619,12 @@ curl -X PUT http://127.0.0.1:8080/api/model \
 The file is read before anything changes. A file that cannot be read as a machine is refused
 with the reason, and the machine in force keeps running — half a machine is worse than the
 one that was there.
+
+The answer to the switch is a step's answer plus the machine: the loop status with the session
+state folded in, in the same body. A switch resets the loop and opens a new exploration, so a
+client that had only the machine back would be showing the old run's position under the new
+machine's names — and the browser is a client whose request chain is the shape it is known to
+survive, so the status travels in this answer rather than in a second request.
 
 The exploration does not change with the machine. A session's steps belong to the machine they
 were taken on, so every session carries the machine it was run on and is read through that
@@ -702,7 +714,7 @@ MAKED_moonbit/
 │   ├── page.mbt                      # the page, and how it is decoded
 │   ├── logo.mbt                      # the ring
 │   ├── views.mbt                     # the views
-│   └── frontend_test.mbt             # 174 tests
+│   └── frontend_test.mbt             # 185 tests
 ├── cmd/
 │   ├── server/main.mbt               # the web server
 │   ├── mcp/main.mbt                  # the agent's server
@@ -718,7 +730,7 @@ MAKED_moonbit/
 │   └── notes/                        # the corpus the local example names
 │       └── failed-launch.md
 ├── tools/
-│   ├── integration-test.ps1          # 484 checks against a running server
+│   ├── integration-test.ps1          # 490 checks against a running server
 │   ├── mutate-backend.ps1            # 148 mutations of the backend
 │   ├── mutate-frontend.ps1           # 65 mutations of the frontend
 │   ├── mutate-loop.ps1               # 16 mutations of the loop
@@ -1163,8 +1175,8 @@ build runs. Both print the same lines and they go red together.
 | What | How many | How it is checked |
 |---|---|---|
 | Backend tests | 485 | `moon test --target native backend` |
-| Frontend tests | 174 | `moon test --target js frontend` |
-| Integration checks | 484 | `tools/integration-test.ps1` — against a server that is really running |
+| Frontend tests | 185 | `moon test --target js frontend` |
+| Integration checks | 490 | `tools/integration-test.ps1` — against a server that is really running |
 | Backend mutations | 148 | `tools/mutate-backend.ps1` |
 | Frontend mutations | 65 | `tools/mutate-frontend.ps1` |
 | Loop mutations | 16 | `tools/mutate-loop.ps1` |

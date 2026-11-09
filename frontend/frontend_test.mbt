@@ -640,6 +640,11 @@ fn bare_model() -> @frontend.Model {
     session_name_draft: "",
     session_rename_draft: "",
     session_delete_pending: 0,
+    machines: [],
+    machine_directory: "",
+    machine_path: "",
+    machine_error: "",
+    machine_notice: "",
     lang: @frontend.UiLang::english(),
   }
 }
@@ -4152,4 +4157,266 @@ test "a step that happened still updates the panel" {
   )
   assert_eq(model.loop_error, "")
   assert_true(model.loop_status is Some(_))
+}
+
+///
+/// The machine panel: which machine is running, and the machines on offer.
+///
+/// The machine is a file, and it decides what every other panel means -- the
+/// domains, the positions, the slots and the words for them. Until the panel
+/// existed the only way to change it was to restart the server with a
+/// different variable, which a reader of a page cannot do. So the claim is a
+/// chain, and every link in it is a test: the list is asked for, the switch is
+/// a PUT that names the file, the answer moves the loop with the machine, a
+/// refusal leaves the machine running, and a file the server cannot read is
+/// offered without a button that would do nothing.
+
+///|
+/// The machines on offer reach the server as a request to the models endpoint.
+test "the machines reach the server as a request to the models endpoint" {
+  let (_, cmd) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::MachinesReadClicked,
+    silent_emit(),
+  )
+  let request = cmd.to_repr().to_string()
+  assert_true(request.contains("/api/models"))
+  assert_true(request.contains("Get"))
+}
+
+///|
+/// The request asks for the list in the reader's language.
+///
+/// The name of a machine is written by the machine, so a Chinese reader wants
+/// the Chinese name back -- the same rule the collective's request follows.
+test "the machines request carries the language" {
+  let zh = @frontend.machines_request(@frontend.UiLang::chinese())
+  let en = @frontend.machines_request(@frontend.UiLang::english())
+  assert_true(zh.contains("?lang=zh"))
+  assert_true(en.contains("?lang=en"))
+}
+
+///|
+/// The switch is a PUT that names the machine's file.
+///
+/// The verb matters as much as the path: a machine is *replaced*, and the
+/// server's route is a PUT. The body names the file rather than an index into
+/// a list the client is holding, because a list is a copy and a copy can be
+/// one machine out of date.
+test "the switch reaches the server as a PUT naming the file" {
+  let (_, cmd) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::MachineSwitchClicked("models/toy.json"),
+    silent_emit(),
+  )
+  let request = cmd.to_repr().to_string()
+  assert_true(request.contains("/api/model"))
+  assert_true(request.contains("Put"))
+}
+
+///|
+/// The body the switch sends is the path the reader chose, under `path`.
+///
+/// The command's own rendering does not show the body, so the body is read off
+/// the builder the arm uses -- the same builder, so what is checked is what
+/// goes over the wire. The server reads the file out of this one field and
+/// answers a request without it with the built-in machine, which would look
+/// like a switch that silently ignored the reader.
+test "the switch body names the file under path" {
+  let (_, body) = @frontend.machine_switch_request("models/toy.json")
+  match body {
+    Object(fields) =>
+      match fields.get("path") {
+        Some(@json.String(value)) => assert_eq(value, "models/toy.json")
+        _ => fail("the body should carry the path as a string")
+      }
+    _ => fail("the body should be an object")
+  }
+}
+
+///|
+/// The built-in machine is the empty path, which is the way back to it.
+test "the built-in machine is the empty path" {
+  let (path, _body) = @frontend.machine_switch_request("")
+  assert_eq(path, "/api/model")
+}
+
+///|
+/// The list the server sent becomes the list the panel shows.
+test "the machines the server offered become the panel's list" {
+  let answer : Json = {
+    "directory": "models",
+    "current": "models/toy.json",
+    "models": [
+      {
+        "path": "",
+        "name": "MAKED (pyroduct)",
+        "current": false,
+        "readable": true,
+        "builtin": true,
+        "reason": "",
+      },
+      {
+        "path": "models/toy.json",
+        "name": "Toy machine",
+        "current": true,
+        "readable": true,
+        "builtin": false,
+        "reason": "",
+      },
+    ],
+  }
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::MachinesLoaded(Ok(answer)),
+    silent_emit(),
+  )
+  assert_eq(model.machines.length(), 2)
+  assert_eq(model.machine_directory, "models")
+  assert_eq(model.machine_path, "models/toy.json")
+  assert_eq(model.machine_error, "")
+}
+
+///|
+/// The answer to a switch moves the loop with the machine.
+///
+/// A switch resets the loop and opens a new exploration on the new machine, so
+/// the position, the slot vocabulary and the session state are all the new
+/// machine's. They travel in the same body as the machine -- one click, one
+/// hop -- because this client's request chain is the shape it is known to
+/// survive.
+test "the answer to a switch moves the loop with the machine" {
+  let answer : Json = {
+    "current_domain": "I",
+    "current_position": "Raw idea",
+    "drive_slot": "Ask",
+    "blocked": false,
+    "undecided": true,
+    "open_slots": [],
+    "history": [],
+    "slots": [],
+    "model": { "id": "toy", "name": "Toy machine" },
+    "name": "Toy machine",
+    "path": "models/toy.json",
+    "session": { "id": 7, "name": "Toy machine" },
+    "research_slot": "",
+  }
+  let (model, _) = @frontend.update(
+    bare_model(),
+    @frontend.Msg::MachineSwitched(Ok(answer)),
+    silent_emit(),
+  )
+  assert_eq(model.machine_error, "")
+  assert_eq(model.machine_path, "models/toy.json")
+  assert_true(model.machine_notice.contains("Toy machine"))
+  // The position and the vocabulary came with it, from the same body.
+  assert_true(model.loop_status is Some(_))
+}
+
+///|
+/// A refused switch leaves the machine that was running where it was.
+///
+/// Half a machine is worse than the one that was there: the server refuses a
+/// file it cannot read as a machine and changes nothing, and the panel has to
+/// say that rather than going blank or claiming the switch landed.
+test "a refused switch leaves the machine running and says why" {
+  let refusal : Json = {
+    "error": "unreadable_model",
+    "path": "models/broken.json",
+    "reason": "the file could not be read as a machine this version understands",
+  }
+  let (model, _) = @frontend.update(
+    { ..bare_model(), machine_path: "models/toy.json", },
+    @frontend.Msg::MachineSwitched(Ok(refusal)),
+    silent_emit(),
+  )
+  assert_eq(model.machine_path, "models/toy.json")
+  assert_true(model.machine_error.contains("could not be read"))
+  assert_eq(model.machine_notice, "")
+}
+
+///|
+/// The panel marks the machine that is now running.
+///
+/// The mark is derived from the answer's path rather than from a list fetched
+/// again: a second request would be a second hop for a fact the answer already
+/// carried, and the list a reader is looking at would flicker.
+test "the list marks the machine that is now running" {
+  let items : Array[Json] = [
+    { "path": "", "name": "MAKED (pyroduct)", "current": true },
+    { "path": "models/toy.json", "name": "Toy machine", "current": false },
+  ]
+  let marked = @frontend.mark_current_machine(items, "models/toy.json")
+  assert_eq(marked.length(), 2)
+  assert_eq(@frontend.get_bool(marked[0], "current", true), false)
+  assert_eq(@frontend.get_bool(marked[1], "current", false), true)
+}
+
+///|
+/// The panel sends the fetch click.
+test "the machine panel sends the fetch click" {
+  let seen : Array[@frontend.Msg] = []
+  let _ = @frontend.machine_view(capturing_emit(seen), bare_model())
+  let mut fetches = 0
+  for msg in seen {
+    match msg {
+      @frontend.Msg::MachinesReadClicked => fetches += 1
+      _ => ()
+    }
+  }
+  assert_eq(fetches, 1)
+}
+
+///|
+/// The panel offers a button for every machine that can be run, and no other.
+///
+/// A button that exists and cannot work is worse than no button: pressing it
+/// and seeing nothing is how a working refusal reads as a broken page. So the
+/// machine that is running gets no button (it is already running) and a file
+/// the server cannot read gets no button (it cannot be run) -- and the
+/// built-in one, which is neither, gets one, carrying the empty path.
+test "the panel offers a button for every machine that can be run" {
+  let seen : Array[@frontend.Msg] = []
+  let items : Array[Json] = [
+    {
+      "path": "",
+      "name": "MAKED (pyroduct)",
+      "current": false,
+      "readable": true,
+      "builtin": true,
+      "reason": "",
+    },
+    {
+      "path": "models/toy.json",
+      "name": "Toy machine",
+      "current": true,
+      "readable": true,
+      "builtin": false,
+      "reason": "",
+    },
+    {
+      "path": "models/broken.json",
+      "name": "",
+      "current": false,
+      "readable": false,
+      "builtin": false,
+      "reason": "this file cannot be read as a machine",
+    },
+  ]
+  let model = {
+    ..bare_model(),
+    machines: items,
+    machine_path: "models/toy.json",
+    machine_directory: "models",
+  }
+  let _ = @frontend.machine_view(capturing_emit(seen), model)
+  let paths : Array[String] = []
+  for msg in seen {
+    match msg {
+      @frontend.Msg::MachineSwitchClicked(path) => paths.push(path)
+      _ => ()
+    }
+  }
+  assert_eq(paths.length(), 1)
+  assert_eq(paths[0], "")
 }

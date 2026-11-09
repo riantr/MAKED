@@ -675,7 +675,7 @@ pub fn build_api(app : App, db : Database, db_path : String) -> Unit {
   // through the machine it was run on.
   app.put("/api/model", req => {
     let payload = req.json().unwrap_or(Json::empty_object())
-    switch_model(db, json_string(payload, "path"))
+    switch_model(db, json_string(payload, "path"), lang_of(req))
   })
   // GET /api/agent
   //
@@ -1960,7 +1960,18 @@ fn model_entry_json(
 /// through the machine it was run on.
 ///
 /// The path is empty for the built-in machine, which is the way back to it.
-pub async fn switch_model(db : Database, path : String) -> Response {
+///
+/// The answer is a step's answer plus the machine. A switch resets the loop and
+/// opens a new exploration, so a client that had only the machine back would be
+/// showing the old run's position under the new machine's names -- and the
+/// client that shows it is the one whose request chain is the shape it is known
+/// to survive, so the status travels in this answer rather than in a second
+/// request. The same reasoning the bootstrap uses for the session state.
+pub async fn switch_model(
+  db : Database,
+  path : String,
+  lang : Lang,
+) -> Response {
   let machine = if path == "" {
     Model::pyroduct()
   } else {
@@ -1997,17 +2008,34 @@ pub async fn switch_model(db : Database, path : String) -> Response {
   // of its own. A table that names a slot the new machine does not have is a
   // rule about nowhere, so the slot is named in the answer rather than the
   // reader being left to find out that every document is skipped.
-  let body : Json = {
-    "model": machine.to_json(),
-    "name": machine.name,
-    "path": path,
-    "session": session.to_json(),
-    // The slot the running table names and the new machine does not have, or
-    // "" when the table fits the machine.
-    "research_slot": match current_research().first_unfitting_slot(machine) {
-      Some(slot) => slot
-      None => ""
-    },
+  let research_slot = match current_research().first_unfitting_slot(machine) {
+    Some(slot) => slot
+    None => ""
+  }
+  let status = loop_payload(db, lang)
+  let body = match status {
+    Object(fields) => {
+      let merged = Map([], capacity=48)
+      for (name, value) in fields {
+        merged[name] = value
+      }
+      merged["model"] = machine.to_json()
+      merged["name"] = Json::string(machine.name)
+      merged["path"] = Json::string(path)
+      merged["session"] = session.to_json()
+      merged["research_slot"] = Json::string(research_slot)
+      Json::object(merged)
+    }
+    // `loop_payload` answers with the status object; anything else is a shape
+    // this version does not know, and the machine is still worth reporting.
+    _ =>
+      {
+        "model": machine.to_json(),
+        "name": machine.name,
+        "path": path,
+        "session": session.to_json(),
+        "research_slot": research_slot,
+      }
   }
   Response::json(body)
 }

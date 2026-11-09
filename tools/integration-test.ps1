@@ -1392,6 +1392,18 @@ try {
       # way back to it.
       $switched = Put-Json "/api/model" @{ path = "" }
       Assert-Status "the machine can be changed while the server runs" 200 $switched
+      # The answer is a step's answer plus the machine. A switch resets the
+      # loop and opens a new exploration, so a client that had only the machine
+      # back would be showing the old run's position under the new machine's
+      # names -- and the client that shows it is the one whose request chain is
+      # the shape it is known to survive. So the status travels in this answer.
+      #
+      # `Put-Json` answers with the response, body and all, so the body is
+      # parsed here rather than `Field`-ed off the wrapper.
+      $switchedBody = $switched.Body | ConvertFrom-Json
+      Assert-Field "and the answer carries the machine that is now running" $switchedBody "name" "MAKED (pyroduct)"
+      Assert-Field "and the answer says where the loop now stands" $switchedBody "current_domain" "M"
+      Assert-HasField "and the answer carries the session state" $switchedBody "session_state"
       $now = Get-Json "/api/model"
       Assert-Field "and the machine in force is the built-in one" $now "name" "MAKED (pyroduct)"
       $status = Get-Json "/api/loop/status"
@@ -1405,6 +1417,11 @@ try {
       Assert-Field "and the new exploration names the machine it was run on" $newSession "model" "MAKED (pyroduct)"
       $oldSession = @($sessions.sessions | Where-Object { $_.id -eq $oldId })[0]
       Assert-Field "and the old one still names the machine it was run on" $oldSession "model" "Product iteration"
+      # The list follows the switch: the panel marks the machine the answer
+      # named, and it does not have to ask for the list again to do it.
+      $afterSwitch = Get-Json "/api/models"
+      $nowRunning = @($afterSwitch.models | Where-Object { $_.current })[0]
+      Assert-True "and the list marks the machine that is now running" ($nowRunning.builtin -eq $true)
 
       # And back to the file.
       $back = Put-Json "/api/model" @{ path = $ModelFile }
@@ -1419,6 +1436,11 @@ try {
       Set-Content -Path $broken -Value "this is not a machine" -Encoding UTF8
       $refused = Put-Json "/api/model" @{ path = $broken }
       Assert-Status "a file that is not a machine is refused" 400 $refused
+      # The reason travels with the refusal, because the status code never
+      # reaches the browser: the panel reads the body or it says nothing.
+      $refusedBody = $refused.Body | ConvertFrom-Json
+      Assert-Field "and the refusal says why" $refusedBody "error" "unreadable_model"
+      Assert-HasField "and the refusal names the file it refused" $refusedBody "reason"
       $now = Get-Json "/api/model"
       Assert-Field "and the machine in force keeps running" $now "name" "Product iteration"
       Remove-Item -Path $broken -Force -ErrorAction SilentlyContinue

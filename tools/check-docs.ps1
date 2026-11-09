@@ -2189,6 +2189,54 @@ if ($machineSwitchMissing.Count -gt 0) {
   Write-Ok 'Machine switch' 'the agent guide and the run note both say the machine can be changed while the server runs'
 }
 
+# --- the machine has a panel on the page -------------------------------------
+#
+# The two documents above tell an agent that the machine can be changed. AGENT.md
+# is also what a person reads before driving MAKED by hand, and RUN.txt is what a
+# reader of the release archive has when the toolchain is gone -- so both have to
+# say that the switch is on the page and needs no terminal. A reader who is told
+# only about the route will conclude the machine can be changed by a client, not
+# by them.
+#
+# The tree's side of that promise is the panel: the composer that puts it on the
+# page and the view that draws it. The readme gate holds the same promise more
+# deeply -- it reads the switch's answer and every class the panel draws -- so
+# this gate holds the two documents to the fact that the panel exists and that
+# both of them name it.
+
+$machinePanelMissing = @()
+
+$appText = [System.IO.File]::ReadAllText((Join-Path $PWD 'frontend/app.mbt'), $enc)
+if (-not $appText.Contains('machine_view(emit, model)')) {
+  $machinePanelMissing += 'the-panel-is-not-on-the-page'
+}
+
+$viewsText = [System.IO.File]::ReadAllText((Join-Path $PWD 'frontend/views.mbt'), $enc)
+if (-not $viewsText.Contains('pub fn machine_view')) {
+  $machinePanelMissing += 'the-panel-is-not-drawn'
+}
+
+$agentText = [System.IO.File]::ReadAllText((Join-Path $PWD $agentDoc), $enc)
+if (-not $agentText.Contains('machine panel')) {
+  $machinePanelMissing += 'the-agent-guide-does-not-name-the-panel'
+}
+
+# The note is wrapped at 78 columns, so a sentence that breaks across two lines
+# is still one sentence; the note is read as one line before it is searched.
+$runText = [System.IO.File]::ReadAllText((Join-Path $PWD $runNote), $enc)
+$runFlat = ($runText -replace "`r`n", ' ') -replace "`n", ' '
+$runFlat = $runFlat -replace "`r", ''
+$runFlat = [regex]::Replace($runFlat, ' {2,}', ' ')
+if (-not $runFlat.Contains('machine panel')) {
+  $machinePanelMissing += 'the-run-note-does-not-name-the-panel'
+}
+
+if ($machinePanelMissing.Count -gt 0) {
+  Write-Fail ("{0,-22} the machine panel does not match the documents; these links are missing: {1}" -f 'Machine panel', ($machinePanelMissing -join ' '))
+} else {
+  Write-Ok 'Machine panel' 'the agent guide and the run note both say the switch is on the page'
+}
+
 # --- the release archive, as the note describes it ----------------------------
 #
 # The note that ships inside the archive is the first thing a reader of a

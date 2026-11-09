@@ -353,6 +353,7 @@ pub struct Chrome {
   causal : CausalWords
   society : SocietyWords
   pages : PageWords
+  machine : MachineWords
 }
 
 ///|
@@ -883,6 +884,80 @@ fn pages_zh() -> PageWords {
 }
 
 ///|
+/// The words of the machine panel: which machine is running, and the machines
+/// the reader can switch to.
+///
+/// The machine decides what every other panel means -- the domains, the
+/// positions, the slots -- so the reader has to be able to see which one is
+/// running and to change it without a terminal.
+pub struct MachineWords {
+  /// The panel's heading.
+  title : String
+  /// The button that asks the server what it can offer.
+  show_machines : String
+  /// The sentence that says where a machine file of the reader's own goes.
+  where_to_put : String
+  /// What the panel says when the reader has not looked yet.
+  not_read : String
+  /// The mark on the machine that is running.
+  running : String
+  /// The mark on the machine the built-in one is.
+  builtin : String
+  /// The button that runs a machine.
+  run_this : String
+  /// The sentence after a switch landed, when the server gives no name.
+  switched : String
+  /// What the panel says while the switch is in flight.
+  switching : String
+  /// The failures that are the client's own to describe.
+  machines_unavailable : String
+  switch_unavailable : String
+  switch_unreached : String
+  /// The mark on a machine file the server cannot read.
+  unreadable : String
+}
+
+///|
+/// The words of the machine panel, in English.
+fn machine_en() -> MachineWords {
+  {
+    title: "The machine",
+    show_machines: "Show the machines",
+    where_to_put: "A machine file of your own goes in this folder; the file must be readable as a machine before the server will run it.",
+    not_read: "The machine is a file. Ask to see the ones on offer.",
+    running: "running",
+    builtin: "built in",
+    run_this: "Run this one",
+    switched: "The machine is running.",
+    switching: "Switching…",
+    machines_unavailable: "the machines could not be listed",
+    switch_unavailable: "the machine could not be changed",
+    switch_unreached: "the switch did not reach the server",
+    unreadable: "this file cannot be read as a machine",
+  }
+}
+
+///|
+/// The words of the machine panel, in Chinese.
+fn machine_zh() -> MachineWords {
+  {
+    title: "机器",
+    show_machines: "显示可用的机器",
+    where_to_put: "自己的机器文件放在这个文件夹里；服务器只有在能把这个文件读成一台机器之后才会运行它。",
+    not_read: "机器是一个文件。点一下，看看有哪些可以换。",
+    running: "正在运行",
+    builtin: "内置",
+    run_this: "运行这一台",
+    switched: "这一台正在运行。",
+    switching: "切换中…",
+    machines_unavailable: "机器列不出来",
+    switch_unavailable: "机器没能换掉",
+    switch_unreached: "这次切换没到服务器",
+    unreadable: "这个文件读不成一台机器",
+  }
+}
+
+///|
 /// The words of the interface, in the language asked for.
 pub fn chrome(lang : UiLang) -> Chrome {
   match lang {
@@ -898,6 +973,7 @@ pub fn chrome(lang : UiLang) -> Chrome {
         causal: causal_en(),
         society: society_en(),
         pages: pages_en(),
+        machine: machine_en(),
       }
     Chinese =>
       {
@@ -911,6 +987,7 @@ pub fn chrome(lang : UiLang) -> Chrome {
         causal: causal_zh(),
         society: society_zh(),
         pages: pages_zh(),
+        machine: machine_zh(),
       }
   }
 }
@@ -1213,6 +1290,23 @@ pub fn page_corrected_notice(c : Chrome, title : String) -> String {
   match c.lang {
     English => "“" + title + "” now says what you wrote."
     Chinese => "“" + title + "” 现在说的是你写下的字。"
+  }
+}
+
+///|
+/// The sentence after a machine switch landed.
+///
+/// The machine's own name, because the name is written by the machine and the
+/// panel is reporting what the server installed rather than what the button
+/// said.
+pub fn machine_running_notice(c : Chrome, name : String) -> String {
+  if name == "" {
+    c.machine.switched
+  } else {
+    match c.lang {
+      English => name + " is running."
+      Chinese => "正在运行 " + name + "。"
+    }
   }
 }
 

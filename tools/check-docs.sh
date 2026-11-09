@@ -2301,6 +2301,52 @@ else
     'the agent guide and the run note both say the machine can be changed while the server runs'
 fi
 
+# --- the machine has a panel on the page -------------------------------------
+#
+# The two documents above tell an agent that the machine can be changed. AGENT.md
+# is also what a person reads before driving MAKED by hand, and RUN.txt is what a
+# reader of the release archive has when the toolchain is gone -- so both have to
+# say that the switch is on the page and needs no terminal. A reader who is told
+# only about the route will conclude the machine can be changed by a client, not
+# by them.
+#
+# The tree's side of that promise is the panel: the composer that puts it on the
+# page and the view that draws it. The readme gate holds the same promise more
+# deeply -- it reads the switch's answer and every class the panel draws -- so
+# this gate holds the two documents to the fact that the panel exists and that
+# both of them name it.
+
+MACHINE_PANEL_MISSING=""
+
+if ! grep -qF 'machine_view(emit, model)' frontend/app.mbt; then
+  MACHINE_PANEL_MISSING="$MACHINE_PANEL_MISSING the-panel-is-not-on-the-page"
+fi
+
+if ! grep -qF 'pub fn machine_view' frontend/views.mbt; then
+  MACHINE_PANEL_MISSING="$MACHINE_PANEL_MISSING the-panel-is-not-drawn"
+fi
+
+if ! grep -qF 'machine panel' "$AGENT_DOC"; then
+  MACHINE_PANEL_MISSING="$MACHINE_PANEL_MISSING the-agent-guide-does-not-name-the-panel"
+fi
+
+# The note is wrapped at 78 columns, so a sentence that breaks across two lines
+# is still one sentence; the note is read as one line before it is searched.
+RUN_NOTE_FLAT=$(tr '\n' ' ' < "$RUN_NOTE" | tr -s ' ')
+if ! printf '%s' "$RUN_NOTE_FLAT" | grep -qF 'machine panel'; then
+  MACHINE_PANEL_MISSING="$MACHINE_PANEL_MISSING the-run-note-does-not-name-the-panel"
+fi
+
+MACHINE_PANEL_MISSING="${MACHINE_PANEL_MISSING# }"
+
+if [ -n "$MACHINE_PANEL_MISSING" ]; then
+  fail "$(printf '%-22s the machine panel does not match the documents; these links are missing: %s' \
+    'Machine panel' "$MACHINE_PANEL_MISSING")"
+else
+  ok 'Machine panel' \
+    'the agent guide and the run note both say the switch is on the page'
+fi
+
 # --- the release archive, as the note describes it ----------------------------
 #
 # The note that ships inside the archive is the first thing a reader of a
