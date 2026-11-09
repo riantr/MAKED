@@ -5016,6 +5016,89 @@ if ($unstyled.Count -gt 0) {
 } else {
   Write-Output ("  ok      {0,-20} {1}" -f 'Machine panel', 'the page offers the machines on offer, switches to one in a single hop, and every class it draws has a rule')
 }
+# --- the classes a view draws, against the rules the stylesheet gives them ------
+#
+# The machine panel's own rule is a special case of this one, and it is the
+# reason to write the general case down: the panel's classes had rules, while
+# the buttons it draws did not, so the switch it offers rendered as the
+# browser's default button. The stylesheet itself carries a paragraph about the
+# same failure for the loop panel -- whole panels of classes with no rule at
+# all -- and every panel added since was in exactly that state: the causal
+# estimate, the collective, the corpus editor, the mapping table, the research
+# list, and the button each of them asks the reader to press.
+#
+# No test draws a page, so no test can see a rule that is not there. The gate
+# derives the set twice -- once from the views, once from the stylesheet -- and
+# prints the difference by name, because "one class is unstyled" does not tell
+# a reader which class.
+#
+# An id is not a class, and the label that points at an id is not a class
+# either, so both are removed before the views are read: the form fields would
+# otherwise be demanded to carry class rules they do not need.
+function Get-ViewClasses {
+  $out = @()
+  foreach ($file in (Get-ChildItem -Path (Join-Path $PWD 'frontend') -Filter '*.mbt' -File)) {
+    if ($file.Name -like '*_test.mbt') { continue }
+    $text = [System.IO.File]::ReadAllText($file.FullName, $enc)
+    $text = $text -replace 'id="[^"]*"', ''
+    $text = $text -replace 'for_="[^"]*"', ''
+    foreach ($m in [regex]::Matches($text, 'maked-[A-Za-z0-9_-]+')) { $out += $m.Value }
+  }
+  Sort-Set $out
+}
+
+# The classes the stylesheet gives a rule to. Its comments are removed first: a
+# class named in a comment is a class nobody styled, and this file's own
+# comments name plenty of them.
+function Get-ViewStyles {
+  $text = [System.IO.File]::ReadAllText((Join-Path $PWD 'frontend/dist/styles.css'), $enc)
+  $text = [regex]::Replace($text, '(?s)/\*.*?\*/', '')
+  $out = @()
+  foreach ($m in [regex]::Matches($text, '\.(maked-[A-Za-z0-9_-]+)')) { $out += $m.Groups[1].Value }
+  Sort-Set $out
+}
+
+$viewClasses = @(Get-ViewClasses)
+$viewStyles = @(Get-ViewStyles)
+$viewUnstyled = @()
+$viewMissing = @()
+
+if ($viewClasses.Count -eq 0) {
+  $viewMissing += 'the-views-could-not-be-read'
+} elseif ($viewStyles.Count -eq 0) {
+  $viewMissing += 'the-stylesheet-could-not-be-read'
+} else {
+  foreach ($class_name in $viewClasses) {
+    if ($viewStyles -ccontains $class_name) { continue }
+    # A name ending in a dash is a prefix the view completes with a value it
+    # computes, so the stylesheet has to carry some rule whose selector starts
+    # with it rather than that exact name.
+    if ($class_name.EndsWith('-')) {
+      $prefixed = $false
+      foreach ($s in $viewStyles) {
+        if ($s.StartsWith($class_name, [System.StringComparison]::Ordinal)) { $prefixed = $true; break }
+      }
+      if ($prefixed) { continue }
+    }
+    $viewUnstyled += $class_name
+  }
+}
+
+if (-not $readme.Contains('has a rule in the stylesheet')) {
+  $viewMissing += 'the-document-does-not-state-the-invariant'
+}
+
+if ($viewUnstyled.Count -gt 0) {
+  Write-Output ("  {0,-20} the views draw classes the stylesheet has no rule for: {1}" -f 'View styles', ($viewUnstyled -join ','))
+  Write-Output "*** FAIL ***"
+  $failures++
+} elseif ($viewMissing.Count -gt 0) {
+  Write-Output ("  {0,-20} the views against the stylesheet cannot be read: {1}" -f 'View styles', ($viewMissing -join ' '))
+  Write-Output "*** FAIL ***"
+  $failures++
+} else {
+  Write-Output ("  ok      {0,-20} {1} classes, every one with a rule" -f 'View styles', $viewClasses.Count)
+}
 # --- the ring's letters --------------------------------------------------------
 #
 # The ring has a letter for each domain -- M for Model, D for Data -- and the

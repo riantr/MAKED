@@ -1406,3 +1406,689 @@ body {
     color: #1e7e46;
     font-size: 13px;
 }
+
+/* --- the buttons the panels draw ------------------------------------------ */
+/*
+ * Every panel below asks the reader to do something -- estimate the effect,
+ * read the corpus, take a move -- and every one of those asks for `maked-btn`
+ * with a variant. The class had no rule at all, so each of those buttons
+ * rendered as the browser's default: the panel looked like a form nobody had
+ * styled. That is the same failure this file already wrote a paragraph about
+ * for the loop panel, left standing everywhere the loop panel is not.
+ *
+ * The base is the shape and the variant is the colour, so a variant that
+ * arrives without a rule here still gets a usable button rather than a bare
+ * one -- the button the machine panel switches with was exactly that.
+ */
+.maked-btn {
+    padding: 8px 16px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #fff;
+    color: #444;
+    font: inherit;
+    font-size: 14px;
+    cursor: pointer;
+}
+.maked-btn:hover { background: #f0f0f0; }
+.maked-btn-primary,
+.maked-btn-causal,
+.maked-btn-society {
+    border-color: #2c3e9e;
+    background: #2c3e9e;
+    color: #fff;
+}
+.maked-btn-primary:hover,
+.maked-btn-causal:hover,
+.maked-btn-society:hover { background: #23336f; }
+.maked-btn-accent {
+    border-color: #27ae60;
+    background: #27ae60;
+    color: #fff;
+}
+.maked-btn-accent:hover { background: #1e8449; }
+.maked-btn-plain {
+    border-color: #ddd;
+    background: #fff;
+    color: #444;
+}
+.maked-btn-plain:hover { background: #f6f6f6; }
+/* The move buttons sit in a table, so they are the smallest button on the
+ * page: one per row of the moves the collective can make from where it
+ * stands. */
+.maked-btn-society-move {
+    padding: 5px 10px;
+    border-color: #2c3e9e;
+    background: #fff;
+    color: #2c3e9e;
+    font-size: 13px;
+}
+.maked-btn-society-move:hover { background: #f2f3fb; }
+
+/* --- the corpus the reader names ------------------------------------------ */
+/*
+ * The server can read any corpus the reader names, and before the editor
+ * existed the page had no way to name one. The editor is the way in, so it
+ * reads as a form: a question, the three places a corpus can come from, and
+ * the two fields that say which one it is.
+ */
+.maked-corpus { margin: 16px 0 0; }
+.maked-corpus-editor { display: flex; flex-direction: column; }
+.maked-corpus-question {
+    margin: 0 0 8px;
+    font-size: 13px;
+    color: #666;
+}
+.maked-corpus-kinds {
+    display: flex;
+    gap: 8px;
+    margin: 0 0 16px;
+}
+.maked-corpus-kind { padding: 6px 14px; }
+/* The kind in force is lit rather than dimmed, because three equal buttons
+ * leave the reader to remember which one they are already in. */
+.maked-corpus-kind--on {
+    border-color: #2c3e9e;
+    background: #2c3e9e;
+    color: #fff;
+}
+.maked-corpus-kind--on:hover { background: #23336f; }
+.maked-corpus-label {
+    margin-bottom: 4px;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #999;
+}
+.maked-corpus-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    margin-bottom: 16px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fff;
+    font: inherit;
+    font-size: 14px;
+    color: #333;
+}
+.maked-corpus-notice {
+    margin: 12px 0 0;
+    padding: 8px 10px;
+    border-left: 3px solid #2ecc71;
+    background: #f2fbf6;
+    color: #1d6b40;
+    font-size: 13px;
+}
+.maked-corpus-error {
+    margin: 12px 0 0;
+    padding: 8px 10px;
+    border-left: 3px solid #e74c3c;
+    background: #fdf3f2;
+    color: #7d2a1f;
+    font-size: 13px;
+}
+
+/* --- the mapping table ---------------------------------------------------- */
+/*
+ * The table is the reader's: every rule, the words it fires on, and the slot
+ * it drives. The editor is that same table as text, so the two sit in one box
+ * and the box says which of them is showing.
+ */
+.maked-config {
+    margin: 20px 0 0;
+    padding: 14px 16px;
+    border: 1px solid #e4e4e4;
+    border-radius: 6px;
+    background: #fbfbfb;
+}
+.maked-config-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0 0 12px;
+}
+.maked-config-title {
+    margin: 0;
+    font-size: 15px;
+    color: #2c3e50;
+}
+.maked-config-rules {
+    list-style: none;
+    margin: 0 0 12px;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+}
+.maked-config-rule {
+    display: grid;
+    grid-template-columns: minmax(120px, 1fr) 110px 2fr;
+    gap: 10px;
+    padding: 6px 10px;
+    border: 1px solid #e8e8e8;
+    border-radius: 4px;
+    background: #fff;
+    font-size: 13px;
+}
+/* The caption the editor's field wears, and -- in the table above it -- the
+ * name of the rule. The same class carries both, so the row's use of it
+ * undoes the caption's letter-spacing: a rule's name is a name, not a
+ * heading. */
+.maked-config-label {
+    margin-bottom: 4px;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #999;
+}
+.maked-config-rule .maked-config-label {
+    margin: 0;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    color: #333;
+}
+.maked-config-slot {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    color: #2c3e9e;
+}
+.maked-config-words { color: #666; }
+.maked-config-editor { display: flex; flex-direction: column; }
+.maked-config-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    margin-bottom: 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fff;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 13px;
+    color: #333;
+    resize: vertical;
+}
+.maked-config-notice {
+    margin: 12px 0 0;
+    padding: 8px 10px;
+    border-left: 3px solid #2ecc71;
+    background: #f2fbf6;
+    color: #1d6b40;
+    font-size: 13px;
+}
+.maked-config-error {
+    margin: 12px 0 0;
+    padding: 8px 10px;
+    border-left: 3px solid #e74c3c;
+    background: #fdf3f2;
+    color: #7d2a1f;
+    font-size: 13px;
+}
+
+/* --- the documents the corpus holds --------------------------------------- */
+/*
+ * The panel says which corpus it is reading before it says anything about the
+ * documents, because the documents are the corpus's and not the server's: an
+ * empty list means one thing for arxiv and another for a folder of the
+ * reader's own notes.
+ */
+.maked-research {
+    margin: 32px auto;
+    max-width: 900px;
+    padding: 24px;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background: #fafafa;
+}
+.maked-research-title {
+    margin: 0 0 6px;
+    font-size: 20px;
+    color: #2c3e50;
+}
+.maked-research-corpus {
+    margin: 0 0 12px;
+    font-size: 13px;
+    color: #666;
+    overflow-wrap: anywhere;
+}
+.maked-research-buttons {
+    display: flex;
+    gap: 8px;
+    margin: 16px 0;
+}
+.maked-research-read {
+    margin: 0 0 12px;
+    font-size: 13px;
+    color: #666;
+}
+.maked-research-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 10px;
+}
+.maked-research-paper {
+    padding: 10px 12px;
+    border: 1px solid #e8e8e8;
+    border-radius: 4px;
+    background: #fff;
+}
+/* A local document has no address to link to, so the title is drawn as a link
+ * to nowhere on purpose: it is still the document's name, and the name is what
+ * the reader looks for. */
+.maked-paper-title {
+    display: block;
+    font-weight: 600;
+    font-size: 14px;
+    color: #2c3e9e;
+    text-decoration: none;
+}
+.maked-paper-title:hover { text-decoration: underline; }
+.maked-paper-authors {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: #888;
+}
+.maked-paper-summary {
+    margin: 6px 0 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #555;
+}
+.maked-research-empty {
+    margin: 0;
+    font-size: 14px;
+    color: #888;
+}
+.maked-research-notice {
+    margin: 14px 0 0;
+    padding: 8px 10px;
+    border-left: 3px solid #2ecc71;
+    background: #f2fbf6;
+    color: #1d6b40;
+    font-size: 13px;
+}
+.maked-research-error {
+    margin: 14px 0 0;
+    padding: 8px 10px;
+    border-left: 3px solid #e74c3c;
+    background: #fdf3f2;
+    color: #7d2a1f;
+    font-size: 13px;
+}
+/* The rules that fired, document by document: which paper, which rule, which
+ * slot. Three columns, because the three are what the reader compares. */
+.maked-triggers-section { margin: 20px 0 0; }
+.maked-triggers-title {
+    margin: 0 0 8px;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #999;
+}
+.maked-triggers-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+.maked-research-trigger {
+    display: grid;
+    grid-template-columns: 140px minmax(120px, 1fr) 140px;
+    gap: 10px;
+    padding: 5px 0;
+    border-bottom: 1px solid #eee;
+    font-size: 13px;
+}
+.maked-trigger-paper {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    color: #666;
+    overflow-wrap: anywhere;
+}
+.maked-trigger-name { color: #333; }
+.maked-trigger-slot {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    color: #2c3e9e;
+}
+
+/* --- the causal panel ----------------------------------------------------- */
+/*
+ * An estimate is only worth showing with the three things that make it
+ * arguable: what was controlled for, how well the two groups match, and how
+ * wrong the answer could be. Every number here is set apart from the sentence
+ * that reads it, for the reason the metrics block gives: a number a reader has
+ * to parse prose to find is a number they will not check.
+ */
+.maked-causal {
+    margin: 32px auto;
+    max-width: 900px;
+    padding: 24px;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background: #fafafa;
+}
+.maked-causal-title {
+    margin: 0 0 6px;
+    font-size: 20px;
+    color: #2c3e50;
+}
+.maked-causal-lede {
+    margin: 0 0 16px;
+    color: #666;
+    line-height: 1.6;
+}
+.maked-causal-buttons {
+    display: flex;
+    gap: 8px;
+    margin: 0 0 20px;
+}
+.maked-causal-results { margin: 0; }
+.maked-causal-subtitle {
+    margin: 22px 0 8px;
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #999;
+}
+.maked-causal-stats,
+.maked-causal-sensitivity,
+.maked-causal-overlap-stats {
+    display: grid;
+    grid-template-columns: minmax(160px, 220px) 1fr;
+    gap: 6px 16px;
+    margin: 0;
+    font-size: 14px;
+}
+.maked-causal-stats dt,
+.maked-causal-sensitivity dt,
+.maked-causal-overlap-stats dt { color: #777; }
+.maked-causal-stats dd,
+.maked-causal-sensitivity dd,
+.maked-causal-overlap-stats dd {
+    margin: 0;
+    color: #333;
+}
+.maked-causal-treatment,
+.maked-causal-outcome { font-weight: 600; }
+.maked-causal-value {
+    font-weight: 600;
+    color: #2c3e50;
+}
+.maked-causal-observations { color: #555; }
+/* What was controlled for, as named things rather than as prose: the reader
+ * has to be able to see the list and ask whether it is the right list. */
+.maked-causal-confounders {
+    list-style: none;
+    margin: 0 0 12px;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.maked-causal-confounder {
+    padding: 3px 10px;
+    border: 1px solid #d8ddea;
+    border-radius: 12px;
+    background: #fff;
+    font-size: 13px;
+    color: #333;
+}
+.maked-causal-note {
+    margin: 0 0 12px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #888;
+}
+.maked-causal-balance {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.maked-causal-balance-head th {
+    padding: 6px 8px;
+    border-bottom: 2px solid #ddd;
+    text-align: left;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #999;
+}
+.maked-causal-balance-body td {
+    padding: 6px 8px;
+    border-bottom: 1px solid #eee;
+}
+.maked-causal-balance-row:nth-child(even) { background: #fbfbfb; }
+.maked-causal-balance-name {
+    font-weight: 600;
+    color: #333;
+}
+/* The three numbers line up under each other or they cannot be compared. */
+.maked-causal-balance-treated,
+.maked-causal-balance-untreated,
+.maked-causal-balance-difference {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    color: #444;
+}
+.maked-causal-balance-verdict { color: #555; }
+.maked-causal-overlap-verdict,
+.maked-causal-robust {
+    font-weight: 600;
+    color: #2c3e50;
+}
+.maked-causal-robustness,
+.maked-causal-worst-case { font-variant-numeric: tabular-nums; }
+.maked-causal-overlap-reading,
+.maked-causal-sensitivity-reading {
+    margin: 8px 0 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #555;
+}
+/* The caveat is not a warning about this estimate: it is the sentence that
+ * says what an estimate of this kind cannot tell anyone. */
+.maked-causal-caveat {
+    margin: 16px 0 0;
+    padding: 10px 12px;
+    border-left: 3px solid #f1c40f;
+    background: #fffdf2;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #6b5300;
+}
+/* A refusal is not a zero, so it is drawn as its own answer rather than as an
+ * empty result: the reason, and the table of how the two groups sit. */
+.maked-causal-refused {
+    padding: 14px 16px;
+    border: 1px solid #f0d9d5;
+    border-radius: 6px;
+    background: #fdf7f6;
+}
+.maked-causal-reason {
+    margin: 0 0 12px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #7d2a1f;
+}
+.maked-causal-empty {
+    margin: 0;
+    font-size: 14px;
+    color: #888;
+}
+.maked-causal-error {
+    margin: 14px 0 0;
+    padding: 8px 10px;
+    border-left: 3px solid #e74c3c;
+    background: #fdf3f2;
+    color: #7d2a1f;
+    font-size: 13px;
+}
+
+/* --- the society panel ---------------------------------------------------- */
+/*
+ * The collective stands somewhere, can move in a few named ways, and the last
+ * move either landed or did not. The panel is the same shape as the causal
+ * one -- a section, a reading of where things stand, and a table of what can
+ * be done next -- because a reader who has learned one has learned both.
+ */
+.maked-society {
+    margin: 32px auto;
+    max-width: 900px;
+    padding: 24px;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background: #fafafa;
+}
+.maked-society-title {
+    margin: 0 0 6px;
+    font-size: 20px;
+    color: #2c3e50;
+}
+.maked-society-lede {
+    margin: 0 0 16px;
+    color: #666;
+    line-height: 1.6;
+}
+.maked-society-buttons {
+    display: flex;
+    gap: 8px;
+    margin: 0 0 20px;
+}
+.maked-society-results { margin: 0; }
+.maked-society-subtitle {
+    margin: 22px 0 8px;
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #999;
+}
+.maked-society-position,
+.maked-society-machine {
+    display: grid;
+    grid-template-columns: minmax(160px, 220px) 1fr;
+    gap: 6px 16px;
+    margin: 0;
+    font-size: 14px;
+}
+.maked-society-position dt,
+.maked-society-machine dt { color: #777; }
+.maked-society-position dd,
+.maked-society-machine dd {
+    margin: 0;
+    color: #333;
+}
+.maked-society-state-label {
+    font-weight: 600;
+    color: #2c3e50;
+}
+.maked-society-phase { color: #444; }
+.maked-society-gloss {
+    line-height: 1.5;
+    color: #555;
+}
+.maked-society-position-count,
+.maked-society-transition-count { font-variant-numeric: tabular-nums; }
+.maked-society-path {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 12px;
+    color: #666;
+    overflow-wrap: anywhere;
+}
+/* What the last move did. The banner is the point: a move that did nothing
+ * and a move that failed look identical otherwise. */
+.maked-society-outcome {
+    margin: 16px 0;
+    padding: 10px 12px;
+    border-left: 3px solid #2c3e9e;
+    background: #f2f3fb;
+}
+.maked-society-outcome-sentence {
+    margin: 0;
+    font-size: 14px;
+    color: #2c3e50;
+}
+.maked-society-reason {
+    margin: 6px 0 0;
+    font-size: 13px;
+    color: #555;
+}
+.maked-society-moves {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.maked-society-move-head th {
+    padding: 6px 8px;
+    border-bottom: 2px solid #ddd;
+    text-align: left;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #999;
+}
+.maked-society-move-body td {
+    padding: 6px 8px;
+    border-bottom: 1px solid #eee;
+}
+.maked-society-move-row:nth-child(even) { background: #fbfbfb; }
+.maked-society-move-cell {
+    width: 1%;
+    white-space: nowrap;
+}
+.maked-society-move-target { color: #555; }
+/* What the collective can do that the machine has no edge for. It is drawn as
+ * a list of gaps rather than as an error, because a gap is a fact about the
+ * model and not a failure of the page. */
+.maked-society-gaps { margin: 20px 0 0; }
+.maked-society-gap-note {
+    margin: 0 0 8px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #888;
+}
+.maked-society-gap-list {
+    margin: 0;
+    padding-left: 20px;
+    font-size: 13px;
+    color: #555;
+}
+.maked-society-gap { margin: 0 0 4px; }
+.maked-society-empty {
+    margin: 0;
+    font-size: 14px;
+    color: #888;
+}
+.maked-society-error {
+    margin: 14px 0 0;
+    padding: 8px 10px;
+    border-left: 3px solid #e74c3c;
+    background: #fdf3f2;
+    color: #7d2a1f;
+    font-size: 13px;
+}
+
+/* --- what the older panels were still missing ----------------------------- */
+/*
+ * These are the classes inside panels that already had a block: a wrapper with
+ * no spacing of its own, a span that inherited everything, a column that could
+ * not shrink. They are small because the panels around them are not -- which is
+ * exactly why they went unnoticed for so long.
+ */
+.maked-brand-text {
+    display: flex;
+    flex-direction: column;
+}
+.maked-loop-slots { margin: 0 0 20px; }
+.maked-loop-event-outcome { color: #555; }
+.maked-loop-event-detail { color: #888; }
+/* A session name is arbitrary text and the column is narrow, so the sentence
+ * has to be allowed to break rather than push the panel wide. */
+.maked-loop-session-text { overflow-wrap: anywhere; }
+.maked-ws-compose {
+    display: flex;
+    flex-direction: column;
+}
+.maked-ws-list { min-width: 0; }
+.maked-ss-list { margin: 26px 0 0; }
+.maked-ss-others { margin: 26px 0 0; }
+.maked-ss-timeline-section { margin: 22px 0 0; }

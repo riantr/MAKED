@@ -4919,6 +4919,127 @@ else
   printf '  ok      %-20s %s\n' 'Machine panel' \
     'the page offers the machines on offer, switches to one in a single hop, and every class it draws has a rule'
 fi
+# --- the classes a view draws, against the rules the stylesheet gives them ------
+#
+# The machine panel's own rule is a special case of this one, and it is the
+# reason to write the general case down: the panel's classes had rules, while
+# the buttons it draws did not, so the switch it offers rendered as the
+# browser's default button. This file already carries a paragraph about the
+# same failure for the loop panel -- whole panels of classes with no rule at
+# all, "part of why nothing happened read as a broken page" -- and every panel
+# added since was in exactly that state: the causal estimate, the collective,
+# the corpus editor, the mapping table, the research list, and the button that
+# each of them asks the reader to press.
+#
+# No test draws a page, so no test can see a rule that is not there. The gate
+# derives the set twice -- once from the views, once from the stylesheet -- and
+# prints the difference by name, because "one class is unstyled" does not tell
+# a reader which class.
+#
+# An id is not a class, and the label that points at an id is not a class
+# either, so both are removed before the views are read: the form fields would
+# otherwise be demanded to carry class rules they do not need.
+code_view_classes() {
+  local f
+  for f in frontend/*.mbt; do
+    case "$f" in
+      *_test.mbt) continue ;;
+    esac
+    sed -e 's/id="[^"]*"//g' -e 's/for_="[^"]*"//g' "$f" || true
+  done | grep -oE 'maked-[A-Za-z0-9_-]+' | LC_ALL=C sort -u || true
+}
+
+# The classes the stylesheet gives a rule to. Its comments are removed first: a
+# class named in a comment is a class nobody styled, and this file's own
+# comments name plenty of them.
+doc_view_classes() {
+  awk '
+    BEGIN { inb = 0 }
+    {
+      line = $0
+      out = ""
+      while (1) {
+        if (inb) {
+          p = index(line, "*/")
+          if (p == 0) { line = ""; break }
+          line = substr(line, p + 2)
+          inb = 0
+        } else {
+          p = index(line, "/*")
+          if (p == 0) { out = out line; break }
+          out = out substr(line, 1, p - 1)
+          line = substr(line, p + 2)
+          inb = 1
+        }
+      }
+      print out
+    }
+  ' frontend/dist/styles.css | grep -oE '\.maked-[A-Za-z0-9_-]+' \
+    | sed -e 's/^\.//' | LC_ALL=C sort -u || true
+}
+
+VIEW_CLASSES=$(code_view_classes)
+VIEW_STYLES=$(doc_view_classes)
+VIEW_UNSTYLED=""
+VIEW_MISSING=""
+
+if [ -z "$VIEW_CLASSES" ]; then
+  VIEW_MISSING="$VIEW_MISSING the-views-could-not-be-read"
+elif [ -z "$VIEW_STYLES" ]; then
+  VIEW_MISSING="$VIEW_MISSING the-stylesheet-could-not-be-read"
+else
+  # The stylesheet's classes as one padded string, so that "is this class
+  # styled" is a case match and not a process per class. This loop runs over
+  # every class the views draw -- three hundred of them -- and the note at the
+  # top of this file is explicit about what a process per item costs on the
+  # machine that writes the document.
+  VIEW_STYLE_LIST=" $(printf '%s' "$VIEW_STYLES" | tr '\n' ' ') "
+  while IFS= read -r class_name; do
+    [ -n "$class_name" ] || continue
+    case "$VIEW_STYLE_LIST" in
+      *" $class_name "*) continue ;;
+    esac
+    case "$class_name" in
+      *-)
+        # A name ending in a dash is a prefix the view completes with a value
+        # it computes, so the stylesheet has to carry some rule whose selector
+        # starts with it rather than that exact name.
+        prefix_hit=""
+        while IFS= read -r styled_name; do
+          case "$styled_name" in
+            "$class_name"*)
+              prefix_hit=1
+              break
+              ;;
+          esac
+        done <<< "$VIEW_STYLES"
+        if [ -n "$prefix_hit" ]; then
+          continue
+        fi
+        ;;
+    esac
+    VIEW_UNSTYLED="$VIEW_UNSTYLED $class_name"
+  done <<< "$VIEW_CLASSES"
+fi
+VIEW_UNSTYLED="${VIEW_UNSTYLED# }"
+
+if ! grep -qF 'has a rule in the stylesheet' "$README"; then
+  VIEW_MISSING="$VIEW_MISSING the-document-does-not-state-the-invariant"
+fi
+VIEW_MISSING="${VIEW_MISSING# }"
+
+VIEW_CLASS_COUNT=$(printf '%s\n' "$VIEW_CLASSES" | grep -c . || true)
+
+if [ -n "$VIEW_UNSTYLED" ]; then
+  fail "$(printf '%-20s the views draw classes the stylesheet has no rule for: %s' \
+    'View styles' "$(printf '%s' "$VIEW_UNSTYLED" | tr ' ' ',')")"
+elif [ -n "$VIEW_MISSING" ]; then
+  fail "$(printf '%-20s the views against the stylesheet cannot be read: %s' \
+    'View styles' "$VIEW_MISSING")"
+else
+  printf '  ok      %-20s %s classes, every one with a rule\n' \
+    'View styles' "$VIEW_CLASS_COUNT"
+fi
 # --- the ring's letters --------------------------------------------------------
 #
 # The ring has a letter for each domain -- M for Model, D for Data -- and the

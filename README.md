@@ -1168,6 +1168,15 @@ bash and once in PowerShell, because the CI runner is ubuntu and carries bash,
 and a gate written only in PowerShell is a gate that does not run where the
 build runs. Both print the same lines and they go red together.
 
+**Every class a view draws has a rule in the stylesheet.** A class with no rule
+is a panel that renders as the browser's default, which is what the loop panel
+was before the stylesheet grew a block for it, and what the button the machine
+panel switches with still was after it: no test draws a page, so no test can see
+a rule that is not there. The gate derives the class set twice — once from the
+views, once from the stylesheet — and prints the classes that have no rule by
+name. An id is not a class, and neither is the label that points at one, so the
+form fields are not demanded to carry rules they do not need.
+
 **Current release**: v0.1.8 · **Repository**: <https://github.com/riantr/MAKED>
 
 ### Test and gate counts
