@@ -39,3 +39,11 @@
 # and a fixture in the tree is a file that looks like source.
 /test_bootstrap_*
 /test_agent_*
+
+# Analysis output. LunaFlow and moonbit_static_analysis both write reports/
+# into the working directory they are run in, and running one against this
+# tree is a diagnostic, not a change to it: a report, its traces and its
+# findings describe what an analyser thought of one run. Committing them would
+# put a snapshot of that opinion in the history as though it were source, and
+# the next run would overwrite it with a different snapshot.
+/reports/
